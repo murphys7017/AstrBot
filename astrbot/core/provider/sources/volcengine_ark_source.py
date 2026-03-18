@@ -6,11 +6,11 @@ import json
 import mimetypes
 import random
 import re
-import threading
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -50,14 +50,14 @@ class ProviderVolcengineArk(Provider):
 
         self.api_base = str(provider_config.get("api_base", "") or "").strip()
         self.proxy = str(provider_config.get("proxy", "") or "").strip()
-        self._sync_http_client: httpx.Client | None = None
+        self._async_http_client: httpx.AsyncClient | None = None
         self._sdk_client: Any | None = None
         self._ark_cls: Any | None = None
         self._current_key: str = self.api_keys[0] if self.api_keys else ""
 
         model = provider_config.get("model", "unknown")
         self.set_model(model)
-        self._set_up_client(self._current_key)
+        self._sdk_client = self._build_sdk_client(self._current_key)
 
     @staticmethod
     def _sdk_import_error() -> ImportError:
@@ -72,35 +72,42 @@ class ProviderVolcengineArk(Provider):
             return self._ark_cls
         try:
             module = importlib.import_module("volcenginesdkarkruntime")
-            self._ark_cls = getattr(module, "Ark")
+            self._ark_cls = getattr(module, "AsyncArk")
         except (ImportError, AttributeError) as exc:
             raise self._sdk_import_error() from exc
         return self._ark_cls
 
-    def _build_sync_http_client(self) -> httpx.Client | None:
+    def _build_async_http_client(self) -> httpx.AsyncClient | None:
         if not self.proxy:
             return None
         logger.info(f"[Volcengine Ark] Using proxy: {self.proxy}")
-        return httpx.Client(proxy=self.proxy, timeout=self.timeout)
+        return httpx.AsyncClient(proxy=self.proxy, timeout=self.timeout)
 
-    def _close_client_resources(self) -> None:
-        sdk_client = self._sdk_client
-        self._sdk_client = None
+    async def _close_specific_client_resources(
+        self,
+        sdk_client: Any | None,
+        http_client: httpx.AsyncClient | None,
+    ) -> None:
         if sdk_client is not None:
             close = getattr(sdk_client, "close", None)
             if callable(close):
                 try:
-                    close()
+                    await close()
                 except Exception:
                     logger.debug("Failed to close Volcengine Ark SDK client cleanly.")
 
-        http_client = self._sync_http_client
-        self._sync_http_client = None
         if http_client is not None:
             try:
-                http_client.close()
+                await http_client.aclose()
             except Exception:
                 logger.debug("Failed to close Volcengine Ark proxy client cleanly.")
+
+    async def _close_client_resources(self) -> None:
+        sdk_client = self._sdk_client
+        http_client = self._async_http_client
+        self._sdk_client = None
+        self._async_http_client = None
+        await self._close_specific_client_resources(sdk_client, http_client)
 
     def _build_sdk_client(self, api_key: str) -> Any:
         ark_cls = self._load_ark_cls()
@@ -116,16 +123,28 @@ class ProviderVolcengineArk(Provider):
         if "default_headers" in sig.parameters and self.custom_headers:
             kwargs["default_headers"] = self.custom_headers
         if "http_client" in sig.parameters:
-            self._sync_http_client = self._build_sync_http_client()
-            if self._sync_http_client is not None:
-                kwargs["http_client"] = self._sync_http_client
+            self._async_http_client = self._build_async_http_client()
+            if self._async_http_client is not None:
+                kwargs["http_client"] = self._async_http_client
 
         return ark_cls(**kwargs)
 
-    def _set_up_client(self, api_key: str) -> None:
-        self._close_client_resources()
+    def _swap_client(self, api_key: str) -> tuple[Any | None, httpx.AsyncClient | None]:
+        old_sdk_client = self._sdk_client
+        old_http_client = self._async_http_client
+        self._sdk_client = None
+        self._async_http_client = None
         self._current_key = api_key
         self._sdk_client = self._build_sdk_client(api_key)
+        return old_sdk_client, old_http_client
+
+    async def _set_up_client(self, api_key: str) -> None:
+        old_sdk_client, old_http_client = self._swap_client(api_key)
+        await self._close_specific_client_resources(old_sdk_client, old_http_client)
+
+    async def _ensure_client(self) -> None:
+        if self._sdk_client is None:
+            self._sdk_client = self._build_sdk_client(self._current_key)
 
     @staticmethod
     def _obj_get(value: Any, key: str, default: Any = None) -> Any:
@@ -160,7 +179,9 @@ class ProviderVolcengineArk(Provider):
         return stripped, reasoning
 
     @staticmethod
-    def _summarize_input_items(input_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _summarize_input_items(
+        input_items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         summary: list[dict[str, Any]] = []
         for item in input_items:
             role = str(item.get("role", ""))
@@ -183,6 +204,54 @@ class ProviderVolcengineArk(Provider):
                     content_summary.append({"type": content_type})
             summary.append({"role": role, "content": content_summary})
         return summary
+
+    @staticmethod
+    def _summarize_image_url_schemes(payload: dict[str, Any]) -> list[dict[str, str]]:
+        image_summaries: list[dict[str, str]] = []
+        for item in ProviderVolcengineArk._as_list(payload.get("input")):
+            for content in ProviderVolcengineArk._as_list(item.get("content")):
+                if ProviderVolcengineArk._obj_get(content, "type") != "input_image":
+                    continue
+                image_url = str(
+                    ProviderVolcengineArk._obj_get(content, "image_url", "") or ""
+                )
+                parsed = urlparse(image_url)
+                image_summaries.append(
+                    {
+                        "scheme": parsed.scheme or "<empty>",
+                        "preview": image_url[:200],
+                    }
+                )
+        return image_summaries
+
+    def _log_payload_debug(self, payload: dict[str, Any], *, label: str) -> None:
+        image_summaries = self._summarize_image_url_schemes(payload)
+        logger.info(
+            "Volcengine Ark payload debug [%s]: model=%s tools=%d input_items=%d image_urls=%s",
+            label,
+            payload.get("model"),
+            len(self._as_list(payload.get("tools"))),
+            len(self._as_list(payload.get("input"))),
+            image_summaries,
+        )
+
+    def _log_request_exception(
+        self,
+        exc: Exception,
+        payload: dict[str, Any],
+        *,
+        label: str,
+        key_prefix: str,
+    ) -> None:
+        logger.error(
+            "Volcengine Ark request failed [%s]: err=%s model=%s key_prefix=%s image_urls=%s input_summary=%s",
+            label,
+            exc,
+            payload.get("model"),
+            key_prefix,
+            self._summarize_image_url_schemes(payload),
+            self._summarize_input_items(self._as_list(payload.get("input"))),
+        )
 
     def _extract_usage(self, usage: Any) -> TokenUsage | None:
         if usage is None:
@@ -285,10 +354,12 @@ class ProviderVolcengineArk(Provider):
 
     async def _resolve_image_part(self, image_url: str) -> dict[str, Any]:
         resolved_uri = await self._convert_image_to_file_uri(image_url)
+        resolved_scheme = urlparse(resolved_uri).scheme or "<empty>"
         logger.info(
-            "Volcengine Ark resolved image input: source=%s resolved=%s",
+            "Volcengine Ark resolved image input: source=%s resolved=%s scheme=%s",
             image_url[:200],
             resolved_uri[:200],
+            resolved_scheme,
         )
         return {
             "type": "input_image",
@@ -484,13 +555,9 @@ class ProviderVolcengineArk(Provider):
         payload.update(kwargs)
         return payload
 
-    def _run_create(self, payload: dict[str, Any], *, stream: bool) -> Any:
-        if self._sdk_client is None:
-            self._set_up_client(self._current_key)
-        return self._sdk_client.responses.create(**payload, stream=stream)
-
     async def _create_response(self, payload: dict[str, Any], *, stream: bool) -> Any:
-        return await asyncio.to_thread(self._run_create, payload, stream=stream)
+        await self._ensure_client()
+        return await self._sdk_client.responses.create(**payload, stream=stream)
 
     def _extract_text_from_message_item(self, item: Any) -> str:
         text_parts: list[str] = []
@@ -577,41 +644,12 @@ class ProviderVolcengineArk(Provider):
     async def _stream_response(
         self, payload: dict[str, Any], tools: ToolSet | None = None
     ) -> AsyncGenerator[LLMResponse, None]:
-        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-
-        def worker() -> None:
-            try:
-                stream = self._run_create(payload, stream=True)
-                for event in stream:
-                    asyncio.run_coroutine_threadsafe(
-                        queue.put(("event", event)),
-                        loop,
-                    ).result()
-            except Exception as exc:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(("error", exc)), loop
-                ).result()
-            finally:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(("done", None)), loop
-                ).result()
-
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
-
         accumulated_text = ""
         accumulated_reasoning = ""
         final_response: Any = None
 
-        while True:
-            kind, value = await queue.get()
-            if kind == "error":
-                raise value
-            if kind == "done":
-                break
-
-            event = value
+        stream = await self._create_response(payload, stream=True)
+        async for event in stream:
             event_type = str(self._obj_get(event, "type", ""))
             if event_type.endswith("output_text.delta"):
                 delta = self._obj_get(event, "delta", "")
@@ -653,23 +691,20 @@ class ProviderVolcengineArk(Provider):
 
     async def get_models(self) -> list[str]:
         if self._sdk_client is None:
-            self._set_up_client(self._current_key)
+            await self._ensure_client()
         models_client = getattr(self._sdk_client, "models", None)
         if models_client is None or not hasattr(models_client, "list"):
             return [self.get_model()] if self.get_model() else []
 
-        def _list_models() -> list[str]:
-            models = models_client.list()
+        try:
+            models = await models_client.list()
             model_data = self._as_list(self._obj_get(models, "data", models))
             items = []
             for item in model_data:
                 model_id = self._obj_get(item, "id")
                 if model_id:
                     items.append(str(model_id))
-            return sorted(items)
-
-        try:
-            models = await asyncio.to_thread(_list_models)
+            models = sorted(items)
             return models or ([self.get_model()] if self.get_model() else [])
         except Exception:
             return [self.get_model()] if self.get_model() else []
@@ -681,7 +716,17 @@ class ProviderVolcengineArk(Provider):
         return self.api_keys
 
     def set_key(self, key: str) -> None:
-        self._set_up_client(key)
+        old_sdk_client, old_http_client = self._swap_client(key)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(
+                self._close_specific_client_resources(old_sdk_client, old_http_client)
+            )
+            return
+        loop.create_task(
+            self._close_specific_client_resources(old_sdk_client, old_http_client)
+        )
 
     async def text_chat(
         self,
@@ -713,6 +758,7 @@ class ProviderVolcengineArk(Provider):
             tools=func_tool,
             **kwargs,
         )
+        self._log_payload_debug(payload, label="text_chat")
 
         last_exception: Exception | None = None
         available_api_keys = self.api_keys.copy() or [self._current_key]
@@ -720,11 +766,17 @@ class ProviderVolcengineArk(Provider):
 
         for _ in range(10):
             try:
-                self.set_key(chosen_key)
+                await self._set_up_client(chosen_key)
                 response = await self._create_response(payload, stream=False)
                 return self._parse_response(response, func_tool)
             except Exception as exc:
                 last_exception = exc
+                self._log_request_exception(
+                    exc,
+                    payload,
+                    label="text_chat",
+                    key_prefix=chosen_key[:12],
+                )
                 if "429" in str(exc) and len(available_api_keys) > 1:
                     logger.warning(
                         "Volcengine Ark rate limit hit, rotating API key. "
@@ -772,6 +824,7 @@ class ProviderVolcengineArk(Provider):
             tools=func_tool,
             **kwargs,
         )
+        self._log_payload_debug(payload, label="text_chat_stream")
 
         available_api_keys = self.api_keys.copy() or [self._current_key]
         chosen_key = random.choice(available_api_keys)
@@ -779,12 +832,18 @@ class ProviderVolcengineArk(Provider):
 
         for _ in range(10):
             try:
-                self.set_key(chosen_key)
+                await self._set_up_client(chosen_key)
                 async for response in self._stream_response(payload, func_tool):
                     yield response
                 return
             except Exception as exc:
                 last_exception = exc
+                self._log_request_exception(
+                    exc,
+                    payload,
+                    label="text_chat_stream",
+                    key_prefix=chosen_key[:12],
+                )
                 if "429" in str(exc) and len(available_api_keys) > 1:
                     logger.warning(
                         "Volcengine Ark rate limit hit during streaming, rotating API key. "
@@ -803,4 +862,4 @@ class ProviderVolcengineArk(Provider):
         raise last_exception
 
     async def terminate(self) -> None:
-        await asyncio.to_thread(self._close_client_resources)
+        await self._close_client_resources()
