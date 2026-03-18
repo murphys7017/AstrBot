@@ -68,6 +68,8 @@ dependencies = [
   "crypto>=1.4.1",
   "whisper>=1.1.10",
   "volcengine-python-sdk[ark]>=5.0.17",
+  "silero-vad>=6.2.1",
+  "pyffmpeg>=2.5.2.3.2",
 ]
 
 [dependency-groups]

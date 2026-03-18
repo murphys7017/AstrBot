@@ -574,12 +574,6 @@ class ProviderOpenAIOfficial(Provider):
         extra_user_content_parts: list[ContentPart] | None = None,
         **kwargs,
     ) -> tuple:
-        import traceback
-
-        def target_function():
-            print("=== CALL STACK ===")
-            traceback.print_stack()
-        target_function()
         """准备聊天所需的有效载荷和上下文"""
         logger.debug(
             f"Preparing chat payload with prompt: {prompt}, image_urls: {image_urls}, contexts: {contexts}, system_prompt: {system_prompt}, tool_calls_result: {tool_calls_result}, model: {model}, extra_user_content_parts: {extra_user_content_parts}"
@@ -773,12 +767,6 @@ class ProviderOpenAIOfficial(Provider):
             extra_user_content_parts=extra_user_content_parts,
             **kwargs,
         )
-        import traceback
-
-        def target_function():
-            print("=== CALL STACK ===")
-            traceback.print_stack()
-        target_function()
         logger.debug(f"Prepared payloads for OpenAI API: {payloads}")
 
         llm_response = None
