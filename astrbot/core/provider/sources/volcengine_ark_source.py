@@ -34,6 +34,31 @@ from ..register import register_provider_adapter
     "Volcengine Ark Responses API provider adapter",
 )
 class ProviderVolcengineArk(Provider):
+    _PROVIDER_ONLY_REQUEST_KEYS = {"abort_signal"}
+    _RESPONSES_CREATE_TOP_LEVEL_KEYS = {
+        "input",
+        "model",
+        "instructions",
+        "max_output_tokens",
+        "parallel_tool_calls",
+        "previous_response_id",
+        "thinking",
+        "store",
+        "caching",
+        "temperature",
+        "text",
+        "tool_choice",
+        "tools",
+        "top_p",
+        "max_tool_calls",
+        "expire_at",
+        "extra_headers",
+        "extra_query",
+        "extra_body",
+        "timeout",
+        "reasoning",
+    }
+
     def __init__(self, provider_config: dict, provider_settings: dict) -> None:
         super().__init__(provider_config, provider_settings)
         self.api_keys = super().get_keys()
@@ -207,6 +232,58 @@ class ProviderVolcengineArk(Provider):
             summary["input_images"],
             summary["tool_count"],
         )
+
+    def _apply_request_overrides(
+        self,
+        payload: dict[str, Any],
+        *,
+        custom_extra_body: Any,
+        request_kwargs: dict[str, Any],
+    ) -> None:
+        extra_body: dict[str, Any] = {}
+        if isinstance(custom_extra_body, dict):
+            extra_body.update(custom_extra_body)
+
+        raw_extra_body = request_kwargs.pop("extra_body", None)
+        if isinstance(raw_extra_body, dict):
+            extra_body.update(raw_extra_body)
+        elif raw_extra_body is not None:
+            payload["extra_body"] = raw_extra_body
+
+        dropped_keys: list[str] = []
+        extra_body_keys: list[str] = []
+        for key, value in request_kwargs.items():
+            if key in self._PROVIDER_ONLY_REQUEST_KEYS:
+                dropped_keys.append(key)
+                continue
+            if key in self._RESPONSES_CREATE_TOP_LEVEL_KEYS:
+                payload[key] = value
+                continue
+            extra_body[key] = value
+            extra_body_keys.append(key)
+
+        if extra_body:
+            existing_extra_body = payload.get("extra_body")
+            if isinstance(existing_extra_body, dict):
+                existing_extra_body.update(extra_body)
+            elif existing_extra_body is None:
+                payload["extra_body"] = extra_body
+            else:
+                logger.warning(
+                    "Volcengine Ark extra_body is not a dict; skipped merged extra fields: %s",
+                    list(extra_body.keys()),
+                )
+
+        if dropped_keys:
+            logger.debug(
+                "Ignoring provider-only Volcengine Ark kwargs: %s",
+                dropped_keys,
+            )
+        if extra_body_keys:
+            logger.debug(
+                "Moved unsupported Volcengine Ark kwargs to extra_body: %s",
+                extra_body_keys,
+            )
 
     def _log_request_exception(
         self,
@@ -517,10 +594,11 @@ class ProviderVolcengineArk(Provider):
             payload["tools"] = tool_payload
 
         custom_extra_body = self.provider_config.get("custom_extra_body", {})
-        if isinstance(custom_extra_body, dict):
-            payload.update(custom_extra_body)
-
-        payload.update(kwargs)
+        self._apply_request_overrides(
+            payload,
+            custom_extra_body=custom_extra_body,
+            request_kwargs=dict(kwargs),
+        )
         return payload
 
     async def _create_response(self, payload: dict[str, Any], *, stream: bool) -> Any:
