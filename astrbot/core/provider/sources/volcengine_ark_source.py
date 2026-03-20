@@ -4,6 +4,7 @@ import importlib
 import inspect
 import json
 import mimetypes
+import os
 import random
 import re
 import uuid
@@ -178,61 +179,33 @@ class ProviderVolcengineArk(Provider):
         stripped = re.sub(r"</think>\s*$", "", stripped).strip()
         return stripped, reasoning
 
-    @staticmethod
-    def _summarize_input_items(
-        input_items: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        summary: list[dict[str, Any]] = []
-        for item in input_items:
-            role = str(item.get("role", ""))
-            content_summary: list[dict[str, Any]] = []
-            for content in ProviderVolcengineArk._as_list(item.get("content")):
-                content_type = str(ProviderVolcengineArk._obj_get(content, "type", ""))
-                if content_type == "input_text":
-                    text = str(ProviderVolcengineArk._obj_get(content, "text", ""))
-                    content_summary.append(
-                        {"type": "input_text", "text_preview": text[:120]}
-                    )
-                elif content_type == "input_image":
-                    image_url = str(
-                        ProviderVolcengineArk._obj_get(content, "image_url", "")
-                    )
-                    content_summary.append(
-                        {"type": "input_image", "image_url": image_url[:200]}
-                    )
-                else:
-                    content_summary.append({"type": content_type})
-            summary.append({"role": role, "content": content_summary})
-        return summary
+    @classmethod
+    def _count_input_images(cls, payload: dict[str, Any]) -> int:
+        return sum(
+            1
+            for item in cls._as_list(payload.get("input"))
+            for content in cls._as_list(item.get("content"))
+            if cls._obj_get(content, "type") == "input_image"
+        )
 
-    @staticmethod
-    def _summarize_image_url_schemes(payload: dict[str, Any]) -> list[dict[str, str]]:
-        image_summaries: list[dict[str, str]] = []
-        for item in ProviderVolcengineArk._as_list(payload.get("input")):
-            for content in ProviderVolcengineArk._as_list(item.get("content")):
-                if ProviderVolcengineArk._obj_get(content, "type") != "input_image":
-                    continue
-                image_url = str(
-                    ProviderVolcengineArk._obj_get(content, "image_url", "") or ""
-                )
-                parsed = urlparse(image_url)
-                image_summaries.append(
-                    {
-                        "scheme": parsed.scheme or "<empty>",
-                        "preview": image_url[:200],
-                    }
-                )
-        return image_summaries
+    @classmethod
+    def _summarize_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "model": payload.get("model"),
+            "input_items": len(cls._as_list(payload.get("input"))),
+            "input_images": cls._count_input_images(payload),
+            "tool_count": len(cls._as_list(payload.get("tools"))),
+        }
 
     def _log_payload_debug(self, payload: dict[str, Any], *, label: str) -> None:
-        image_summaries = self._summarize_image_url_schemes(payload)
-        logger.info(
-            "Volcengine Ark payload debug [%s]: model=%s tools=%d input_items=%d image_urls=%s",
+        summary = self._summarize_payload(payload)
+        logger.debug(
+            "Volcengine Ark payload [%s]: model=%s input_items=%d input_images=%d tools=%d",
             label,
-            payload.get("model"),
-            len(self._as_list(payload.get("tools"))),
-            len(self._as_list(payload.get("input"))),
-            image_summaries,
+            summary["model"],
+            summary["input_items"],
+            summary["input_images"],
+            summary["tool_count"],
         )
 
     def _log_request_exception(
@@ -243,14 +216,16 @@ class ProviderVolcengineArk(Provider):
         label: str,
         key_prefix: str,
     ) -> None:
+        summary = self._summarize_payload(payload)
         logger.error(
-            "Volcengine Ark request failed [%s]: err=%s model=%s key_prefix=%s image_urls=%s input_summary=%s",
+            "Volcengine Ark request failed [%s]: err=%s model=%s key_prefix=%s input_items=%d input_images=%d tools=%d",
             label,
             exc,
-            payload.get("model"),
+            summary["model"],
             key_prefix,
-            self._summarize_image_url_schemes(payload),
-            self._summarize_input_items(self._as_list(payload.get("input"))),
+            summary["input_items"],
+            summary["input_images"],
+            summary["tool_count"],
         )
 
     def _extract_usage(self, usage: Any) -> TokenUsage | None:
@@ -334,13 +309,15 @@ class ProviderVolcengineArk(Provider):
 
     async def _convert_image_to_file_uri(self, image_url: str) -> str:
         if image_url.startswith("file://"):
-            return image_url
+            return self._normalize_file_uri_for_ark(image_url)
         if image_url.startswith("data:"):
-            return await self._write_data_url_to_temp_file(image_url)
+            file_uri = await self._write_data_url_to_temp_file(image_url)
+            return self._normalize_file_uri_for_ark(file_uri)
         if image_url.startswith("base64://"):
-            return await self._write_data_url_to_temp_file(
+            file_uri = await self._write_data_url_to_temp_file(
                 image_url.replace("base64://", "data:image/jpeg;base64,", 1)
             )
+            return self._normalize_file_uri_for_ark(file_uri)
         if image_url.startswith("http://") or image_url.startswith("https://"):
             downloaded_path = await download_image_by_url(image_url)
             return await self._convert_image_to_file_uri(downloaded_path)
@@ -350,17 +327,26 @@ class ProviderVolcengineArk(Provider):
             if image_url.startswith("file:///")
             else image_url
         )
-        return Path(local_path).expanduser().resolve().as_uri()
+        file_uri = Path(local_path).expanduser().resolve().as_uri()
+        return self._normalize_file_uri_for_ark(file_uri)
+
+    @staticmethod
+    def _normalize_file_uri_for_ark(file_uri: str) -> str:
+        parsed = urlparse(file_uri)
+        if parsed.scheme != "file":
+            return file_uri
+
+        # AsyncArk preprocesses local file URIs before sending requests, but on
+        # Windows its current path join logic works with `file://C:/path` rather
+        # than the standard `file:///C:/path`. Normalize here to avoid SDK-side
+        # invalid paths like `\\C:\\...`.
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", parsed.path):
+            return f"file://{parsed.path.lstrip('/')}"
+
+        return file_uri
 
     async def _resolve_image_part(self, image_url: str) -> dict[str, Any]:
         resolved_uri = await self._convert_image_to_file_uri(image_url)
-        resolved_scheme = urlparse(resolved_uri).scheme or "<empty>"
-        logger.info(
-            "Volcengine Ark resolved image input: source=%s resolved=%s scheme=%s",
-            image_url[:200],
-            resolved_uri[:200],
-            resolved_scheme,
-        )
         return {
             "type": "input_image",
             "image_url": resolved_uri,
@@ -525,24 +511,6 @@ class ProviderVolcengineArk(Provider):
             "model": model or self.get_model(),
             "input": input_items,
         }
-
-        input_image_count = sum(
-            1
-            for item in input_items
-            for content in self._as_list(item.get("content"))
-            if self._obj_get(content, "type") == "input_image"
-        )
-        logger.info(
-            "Volcengine Ark prepared payload: model=%s input_items=%d input_images=%d",
-            payload["model"],
-            len(input_items),
-            input_image_count,
-        )
-        if input_image_count > 0:
-            logger.info(
-                "Volcengine Ark payload summary: %s",
-                self._summarize_input_items(input_items),
-            )
 
         tool_payload = self._build_tool_schema(tools)
         if tool_payload:
@@ -741,12 +709,6 @@ class ProviderVolcengineArk(Provider):
         extra_user_content_parts: list[ContentPart] | None = None,
         **kwargs,
     ) -> LLMResponse:
-        if image_urls:
-            logger.info(
-                "Volcengine Ark text_chat received image_urls: count=%d values=%s",
-                len(image_urls),
-                [url[:200] for url in image_urls[:3]],
-            )
         payload = await self._prepare_payload(
             prompt,
             image_urls=image_urls,
@@ -807,12 +769,6 @@ class ProviderVolcengineArk(Provider):
         extra_user_content_parts: list[ContentPart] | None = None,
         **kwargs,
     ) -> AsyncGenerator[LLMResponse, None]:
-        if image_urls:
-            logger.info(
-                "Volcengine Ark text_chat_stream received image_urls: count=%d values=%s",
-                len(image_urls),
-                [url[:200] for url in image_urls[:3]],
-            )
         payload = await self._prepare_payload(
             prompt,
             image_urls=image_urls,

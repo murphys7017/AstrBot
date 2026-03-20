@@ -39,6 +39,7 @@ from ..register import register_provider_adapter
 )
 class ProviderOpenAIOfficial(Provider):
     _ERROR_TEXT_CANDIDATE_MAX_CHARS = 4096
+    _LOG_PREVIEW_MAX_CHARS = 120
 
     @classmethod
     def _truncate_error_text_candidate(cls, text: str) -> str:
@@ -136,6 +137,53 @@ class ProviderOpenAIOfficial(Provider):
                     return True
         return False
 
+    @classmethod
+    def _preview_text(cls, value: Any) -> str:
+        text = str(value).strip()
+        if len(text) <= cls._LOG_PREVIEW_MAX_CHARS:
+            return text
+        return text[: cls._LOG_PREVIEW_MAX_CHARS] + "..."
+
+    @classmethod
+    def _count_images_in_content(cls, content: Any) -> int:
+        if not isinstance(content, list):
+            return 0
+        return sum(
+            1
+            for item in content
+            if isinstance(item, dict)
+            and item.get("type") in {"image_url", "input_image"}
+        )
+
+    @classmethod
+    def _summarize_messages(cls, messages: list[dict]) -> dict[str, Any]:
+        role_counts: dict[str, int] = {}
+        image_count = 0
+        for message in messages:
+            role = str(message.get("role", "unknown"))
+            role_counts[role] = role_counts.get(role, 0) + 1
+            image_count += cls._count_images_in_content(message.get("content"))
+        return {
+            "message_count": len(messages),
+            "image_count": image_count,
+            "roles": role_counts,
+        }
+
+    @staticmethod
+    def _summarize_completion(completion: ChatCompletion) -> dict[str, Any]:
+        choice = completion.choices[0] if completion.choices else None
+        message = choice.message if choice else None
+        content = getattr(message, "content", None) if message else None
+        tool_calls = getattr(message, "tool_calls", None) or []
+        return {
+            "id": completion.id,
+            "choices": len(completion.choices),
+            "finish_reason": getattr(choice, "finish_reason", None),
+            "content_type": type(content).__name__ if content is not None else None,
+            "tool_call_count": len(tool_calls),
+            "has_usage": completion.usage is not None,
+        }
+
     async def _fallback_to_text_only_and_retry(
         self,
         payloads: dict,
@@ -222,7 +270,7 @@ class ProviderOpenAIOfficial(Provider):
             )
 
         if self.use_doubao_format:
-            logger.info(f"检测到豆包 API，将使用豆包图片格式（input_image + 直接 URL）")
+            logger.info("检测到豆包 API，将使用豆包图片格式（input_image + 直接 URL）")
 
     async def get_models(self):
         try:
@@ -261,8 +309,14 @@ class ProviderOpenAIOfficial(Provider):
             extra_body.update(custom_extra_body)
 
         model = payloads.get("model", "").lower()
+        message_summary = self._summarize_messages(payloads.get("messages", []))
         logger.debug(
-            f"Querying OpenAI API with model: {model}, payloads: {payloads}, extra_body: {extra_body}, tools: {tools.func_list if tools else None}"
+            "Querying OpenAI API: model=%s messages=%d images=%d tools=%d extra_body_keys=%s",
+            model,
+            message_summary["message_count"],
+            message_summary["image_count"],
+            len(payloads.get("tools", [])),
+            list(extra_body.keys()),
         )
 
         completion = await self.client.chat.completions.create(
@@ -276,7 +330,9 @@ class ProviderOpenAIOfficial(Provider):
                 f"API 返回的 completion 类型错误：{type(completion)}: {completion}。",
             )
 
-        logger.debug(f"completion: {completion}")
+        logger.debug(
+            "OpenAI completion summary: %s", self._summarize_completion(completion)
+        )
 
         llm_response = await self._parse_openai_completion(completion, tools)
 
@@ -411,7 +467,10 @@ class ProviderOpenAIOfficial(Provider):
                 text_val = raw_content.get("text", "")
                 return str(text_val) if text_val is not None else ""
             # For other dict formats, return empty string and log
-            logger.warning(f"Unexpected dict format content: {raw_content}")
+            logger.warning(
+                "Unexpected dict format content while normalizing: keys=%s",
+                list(raw_content.keys()),
+            )
             return ""
 
         if isinstance(raw_content, list):
@@ -552,8 +611,9 @@ class ProviderOpenAIOfficial(Provider):
                 "API 返回的 completion 由于内容安全过滤被拒绝(非 AstrBot)。",
             )
         if llm_response.completion_text is None and not llm_response.tools_call_args:
-            logger.error(f"API 返回的 completion 无法解析：{completion}。")
-            raise Exception(f"API 返回的 completion 无法解析：{completion}。")
+            completion_summary = self._summarize_completion(completion)
+            logger.error("API 返回的 completion 无法解析：%s。", completion_summary)
+            raise Exception(f"API 返回的 completion 无法解析：{completion_summary}。")
 
         llm_response.raw_completion = completion
         llm_response.id = completion.id
@@ -575,9 +635,6 @@ class ProviderOpenAIOfficial(Provider):
         **kwargs,
     ) -> tuple:
         """准备聊天所需的有效载荷和上下文"""
-        logger.debug(
-            f"Preparing chat payload with prompt: {prompt}, image_urls: {image_urls}, contexts: {contexts}, system_prompt: {system_prompt}, tool_calls_result: {tool_calls_result}, model: {model}, extra_user_content_parts: {extra_user_content_parts}"
-        )
         if contexts is None:
             contexts = []
         new_record = None
@@ -613,7 +670,16 @@ class ProviderOpenAIOfficial(Provider):
                     context_query.extend(tcr.to_openai_messages())
 
         model = model or self.get_model()
-        logger.debug(f"Prepared context query for OpenAI API: {context_query}")
+        context_summary = self._summarize_messages(context_query)
+        logger.debug(
+            "Prepared OpenAI chat payload: model=%s messages=%d images=%d roles=%s has_system_prompt=%s extra_user_parts=%d",
+            model,
+            context_summary["message_count"],
+            context_summary["image_count"],
+            context_summary["roles"],
+            bool(system_prompt),
+            len(extra_user_content_parts or []),
+        )
 
         payloads = {"messages": context_query, "model": model}
 
@@ -767,8 +833,6 @@ class ProviderOpenAIOfficial(Provider):
             extra_user_content_parts=extra_user_content_parts,
             **kwargs,
         )
-        logger.debug(f"Prepared payloads for OpenAI API: {payloads}")
-
         llm_response = None
         max_retries = 10
         available_api_keys = self.api_keys.copy()
@@ -918,7 +982,13 @@ class ProviderOpenAIOfficial(Provider):
         extra_user_content_parts: list[ContentPart] | None = None,
     ) -> dict:
         """组装成符合 OpenAI 格式的 role 为 user 的消息段"""
-        logger.debug(f"Assembling context with text: {text}, image_urls: {image_urls}")
+        logger.debug(
+            "Assembling OpenAI context: text_present=%s image_count=%d extra_user_parts=%d doubao_format=%s",
+            bool(text),
+            len(image_urls or []),
+            len(extra_user_content_parts or []),
+            self.use_doubao_format,
+        )
 
         async def resolve_image_part(image_url: str) -> dict | None:
             # 豆包格式：直接使用 HTTP URL，不进行 Base64 编码
@@ -931,7 +1001,8 @@ class ProviderOpenAIOfficial(Provider):
                     }
                 else:
                     logger.warning(
-                        f"豆包格式仅支持 HTTP/HTTPS URL，本地图片 {image_url} 将被忽略。"
+                        "豆包格式仅支持 HTTP/HTTPS URL，本地图片将被忽略：%s",
+                        self._preview_text(image_url),
                     )
                     return None
 
@@ -945,7 +1016,10 @@ class ProviderOpenAIOfficial(Provider):
             else:
                 image_data = await self.encode_image_bs64(image_url)
             if not image_data:
-                logger.warning(f"图片 {image_url} 得到的结果为空，将忽略。")
+                logger.warning(
+                    "图片编码结果为空，将忽略：%s",
+                    self._preview_text(image_url),
+                )
                 return None
             return {
                 "type": "image_url",
