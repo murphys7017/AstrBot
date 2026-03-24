@@ -361,10 +361,6 @@ class ProviderManager:
                 from .sources.volcengine_ark_source import (
                     ProviderVolcengineArk as ProviderVolcengineArk,
                 )
-            case "doubao_chat_completion":
-                from .sources.doubao_source import (
-                    ProviderDoubao as ProviderDoubao,
-                )
             case "zhipu_chat_completion":
                 from .sources.zhipu_source import ProviderZhipu as ProviderZhipu
             case "groq_chat_completion":
