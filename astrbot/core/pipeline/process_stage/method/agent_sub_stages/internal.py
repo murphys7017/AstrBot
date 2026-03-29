@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 
@@ -42,6 +43,30 @@ from ...follow_up import (
     try_capture_follow_up,
     unregister_active_runner,
 )
+
+
+def _sanitize_prompt_log_value(value):
+    if isinstance(value, dict):
+        return {key: _sanitize_prompt_log_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_prompt_log_value(item) for item in value]
+    if isinstance(value, str) and value.startswith("data:image/"):
+        header, _, payload = value.partition(",")
+        mime = header.removeprefix("data:").removesuffix(";base64")
+        return (
+            f"<omitted inline image data: mime={mime or 'unknown'} "
+            f"base64_chars={len(payload)}>"
+        )
+    return value
+
+
+def _serialize_final_prompt_messages(messages: list[Message]) -> tuple[str, list[dict]]:
+    payload = [
+        _sanitize_prompt_log_value(message.model_dump(mode="json"))
+        for message in messages
+    ]
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    return rendered, payload
 
 
 class InternalAgentSubStage(Stage):
@@ -229,6 +254,25 @@ class InternalAgentSubStage(Stage):
                     # apply reset
                     if reset_coro:
                         await reset_coro
+                        rendered_messages, serialized_messages = (
+                            _serialize_final_prompt_messages(
+                                agent_runner.run_context.messages
+                            )
+                        )
+                        logger.info(
+                            "Final LLM prompt prepared. provider_id=%s model=%s messages=\n%s",
+                            provider.provider_config.get("id", ""),
+                            provider.get_model(),
+                            rendered_messages,
+                        )
+                        event.trace.record(
+                            "final_llm_prompt",
+                            chat_provider={
+                                "id": provider.provider_config.get("id", ""),
+                                "model": provider.get_model(),
+                            },
+                            messages=serialized_messages,
+                        )
 
                     register_active_runner(event.unified_msg_origin, agent_runner)
                     runner_registered = True
