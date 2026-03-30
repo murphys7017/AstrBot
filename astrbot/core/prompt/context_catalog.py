@@ -29,6 +29,7 @@ from .context_types import (
 
 # ========== Catalog 数据模型 ==========
 
+
 @dataclass
 class CatalogItem:
     """
@@ -36,12 +37,13 @@ class CatalogItem:
 
     这是声明式规范，不是运行时数据。
     """
-    id: str                          # 唯一标识（如 "persona.prompt"）
-    category: CategoryType           # 语义类别
-    slots: List[SlotName]            # 可以填充哪些布局槽
-    required: bool                   # 此上下文是否必需
-    multiple: bool                   # 是否允许多个实例
-    lifecycle: LifecycleType         # 生命周期类型
+
+    id: str  # 唯一标识（如 "persona.prompt"）
+    category: CategoryType  # 语义类别
+    slots: List[SlotName]  # 可以填充哪些布局槽
+    required: bool  # 此上下文是否必需
+    multiple: bool  # 是否允许多个实例
+    lifecycle: LifecycleType  # 生命周期类型
 
     # 可选字段
     notes: str = ""
@@ -53,12 +55,17 @@ class ContextCatalog:
     """
     所有上下文项定义的容器。
     """
+
     version: str
     contexts: List[CatalogItem] = field(default_factory=list)
 
     # 用于快速查找的索引
-    _id_index: Dict[str, CatalogItem] = field(default_factory=dict, init=False, repr=False)
-    _category_index: Dict[str, List[CatalogItem]] = field(default_factory=dict, init=False, repr=False)
+    _id_index: Dict[str, CatalogItem] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _category_index: Dict[str, List[CatalogItem]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """构建查找索引。"""
@@ -94,6 +101,7 @@ class ContextCatalog:
 
 # ========== 加载器 ==========
 
+
 class ContextCatalogLoader:
     """
     从 YAML 配置加载 ContextCatalog。
@@ -101,21 +109,35 @@ class ContextCatalogLoader:
 
     # 合法的枚举值
     VALID_CATEGORIES: Set[str] = {
-        "system", "persona", "memory", "input", "rag", "tools", "session"
+        "system",
+        "persona",
+        "memory",
+        "input",
+        "rag",
+        "tools",
+        "session",
     }
 
     VALID_LIFECYCLES: Set[str] = {
-        "static", "session", "rolling", "ephemeral", "dynamic"
+        "static",
+        "session",
+        "rolling",
+        "ephemeral",
+        "dynamic",
     }
 
     VALID_SLOTS: Set[str] = {
-        "system", "persona", "history", "user_input", "rag_context", "tools"
+        "system",
+        "persona",
+        "history",
+        "user_input",
+        "rag_context",
+        "tools",
     }
 
     @classmethod
     def load(
-        cls,
-        path: str | Path = "data/config/prompt/context_catalog.yaml"
+        cls, path: str | Path = "data/config/prompt/context_catalog.yaml"
     ) -> ContextCatalog:
         """
         从 YAML 文件加载 catalog。
@@ -229,8 +251,7 @@ _catalog: Optional[ContextCatalog] = None
 
 
 def get_catalog(
-    path: str | Path | None = None,
-    force_reload: bool = False
+    path: str | Path | None = None, force_reload: bool = False
 ) -> ContextCatalog:
     """
     获取全局 ContextCatalog 单例。

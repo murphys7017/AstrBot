@@ -16,55 +16,56 @@ from typing import Any, Dict, List, Literal, Optional
 # ========== 枚举类型 ==========
 
 CategoryType = Literal[
-    "system",     # 系统
-    "persona",    # 人格
-    "memory",     # 记忆
-    "input",      # 输入
-    "rag",        # 知识库检索
-    "tools",      # 工具
-    "session",    # 会话
+    "system",  # 系统
+    "persona",  # 人格
+    "memory",  # 记忆
+    "input",  # 输入
+    "rag",  # 知识库检索
+    "tools",  # 工具
+    "session",  # 会话
 ]
 
 LifecycleType = Literal[
-    "static",     # 静态，很少变化
-    "session",    # 会话级
-    "rolling",    # 滚动窗口（如历史记录）
+    "static",  # 静态，很少变化
+    "session",  # 会话级
+    "rolling",  # 滚动窗口（如历史记录）
     "ephemeral",  # 一次性（如当前输入）
-    "dynamic",    # 动态生成（如工具）
+    "dynamic",  # 动态生成（如工具）
 ]
 
 PlacementType = Literal[
-    "prefix",   # 前面
-    "middle",   # 中间
-    "suffix",   # 后面
+    "prefix",  # 前面
+    "middle",  # 中间
+    "suffix",  # 后面
 ]
 
 RenderModeType = Literal[
-    "raw",        # 原始
-    "structured", # 结构化
-    "pinned",     # 重点突出
+    "raw",  # 原始
+    "structured",  # 结构化
+    "pinned",  # 重点突出
 ]
 
 LLMExposureType = Literal[
-    "allowed",    # 可以显示给 LLM
-    "redacted",   # 脱敏后显示
-    "never",      # 绝不显示给 LLM
+    "allowed",  # 可以显示给 LLM
+    "redacted",  # 脱敏后显示
+    "never",  # 绝不显示给 LLM
 ]
 
 # ========== 稳定的槽名称（布局接口）==========
 # 这些是映射到 LLM 消息位置的固定"布局槽"
 
 SlotName = Literal[
-    "system",        # 映射到 system message
-    "persona",       # 预留人格（未来）
-    "history",       # 映射到对话历史
-    "user_input",    # 映射到当前用户消息
-    "rag_context",   # 映射到 RAG 上下文
-    "tools",         # 映射到工具 schema
+    "system",  # 映射到 system message
+    "persona",  # 预留人格（未来）
+    "history",  # 映射到对话历史
+    "user_input",  # 映射到当前用户消息
+    "rag_context",  # 映射到 RAG 上下文
+    "tools",  # 映射到工具 schema
 ]
 
 
 # ========== 数据模型 ==========
+
 
 @dataclass
 class ContextSlot:
@@ -73,10 +74,11 @@ class ContextSlot:
 
     这是系统中上下文的原子单位。
     """
-    name: str                    # 唯一名称（如 "persona.prompt"）
-    value: Any                   # 实际的上下文值
-    category: CategoryType       # 语义类别
-    source: str                  # 来源标识（如 "persona_mgr"）
+
+    name: str  # 唯一名称（如 "persona.prompt"）
+    value: Any  # 实际的上下文值
+    category: CategoryType  # 语义类别
+    source: str  # 来源标识（如 "persona_mgr"）
 
     # 元数据（未来阶段用，当前可选）
     llm_exposure: LLMExposureType = "allowed"
@@ -95,6 +97,7 @@ class ContextPack:
 
     这是收集阶段的输出。
     """
+
     # 核心：按唯一名称索引的 slots
     slots: Dict[str, ContextSlot] = field(default_factory=dict)
 

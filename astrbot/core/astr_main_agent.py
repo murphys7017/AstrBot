@@ -57,6 +57,11 @@ from astrbot.core.persona_error_reply import (
     set_persona_custom_error_message_on_event,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.prompt.context_collect import (
+    PROMPT_CONTEXT_PACK_EXTRA_KEY,
+    collect_context_pack,
+    log_context_pack,
+)
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.skills.skill_manager import SkillManager, build_skills_prompt
@@ -1165,7 +1170,7 @@ async def build_main_agent(
                         event.track_temporary_local_file(image_path)
                     req.image_urls.append(image_path)
                     req.extra_user_content_parts.append(
-                        TextPart(text=f"[Image Attachment: url {image_ref}]")
+                        TextPart(text=f"[Image Attachment: url {image_path}]")
                     )
                 elif isinstance(comp, File):
                     file_path = await comp.get_file()
@@ -1266,6 +1271,19 @@ async def build_main_agent(
     if isinstance(req.contexts, str):
         req.contexts = json.loads(req.contexts)
     req.image_urls = normalize_and_dedupe_strings(req.image_urls)
+    event.set_extra("provider_request", req)
+
+    try:
+        prompt_context_pack = await collect_context_pack(
+            event=event,
+            plugin_context=plugin_context,
+            config=config,
+            provider_request=req,
+        )
+        event.set_extra(PROMPT_CONTEXT_PACK_EXTRA_KEY, prompt_context_pack)
+        log_context_pack(prompt_context_pack, event=event)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to collect prompt context pack: %s", exc, exc_info=True)
 
     if config.file_extract_enabled:
         try:
