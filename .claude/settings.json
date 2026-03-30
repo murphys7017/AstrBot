@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/BaiduSyncdisk/Code/AG99/config/**)",
+      "Read(//d/BaiduSyncdisk/Code/AG99/config/agent/prompt_profiles/**)",
+      "Bash(dir \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\AstrBot\\\\astrbot\\\\core\")",
+      "Bash(dir \"c:\\\\Users\\\\Administrator\\\\Downloads\\\\AstrBot\\\\config\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Administrator\\Downloads\\AstrBot\\astrbot\\core"
+    ]
+  }
+}
