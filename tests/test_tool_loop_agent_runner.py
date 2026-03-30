@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,6 +17,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_agent_tool_exec import FunctionToolExecutor
+from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest, TokenUsage
 from astrbot.core.provider.provider import Provider
 
@@ -95,6 +97,29 @@ class MockToolExecutor:
         return generator()
 
 
+class MockMixedContentToolExecutor:
+    """模拟返回图片 + 文本的工具执行器"""
+
+    @classmethod
+    def execute(cls, tool, run_context, **tool_args):
+        async def generator():
+            from mcp.types import CallToolResult, ImageContent, TextContent
+
+            result = CallToolResult(
+                content=[
+                    ImageContent(
+                        type="image",
+                        data="dGVzdA==",
+                        mimeType="image/png",
+                    ),
+                    TextContent(type="text", text="直播间标题：新游首发：零~红蝶~"),
+                ]
+            )
+            yield result
+
+        return generator()
+
+
 class MockFailingProvider(MockProvider):
     async def text_chat(self, **kwargs) -> LLMResponse:
         self.call_count += 1
@@ -107,6 +132,22 @@ class MockErrProvider(MockProvider):
         return LLMResponse(
             role="err",
             completion_text="primary provider returned error",
+        )
+
+
+class MockEmptyOutputThenSuccessProvider(MockProvider):
+    def __init__(self, failures_before_success: int = 1):
+        super().__init__()
+        self.failures_before_success = failures_before_success
+
+    async def text_chat(self, **kwargs) -> LLMResponse:
+        self.call_count += 1
+        if self.call_count <= self.failures_before_success:
+            raise EmptyModelOutputError("model returned no usable output")
+        return LLMResponse(
+            role="assistant",
+            completion_text="这是重试后的最终回答",
+            usage=TokenUsage(input_other=10, output=5),
         )
 
 
@@ -438,6 +479,66 @@ async def test_hooks_called_with_max_step(
 
 
 @pytest.mark.asyncio
+async def test_tool_result_includes_all_calltoolresult_content(
+    runner, mock_provider, provider_request, mock_hooks, monkeypatch
+):
+    """工具返回多个 content 项时，tool result 应包含全部内容。"""
+
+    from astrbot.core.agent.tool_image_cache import tool_image_cache
+
+    mock_provider.should_call_tools = True
+    mock_provider.max_calls_before_normal_response = 1
+
+    saved_images = []
+
+    def fake_save_image(
+        base64_data, tool_call_id, tool_name, index=0, mime_type="image/png"
+    ):
+        saved_images.append(
+            {
+                "base64_data": base64_data,
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "index": index,
+                "mime_type": mime_type,
+            }
+        )
+        return SimpleNamespace(file_path=f"/tmp/{tool_call_id}_{index}.png")
+
+    monkeypatch.setattr(tool_image_cache, "save_image", fake_save_image)
+
+    await runner.reset(
+        provider=mock_provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=MockMixedContentToolExecutor,
+        agent_hooks=mock_hooks,
+        streaming=False,
+    )
+
+    async for _ in runner.step_until_done(3):
+        pass
+
+    tool_messages = [
+        m for m in runner.run_context.messages if getattr(m, "role", None) == "tool"
+    ]
+    assert len(tool_messages) == 1
+
+    content = str(tool_messages[0].content)
+    assert "Image returned and cached at path='/tmp/call_123_0.png'." in content
+    assert "直播间标题：新游首发：零~红蝶~" in content
+    assert saved_images == [
+        {
+            "base64_data": "dGVzdA==",
+            "tool_call_id": "call_123",
+            "tool_name": "test_tool",
+            "index": 0,
+            "mime_type": "image/png",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_fallback_provider_used_when_primary_raises(
     runner, provider_request, mock_tool_executor, mock_hooks
 ):
@@ -492,6 +593,67 @@ async def test_fallback_provider_used_when_primary_returns_err(
     assert final_resp.role == "assistant"
     assert final_resp.completion_text == "这是我的最终回答"
     assert primary_provider.call_count == 1
+    assert fallback_provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_output_is_retried_before_succeeding(
+    runner, provider_request, mock_tool_executor, mock_hooks, monkeypatch
+):
+    monkeypatch.setattr(runner, "EMPTY_OUTPUT_RETRY_WAIT_MIN_S", 0)
+    monkeypatch.setattr(runner, "EMPTY_OUTPUT_RETRY_WAIT_MAX_S", 0)
+
+    provider = MockEmptyOutputThenSuccessProvider(failures_before_success=1)
+    await runner.reset(
+        provider=provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=mock_tool_executor,
+        agent_hooks=mock_hooks,
+        streaming=False,
+    )
+
+    async for _ in runner.step_until_done(5):
+        pass
+
+    final_resp = runner.get_final_llm_resp()
+    assert final_resp is not None
+    assert final_resp.role == "assistant"
+    assert final_resp.completion_text == "这是重试后的最终回答"
+    assert provider.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_output_retries_exhausted_then_uses_fallback_provider(
+    runner, provider_request, mock_tool_executor, mock_hooks, monkeypatch
+):
+    monkeypatch.setattr(runner, "EMPTY_OUTPUT_RETRY_WAIT_MIN_S", 0)
+    monkeypatch.setattr(runner, "EMPTY_OUTPUT_RETRY_WAIT_MAX_S", 0)
+
+    primary_provider = MockEmptyOutputThenSuccessProvider(
+        failures_before_success=runner.EMPTY_OUTPUT_RETRY_ATTEMPTS
+    )
+    fallback_provider = MockProvider()
+    fallback_provider.should_call_tools = False
+
+    await runner.reset(
+        provider=primary_provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=mock_tool_executor,
+        agent_hooks=mock_hooks,
+        streaming=False,
+        fallback_providers=[fallback_provider],
+    )
+
+    async for _ in runner.step_until_done(5):
+        pass
+
+    final_resp = runner.get_final_llm_resp()
+    assert final_resp is not None
+    assert final_resp.role == "assistant"
+    assert final_resp.completion_text == "这是我的最终回答"
+    assert primary_provider.call_count == runner.EMPTY_OUTPUT_RETRY_ATTEMPTS
     assert fallback_provider.call_count == 1
 
 
@@ -763,7 +925,7 @@ async def test_skills_like_requery_passes_extra_user_content_parts():
         provider=provider,
         request=req,
         run_context=run_context,
-        tool_executor=MockToolExecutor(),
+        tool_executor=cast(Any, MockToolExecutor()),
         agent_hooks=MockHooks(),
         tool_schema_mode="skills_like",
     )
@@ -797,7 +959,7 @@ async def test_follow_up_accepted_when_active_and_not_stopping(
 
     # Runner is active (not done) and stop is not requested
     assert not runner.done()
-    assert runner._stop_requested is False
+    assert runner._is_stop_requested() is False
 
     ticket = runner.follow_up(message_text="valid follow-up message")
 
@@ -824,7 +986,7 @@ async def test_follow_up_rejected_when_stop_requested(
 
     # Request stop
     runner.request_stop()
-    assert runner._stop_requested is True
+    assert runner._is_stop_requested() is True
 
     ticket = runner.follow_up(message_text="follow-up after stop")
 
@@ -959,7 +1121,7 @@ async def test_follow_up_rejected_and_runner_stops_without_execution(
 
     # Request stop before any execution (simulates /stop command received at start)
     runner.request_stop()
-    assert runner._stop_requested is True
+    assert runner._is_stop_requested() is True
 
     # Try to add follow-up after stop (should be rejected)
     ticket_after = runner.follow_up(message_text="follow-up after stop")
@@ -1017,7 +1179,7 @@ async def test_follow_up_after_stop_not_merged_into_tool_result(
 
     # Request stop (simulates /stop command during active execution)
     runner.request_stop()
-    assert runner._stop_requested is True
+    assert runner._is_stop_requested() is True
 
     # Try to add follow-up after stop (should be rejected)
     ticket_after = runner.follow_up(message_text="invalid after stop")

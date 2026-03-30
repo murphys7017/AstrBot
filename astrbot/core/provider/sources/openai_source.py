@@ -1,11 +1,15 @@
 import asyncio
 import base64
+import copy
 import inspect
 import json
 import random
 import re
 from collections.abc import AsyncGenerator
-from typing import Any
+from io import BytesIO
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import unquote, urlparse
 
 import httpx
 from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -14,12 +18,15 @@ from openai.lib.streaming.chat._completions import ChatCompletionStreamState
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from openai.types.completion_usage import CompletionUsage
+from PIL import Image as PILImage
+from PIL import UnidentifiedImageError
 
 import astrbot.core.message.components as Comp
 from astrbot import logger
 from astrbot.api.provider import Provider
 from astrbot.core.agent.message import ContentPart, ImageURLPart, Message, TextPart
 from astrbot.core.agent.tool import ToolSet
+from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.provider.entities import LLMResponse, TokenUsage, ToolCallsResult
 from astrbot.core.utils.io import download_image_by_url
@@ -137,52 +144,185 @@ class ProviderOpenAIOfficial(Provider):
                     return True
         return False
 
-    @classmethod
-    def _preview_text(cls, value: Any) -> str:
-        text = str(value).strip()
-        if len(text) <= cls._LOG_PREVIEW_MAX_CHARS:
-            return text
-        return text[: cls._LOG_PREVIEW_MAX_CHARS] + "..."
+    def _is_invalid_attachment_error(self, error: Exception) -> bool:
+        body = getattr(error, "body", None)
+        code: str | None = None
+        message: str | None = None
+        if isinstance(body, dict):
+            err_obj = body.get("error")
+            if isinstance(err_obj, dict):
+                raw_code = err_obj.get("code")
+                raw_message = err_obj.get("message")
+                code = raw_code.lower() if isinstance(raw_code, str) else None
+                message = raw_message.lower() if isinstance(raw_message, str) else None
+
+        if code == "invalid_attachment":
+            return True
+
+        text_sources: list[str] = []
+        if message:
+            text_sources.append(message)
+        if code:
+            text_sources.append(code)
+        text_sources.extend(map(str, self._extract_error_text_candidates(error)))
+
+        error_text = " ".join(text.lower() for text in text_sources if text)
+        if "invalid_attachment" in error_text:
+            return True
+        if "download attachment" in error_text and "404" in error_text:
+            return True
+        return False
 
     @classmethod
-    def _count_images_in_content(cls, content: Any) -> int:
-        if not isinstance(content, list):
-            return 0
-        return sum(
-            1
-            for item in content
-            if isinstance(item, dict)
-            and item.get("type") in {"image_url", "input_image"}
-        )
+    def _encode_image_file_to_data_url(
+        cls,
+        image_path: str,
+        *,
+        mode: Literal["safe", "strict"],
+    ) -> str | None:
+        try:
+            image_bytes = Path(image_path).read_bytes()
+        except OSError:
+            if mode == "strict":
+                raise
+            return None
 
-    @classmethod
-    def _summarize_messages(cls, messages: list[dict]) -> dict[str, Any]:
-        role_counts: dict[str, int] = {}
-        image_count = 0
-        for message in messages:
-            role = str(message.get("role", "unknown"))
-            role_counts[role] = role_counts.get(role, 0) + 1
-            image_count += cls._count_images_in_content(message.get("content"))
-        return {
-            "message_count": len(messages),
-            "image_count": image_count,
-            "roles": role_counts,
-        }
+        try:
+            with PILImage.open(BytesIO(image_bytes)) as image:
+                image.verify()
+                image_format = str(image.format or "").upper()
+        except (OSError, UnidentifiedImageError):
+            if mode == "strict":
+                raise ValueError(f"Invalid image file: {image_path}")
+            return None
+
+        mime_type = {
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "GIF": "image/gif",
+            "WEBP": "image/webp",
+            "BMP": "image/bmp",
+        }.get(image_format, "image/jpeg")
+        image_bs64 = base64.b64encode(image_bytes).decode("utf-8")
+        return f"data:{mime_type};base64,{image_bs64}"
 
     @staticmethod
-    def _summarize_completion(completion: ChatCompletion) -> dict[str, Any]:
-        choice = completion.choices[0] if completion.choices else None
-        message = choice.message if choice else None
-        content = getattr(message, "content", None) if message else None
-        tool_calls = getattr(message, "tool_calls", None) or []
+    def _file_uri_to_path(file_uri: str) -> str:
+        """Normalize file URIs to paths.
+
+        `file://localhost/...` and drive-letter forms are treated as local paths.
+        Other non-empty hosts are preserved as UNC-style paths.
+        """
+        parsed = urlparse(file_uri)
+        if parsed.scheme != "file":
+            return file_uri
+
+        netloc = unquote(parsed.netloc or "")
+        path = unquote(parsed.path or "")
+        if re.fullmatch(r"[A-Za-z]:", netloc):
+            return str(Path(f"{netloc}{path}"))
+        if re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        if netloc and netloc != "localhost":
+            path = f"//{netloc}{path}"
+        return str(Path(path))
+
+    async def _image_ref_to_data_url(
+        self,
+        image_ref: str,
+        *,
+        mode: Literal["safe", "strict"] = "safe",
+    ) -> str | None:
+        if image_ref.startswith("base64://"):
+            return image_ref.replace("base64://", "data:image/jpeg;base64,")
+
+        if image_ref.startswith("http"):
+            image_path = await download_image_by_url(image_ref)
+        elif image_ref.startswith("file://"):
+            image_path = self._file_uri_to_path(image_ref)
+        else:
+            image_path = image_ref
+
+        return self._encode_image_file_to_data_url(
+            image_path,
+            mode=mode,
+        )
+
+    async def _resolve_image_part(
+        self,
+        image_url: str,
+        *,
+        image_detail: str | None = None,
+    ) -> dict | None:
+        if image_url.startswith("data:"):
+            image_payload = {"url": image_url}
+        else:
+            image_data = await self._image_ref_to_data_url(image_url, mode="safe")
+            if not image_data:
+                logger.warning(f"图片 {image_url} 得到的结果为空，将忽略。")
+                return None
+            image_payload = {"url": image_data}
+
+        if image_detail:
+            image_payload["detail"] = image_detail
         return {
-            "id": completion.id,
-            "choices": len(completion.choices),
-            "finish_reason": getattr(choice, "finish_reason", None),
-            "content_type": type(content).__name__ if content is not None else None,
-            "tool_call_count": len(tool_calls),
-            "has_usage": completion.usage is not None,
+            "type": "image_url",
+            "image_url": image_payload,
         }
+
+    def _extract_image_part_info(self, part: dict) -> tuple[str | None, str | None]:
+        if not isinstance(part, dict) or part.get("type") != "image_url":
+            return None, None
+
+        image_url_data = part.get("image_url")
+        if not isinstance(image_url_data, dict):
+            logger.warning("图片内容块格式无效，将保留原始内容。")
+            return None, None
+
+        url = image_url_data.get("url")
+        if not isinstance(url, str) or not url:
+            logger.warning("图片内容块缺少有效 URL，将保留原始内容。")
+            return None, None
+
+        image_detail = image_url_data.get("detail")
+        if not isinstance(image_detail, str):
+            image_detail = None
+        return url, image_detail
+
+    async def _transform_content_part(self, part: dict) -> dict:
+        url, image_detail = self._extract_image_part_info(part)
+        if not url:
+            return part
+
+        try:
+            resolved_part = await self._resolve_image_part(
+                url, image_detail=image_detail
+            )
+        except Exception as exc:
+            logger.warning(
+                "图片 %s 预处理失败，将保留原始内容。错误: %s",
+                url,
+                exc,
+            )
+            return part
+
+        return resolved_part or part
+
+    async def _materialize_message_image_parts(self, message: dict) -> dict:
+        content = message.get("content")
+        if not isinstance(content, list):
+            return {**message}
+
+        new_content = [await self._transform_content_part(part) for part in content]
+        return {**message, "content": new_content}
+
+    async def _materialize_context_image_parts(
+        self, context_query: list[dict]
+    ) -> list[dict]:
+        return [
+            await self._materialize_message_image_parts(message)
+            for message in context_query
+        ]
 
     async def _fallback_to_text_only_and_retry(
         self,
@@ -312,6 +452,7 @@ class ProviderOpenAIOfficial(Provider):
             )
             if tool_list:
                 payloads["tools"] = tool_list
+                payloads["tool_choice"] = payloads.get("tool_choice", "auto")
 
         # 不在默认参数中的参数放在 extra_body 中
         extra_body = {}
@@ -373,6 +514,7 @@ class ProviderOpenAIOfficial(Provider):
             )
             if tool_list:
                 payloads["tools"] = tool_list
+                payloads["tool_choice"] = payloads.get("tool_choice", "auto")
 
         # 不在默认参数中的参数放在 extra_body 中
         extra_body = {}
@@ -402,14 +544,24 @@ class ProviderOpenAIOfficial(Provider):
         state = ChatCompletionStreamState()
 
         async for chunk in stream:
-            try:
-                state.handle_chunk(chunk)
-            except Exception as e:
-                logger.warning("Saving chunk state error: " + str(e))
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
             delta = choice.delta
+
+            if dtcs := delta.tool_calls:
+                for idx, tc in enumerate(dtcs):
+                    # siliconflow workaround
+                    if tc.function and tc.function.arguments:
+                        tc.type = "function"
+                    # Fix for #6661: Add missing 'index' field to tool_call deltas
+                    # Gemini and some OpenAI-compatible proxies omit this field
+                    if not hasattr(tc, "index") or tc.index is None:
+                        tc.index = idx
+            try:
+                state.handle_chunk(chunk)
+            except Exception as e:
+                logger.error("Saving chunk state error: " + str(e))
             # logger.debug(f"chunk delta: {delta}")
             # handle the content delta
             reasoning = self._extract_reasoning_content(chunk)
@@ -465,6 +617,9 @@ class ProviderOpenAIOfficial(Provider):
         cached = getattr(ptd, "cached_tokens", 0) if ptd else 0
         prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
         completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        cached = cached or 0
+        prompt_tokens = prompt_tokens or 0
+        completion_tokens = completion_tokens or 0
         return TokenUsage(
             input_other=prompt_tokens - cached,
             input_cached=cached,
@@ -571,7 +726,9 @@ class ProviderOpenAIOfficial(Provider):
         llm_response = LLMResponse("assistant")
 
         if not completion.choices:
-            raise Exception("API 返回的 completion 为空。")
+            raise EmptyModelOutputError(
+                f"OpenAI completion has no choices. response_id={completion.id}"
+            )
         choice = completion.choices[0]
 
         # parse the text completion
@@ -589,6 +746,10 @@ class ProviderOpenAIOfficial(Provider):
             # Also clean up orphan </think> tags that may leak from some models
             completion_text = re.sub(r"</think>\s*$", "", completion_text).strip()
             llm_response.result_chain = MessageChain().message(completion_text)
+        elif refusal := getattr(choice.message, "refusal", None):
+            refusal_text = self._normalize_content(refusal)
+            if refusal_text:
+                llm_response.result_chain = MessageChain().message(refusal_text)
 
         # parse the reasoning content if any
         # the priority is higher than the <think> tag extraction
@@ -636,10 +797,18 @@ class ProviderOpenAIOfficial(Provider):
             raise Exception(
                 "API 返回的 completion 由于内容安全过滤被拒绝(非 AstrBot)。",
             )
-        if llm_response.completion_text is None and not llm_response.tools_call_args:
-            completion_summary = self._summarize_completion(completion)
-            logger.error("API 返回的 completion 无法解析：%s。", completion_summary)
-            raise Exception(f"API 返回的 completion 无法解析：{completion_summary}。")
+        has_text_output = bool((llm_response.completion_text or "").strip())
+        has_reasoning_output = bool(llm_response.reasoning_content.strip())
+        if (
+            not has_text_output
+            and not has_reasoning_output
+            and not llm_response.tools_call_args
+        ):
+            logger.error(f"OpenAI completion has no usable output: {completion}.")
+            raise EmptyModelOutputError(
+                "OpenAI completion has no usable output. "
+                f"response_id={completion.id}, finish_reason={choice.finish_reason}"
+            )
 
         llm_response.raw_completion = completion
         llm_response.id = completion.id
@@ -668,16 +837,7 @@ class ProviderOpenAIOfficial(Provider):
             new_record = await self.assemble_context(
                 prompt, image_urls, extra_user_content_parts
             )
-        context_query = self._ensure_message_to_dicts(contexts)
-        # Some upstream paths pass image_urls separately while contexts may only contain
-        # a textual placeholder. Recover multimodal image parts from image_urls here.
-        if (
-            prompt is None
-            and image_urls
-            and not self._context_contains_image(context_query)
-        ):
-            fallback_record = await self.assemble_context("", image_urls)
-            context_query.append(fallback_record)
+        context_query = copy.deepcopy(self._ensure_message_to_dicts(contexts))
         if new_record:
             context_query.append(new_record)
         if system_prompt:
@@ -694,6 +854,9 @@ class ProviderOpenAIOfficial(Provider):
             else:
                 for tcr in tool_calls_result:
                     context_query.extend(tcr.to_openai_messages())
+
+        if self._context_contains_image(context_query):
+            context_query = await self._materialize_context_image_parts(context_query)
 
         model = model or self.get_model()
         context_summary = self._summarize_messages(context_query)
@@ -805,6 +968,18 @@ class ProviderOpenAIOfficial(Provider):
                 "image_content_moderated",
                 image_fallback_used=True,
             )
+        if self._is_invalid_attachment_error(e):
+            if image_fallback_used or not self._context_contains_image(context_query):
+                raise e
+            return await self._fallback_to_text_only_and_retry(
+                payloads,
+                context_query,
+                chosen_key,
+                available_api_keys,
+                func_tool,
+                "invalid_attachment",
+                image_fallback_used=True,
+            )
 
         if (
             "Function calling is not enabled" in str(e)
@@ -847,6 +1022,7 @@ class ProviderOpenAIOfficial(Provider):
         tool_calls_result=None,
         model=None,
         extra_user_content_parts=None,
+        tool_choice: Literal["auto", "required"] = "auto",
         **kwargs,
     ) -> LLMResponse:
         payloads, context_query = await self._prepare_chat_payload(
@@ -859,6 +1035,9 @@ class ProviderOpenAIOfficial(Provider):
             extra_user_content_parts=extra_user_content_parts,
             **kwargs,
         )
+        if func_tool and not func_tool.empty():
+            payloads["tool_choice"] = tool_choice
+
         llm_response = None
         max_retries = 10
         available_api_keys = self.api_keys.copy()
@@ -913,6 +1092,7 @@ class ProviderOpenAIOfficial(Provider):
         system_prompt=None,
         tool_calls_result=None,
         model=None,
+        tool_choice: Literal["auto", "required"] = "auto",
         **kwargs,
     ) -> AsyncGenerator[LLMResponse, None]:
         """流式对话，与服务商交互并逐步返回结果"""
@@ -925,6 +1105,8 @@ class ProviderOpenAIOfficial(Provider):
             model=model,
             **kwargs,
         )
+        if func_tool and not func_tool.empty():
+            payloads["tool_choice"] = tool_choice
 
         max_retries = 10
         available_api_keys = self.api_keys.copy()
@@ -1016,42 +1198,6 @@ class ProviderOpenAIOfficial(Provider):
             self.use_doubao_format,
         )
 
-        async def resolve_image_part(image_url: str) -> dict | None:
-            # 豆包格式：直接使用 HTTP URL，不进行 Base64 编码
-            if self.use_doubao_format:
-                if image_url.startswith("http"):
-                    # 豆包需要直接的 HTTP URL
-                    return {
-                        "type": "input_image",
-                        "image_url": image_url,
-                    }
-                else:
-                    logger.warning(
-                        "豆包格式仅支持 HTTP/HTTPS URL，本地图片将被忽略：%s",
-                        self._preview_text(image_url),
-                    )
-                    return None
-
-            # OpenAI 格式：使用 Base64 编码
-            if image_url.startswith("http"):
-                image_path = await download_image_by_url(image_url)
-                image_data = await self.encode_image_bs64(image_path)
-            elif image_url.startswith("file:///"):
-                image_path = image_url.replace("file:///", "")
-                image_data = await self.encode_image_bs64(image_path)
-            else:
-                image_data = await self.encode_image_bs64(image_url)
-            if not image_data:
-                logger.warning(
-                    "图片编码结果为空，将忽略：%s",
-                    self._preview_text(image_url),
-                )
-                return None
-            return {
-                "type": "image_url",
-                "image_url": {"url": image_data},
-            }
-
         # 构建内容块列表
         content_blocks = []
 
@@ -1071,7 +1217,9 @@ class ProviderOpenAIOfficial(Provider):
                 if isinstance(part, TextPart):
                     content_blocks.append({"type": "text", "text": part.text})
                 elif isinstance(part, ImageURLPart):
-                    image_part = await resolve_image_part(part.image_url.url)
+                    image_part = await self._resolve_image_part(
+                        part.image_url.url,
+                    )
                     if image_part:
                         content_blocks.append(image_part)
                 else:
@@ -1080,7 +1228,7 @@ class ProviderOpenAIOfficial(Provider):
         # 3. 图片内容
         if image_urls:
             for image_url in image_urls:
-                image_part = await resolve_image_part(image_url)
+                image_part = await self._resolve_image_part(image_url)
                 if image_part:
                     content_blocks.append(image_part)
 
@@ -1099,11 +1247,10 @@ class ProviderOpenAIOfficial(Provider):
 
     async def encode_image_bs64(self, image_url: str) -> str:
         """将图片转换为 base64"""
-        if image_url.startswith("base64://"):
-            return image_url.replace("base64://", "data:image/jpeg;base64,")
-        with open(image_url, "rb") as f:
-            image_bs64 = base64.b64encode(f.read()).decode("utf-8")
-            return "data:image/jpeg;base64," + image_bs64
+        image_data = await self._image_ref_to_data_url(image_url, mode="strict")
+        if image_data is None:
+            raise RuntimeError(f"Failed to encode image data: {image_url}")
+        return image_data
 
     async def terminate(self):
         if self.client:

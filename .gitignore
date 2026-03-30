@@ -63,3 +63,8 @@ GenieData/
 .kilocode/
 pyproject.toml
 .worktrees/
+<<<<<<< HEAD
+=======
+
+dashboard/bun.lock
+>>>>>>> upstream/master
