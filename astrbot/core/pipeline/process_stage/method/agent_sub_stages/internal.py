@@ -268,7 +268,7 @@ class InternalAgentSubStage(Stage):
                             "Final LLM prompt prepared. provider_id=%s model=%s messages=\n%s",
                             provider.provider_config.get("id", ""),
                             provider.get_model(),
-                            rendered_messages,
+                            json.loads(rendered_messages)[:-3],
                         )
                         event.trace.record(
                             "final_llm_prompt",

@@ -12,6 +12,7 @@ from astrbot.core.message.components import Plain
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
     collect_context_pack,
+    log_context_pack,
 )
 from astrbot.core.provider.entities import ProviderRequest
 
@@ -173,3 +174,58 @@ async def test_build_main_agent_stores_prompt_context_pack_in_event_extra():
     assert slot is not None
     assert slot.value == "You are a helpful assistant."
     assert pack.get_slot("persona.segments") is not None
+
+
+@pytest.mark.asyncio
+async def test_log_context_pack_outputs_full_persona_payload():
+    event, extras = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation(persona_id="persona-a")
+    extras["provider_request"] = req
+
+    persona_prompt = """身份
+- 你是 Alice，由 YakumoAki 设计。
+稳定规则
+- 始终以 Alice 身份回应。"""
+    persona = {
+        "name": "persona-a",
+        "prompt": persona_prompt,
+        "_begin_dialogs_processed": [
+            {"role": "user", "content": "hi", "_no_save": True}
+        ],
+        "begin_dialogs": ["hi", "hello"],
+        "tools": ["tool_a"],
+        "skills": ["skill_a"],
+    }
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=("persona-a", persona, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+    )
+
+    with patch("astrbot.core.prompt.context_collect.logger") as mock_logger:
+        log_context_pack(pack, event=event)
+
+    logged_messages = [
+        call.args[0] % call.args[1:] if call.args else ""
+        for call in mock_logger.info.call_args_list
+    ]
+    persona_logs = [
+        message for message in logged_messages if "Prompt persona loaded:" in message
+    ]
+
+    assert len(persona_logs) == 1
+    assert '"persona_id": "persona-a"' in persona_logs[0]
+    assert (
+        '"prompt": "身份\\n- 你是 Alice，由 YakumoAki 设计。\\n稳定规则\\n- 始终以 Alice 身份回应。"'
+        in persona_logs[0]
+    )
+    assert '"segments"' in persona_logs[0]
+    assert '"tools_whitelist": ["tool_a"]' in persona_logs[0]
+    assert '"skills_whitelist": ["skill_a"]' in persona_logs[0]
