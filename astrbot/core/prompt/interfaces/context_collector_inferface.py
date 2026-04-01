@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
@@ -31,6 +32,7 @@ class ContextCollectorInterface(ABC):
         event: AstrMessageEvent,
         plugin_context: Context,
         config: MainAgentBuildConfig,
+        provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
         """
         收集上下文信息。
@@ -39,6 +41,7 @@ class ContextCollectorInterface(ABC):
             event: 当前消息事件
             plugin_context: 插件上下文（用于访问 persona_manager、conversation_manager 等）
             config: 主 Agent 构建配置
+            provider_request: 当前链路中的 ProviderRequest（如果已构建）
 
         Returns:
             收集到的 ContextSlot 列表

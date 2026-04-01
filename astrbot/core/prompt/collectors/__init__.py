@@ -4,8 +4,10 @@
 包含所有具体的 ContextCollector 实现。
 """
 
+from .input_collector import InputCollector
 from .persona_collector import PersonaCollector
 
 __all__ = [
+    "InputCollector",
     "PersonaCollector",
 ]

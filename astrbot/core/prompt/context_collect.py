@@ -13,6 +13,7 @@ from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.star.context import Context
 
+from .collectors.input_collector import InputCollector
 from .collectors.persona_collector import PersonaCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot
@@ -23,7 +24,7 @@ PROMPT_CONTEXT_PACK_EXTRA_KEY = "prompt_context_pack"
 
 def _default_collectors() -> list[ContextCollectorInterface]:
     """Return the collectors enabled for the current phase."""
-    return [PersonaCollector()]
+    return [PersonaCollector(), InputCollector()]
 
 
 def _stringify_value_preview(value: object, *, max_len: int = 400) -> str:
@@ -113,7 +114,12 @@ async def collect_context_pack(
         pack.meta["collectors"].append(collector_name)
 
         try:
-            slots = await collector.collect(event, plugin_context, config)
+            slots = await collector.collect(
+                event,
+                plugin_context,
+                config,
+                provider_request=provider_request,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Prompt context collector failed: collector=%s error=%s",

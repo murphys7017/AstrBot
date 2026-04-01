@@ -13,6 +13,7 @@ from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
@@ -39,6 +40,7 @@ class PersonaCollector(ContextCollectorInterface):
         event: AstrMessageEvent,
         plugin_context: Context,
         config: MainAgentBuildConfig,
+        provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
         """
         收集人格相关的上下文信息。
@@ -53,7 +55,7 @@ class PersonaCollector(ContextCollectorInterface):
 
         try:
             # 步骤 1: 获取 conversation
-            req = event.get_extra("provider_request")
+            req = provider_request or event.get_extra("provider_request")
             conversation_persona_id = None
             if req and hasattr(req, "conversation") and req.conversation:
                 conversation_persona_id = req.conversation.persona_id

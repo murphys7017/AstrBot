@@ -8,12 +8,15 @@ from astrbot.core import astr_main_agent as ama
 from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
 )
-from astrbot.core.message.components import Plain
+from astrbot.core.message.components import File, Image, Plain, Reply
+from astrbot.core.prompt.collectors import InputCollector
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
     collect_context_pack,
     log_context_pack,
 )
+from astrbot.core.prompt.context_types import ContextSlot
+from astrbot.core.prompt.interfaces import ContextCollectorInterface
 from astrbot.core.provider.entities import ProviderRequest
 
 
@@ -229,3 +232,249 @@ async def test_log_context_pack_outputs_full_persona_payload():
     assert '"segments"' in persona_logs[0]
     assert '"tools_whitelist": ["tool_a"]' in persona_logs[0]
     assert '"skills_whitelist": ["skill_a"]' in persona_logs[0]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_effective_input_text_and_attachments():
+    event, _ = _make_event()
+    event.message_str = "/ask explain this"
+    event.message_obj.message = [
+        Plain(text="/ask explain this"),
+        Image(file="https://example.com/image.png"),
+        File(name="report.txt", file="C:/tmp/report.txt"),
+    ]
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_wake_prefix="/ask ",
+        ),
+        collectors=[InputCollector()],
+    )
+
+    text_slot = pack.get_slot("input.text")
+    assert text_slot is not None
+    assert text_slot.value == "explain this"
+    assert text_slot.meta["source_field"] == "event.message_str"
+
+    images_slot = pack.get_slot("input.images")
+    assert images_slot is not None
+    assert images_slot.value == [
+        {
+            "ref": "https://example.com/image.png",
+            "transport": "url",
+            "source": "current",
+        }
+    ]
+
+    files_slot = pack.get_slot("input.files")
+    assert files_slot is not None
+    assert files_slot.value == [
+        {
+            "name": "report.txt",
+            "file": "C:/tmp/report.txt",
+            "url": "",
+            "source": "current",
+            "reply_id": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_attachment_only_input_without_text():
+    event, _ = _make_event()
+    event.message_str = ""
+    event.message_obj.message = [File(name="report.txt", file="C:/tmp/report.txt")]
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[InputCollector()],
+    )
+
+    assert pack.get_slot("input.text") is None
+    files_slot = pack.get_slot("input.files")
+    assert files_slot is not None
+    assert files_slot.value[0]["source"] == "current"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_prefers_provider_request_prompt_for_input_text():
+    event, _ = _make_event()
+    event.message_str = "/ask raw message"
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    req = ProviderRequest(prompt="effective prompt")
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_wake_prefix="/ask ",
+        ),
+        provider_request=req,
+        collectors=[InputCollector()],
+    )
+
+    text_slot = pack.get_slot("input.text")
+    assert text_slot is not None
+    assert text_slot.value == "effective prompt"
+    assert text_slot.meta["source_field"] == "provider_request.prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_quoted_input_payloads():
+    event, _ = _make_event()
+    event.message_obj.message = [
+        Reply(
+            id="reply-1",
+            message_str="quoted message",
+            chain=[
+                Image(file="file:///C:/tmp/quoted.png"),
+                File(name="quoted.txt", file="C:/tmp/quoted.txt"),
+            ],
+        )
+    ]
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+        new=AsyncMock(return_value="quoted message"),
+    ), patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
+        new=AsyncMock(return_value=["https://example.com/fallback.png"]),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[InputCollector()],
+        )
+
+    quoted_text_slot = pack.get_slot("input.quoted_text")
+    assert quoted_text_slot is not None
+    assert quoted_text_slot.value == "quoted message"
+    assert "<Quoted Message>" not in quoted_text_slot.value
+
+    quoted_images_slot = pack.get_slot("input.quoted_images")
+    assert quoted_images_slot is not None
+    assert quoted_images_slot.value == [
+        {
+            "ref": "file:///C:/tmp/quoted.png",
+            "transport": "file",
+            "source": "quoted",
+            "resolution": "embedded",
+            "reply_id": "reply-1",
+        }
+    ]
+
+    files_slot = pack.get_slot("input.files")
+    assert files_slot is not None
+    assert files_slot.value == [
+        {
+            "name": "quoted.txt",
+            "file": "C:/tmp/quoted.txt",
+            "url": "",
+            "source": "quoted",
+            "reply_id": "reply-1",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_fallback_quoted_images_with_limit():
+    event, _ = _make_event()
+    event.message_obj.message = [Reply(id="reply-1", message_str="[Image]")]
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+        new=AsyncMock(return_value="quoted message"),
+    ), patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
+        new=AsyncMock(
+            return_value=[
+                "https://example.com/1.png",
+                "https://example.com/2.png",
+            ]
+        ),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                max_quoted_fallback_images=1,
+            ),
+            collectors=[InputCollector()],
+        )
+
+    quoted_images_slot = pack.get_slot("input.quoted_images")
+    assert quoted_images_slot is not None
+    assert quoted_images_slot.meta["fallback_count"] == 1
+    assert quoted_images_slot.value == [
+        {
+            "ref": "https://example.com/1.png",
+            "transport": "url",
+            "source": "quoted",
+            "resolution": "fallback",
+            "reply_id": "reply-1",
+        }
+    ]
+
+
+class _BrokenCollector(ContextCollectorInterface):
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        raise RuntimeError("boom")
+
+
+class _StaticCollector(ContextCollectorInterface):
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            ContextSlot(
+                name="input.text",
+                value="hello",
+                category="input",
+                source="test",
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_fail_open_when_a_collector_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[_BrokenCollector(), _StaticCollector()],
+    )
+
+    text_slot = pack.get_slot("input.text")
+    assert text_slot is not None
+    assert text_slot.value == "hello"
