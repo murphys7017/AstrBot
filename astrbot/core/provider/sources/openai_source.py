@@ -49,6 +49,12 @@ class ProviderOpenAIOfficial(Provider):
     _LOG_PREVIEW_MAX_CHARS = 120
 
     @classmethod
+    def _truncate_log_preview(cls, text: str) -> str:
+        if len(text) <= cls._LOG_PREVIEW_MAX_CHARS:
+            return text
+        return text[: cls._LOG_PREVIEW_MAX_CHARS] + "..."
+
+    @classmethod
     def _truncate_error_text_candidate(cls, text: str) -> str:
         if len(text) <= cls._ERROR_TEXT_CANDIDATE_MAX_CHARS:
             return text
@@ -143,6 +149,91 @@ class ProviderOpenAIOfficial(Provider):
                 ):
                     return True
         return False
+
+    def _summarize_messages(self, messages: list[dict] | None) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "message_count": 0,
+            "image_count": 0,
+            "roles": [],
+            "text_preview": "",
+        }
+        if not messages:
+            return summary
+
+        roles: list[str] = []
+        text_parts: list[str] = []
+        image_count = 0
+
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            if isinstance(role, str) and role:
+                roles.append(role)
+
+            content = message.get("content")
+            normalized_content = self._normalize_content(content)
+            if normalized_content:
+                text_parts.append(normalized_content)
+
+            if isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") in ("image_url", "input_image"):
+                        image_count += 1
+
+        summary["message_count"] = len(messages)
+        summary["image_count"] = image_count
+        summary["roles"] = roles
+        summary["text_preview"] = self._truncate_log_preview(" ".join(text_parts))
+        return summary
+
+    def _summarize_completion(self, completion: ChatCompletion) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "id": getattr(completion, "id", None),
+            "model": getattr(completion, "model", None),
+            "choices": len(getattr(completion, "choices", []) or []),
+            "finish_reason": None,
+            "has_content": False,
+            "content_preview": "",
+            "reasoning_preview": "",
+            "tool_call_count": 0,
+            "usage": None,
+        }
+
+        if usage := getattr(completion, "usage", None):
+            try:
+                token_usage = self._extract_usage(usage)
+                summary["usage"] = {
+                    "input_other": token_usage.input_other,
+                    "input_cached": token_usage.input_cached,
+                    "output": token_usage.output,
+                }
+            except Exception:
+                summary["usage"] = None
+
+        if not completion.choices:
+            return summary
+
+        choice = completion.choices[0]
+        summary["finish_reason"] = getattr(choice, "finish_reason", None)
+
+        message = getattr(choice, "message", None)
+        if message is not None:
+            content = self._normalize_content(getattr(message, "content", None))
+            summary["has_content"] = bool(content)
+            summary["content_preview"] = self._truncate_log_preview(content)
+
+            tool_calls = getattr(message, "tool_calls", None)
+            if tool_calls:
+                summary["tool_call_count"] = len(tool_calls)
+
+        reasoning = self._extract_reasoning_content(completion)
+        if reasoning:
+            summary["reasoning_preview"] = self._truncate_log_preview(reasoning)
+
+        return summary
 
     def _is_invalid_attachment_error(self, error: Exception) -> bool:
         body = getattr(error, "body", None)

@@ -218,6 +218,93 @@ def test_extract_error_text_candidates_truncates_long_response_text():
 
 
 @pytest.mark.asyncio
+async def test_summarize_messages_counts_roles_images_and_preview():
+    provider = _make_provider()
+    try:
+        summary = provider._summarize_messages(
+            [
+                {"role": "system", "content": "system prompt"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hello"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/jpeg;base64,abcd"},
+                        },
+                    ],
+                },
+            ]
+        )
+
+        assert summary["message_count"] == 2
+        assert summary["image_count"] == 1
+        assert summary["roles"] == ["system", "user"]
+        assert "system prompt" in summary["text_preview"]
+        assert "hello" in summary["text_preview"]
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+async def test_summarize_completion_extracts_preview_reasoning_and_usage():
+    provider = _make_provider()
+    try:
+        completion = ChatCompletion.model_validate(
+            {
+                "id": "chatcmpl-summary",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "final answer",
+                            "reasoning_content": "chain of thought summary",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "demo",
+                                        "arguments": '{"x":1}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 8,
+                    "completion_tokens": 3,
+                    "total_tokens": 11,
+                },
+            }
+        )
+
+        summary = provider._summarize_completion(completion)
+
+        assert summary["id"] == "chatcmpl-summary"
+        assert summary["model"] == "gpt-4o-mini"
+        assert summary["choices"] == 1
+        assert summary["finish_reason"] == "stop"
+        assert summary["has_content"] is True
+        assert summary["content_preview"] == "final answer"
+        assert summary["reasoning_preview"] == "chain of thought summary"
+        assert summary["tool_call_count"] == 1
+        assert summary["usage"] == {
+            "input_other": 8,
+            "input_cached": 0,
+            "output": 3,
+        }
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
 async def test_openai_payload_keeps_reasoning_content_in_assistant_history():
     provider = _make_provider()
     try:
