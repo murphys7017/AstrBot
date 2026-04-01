@@ -6,8 +6,10 @@
 
 from .input_collector import InputCollector
 from .persona_collector import PersonaCollector
+from .session_collector import SessionCollector
 
 __all__ = [
     "InputCollector",
     "PersonaCollector",
+    "SessionCollector",
 ]

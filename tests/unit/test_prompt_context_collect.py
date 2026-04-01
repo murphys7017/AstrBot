@@ -9,7 +9,7 @@ from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
 )
 from astrbot.core.message.components import File, Image, Plain, Reply
-from astrbot.core.prompt.collectors import InputCollector
+from astrbot.core.prompt.collectors import InputCollector, SessionCollector
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
     collect_context_pack,
@@ -354,12 +354,15 @@ async def test_collect_context_pack_collects_quoted_input_payloads():
         return_value=(None, None, None, False)
     )
 
-    with patch(
-        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
-        new=AsyncMock(return_value="quoted message"),
-    ), patch(
-        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
-        new=AsyncMock(return_value=["https://example.com/fallback.png"]),
+    with (
+        patch(
+            "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+            new=AsyncMock(return_value="quoted message"),
+        ),
+        patch(
+            "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
+            new=AsyncMock(return_value=["https://example.com/fallback.png"]),
+        ),
     ):
         pack = await collect_context_pack(
             event=event,
@@ -407,16 +410,19 @@ async def test_collect_context_pack_collects_fallback_quoted_images_with_limit()
         return_value=(None, None, None, False)
     )
 
-    with patch(
-        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
-        new=AsyncMock(return_value="quoted message"),
-    ), patch(
-        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
-        new=AsyncMock(
-            return_value=[
-                "https://example.com/1.png",
-                "https://example.com/2.png",
-            ]
+    with (
+        patch(
+            "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+            new=AsyncMock(return_value="quoted message"),
+        ),
+        patch(
+            "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_images",
+            new=AsyncMock(
+                return_value=[
+                    "https://example.com/1.png",
+                    "https://example.com/2.png",
+                ]
+            ),
         ),
     ):
         pack = await collect_context_pack(
@@ -441,6 +447,171 @@ async def test_collect_context_pack_collects_fallback_quoted_images_with_limit()
             "reply_id": "reply-1",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_session_slots_for_private_chat():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            timezone="Asia/Shanghai",
+        ),
+        collectors=[SessionCollector()],
+    )
+
+    assert pack.meta["collectors"] == ["SessionCollector"]
+    datetime_slot = pack.get_slot("session.datetime")
+    assert datetime_slot is not None
+    assert datetime_slot.value["timezone"] == "Asia/Shanghai"
+    assert datetime_slot.value["source"] == "config.timezone"
+    assert datetime_slot.meta["from_config"] is True
+    assert "T" in datetime_slot.value["iso"]
+
+    user_slot = pack.get_slot("session.user_info")
+    assert user_slot is not None
+    assert user_slot.value == {
+        "user_id": "user123",
+        "nickname": "Tester",
+        "platform_name": "test_platform",
+        "umo": "test_platform:private:test-session",
+        "group_id": None,
+        "group_name": None,
+        "is_group": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_group_session_info():
+    event, _ = _make_event()
+    event.unified_msg_origin = "test_platform:group:test-session"
+    event.message_obj.group_id = "group-1"
+    event.message_obj.group = MagicMock(group_name="Test Group")
+    event.get_group_id.return_value = "group-1"
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SessionCollector()],
+    )
+
+    user_slot = pack.get_slot("session.user_info")
+    assert user_slot is not None
+    assert user_slot.value["group_id"] == "group-1"
+    assert user_slot.value["group_name"] == "Test Group"
+    assert user_slot.value["is_group"] is True
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_session_timezone_falls_back_to_global_config():
+    event, _ = _make_event()
+    context = _make_context()
+    context.get_config.return_value = {"timezone": "UTC"}
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SessionCollector()],
+    )
+
+    datetime_slot = pack.get_slot("session.datetime")
+    assert datetime_slot is not None
+    assert datetime_slot.value["timezone"] == "UTC"
+    assert datetime_slot.value["source"] == "plugin_context.get_config"
+    assert datetime_slot.meta["from_config"] is True
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_session_handles_missing_group_object():
+    event, _ = _make_event()
+    event.message_obj.group_id = "group-1"
+    event.message_obj.group = None
+    event.get_group_id.return_value = "group-1"
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SessionCollector()],
+    )
+
+    user_slot = pack.get_slot("session.user_info")
+    assert user_slot is not None
+    assert user_slot.value["group_id"] == "group-1"
+    assert user_slot.value["group_name"] is None
+    assert user_slot.value["is_group"] is True
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_session_fail_open_with_partial_event_data():
+    event, _ = _make_event()
+    event.message_obj.sender = None
+    event.get_platform_name.side_effect = RuntimeError("missing platform")
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SessionCollector()],
+    )
+
+    datetime_slot = pack.get_slot("session.datetime")
+    assert datetime_slot is not None
+    user_slot = pack.get_slot("session.user_info")
+    assert user_slot is not None
+    assert user_slot.value["user_id"] is None
+    assert user_slot.value["nickname"] is None
+    assert user_slot.value["platform_name"] is None
+    assert user_slot.value["umo"] == "test_platform:private:test-session"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_default_collectors_include_session_collector():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+    )
+
+    assert pack.meta["collectors"] == [
+        "PersonaCollector",
+        "InputCollector",
+        "SessionCollector",
+    ]
+    assert pack.get_slot("session.datetime") is not None
+    assert pack.get_slot("session.user_info") is not None
 
 
 class _BrokenCollector(ContextCollectorInterface):

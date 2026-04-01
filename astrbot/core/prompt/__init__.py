@@ -8,7 +8,7 @@ AstrBot Prompt Engine - 上下文数据层（第一阶段）
 -（未来：Selector 选择器、Renderer 渲染器）
 """
 
-from .collectors import InputCollector, PersonaCollector
+from .collectors import InputCollector, PersonaCollector, SessionCollector
 from .context_catalog import (
     CatalogItem,
     ContextCatalog,
@@ -62,6 +62,7 @@ __all__ = [
     # Collectors
     "InputCollector",
     "PersonaCollector",
+    "SessionCollector",
     # Collection flow
     "PROMPT_CONTEXT_PACK_EXTRA_KEY",
     "collect_context_pack",
