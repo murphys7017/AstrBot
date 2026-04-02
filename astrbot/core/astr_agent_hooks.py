@@ -8,6 +8,8 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.pipeline.context_utils import call_event_hook
+from astrbot.core.postprocess import dispatch_postprocess
+from astrbot.core.postprocess.types import PostProcessTrigger
 from astrbot.core.star.star_handler import EventType
 
 
@@ -24,6 +26,15 @@ class MainAgentHooks(BaseAgentRunHooks[AstrAgentContext]):
             run_context.context.event,
             EventType.OnLLMResponseEvent,
             llm_response,
+        )
+        if run_context.context.event.is_stopped():
+            return
+
+        await dispatch_postprocess(
+            event=run_context.context.event,
+            trigger=PostProcessTrigger.ON_LLM_RESPONSE,
+            llm_response=llm_response,
+            plugin_context=run_context.context.context,
         )
 
     async def on_tool_start(

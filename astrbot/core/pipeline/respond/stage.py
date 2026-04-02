@@ -8,6 +8,8 @@ from astrbot.core import logger
 from astrbot.core.message.components import BaseMessageComponent, ComponentType
 from astrbot.core.message.message_event_result import MessageChain, ResultContentType
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.postprocess import dispatch_postprocess
+from astrbot.core.postprocess.types import PostProcessTrigger
 from astrbot.core.star.star_handler import EventType
 from astrbot.core.utils.path_util import path_Mapping
 
@@ -167,6 +169,17 @@ class RespondStage(Stage):
 
         return extracted
 
+    async def _dispatch_after_message_sent(self, event: AstrMessageEvent) -> bool:
+        if await call_event_hook(event, EventType.OnAfterMessageSentEvent):
+            return False
+
+        await dispatch_postprocess(
+            event=event,
+            trigger=PostProcessTrigger.AFTER_MESSAGE_SENT,
+            plugin_context=self.ctx.plugin_manager.context,
+        )
+        return True
+
     async def process(
         self,
         event: AstrMessageEvent,
@@ -185,6 +198,7 @@ class RespondStage(Stage):
             f"Prepare to send - {event.get_sender_name()}/{event.get_sender_id()}: {event._outline_chain(result.chain)}",
         )
 
+        sent_any = False
         if result.result_content_type == ResultContentType.STREAMING_RESULT:
             if result.async_stream is None:
                 logger.warning("async_stream 为空，跳过发送。")
@@ -199,6 +213,8 @@ class RespondStage(Stage):
             )
             logger.info(f"应用流式输出({event.get_platform_id()})")
             await event.send_streaming(result.async_stream, realtime_segmenting)
+            sent_any = True
+            await self._dispatch_after_message_sent(event)
             return
         if len(result.chain) > 0:
             # 检查路径映射
@@ -251,6 +267,7 @@ class RespondStage(Stage):
                         else:
                             await event.send(MessageChain([*header_comps, comp]))
                             header_comps.clear()
+                        sent_any = True
                     except Exception as e:
                         logger.error(
                             f"发送消息链失败: chain = {MessageChain([comp])}, error = {e}",
@@ -275,6 +292,7 @@ class RespondStage(Stage):
                     chain = MessageChain([comp])
                     try:
                         await event.send(chain)
+                        sent_any = True
                     except Exception as e:
                         logger.error(
                             f"发送消息链失败: chain = {chain}, error = {e}",
@@ -284,13 +302,18 @@ class RespondStage(Stage):
                 if result.chain and len(result.chain) > 0:
                     try:
                         await event.send(chain)
+                        sent_any = True
                     except Exception as e:
                         logger.error(
                             f"发送消息链失败: chain = {chain}, error = {e}",
                             exc_info=True,
                         )
 
-        if await call_event_hook(event, EventType.OnAfterMessageSentEvent):
+        if not sent_any:
+            event.clear_result()
+            return
+
+        if not await self._dispatch_after_message_sent(event):
             return
 
         event.clear_result()
