@@ -7,9 +7,15 @@ import pytest
 from astrbot.core import astr_main_agent as ama
 from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
+    LLM_SAFETY_MODE_SYSTEM_PROMPT,
+    SANDBOX_MODE_PROMPT,
 )
 from astrbot.core.message.components import File, Image, Plain, Reply
-from astrbot.core.prompt.collectors import InputCollector, SessionCollector
+from astrbot.core.prompt.collectors import (
+    InputCollector,
+    PolicyCollector,
+    SessionCollector,
+)
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
     collect_context_pack,
@@ -609,9 +615,104 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "PersonaCollector",
         "InputCollector",
         "SessionCollector",
+        "PolicyCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
+    assert pack.get_slot("policy.safety_prompt") is not None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_policy_safety_prompt_when_enabled():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            llm_safety_mode=True,
+            safety_mode_strategy="system_prompt",
+        ),
+        collectors=[PolicyCollector()],
+    )
+
+    safety_slot = pack.get_slot("policy.safety_prompt")
+    assert safety_slot is not None
+    assert safety_slot.value == LLM_SAFETY_MODE_SYSTEM_PROMPT
+    assert safety_slot.meta["enabled_by_config"] is True
+    assert safety_slot.meta["strategy"] == "system_prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_policy_safety_prompt_when_disabled():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            llm_safety_mode=False,
+        ),
+        collectors=[PolicyCollector()],
+    )
+
+    assert pack.get_slot("policy.safety_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_policy_sandbox_prompt_for_sandbox_runtime():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            computer_use_runtime="sandbox",
+        ),
+        collectors=[PolicyCollector()],
+    )
+
+    sandbox_slot = pack.get_slot("policy.sandbox_prompt")
+    assert sandbox_slot is not None
+    assert sandbox_slot.value == SANDBOX_MODE_PROMPT
+    assert sandbox_slot.meta["enabled_by_config"] is True
+    assert sandbox_slot.meta["runtime"] == "sandbox"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_policy_sandbox_prompt_for_local_runtime():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            computer_use_runtime="local",
+        ),
+        collectors=[PolicyCollector()],
+    )
+
+    assert pack.get_slot("policy.sandbox_prompt") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):
