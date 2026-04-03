@@ -24,6 +24,12 @@ from astrbot.core.conversation_mgr import ConversationManager
 from astrbot.core.cron import CronJobManager
 from astrbot.core.db import BaseDatabase
 from astrbot.core.knowledge_base.kb_mgr import KnowledgeBaseManager
+from astrbot.core.memory import (
+    get_memory_service,
+    register_memory_postprocessor,
+    reset_memory_postprocessor,
+    shutdown_memory_service,
+)
 from astrbot.core.persona_mgr import PersonaManager
 from astrbot.core.pipeline.scheduler import PipelineContext, PipelineScheduler
 from astrbot.core.platform.manager import PlatformManager
@@ -59,6 +65,8 @@ class AstrBotCoreLifecycle:
         self.subagent_orchestrator: SubAgentOrchestrator | None = None
         self.cron_manager: CronJobManager | None = None
         self.temp_dir_cleaner: TempDirCleaner | None = None
+        self.memory_service = None
+        self.memory_postprocessor = None
 
         # 设置代理
         proxy_config = self.astrbot_config.get("http_proxy", "")
@@ -193,6 +201,8 @@ class AstrBotCoreLifecycle:
             self.cron_manager,
             self.subagent_orchestrator,
         )
+        self.memory_service = get_memory_service()
+        self.memory_postprocessor = register_memory_postprocessor(self.memory_service)
 
         # 初始化插件管理器
         self.plugin_manager = PluginManager(self.star_context, self.astrbot_config)
@@ -336,6 +346,8 @@ class AstrBotCoreLifecycle:
         await self.provider_manager.terminate()
         await self.platform_manager.terminate()
         await self.kb_manager.terminate()
+        reset_memory_postprocessor()
+        await shutdown_memory_service()
         self.dashboard_shutdown_event.set()
 
         # 再次遍历curr_tasks等待每个任务真正结束
