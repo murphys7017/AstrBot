@@ -53,23 +53,37 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
 def extract_turn_payloads(messages: Iterable[dict[str, Any]]) -> list[JsonDict]:
     payloads: list[JsonDict] = []
     pending_user: dict[str, Any] | None = None
+    candidate_assistant: dict[str, Any] | None = None
 
     for raw_message in messages:
         if not isinstance(raw_message, dict):
             continue
 
         message = normalize_message_payload(raw_message)
-        role = message.get("role")
+        role = str(raw_message.get("role", "") or "")
 
         if role == "user":
+            _finalize_pending_turn(payloads, pending_user, candidate_assistant)
             pending_user = message
+            candidate_assistant = None
             continue
 
         if role != "assistant" or pending_user is None:
+            if role == "tool":
+                continue
             continue
 
-        if not pending_user.get("content") or not message.get("content"):
+        if not pending_user.get("content"):
             pending_user = None
+            candidate_assistant = None
+            continue
+
+        if _is_intermediate_assistant(raw_message, message):
+            if message.get("content"):
+                candidate_assistant = message
+            continue
+
+        if not message.get("content"):
             continue
 
         payloads.append(
@@ -79,6 +93,9 @@ def extract_turn_payloads(messages: Iterable[dict[str, Any]]) -> list[JsonDict]:
             }
         )
         pending_user = None
+        candidate_assistant = None
+
+    _finalize_pending_turn(payloads, pending_user, candidate_assistant)
 
     return payloads
 
@@ -152,3 +169,34 @@ class RecentConversationSource:
 
 def _clean_text(text: str) -> str:
     return " ".join(text.split()).strip()
+
+
+def _is_intermediate_assistant(
+    raw_message: dict[str, Any],
+    normalized_message: dict[str, Any],
+) -> bool:
+    if raw_message.get("tool_calls"):
+        return True
+
+    content = normalized_message.get("content")
+    if not isinstance(content, str):
+        return False
+    return content == "[tool_call]"
+
+
+def _finalize_pending_turn(
+    payloads: list[JsonDict],
+    pending_user: dict[str, Any] | None,
+    candidate_assistant: dict[str, Any] | None,
+) -> None:
+    if pending_user is None or candidate_assistant is None:
+        return
+    if not pending_user.get("content") or not candidate_assistant.get("content"):
+        return
+
+    payloads.append(
+        {
+            "user_message": pending_user,
+            "assistant_message": candidate_assistant,
+        }
+    )

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from .analyzer_manager import MemoryAnalyzerManager
+from .config import MemoryAnalysisConfig
 from .history_source import RecentConversationSource, extract_message_text
 from .store import MemoryStore
 from .types import ShortTermMemory, TopicState, TurnRecord
@@ -12,9 +15,13 @@ class ShortTermMemoryService:
         self,
         store: MemoryStore,
         history_source: RecentConversationSource,
+        analyzer_manager: MemoryAnalyzerManager | None = None,
+        analysis_config: MemoryAnalysisConfig | None = None,
     ) -> None:
         self.store = store
         self.history_source = history_source
+        self.analyzer_manager = analyzer_manager
+        self.analysis_config = analysis_config
 
     async def update_topic_state(
         self,
@@ -31,6 +38,24 @@ class ShortTermMemoryService:
             extract_message_text(turn.assistant_message),
             100,
         )
+
+        if self._should_use_analysis():
+            analysis_result = await self._run_short_term_analysis(
+                turn,
+                recent_payloads,
+            )
+            state = TopicState(
+                umo=turn.umo,
+                conversation_id=turn.conversation_id,
+                current_topic=analysis_result.get("current_topic") or None,
+                topic_summary=analysis_result.get("topic_summary") or None,
+                topic_confidence=_coerce_confidence(
+                    analysis_result.get("topic_confidence"),
+                    default=0.0,
+                ),
+                last_active_at=turn.message_timestamp,
+            )
+            return await self.store.upsert_topic_state(state)
 
         topic_summary_parts: list[str] = []
         if latest_user_text:
@@ -73,6 +98,20 @@ class ShortTermMemoryService:
                 }
             ]
 
+        if self._should_use_analysis():
+            analysis_result = await self._run_short_term_analysis(
+                turn,
+                recent_payloads,
+            )
+            memory = ShortTermMemory(
+                umo=turn.umo,
+                conversation_id=turn.conversation_id,
+                short_summary=analysis_result.get("short_summary") or None,
+                active_focus=analysis_result.get("active_focus") or None,
+                updated_at=turn.message_timestamp,
+            )
+            return await self.store.upsert_short_term_memory(memory)
+
         summary_lines: list[str] = []
         for payload in recent_payloads[-4:]:
             summary_lines.extend(
@@ -100,6 +139,58 @@ class ShortTermMemoryService:
             conversation_history,
         )
         return topic_state, short_term_memory
+
+    def _should_use_analysis(self) -> bool:
+        return bool(
+            self.analysis_config is not None
+            and self.analysis_config.enabled
+            and self.analyzer_manager is not None
+        )
+
+    async def _run_short_term_analysis(
+        self,
+        turn: TurnRecord,
+        recent_payloads: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if self.analyzer_manager is None:
+            raise RuntimeError("short term analysis requested without analyzer manager")
+
+        payload = self._build_short_term_analysis_payload(turn, recent_payloads)
+        results = await self.analyzer_manager.dispatch_stage(
+            "short_term_update",
+            payload=payload,
+            umo=turn.umo,
+            conversation_id=turn.conversation_id,
+        )
+        merged: dict[str, Any] = {}
+        for result in results.values():
+            merged.update(result.data)
+        return merged
+
+    def _build_short_term_analysis_payload(
+        self,
+        turn: TurnRecord,
+        recent_payloads: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        latest_user_text = extract_message_text(turn.user_message)
+        latest_assistant_text = extract_message_text(turn.assistant_message)
+        recent_turns = [
+            {
+                "user": extract_message_text(payload.get("user_message")),
+                "assistant": extract_message_text(payload.get("assistant_message")),
+            }
+            for payload in recent_payloads
+        ]
+        recent_dialogue_text = "\n".join(_build_dialogue_lines(recent_turns)).strip()
+        return {
+            "umo": turn.umo,
+            "conversation_id": turn.conversation_id or "",
+            "latest_user_text": latest_user_text,
+            "latest_assistant_text": latest_assistant_text,
+            "recent_turns_json": json.dumps(recent_turns, ensure_ascii=False),
+            "recent_dialogue_text": recent_dialogue_text,
+            "recent_turns_window": str(len(recent_turns)),
+        }
 
 
 def _build_turn_summary_parts(
@@ -129,3 +220,19 @@ def _truncate_text(text: str, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3].rstrip() + "..."
+
+
+def _build_dialogue_lines(recent_turns: list[dict[str, str]]) -> list[str]:
+    lines: list[str] = []
+    for turn in recent_turns:
+        if turn.get("user"):
+            lines.append(f"User: {turn['user']}")
+        if turn.get("assistant"):
+            lines.append(f"Assistant: {turn['assistant']}")
+    return lines
+
+
+def _coerce_confidence(value: Any, default: float) -> float:
+    if isinstance(value, int | float):
+        return max(0.0, min(1.0, float(value)))
+    return default

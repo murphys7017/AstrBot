@@ -56,6 +56,34 @@ class MemoryJobsConfig:
     persona_reflection_enabled: bool = False
 
 
+@dataclass(slots=True)
+class MemoryAnalyzerConfig:
+    enabled: bool = True
+    implementation: str = "prompt_json"
+    provider_id: str = ""
+    model: str = ""
+    prompt_file: str = ""
+    output_schema: str = ""
+    timeout_seconds: int = 20
+    temperature: float = 0.0
+
+
+@dataclass(slots=True)
+class MemoryAnalysisStageConfig:
+    analyzers: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class MemoryAnalysisConfig:
+    enabled: bool = False
+    strict: bool = True
+    prompts_root: Path = field(
+        default_factory=lambda: resolve_memory_path("data/memory/prompts")
+    )
+    analyzers: dict[str, MemoryAnalyzerConfig] = field(default_factory=dict)
+    stages: dict[str, MemoryAnalysisStageConfig] = field(default_factory=dict)
+
+
 def resolve_memory_path(path: str | Path) -> Path:
     candidate = Path(path)
     if candidate.is_absolute():
@@ -87,6 +115,7 @@ class MemoryConfig:
     )
     persona: MemoryPersonaConfig = field(default_factory=MemoryPersonaConfig)
     jobs: MemoryJobsConfig = field(default_factory=MemoryJobsConfig)
+    analysis: MemoryAnalysisConfig = field(default_factory=MemoryAnalysisConfig)
 
 
 def get_default_memory_config_path() -> Path:
@@ -129,6 +158,13 @@ def build_default_memory_config_payload() -> dict:
             "consolidation_enabled": True,
             "long_term_enabled": True,
             "persona_reflection_enabled": False,
+        },
+        "analysis": {
+            "enabled": False,
+            "strict": True,
+            "prompts_root": "data/memory/prompts",
+            "analyzers": {},
+            "stages": {},
         },
     }
 
@@ -180,6 +216,58 @@ def _as_str(value: object, default: str) -> str:
     return default
 
 
+def _as_list_of_str(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _as_dict(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _load_analyzer_configs(payload: object) -> dict[str, MemoryAnalyzerConfig]:
+    analyzer_payload = _as_dict(payload)
+    analyzers: dict[str, MemoryAnalyzerConfig] = {}
+    for name, raw_config in analyzer_payload.items():
+        analyzer_name = str(name).strip()
+        if not analyzer_name:
+            continue
+
+        config_payload = _as_dict(raw_config)
+        analyzers[analyzer_name] = MemoryAnalyzerConfig(
+            enabled=_as_bool(config_payload.get("enabled"), True),
+            implementation=_as_str(
+                config_payload.get("implementation"),
+                "prompt_json",
+            ),
+            provider_id=_as_str(config_payload.get("provider_id"), ""),
+            model=_as_str(config_payload.get("model"), ""),
+            prompt_file=_as_str(config_payload.get("prompt_file"), ""),
+            output_schema=_as_str(config_payload.get("output_schema"), ""),
+            timeout_seconds=_as_int(config_payload.get("timeout_seconds"), 20),
+            temperature=_as_float(config_payload.get("temperature"), 0.0),
+        )
+    return analyzers
+
+
+def _load_stage_configs(payload: object) -> dict[str, MemoryAnalysisStageConfig]:
+    stage_payload = _as_dict(payload)
+    stages: dict[str, MemoryAnalysisStageConfig] = {}
+    for name, raw_config in stage_payload.items():
+        stage_name = str(name).strip()
+        if not stage_name:
+            continue
+
+        config_payload = _as_dict(raw_config)
+        stages[stage_name] = MemoryAnalysisStageConfig(
+            analyzers=_as_list_of_str(config_payload.get("analyzers")),
+        )
+    return stages
+
+
 def load_memory_config(path: Path | None = None) -> MemoryConfig:
     config_path = path or get_default_memory_config_path()
     if not config_path.exists():
@@ -206,6 +294,7 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
     )
     persona_payload = payload.get("persona", {}) if isinstance(payload, dict) else {}
     jobs_payload = payload.get("jobs", {}) if isinstance(payload, dict) else {}
+    analysis_payload = payload.get("analysis", {}) if isinstance(payload, dict) else {}
 
     config = MemoryConfig(
         enabled=_as_bool(payload.get("enabled"), True),
@@ -284,6 +373,15 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
                 False,
             ),
         ),
+        analysis=MemoryAnalysisConfig(
+            enabled=_as_bool(analysis_payload.get("enabled"), False),
+            strict=_as_bool(analysis_payload.get("strict"), True),
+            prompts_root=resolve_memory_path(
+                _as_str(analysis_payload.get("prompts_root"), "data/memory/prompts")
+            ),
+            analyzers=_load_analyzer_configs(analysis_payload.get("analyzers")),
+            stages=_load_stage_configs(analysis_payload.get("stages")),
+        ),
     )
     ensure_memory_runtime_dirs(config)
     return config
@@ -295,6 +393,7 @@ def ensure_memory_runtime_dirs(config: MemoryConfig) -> None:
     config.storage.projections_root.mkdir(parents=True, exist_ok=True)
     if config.long_term.docs_dir is not None:
         config.long_term.docs_dir.mkdir(parents=True, exist_ok=True)
+    config.analysis.prompts_root.mkdir(parents=True, exist_ok=True)
 
 
 _MEMORY_CONFIG: MemoryConfig | None = None

@@ -20,6 +20,8 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "storage:" in content
     assert "sqlite_path: data/memory/memory.db" in content
     assert "vector_index:" in content
+    assert "analysis:" in content
+    assert "prompts_root: data/memory/prompts" in content
 
 
 def test_load_memory_config_creates_missing_file_and_uses_defaults(
@@ -44,6 +46,10 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     )
     assert config.storage.docs_root.exists()
     assert config.storage.projections_root.exists()
+    assert config.analysis.prompts_root == (
+        temp_dir / "runtime-root" / "data/memory/prompts"
+    )
+    assert config.analysis.prompts_root.exists()
 
 
 def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
@@ -65,6 +71,21 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
                 "vector_index:",
                 "  enabled: false",
                 "  experience_top_k: 9",
+                "analysis:",
+                "  enabled: true",
+                "  strict: true",
+                '  prompts_root: "custom/prompts"',
+                "  analyzers:",
+                "    emotion_v1:",
+                '      implementation: "prompt_json"',
+                '      provider_id: "memory-lite"',
+                '      prompt_file: "emotion_v1.md"',
+                '      output_schema: "EmotionResult"',
+                "      timeout_seconds: 11",
+                "      temperature: 0.3",
+                "  stages:",
+                "    short_term_update:",
+                '      analyzers: ["emotion_v1"]',
             ]
         ),
         encoding="utf-8",
@@ -85,6 +106,15 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
     assert config.consolidation.min_short_term_updates == 20
     assert config.vector_index.enabled is False
     assert config.vector_index.experience_top_k == 9
+    assert config.analysis.enabled is True
+    assert config.analysis.strict is True
+    assert config.analysis.prompts_root == (
+        temp_dir / "astrbot-root" / "custom/prompts"
+    )
+    assert "emotion_v1" in config.analysis.analyzers
+    assert config.analysis.analyzers["emotion_v1"].provider_id == "memory-lite"
+    assert config.analysis.analyzers["emotion_v1"].prompt_file == "emotion_v1.md"
+    assert config.analysis.stages["short_term_update"].analyzers == ["emotion_v1"]
 
 
 def test_build_default_memory_config_payload_contains_expected_sections():
@@ -99,4 +129,5 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "vector_index",
         "persona",
         "jobs",
+        "analysis",
     }

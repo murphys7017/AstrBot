@@ -202,6 +202,7 @@ class AstrBotCoreLifecycle:
             self.subagent_orchestrator,
         )
         self.memory_service = get_memory_service()
+        self.memory_service.bind_provider_manager(self.provider_manager)
         self.memory_postprocessor = register_memory_postprocessor(self.memory_service)
 
         # 初始化插件管理器

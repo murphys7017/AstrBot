@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .analyzer_manager import MemoryAnalyzerManager
 from .config import get_memory_config
 from .history_source import RecentConversationSource
 from .short_term_service import ShortTermMemoryService
@@ -18,11 +19,16 @@ class MemoryService:
         turn_record_service: TurnRecordService,
         short_term_service: ShortTermMemoryService,
         snapshot_builder: MemorySnapshotBuilder,
+        analyzer_manager: MemoryAnalyzerManager | None = None,
     ) -> None:
         self.store = store
         self.turn_record_service = turn_record_service
         self.short_term_service = short_term_service
         self.snapshot_builder = snapshot_builder
+        self.analyzer_manager = analyzer_manager or MemoryAnalyzerManager()
+
+    def bind_provider_manager(self, provider_manager) -> None:
+        self.analyzer_manager.bind_provider_manager(provider_manager)
 
     async def update_from_postprocess(self, req: MemoryUpdateRequest) -> TurnRecord:
         turn = await self.turn_record_service.ingest_turn(req)
@@ -50,18 +56,25 @@ def get_memory_service() -> MemoryService:
     if _MEMORY_SERVICE is None:
         config = get_memory_config()
         store = MemoryStore(config=config)
+        analyzer_manager = MemoryAnalyzerManager(config.analysis)
         history_source = RecentConversationSource(
             store,
             recent_turns_window=config.short_term.recent_turns_window,
         )
         turn_record_service = TurnRecordService(store)
-        short_term_service = ShortTermMemoryService(store, history_source)
+        short_term_service = ShortTermMemoryService(
+            store,
+            history_source,
+            analyzer_manager=analyzer_manager,
+            analysis_config=config.analysis,
+        )
         snapshot_builder = MemorySnapshotBuilder(store)
         _MEMORY_SERVICE = MemoryService(
             store,
             turn_record_service,
             short_term_service,
             snapshot_builder,
+            analyzer_manager,
         )
     return _MEMORY_SERVICE
 
