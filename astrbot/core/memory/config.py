@@ -7,6 +7,60 @@ import yaml
 
 from astrbot.core.utils.astrbot_path import get_astrbot_root
 
+DEFAULT_MEMORY_ANALYZER_PROMPTS: dict[str, str] = {
+    "topic_v1.md": """You are a memory topic analyzer.
+
+Task:
+- Read the latest conversation window.
+- Identify the current main topic.
+- Summarize that topic briefly.
+- Return JSON only.
+
+Requirements:
+- current_topic: short label or title
+- topic_summary: concise summary of the active topic
+- topic_confidence: float between 0 and 1
+
+Conversation window:
+{recent_dialogue_text}
+
+Latest user:
+{latest_user_text}
+
+Latest assistant:
+{latest_assistant_text}
+""",
+    "focus_v1.md": """You are a memory focus analyzer.
+
+Task:
+- Read the recent dialogue.
+- Identify what should remain active for the next turn.
+- Return JSON only.
+
+Requirements:
+- active_focus: the main unresolved focus, request, or task point
+
+Conversation window:
+{recent_dialogue_text}
+
+Latest user:
+{latest_user_text}
+""",
+    "summary_v1.md": """You are a short-term memory summarizer.
+
+Task:
+- Compress the recent conversation into a short-term memory summary.
+- Keep only information that is useful for the next turn.
+- Return JSON only.
+
+Requirements:
+- short_summary: concise multi-turn summary
+
+Recent turns JSON:
+{recent_turns_json}
+""",
+}
+
 
 @dataclass(slots=True)
 class MemoryStorageConfig:
@@ -163,8 +217,43 @@ def build_default_memory_config_payload() -> dict:
             "enabled": False,
             "strict": True,
             "prompts_root": "data/memory/prompts",
-            "analyzers": {},
-            "stages": {},
+            "analyzers": {
+                "topic_v1": {
+                    "enabled": True,
+                    "implementation": "prompt_json",
+                    "provider_id": "",
+                    "model": "",
+                    "prompt_file": "topic_v1.md",
+                    "output_schema": "TopicStateResult",
+                    "timeout_seconds": 20,
+                    "temperature": 0.0,
+                },
+                "focus_v1": {
+                    "enabled": True,
+                    "implementation": "prompt_json",
+                    "provider_id": "",
+                    "model": "",
+                    "prompt_file": "focus_v1.md",
+                    "output_schema": "ShortTermFocusResult",
+                    "timeout_seconds": 20,
+                    "temperature": 0.0,
+                },
+                "summary_v1": {
+                    "enabled": True,
+                    "implementation": "prompt_json",
+                    "provider_id": "",
+                    "model": "",
+                    "prompt_file": "summary_v1.md",
+                    "output_schema": "ShortTermSummaryResult",
+                    "timeout_seconds": 20,
+                    "temperature": 0.0,
+                },
+            },
+            "stages": {
+                "short_term_update": {
+                    "analyzers": ["topic_v1", "focus_v1", "summary_v1"],
+                }
+            },
         },
     }
 
@@ -394,6 +483,20 @@ def ensure_memory_runtime_dirs(config: MemoryConfig) -> None:
     if config.long_term.docs_dir is not None:
         config.long_term.docs_dir.mkdir(parents=True, exist_ok=True)
     config.analysis.prompts_root.mkdir(parents=True, exist_ok=True)
+    ensure_default_memory_prompt_files(config.analysis.prompts_root)
+
+
+def ensure_default_memory_prompt_files(
+    prompts_root: Path,
+    *,
+    overwrite: bool = False,
+) -> None:
+    prompts_root.mkdir(parents=True, exist_ok=True)
+    for filename, content in DEFAULT_MEMORY_ANALYZER_PROMPTS.items():
+        prompt_path = prompts_root / filename
+        if prompt_path.exists() and not overwrite:
+            continue
+        prompt_path.write_text(content, encoding="utf-8")
 
 
 _MEMORY_CONFIG: MemoryConfig | None = None

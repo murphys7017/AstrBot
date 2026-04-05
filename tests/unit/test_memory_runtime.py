@@ -9,6 +9,7 @@ import pytest
 
 from astrbot.core.db.po import Conversation
 from astrbot.core.memory.analyzer import MemoryAnalyzerResult
+from astrbot.core.memory.analyzers.base import MemoryAnalyzerExecutionError
 from astrbot.core.memory.config import MemoryAnalysisConfig
 from astrbot.core.memory.history_source import (
     RecentConversationSource,
@@ -206,13 +207,75 @@ class StubShortTermAnalyzerManager:
                     "current_topic": "Analyzer topic",
                     "topic_summary": "Analyzer topic summary",
                     "topic_confidence": 0.92,
-                    "short_summary": "Analyzer short summary",
+                },
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+            "focus_v1": MemoryAnalyzerResult(
+                analyzer_name="focus_v1",
+                stage=stage,
+                data={
                     "active_focus": "Analyzer focus",
                 },
                 raw_text="{}",
                 provider_id="memory-lite",
                 model="dummy-model",
-            )
+            ),
+            "summary_v1": MemoryAnalyzerResult(
+                analyzer_name="summary_v1",
+                stage=stage,
+                data={
+                    "short_summary": "Analyzer short summary",
+                },
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+        }
+
+
+class InvalidShortTermAnalyzerManager:
+    async def dispatch_stage(
+        self,
+        stage: str,
+        *,
+        payload: dict[str, object],
+        umo: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, MemoryAnalyzerResult]:
+        del payload, umo, conversation_id
+        return {
+            "topic_v1": MemoryAnalyzerResult(
+                analyzer_name="topic_v1",
+                stage=stage,
+                data={
+                    "current_topic": "Analyzer topic",
+                    "topic_summary": "Analyzer topic summary",
+                    "topic_confidence": "high",
+                },
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+            "focus_v1": MemoryAnalyzerResult(
+                analyzer_name="focus_v1",
+                stage=stage,
+                data={},
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+            "summary_v1": MemoryAnalyzerResult(
+                analyzer_name="summary_v1",
+                stage=stage,
+                data={
+                    "short_summary": "Analyzer short summary",
+                },
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
         }
 
 
@@ -260,6 +323,43 @@ async def test_short_term_memory_service_uses_analyzer_when_enabled(temp_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_short_term_memory_service_raises_on_invalid_analyzer_payload(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    short_term_service = ShortTermMemoryService(
+        store,
+        history_source,
+        analyzer_manager=InvalidShortTermAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+    )
+    turn_record_service = TurnRecordService(store)
+    history = _make_history()
+    req = MemoryUpdateRequest(
+        umo="test:private:user",
+        conversation_id="conv-1",
+        platform_id="test",
+        session_id="session-1",
+        provider_request={"conversation_history": history},
+        user_message=history[-2],
+        assistant_message=history[-1],
+        message_timestamp=datetime.now(UTC),
+        source_refs=["conversation:conv-1"],
+    )
+
+    try:
+        turn = await turn_record_service.ingest_turn(req)
+        with pytest.raises(MemoryAnalyzerExecutionError):
+            await short_term_service.update_after_turn(
+                turn,
+                conversation_history=history,
+            )
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_service_update_and_snapshot_form_closed_loop(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
@@ -303,6 +403,30 @@ async def test_memory_service_update_and_snapshot_form_closed_loop(temp_dir: Pat
     assert snapshot_after.experiences == []
     assert snapshot_after.long_term_memories == []
     assert snapshot_after.persona_state is None
+    assert snapshot_after.debug_meta == {}
+
+
+@pytest.mark.asyncio
+async def test_memory_service_snapshot_keeps_query_as_debug_meta(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    snapshot_builder = MemorySnapshotBuilder(store)
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(store, RecentConversationSource(store)),
+        snapshot_builder,
+    )
+
+    try:
+        snapshot = await memory_service.get_snapshot(
+            "test:private:user",
+            "conv-1",
+            query="memory lookup query",
+        )
+    finally:
+        await store.close()
+
+    assert snapshot.debug_meta == {"query": "memory lookup query"}
 
 
 @pytest.mark.asyncio

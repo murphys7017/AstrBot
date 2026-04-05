@@ -3,11 +3,33 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from astrbot.core import logger
+
 from .analyzer_manager import MemoryAnalyzerManager
+from .analyzers.base import (
+    MemoryAnalyzerConfigurationError,
+    MemoryAnalyzerExecutionError,
+)
 from .config import MemoryAnalysisConfig
 from .history_source import RecentConversationSource, extract_message_text
 from .store import MemoryStore
 from .types import ShortTermMemory, TopicState, TurnRecord
+
+TOPIC_ANALYZER_NAME = "topic_v1"
+FOCUS_ANALYZER_NAME = "focus_v1"
+SUMMARY_ANALYZER_NAME = "summary_v1"
+
+TOPIC_ANALYZER_FIELDS = {
+    "current_topic": str,
+    "topic_summary": str,
+    "topic_confidence": (int, float),
+}
+FOCUS_ANALYZER_FIELDS = {
+    "active_focus": str,
+}
+SUMMARY_ANALYZER_FIELDS = {
+    "short_summary": str,
+}
 
 
 class ShortTermMemoryService:
@@ -156,16 +178,32 @@ class ShortTermMemoryService:
             raise RuntimeError("short term analysis requested without analyzer manager")
 
         payload = self._build_short_term_analysis_payload(turn, recent_payloads)
+        logger.info(
+            "memory short-term analysis started: stage=%s umo=%s conversation_id=%s analyzers=%s",
+            "short_term_update",
+            turn.umo,
+            turn.conversation_id,
+            [
+                TOPIC_ANALYZER_NAME,
+                FOCUS_ANALYZER_NAME,
+                SUMMARY_ANALYZER_NAME,
+            ],
+        )
         results = await self.analyzer_manager.dispatch_stage(
             "short_term_update",
             payload=payload,
             umo=turn.umo,
             conversation_id=turn.conversation_id,
         )
-        merged: dict[str, Any] = {}
-        for result in results.values():
-            merged.update(result.data)
-        return merged
+        analyzed = self._build_short_term_analysis_result(results)
+        logger.info(
+            "memory short-term analysis finished: stage=%s umo=%s conversation_id=%s keys=%s",
+            "short_term_update",
+            turn.umo,
+            turn.conversation_id,
+            sorted(analyzed),
+        )
+        return analyzed
 
     def _build_short_term_analysis_payload(
         self,
@@ -191,6 +229,98 @@ class ShortTermMemoryService:
             "recent_dialogue_text": recent_dialogue_text,
             "recent_turns_window": str(len(recent_turns)),
         }
+
+    def _build_short_term_analysis_result(
+        self,
+        results: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not isinstance(results, dict):
+            raise MemoryAnalyzerExecutionError(
+                "short_term_update returned invalid analyzer results"
+            )
+
+        topic_result = self._get_required_analyzer_result(results, TOPIC_ANALYZER_NAME)
+        focus_result = self._get_required_analyzer_result(results, FOCUS_ANALYZER_NAME)
+        summary_result = self._get_required_analyzer_result(
+            results,
+            SUMMARY_ANALYZER_NAME,
+        )
+
+        topic_data = self._validate_analyzer_payload(
+            analyzer_name=TOPIC_ANALYZER_NAME,
+            data=getattr(topic_result, "data", None),
+            required_fields=TOPIC_ANALYZER_FIELDS,
+        )
+        focus_data = self._validate_analyzer_payload(
+            analyzer_name=FOCUS_ANALYZER_NAME,
+            data=getattr(focus_result, "data", None),
+            required_fields=FOCUS_ANALYZER_FIELDS,
+        )
+        summary_data = self._validate_analyzer_payload(
+            analyzer_name=SUMMARY_ANALYZER_NAME,
+            data=getattr(summary_result, "data", None),
+            required_fields=SUMMARY_ANALYZER_FIELDS,
+        )
+
+        return {
+            "current_topic": topic_data["current_topic"],
+            "topic_summary": topic_data["topic_summary"],
+            "topic_confidence": float(topic_data["topic_confidence"]),
+            "active_focus": focus_data["active_focus"],
+            "short_summary": summary_data["short_summary"],
+        }
+
+    def _get_required_analyzer_result(
+        self,
+        results: dict[str, Any],
+        analyzer_name: str,
+    ) -> Any:
+        result = results.get(analyzer_name)
+        if result is None:
+            raise MemoryAnalyzerConfigurationError(
+                f"short_term_update missing required analyzer `{analyzer_name}`"
+            )
+        logger.info(
+            "memory analyzer result received: analyzer=%s provider_id=%s model=%s keys=%s",
+            analyzer_name,
+            getattr(result, "provider_id", None),
+            getattr(result, "model", None),
+            sorted(getattr(result, "data", {}).keys())
+            if isinstance(getattr(result, "data", None), dict)
+            else [],
+        )
+        return result
+
+    def _validate_analyzer_payload(
+        self,
+        *,
+        analyzer_name: str,
+        data: Any,
+        required_fields: dict[str, type | tuple[type, ...]],
+    ) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            raise MemoryAnalyzerExecutionError(
+                f"analyzer `{analyzer_name}` returned invalid payload"
+            )
+
+        validated: dict[str, Any] = {}
+        for field_name, expected_type in required_fields.items():
+            value = data.get(field_name)
+            if not self._is_non_empty_value(value):
+                raise MemoryAnalyzerExecutionError(
+                    f"analyzer `{analyzer_name}` missing required field `{field_name}`"
+                )
+            if not isinstance(value, expected_type):
+                raise MemoryAnalyzerExecutionError(
+                    f"analyzer `{analyzer_name}` field `{field_name}` has invalid type"
+                )
+            validated[field_name] = value
+        return validated
+
+    def _is_non_empty_value(self, value: Any) -> bool:
+        if isinstance(value, str):
+            return bool(value.strip())
+        return value is not None
 
 
 def _build_turn_summary_parts(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from astrbot.core.memory.config import (
+    DEFAULT_MEMORY_ANALYZER_PROMPTS,
     build_default_memory_config_payload,
     ensure_memory_config_file,
     load_memory_config,
@@ -22,6 +23,9 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "vector_index:" in content
     assert "analysis:" in content
     assert "prompts_root: data/memory/prompts" in content
+    assert "topic_v1:" in content
+    assert "focus_v1:" in content
+    assert "summary_v1:" in content
 
 
 def test_load_memory_config_creates_missing_file_and_uses_defaults(
@@ -50,6 +54,8 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
         temp_dir / "runtime-root" / "data/memory/prompts"
     )
     assert config.analysis.prompts_root.exists()
+    for prompt_name in DEFAULT_MEMORY_ANALYZER_PROMPTS:
+        assert (config.analysis.prompts_root / prompt_name).exists()
 
 
 def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
@@ -131,3 +137,13 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "jobs",
         "analysis",
     }
+    assert payload["analysis"]["analyzers"]["topic_v1"]["prompt_file"] == "topic_v1.md"
+    assert payload["analysis"]["analyzers"]["focus_v1"]["prompt_file"] == "focus_v1.md"
+    assert (
+        payload["analysis"]["analyzers"]["summary_v1"]["prompt_file"] == "summary_v1.md"
+    )
+    assert payload["analysis"]["stages"]["short_term_update"]["analyzers"] == [
+        "topic_v1",
+        "focus_v1",
+        "summary_v1",
+    ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from astrbot.core import logger
 from astrbot.core.provider.provider import Provider
 
 from .analyzers.base import (
@@ -39,7 +40,12 @@ class MemoryAnalyzerManager:
             raise MemoryAnalyzerConfigurationError(
                 f"memory analysis stage `{stage}` is not configured"
             )
-        return list(stage_config.analyzers)
+        analyzers = list(stage_config.analyzers)
+        if not analyzers:
+            raise MemoryAnalyzerConfigurationError(
+                f"memory analysis stage `{stage}` has no analyzers configured"
+            )
+        return analyzers
 
     async def dispatch_stage(
         self,
@@ -49,8 +55,17 @@ class MemoryAnalyzerManager:
         umo: str | None = None,
         conversation_id: str | None = None,
     ) -> dict[str, MemoryAnalyzerResult]:
+        analyzer_names = self.get_stage_analyzers(stage)
+        logger.info(
+            "memory analyzer stage dispatch started: stage=%s umo=%s conversation_id=%s analyzers=%s strict=%s",
+            stage,
+            umo,
+            conversation_id,
+            analyzer_names,
+            self.analysis_config.strict,
+        )
         results: dict[str, MemoryAnalyzerResult] = {}
-        for analyzer_name in self.get_stage_analyzers(stage):
+        for analyzer_name in analyzer_names:
             results[analyzer_name] = await self.run_analyzer(
                 analyzer_name,
                 payload=payload,
@@ -58,6 +73,11 @@ class MemoryAnalyzerManager:
                 umo=umo,
                 conversation_id=conversation_id,
             )
+        logger.info(
+            "memory analyzer stage dispatch finished: stage=%s analyzers=%s",
+            stage,
+            list(results),
+        )
         return results
 
     async def run_analyzer(
@@ -95,7 +115,23 @@ class MemoryAnalyzerManager:
             umo=umo,
             conversation_id=conversation_id,
         )
-        return await implementation.analyze(request)
+        logger.info(
+            "memory analyzer execution started: analyzer=%s implementation=%s provider_id=%s model=%s stage=%s",
+            analyzer_name,
+            analyzer_config.implementation,
+            analyzer_config.provider_id,
+            analyzer_config.model or None,
+            stage,
+        )
+        result = await implementation.analyze(request)
+        logger.info(
+            "memory analyzer execution finished: analyzer=%s keys=%s provider_id=%s model=%s",
+            analyzer_name,
+            sorted(result.data),
+            result.provider_id,
+            result.model,
+        )
+        return result
 
     def _get_analyzer_config(self, analyzer_name: str) -> MemoryAnalyzerConfig:
         if not self.analysis_config.enabled:
