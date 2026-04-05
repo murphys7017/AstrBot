@@ -5,12 +5,14 @@
 """
 
 from .input_collector import InputCollector
+from .memory_collector import MemoryCollector
 from .persona_collector import PersonaCollector
 from .policy_collector import PolicyCollector
 from .session_collector import SessionCollector
 
 __all__ = [
     "InputCollector",
+    "MemoryCollector",
     "PolicyCollector",
     "PersonaCollector",
     "SessionCollector",

@@ -14,6 +14,7 @@ from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.star.context import Context
 
 from .collectors.input_collector import InputCollector
+from .collectors.memory_collector import MemoryCollector
 from .collectors.persona_collector import PersonaCollector
 from .collectors.policy_collector import PolicyCollector
 from .collectors.session_collector import SessionCollector
@@ -26,7 +27,13 @@ PROMPT_CONTEXT_PACK_EXTRA_KEY = "prompt_context_pack"
 
 def _default_collectors() -> list[ContextCollectorInterface]:
     """Return the collectors enabled for the current phase."""
-    return [PersonaCollector(), InputCollector(), SessionCollector(), PolicyCollector()]
+    return [
+        PersonaCollector(),
+        InputCollector(),
+        SessionCollector(),
+        PolicyCollector(),
+        MemoryCollector(),
+    ]
 
 
 def _stringify_value_preview(value: object, *, max_len: int = 400) -> str:

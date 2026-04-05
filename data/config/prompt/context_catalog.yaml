@@ -1,0 +1,230 @@
+# Context Catalog - AstrBot Context Definition (Phase 1)
+# Version: 0.2-astrbot
+#
+# This file defines WHAT context items are available in the system.
+# It is declarative configuration - no logic, just metadata.
+#
+# Category Enums: system / persona / memory / input / rag / tools / session
+# Lifecycle Enums: static / session / rolling / ephemeral / dynamic
+# Slots (stable interface): system / persona / history / user_input / rag_context / tools
+
+version: "0.2-astrbot"
+
+contexts:
+  # ========== System 类 (static) ==========
+  - id: system.base
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "系统基础 prompt（safety 等）"
+
+  - id: system.tool_call_instruction
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "工具调用规则说明"
+
+  # ========== Persona 类 (session) ==========
+  - id: persona.prompt
+    category: persona
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: session
+    notes: "人格设定 prompt"
+
+  - id: persona.segments
+    category: persona
+    slots: [persona]
+    required: false
+    multiple: false
+    lifecycle: session
+    notes: "从 legacy persona prompt 解析出的结构化 segments"
+
+  - id: persona.begin_dialogs
+    category: persona
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: session
+    notes: "人格开场对话"
+
+  - id: persona.tools_whitelist
+    category: persona
+    slots: [tools]
+    required: false
+    multiple: false
+    lifecycle: session
+    notes: "人格配置的工具白名单"
+
+  - id: persona.skills_whitelist
+    category: persona
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: session
+    notes: "人格配置的技能白名单"
+
+  # ========== Memory 类 (rolling) ==========
+  - id: conversation.history
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "对话历史记录"
+
+  - id: memory.topic_state
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "当前会话的主题状态快照，包含 current_topic、topic_summary、topic_confidence"
+
+  - id: memory.short_term
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "当前会话的短期记忆快照，包含 short_summary 和 active_focus"
+
+  # ========== Input 类 (ephemeral) ==========
+  - id: input.text
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: false
+    lifecycle: ephemeral
+    notes: "当前用户输入的文本；附件-only 输入允许无文本"
+
+  - id: input.images
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "当前输入的图片列表；slot.value 为 list 结构"
+
+  - id: input.quoted_text
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: false
+    lifecycle: ephemeral
+    notes: "引用消息的文本"
+
+  - id: input.quoted_images
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "引用消息的图片；slot.value 为 list 结构"
+
+  - id: input.files
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "上传的文件；slot.value 为 list 结构"
+
+  # ========== RAG 类 (ephemeral) ==========
+  - id: knowledge.snippets
+    category: rag
+    slots: [rag_context]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "知识库检索结果（允许多个片段）"
+
+  # ========== Tools 类 (dynamic) ==========
+  - id: capability.skills_prompt
+    category: tools
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: dynamic
+    notes: "Skills 的 prompt 说明"
+
+  - id: capability.tools_schema
+    category: tools
+    slots: [tools]
+    required: false
+    multiple: true
+    lifecycle: dynamic
+    notes: "Tools 的 JSON Schema（允许多个）"
+
+  - id: capability.subagent_handoff_tools
+    category: tools
+    slots: [tools]
+    required: false
+    multiple: true
+    lifecycle: dynamic
+    notes: "子代理委派工具（允许多个）"
+
+  - id: capability.subagent_router_prompt
+    category: tools
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: dynamic
+    notes: "子代理路由说明 prompt"
+
+  # ========== Policy 类 (static) ==========
+  - id: policy.safety_prompt
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "安全策略 prompt"
+
+  - id: policy.sandbox_prompt
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "沙箱运行时 prompt"
+
+  # ========== Session 类 (ephemeral) ==========
+  - id: session.datetime
+    category: session
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: ephemeral
+    notes: "当前时间"
+
+  - id: session.user_info
+    category: session
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: ephemeral
+    notes: "用户信息（脱敏）"
+    meta:
+      llm_exposure: redacted
+      redact_fn: "mask_sensitive_info"
+
+# ========== Design Notes ==========
+#
+# Phase 1 Scope (Current):
+# - Define WHAT context exists (this catalog)
+# - Define data models (ContextSlot, ContextPack)
+#
+# Phase 1 NOT Doing:
+# - priority / ordering (wait for Selector phase)
+# - token budgeting (wait for Selector phase)
+# - prompt templating (wait for Renderer phase)
+#
+# Future Phases:
+# - Selector: chooses which items to include based on intent
+# - Renderer: renders selected items to LLM messages

@@ -1,5 +1,6 @@
 """Tests for prompt context collection."""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,9 +11,11 @@ from astrbot.core.astr_main_agent_resources import (
     LLM_SAFETY_MODE_SYSTEM_PROMPT,
     SANDBOX_MODE_PROMPT,
 )
+from astrbot.core.memory.types import MemorySnapshot, ShortTermMemory, TopicState
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.collectors import (
     InputCollector,
+    MemoryCollector,
     PolicyCollector,
     SessionCollector,
 )
@@ -73,6 +76,23 @@ def _make_conversation(persona_id=None):
     conversation.persona_id = persona_id
     conversation.history = "[]"
     return conversation
+
+
+@pytest.fixture(autouse=True)
+def _patch_memory_service():
+    service = MagicMock()
+    service.get_snapshot = AsyncMock(
+        return_value=MemorySnapshot(
+            umo="test_platform:private:test-session",
+            conversation_id="conv-id",
+        )
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.memory_collector.get_memory_service",
+        return_value=service,
+    ):
+        yield service
 
 
 @pytest.mark.asyncio
@@ -600,6 +620,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
     event, _ = _make_event()
     context = _make_context()
     req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
     context.persona_manager.resolve_selected_persona = AsyncMock(
         return_value=(None, None, None, False)
     )
@@ -616,6 +637,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "InputCollector",
         "SessionCollector",
         "PolicyCollector",
+        "MemoryCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
@@ -713,6 +735,152 @@ async def test_collect_context_pack_skips_policy_sandbox_prompt_for_local_runtim
     )
 
     assert pack.get_slot("policy.sandbox_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_memory_slots_from_snapshot(
+    _patch_memory_service,
+):
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="effective prompt")
+    req.conversation = _make_conversation()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    snapshot = MemorySnapshot(
+        umo=event.unified_msg_origin,
+        conversation_id="conv-id",
+        topic_state=TopicState(
+            umo=event.unified_msg_origin,
+            conversation_id="conv-id",
+            current_topic="Prompt pipeline",
+            topic_summary="We are designing a memory collector.",
+            topic_confidence=0.92,
+            last_active_at=datetime(2026, 4, 5, 12, 30, 0),
+        ),
+        short_term_memory=ShortTermMemory(
+            umo=event.unified_msg_origin,
+            conversation_id="conv-id",
+            short_summary="Discussed memory snapshot integration.",
+            active_focus="MemoryCollector v1",
+            updated_at=datetime(2026, 4, 5, 12, 31, 0),
+        ),
+    )
+    _patch_memory_service.get_snapshot.return_value = snapshot
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[MemoryCollector()],
+    )
+
+    _patch_memory_service.get_snapshot.assert_awaited_once_with(
+        umo=event.unified_msg_origin,
+        conversation_id="conv-id",
+        query="effective prompt",
+    )
+
+    topic_slot = pack.get_slot("memory.topic_state")
+    assert topic_slot is not None
+    assert topic_slot.value == {
+        "umo": event.unified_msg_origin,
+        "conversation_id": "conv-id",
+        "current_topic": "Prompt pipeline",
+        "topic_summary": "We are designing a memory collector.",
+        "topic_confidence": 0.92,
+        "last_active_at": "2026-04-05T12:30:00",
+    }
+    assert topic_slot.meta["snapshot_field"] == "topic_state"
+
+    short_term_slot = pack.get_slot("memory.short_term")
+    assert short_term_slot is not None
+    assert short_term_slot.value == {
+        "umo": event.unified_msg_origin,
+        "conversation_id": "conv-id",
+        "short_summary": "Discussed memory snapshot integration.",
+        "active_focus": "MemoryCollector v1",
+        "updated_at": "2026-04-05T12:31:00",
+    }
+    assert short_term_slot.meta["snapshot_field"] == "short_term_memory"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_memory_skips_empty_snapshot(_patch_memory_service):
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    _patch_memory_service.get_snapshot.return_value = MemorySnapshot(
+        umo=event.unified_msg_origin,
+        conversation_id="conv-id",
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[MemoryCollector()],
+    )
+
+    assert pack.get_slot("memory.topic_state") is None
+    assert pack.get_slot("memory.short_term") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_memory_uses_none_conversation_id_without_request(
+    _patch_memory_service,
+):
+    event, _ = _make_event()
+    event.message_str = "raw event text"
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[MemoryCollector()],
+    )
+
+    _patch_memory_service.get_snapshot.assert_awaited_once_with(
+        umo=event.unified_msg_origin,
+        conversation_id=None,
+        query="raw event text",
+    )
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_memory_fail_open_when_snapshot_request_raises(
+    _patch_memory_service,
+):
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    _patch_memory_service.get_snapshot.side_effect = RuntimeError("memory down")
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[MemoryCollector()],
+    )
+
+    assert pack.get_slot("memory.topic_state") is None
+    assert pack.get_slot("memory.short_term") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):
