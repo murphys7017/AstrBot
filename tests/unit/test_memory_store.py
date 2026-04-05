@@ -230,9 +230,22 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             ScopeType.USER,
             "test:private:user",
         )
+        latest_insight = await store.get_latest_session_insight(
+            "test:private:user",
+            "conv-1",
+        )
+        turns_in_range = await store.list_turn_records_by_time_range(
+            "test:private:user",
+            "conv-1",
+            now - timedelta(minutes=5),
+            now + timedelta(minutes=5),
+        )
 
         assert saved_insight.insight_id == "insight-1"
         assert saved_experience.experience_id == "exp-1"
+        assert latest_insight is not None
+        assert latest_insight.insight_id == "insight-1"
+        assert turns_in_range == []
         assert recent_experiences[0].summary == "Implemented memory store foundation"
         assert len(ranged_experiences) == 1
         assert saved_memory.memory_id == "ltm-1"
@@ -241,5 +254,51 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
         assert loaded_state is not None
         assert loaded_state.directness_preference == 0.9
         assert saved_log.reason == "Repeated productive collaboration"
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_store_lists_turn_records_by_time_range(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_turn_record(
+            TurnRecord(
+                turn_id="turn-1",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                user_message={"role": "user", "content": "hello"},
+                assistant_message={"role": "assistant", "content": "hi"},
+                message_timestamp=now - timedelta(minutes=3),
+                source_refs=[],
+                created_at=now,
+            )
+        )
+        await store.save_turn_record(
+            TurnRecord(
+                turn_id="turn-2",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                user_message={"role": "user", "content": "second"},
+                assistant_message={"role": "assistant", "content": "reply"},
+                message_timestamp=now - timedelta(minutes=1),
+                source_refs=[],
+                created_at=now,
+            )
+        )
+
+        turns = await store.list_turn_records_by_time_range(
+            "test:private:user",
+            "conv-1",
+            now - timedelta(minutes=2),
+        )
+
+        assert [turn.turn_id for turn in turns] == ["turn-2"]
     finally:
         await store.close()

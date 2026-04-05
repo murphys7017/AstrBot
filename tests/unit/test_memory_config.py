@@ -26,6 +26,8 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "topic_v1:" in content
     assert "focus_v1:" in content
     assert "summary_v1:" in content
+    assert "session_insight_v1:" in content
+    assert "experience_extract_v1:" in content
 
 
 def test_load_memory_config_creates_missing_file_and_uses_defaults(
@@ -142,8 +144,22 @@ def test_build_default_memory_config_payload_contains_expected_sections():
     assert (
         payload["analysis"]["analyzers"]["summary_v1"]["prompt_file"] == "summary_v1.md"
     )
+    assert (
+        payload["analysis"]["analyzers"]["session_insight_v1"]["prompt_file"]
+        == "session_insight_v1.md"
+    )
+    assert (
+        payload["analysis"]["analyzers"]["experience_extract_v1"]["prompt_file"]
+        == "experience_extract_v1.md"
+    )
     assert payload["analysis"]["stages"]["short_term_update"]["analyzers"] == [
         "topic_v1",
         "focus_v1",
         "summary_v1",
+    ]
+    assert payload["analysis"]["stages"]["session_insight_update"]["analyzers"] == [
+        "session_insight_v1",
+    ]
+    assert payload["analysis"]["stages"]["experience_extract"]["analyzers"] == [
+        "experience_extract_v1",
     ]

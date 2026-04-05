@@ -59,6 +59,69 @@ Requirements:
 Recent turns JSON:
 {recent_turns_json}
 """,
+    "session_insight_v1.md": """You are a memory consolidation analyzer.
+
+Task:
+- Read the recent batch of turns and the short-term state.
+- Produce a session-level insight.
+- Return JSON only.
+
+Requirements:
+- topic_summary: concise topic-level summary
+- progress_summary: concise progress summary
+- summary_text: overall session insight text
+
+Short-term topic:
+{topic_state_current_topic}
+
+Short-term topic summary:
+{topic_state_summary}
+
+Short-term summary:
+{short_term_summary}
+
+Active focus:
+{short_term_active_focus}
+
+Recent dialogue:
+{recent_dialogue_text}
+""",
+    "experience_extract_v1.md": """You are a memory experience extractor.
+
+Task:
+- Read the session insight and supporting turns.
+- Extract timeline experiences worth keeping.
+- Return JSON only.
+
+Requirements:
+- experiences: list of objects
+- each object must contain:
+  - category
+  - summary
+  - detail_summary
+  - importance
+  - confidence
+
+Allowed categories:
+- user_fact
+- user_preference
+- project_progress
+- interaction_pattern
+- relationship_signal
+- episodic_event
+
+Session topic summary:
+{insight_topic_summary}
+
+Session progress summary:
+{insight_progress_summary}
+
+Session overall summary:
+{insight_summary_text}
+
+Recent dialogue:
+{recent_dialogue_text}
+""",
 }
 
 
@@ -248,11 +311,37 @@ def build_default_memory_config_payload() -> dict:
                     "timeout_seconds": 20,
                     "temperature": 0.0,
                 },
+                "session_insight_v1": {
+                    "enabled": True,
+                    "implementation": "prompt_json",
+                    "provider_id": "",
+                    "model": "",
+                    "prompt_file": "session_insight_v1.md",
+                    "output_schema": "SessionInsightResult",
+                    "timeout_seconds": 20,
+                    "temperature": 0.0,
+                },
+                "experience_extract_v1": {
+                    "enabled": True,
+                    "implementation": "prompt_json",
+                    "provider_id": "",
+                    "model": "",
+                    "prompt_file": "experience_extract_v1.md",
+                    "output_schema": "ExperienceExtractResult",
+                    "timeout_seconds": 20,
+                    "temperature": 0.0,
+                },
             },
             "stages": {
                 "short_term_update": {
                     "analyzers": ["topic_v1", "focus_v1", "summary_v1"],
-                }
+                },
+                "session_insight_update": {
+                    "analyzers": ["session_insight_v1"],
+                },
+                "experience_extract": {
+                    "analyzers": ["experience_extract_v1"],
+                },
             },
         },
     }

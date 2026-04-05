@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +10,12 @@ import pytest
 from astrbot.core.db.po import Conversation
 from astrbot.core.memory.analyzer import MemoryAnalyzerResult
 from astrbot.core.memory.analyzers.base import MemoryAnalyzerExecutionError
-from astrbot.core.memory.config import MemoryAnalysisConfig
+from astrbot.core.memory.config import (
+    MemoryAnalysisConfig,
+    MemoryConsolidationConfig,
+)
+from astrbot.core.memory.consolidation_service import ConsolidationService
+from astrbot.core.memory.experience_service import ExperienceService
 from astrbot.core.memory.history_source import (
     RecentConversationSource,
     extract_turn_payloads,
@@ -25,7 +30,12 @@ from astrbot.core.memory.short_term_service import ShortTermMemoryService
 from astrbot.core.memory.snapshot_builder import MemorySnapshotBuilder
 from astrbot.core.memory.store import MemoryStore
 from astrbot.core.memory.turn_record_service import TurnRecordService
-from astrbot.core.memory.types import MemoryUpdateRequest
+from astrbot.core.memory.types import (
+    MemoryUpdateRequest,
+    SessionInsight,
+    ShortTermMemory,
+    TopicState,
+)
 from astrbot.core.postprocess import get_postprocess_manager
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
@@ -279,6 +289,114 @@ class InvalidShortTermAnalyzerManager:
         }
 
 
+class StubConsolidationAnalyzerManager:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def dispatch_stage(
+        self,
+        stage: str,
+        *,
+        payload: dict[str, object],
+        umo: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, MemoryAnalyzerResult]:
+        del payload, umo, conversation_id
+        self.calls.append(stage)
+        if stage == "session_insight_update":
+            return {
+                "session_insight_v1": MemoryAnalyzerResult(
+                    analyzer_name="session_insight_v1",
+                    stage=stage,
+                    data={
+                        "topic_summary": "Session topic summary",
+                        "progress_summary": "Session progress summary",
+                        "summary_text": "Session insight overall summary",
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        if stage == "experience_extract":
+            return {
+                "experience_extract_v1": MemoryAnalyzerResult(
+                    analyzer_name="experience_extract_v1",
+                    stage=stage,
+                    data={
+                        "experiences": [
+                            {
+                                "category": "project_progress",
+                                "summary": "Progress moved forward",
+                                "detail_summary": "The implementation advanced after discussion.",
+                                "importance": 0.82,
+                                "confidence": 0.91,
+                            },
+                            {
+                                "category": "episodic_event",
+                                "summary": "A memory milestone was reached",
+                                "detail_summary": "The team completed the short-term memory phase.",
+                                "importance": 0.75,
+                                "confidence": 0.88,
+                            },
+                        ]
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        raise AssertionError(f"Unexpected stage: {stage}")
+
+
+class InvalidConsolidationAnalyzerManager:
+    async def dispatch_stage(
+        self,
+        stage: str,
+        *,
+        payload: dict[str, object],
+        umo: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, MemoryAnalyzerResult]:
+        del payload, umo, conversation_id
+        if stage == "session_insight_update":
+            return {
+                "session_insight_v1": MemoryAnalyzerResult(
+                    analyzer_name="session_insight_v1",
+                    stage=stage,
+                    data={
+                        "topic_summary": "Session topic summary",
+                        "progress_summary": "Session progress summary",
+                        "summary_text": "Session insight overall summary",
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        if stage == "experience_extract":
+            return {
+                "experience_extract_v1": MemoryAnalyzerResult(
+                    analyzer_name="experience_extract_v1",
+                    stage=stage,
+                    data={
+                        "experiences": [
+                            {
+                                "category": "unknown_type",
+                                "summary": "Bad category",
+                                "importance": 0.5,
+                                "confidence": 0.5,
+                            }
+                        ]
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        raise AssertionError(f"Unexpected stage: {stage}")
+
+
 @pytest.mark.asyncio
 async def test_short_term_memory_service_uses_analyzer_when_enabled(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
@@ -427,6 +545,286 @@ async def test_memory_service_snapshot_keeps_query_as_debug_meta(temp_dir: Path)
         await store.close()
 
     assert snapshot.debug_meta == {"query": "memory lookup query"}
+
+
+@pytest.mark.asyncio
+async def test_consolidation_service_runs_when_pending_turns_reach_threshold(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    analyzer_manager = StubConsolidationAnalyzerManager()
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=2,
+        ),
+    )
+    turn_record_service = TurnRecordService(store)
+    now = datetime.now(UTC)
+
+    try:
+        first_turn = await turn_record_service.ingest_turn(
+            MemoryUpdateRequest(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                provider_request=None,
+                user_message={"role": "user", "content": "First turn"},
+                assistant_message={"role": "assistant", "content": "First reply"},
+                message_timestamp=now,
+                source_refs=[],
+            )
+        )
+        second_turn = await turn_record_service.ingest_turn(
+            MemoryUpdateRequest(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                provider_request=None,
+                user_message={"role": "user", "content": "Second turn"},
+                assistant_message={"role": "assistant", "content": "Second reply"},
+                message_timestamp=now + timedelta(microseconds=1),
+                source_refs=[],
+            )
+        )
+        await store.upsert_topic_state(
+            TopicState(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                current_topic="Memory work",
+                topic_summary="Working on memory consolidation",
+                topic_confidence=0.9,
+                last_active_at=second_turn.message_timestamp,
+            )
+        )
+        await store.upsert_short_term_memory(
+            ShortTermMemory(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                short_summary="Two turns happened",
+                active_focus="Consolidate them",
+                updated_at=second_turn.message_timestamp,
+            )
+        )
+
+        should_run = await consolidation_service.should_run_consolidation(
+            "test:private:user",
+            "conv-1",
+        )
+        insight, experiences = await consolidation_service.run_for_scope(
+            "test:private:user",
+            "conv-1",
+        )
+    finally:
+        await store.close()
+
+    assert first_turn.turn_id
+    assert should_run is True
+    assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
+    assert insight is not None
+    assert insight.topic_summary == "Session topic summary"
+    assert len(experiences) == 2
+    assert experiences[0].scope_id == "conv-1"
+    assert experiences[0].source_refs[-1].startswith("insight:")
+
+
+@pytest.mark.asyncio
+async def test_consolidation_service_only_counts_turns_after_latest_insight(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=StubConsolidationAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=2,
+        ),
+    )
+    turn_record_service = TurnRecordService(store)
+    now = datetime.now(UTC)
+
+    try:
+        await turn_record_service.ingest_turn(
+            MemoryUpdateRequest(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                provider_request=None,
+                user_message={"role": "user", "content": "Old turn"},
+                assistant_message={"role": "assistant", "content": "Old reply"},
+                message_timestamp=now,
+                source_refs=[],
+            )
+        )
+        await store.save_session_insight(
+            SessionInsight(
+                insight_id="insight-1",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                window_start_at=now,
+                window_end_at=now,
+                topic_summary="Old insight",
+                progress_summary="Old progress",
+                summary_text="Old summary",
+                created_at=now,
+            )
+        )
+        await turn_record_service.ingest_turn(
+            MemoryUpdateRequest(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                provider_request=None,
+                user_message={"role": "user", "content": "New turn 1"},
+                assistant_message={"role": "assistant", "content": "New reply 1"},
+                message_timestamp=now + timedelta(microseconds=1),
+                source_refs=[],
+            )
+        )
+        await turn_record_service.ingest_turn(
+            MemoryUpdateRequest(
+                umo="test:private:user",
+                conversation_id="conv-1",
+                platform_id="test",
+                session_id="session-1",
+                provider_request=None,
+                user_message={"role": "user", "content": "New turn 2"},
+                assistant_message={"role": "assistant", "content": "New reply 2"},
+                message_timestamp=now + timedelta(microseconds=2),
+                source_refs=[],
+            )
+        )
+
+        should_run = await consolidation_service.should_run_consolidation(
+            "test:private:user",
+            "conv-1",
+        )
+    finally:
+        await store.close()
+
+    assert should_run is True
+
+
+@pytest.mark.asyncio
+async def test_memory_service_update_triggers_and_persists_consolidation(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    turn_record_service = TurnRecordService(store)
+    short_term_service = ShortTermMemoryService(store, history_source)
+    analyzer_manager = StubConsolidationAnalyzerManager()
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=2,
+        ),
+    )
+    experience_service = ExperienceService(store)
+    memory_service = MemoryService(
+        store,
+        turn_record_service,
+        short_term_service,
+        MemorySnapshotBuilder(store),
+        consolidation_service=consolidation_service,
+        experience_service=experience_service,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for index in range(2):
+            await memory_service.update_from_postprocess(
+                MemoryUpdateRequest(
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    platform_id="test",
+                    session_id="session-1",
+                    provider_request=None,
+                    user_message={"role": "user", "content": f"Turn {index}"},
+                    assistant_message={
+                        "role": "assistant",
+                        "content": f"Reply {index}",
+                    },
+                    message_timestamp=now + timedelta(microseconds=index),
+                    source_refs=[],
+                )
+            )
+
+        latest_insight = await store.get_latest_session_insight(
+            "test:private:user",
+            "conv-1",
+        )
+        experiences = await store.list_recent_experiences("test:private:user", 10)
+        snapshot = await memory_service.get_snapshot("test:private:user", "conv-1")
+    finally:
+        await store.close()
+
+    assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
+    assert latest_insight is not None
+    assert len(experiences) == 2
+    assert snapshot.experiences == []
+
+
+@pytest.mark.asyncio
+async def test_memory_service_keeps_short_term_when_consolidation_fails(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    turn_record_service = TurnRecordService(store)
+    short_term_service = ShortTermMemoryService(store, history_source)
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=InvalidConsolidationAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=1,
+        ),
+    )
+    memory_service = MemoryService(
+        store,
+        turn_record_service,
+        short_term_service,
+        MemorySnapshotBuilder(store),
+        consolidation_service=consolidation_service,
+        experience_service=ExperienceService(store),
+    )
+    now = datetime.now(UTC)
+
+    try:
+        with pytest.raises(MemoryAnalyzerExecutionError):
+            await memory_service.update_from_postprocess(
+                MemoryUpdateRequest(
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    platform_id="test",
+                    session_id="session-1",
+                    provider_request=None,
+                    user_message={"role": "user", "content": "Trigger consolidation"},
+                    assistant_message={"role": "assistant", "content": "Reply"},
+                    message_timestamp=now,
+                    source_refs=[],
+                )
+            )
+        snapshot = await memory_service.get_snapshot("test:private:user", "conv-1")
+        experiences = await store.list_recent_experiences("test:private:user", 10)
+    finally:
+        await store.close()
+
+    assert snapshot.topic_state is not None
+    assert snapshot.short_term_memory is not None
+    assert experiences == []
 
 
 @pytest.mark.asyncio

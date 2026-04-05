@@ -251,6 +251,26 @@ class MemoryStore:
                 await session.refresh(entity)
                 return self._to_session_insight(entity)
 
+    async def get_latest_session_insight(
+        self,
+        umo: str,
+        conversation_id: str | None,
+    ) -> SessionInsight | None:
+        async with self.get_db() as session:
+            stmt = select(MemorySessionInsight).where(
+                col(MemorySessionInsight.umo) == umo
+            )
+            if conversation_id is None:
+                stmt = stmt.where(col(MemorySessionInsight.conversation_id).is_(None))
+            else:
+                stmt = stmt.where(
+                    col(MemorySessionInsight.conversation_id) == conversation_id
+                )
+            stmt = stmt.order_by(desc(MemorySessionInsight.window_end_at)).limit(1)
+            result = await session.execute(stmt)
+            entity = result.scalar_one_or_none()
+            return self._to_session_insight(entity) if entity else None
+
     async def save_experience(self, experience: Experience) -> Experience:
         async with self.get_db() as session:
             async with session.begin():
@@ -319,6 +339,33 @@ class MemoryStore:
             )
             result = await session.execute(stmt)
             return [self._to_experience(item) for item in result.scalars().all()]
+
+    async def list_turn_records_by_time_range(
+        self,
+        umo: str,
+        conversation_id: str | None,
+        start_at: datetime | None,
+        end_at: datetime | None = None,
+    ) -> list[TurnRecord]:
+        async with self.get_db() as session:
+            conditions = [col(MemoryTurnRecord.umo) == umo]
+            if conversation_id is None:
+                conditions.append(col(MemoryTurnRecord.conversation_id).is_(None))
+            else:
+                conditions.append(
+                    col(MemoryTurnRecord.conversation_id) == conversation_id
+                )
+            if start_at is not None:
+                conditions.append(col(MemoryTurnRecord.message_timestamp) >= start_at)
+            if end_at is not None:
+                conditions.append(col(MemoryTurnRecord.message_timestamp) <= end_at)
+            stmt = (
+                select(MemoryTurnRecord)
+                .where(and_(*conditions))
+                .order_by(MemoryTurnRecord.message_timestamp)
+            )
+            result = await session.execute(stmt)
+            return [self._to_turn_record(item) for item in result.scalars().all()]
 
     async def upsert_long_term_memory_index(
         self,

@@ -22,6 +22,8 @@ from .config import (
     load_memory_config,
     resolve_memory_path,
 )
+from .consolidation_service import ConsolidationService
+from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
 from .postprocessor import (
     MemoryPostProcessor,
@@ -72,6 +74,8 @@ __all__ = [
     "MemoryConfig",
     "ensure_memory_config_file",
     "BaseMemoryAnalyzer",
+    "ConsolidationService",
+    "ExperienceService",
     "MemoryPostProcessor",
     "PromptJsonMemoryAnalyzer",
     "MemorySnapshot",

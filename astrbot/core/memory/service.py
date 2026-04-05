@@ -6,12 +6,20 @@ from astrbot.core import logger
 
 from .analyzer_manager import MemoryAnalyzerManager
 from .config import get_memory_config
+from .consolidation_service import ConsolidationService
+from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
 from .short_term_service import ShortTermMemoryService
 from .snapshot_builder import MemorySnapshotBuilder
 from .store import MemoryStore
 from .turn_record_service import TurnRecordService
-from .types import MemorySnapshot, MemoryUpdateRequest, TurnRecord
+from .types import (
+    Experience,
+    MemorySnapshot,
+    MemoryUpdateRequest,
+    SessionInsight,
+    TurnRecord,
+)
 
 
 class MemoryService:
@@ -22,12 +30,16 @@ class MemoryService:
         short_term_service: ShortTermMemoryService,
         snapshot_builder: MemorySnapshotBuilder,
         analyzer_manager: MemoryAnalyzerManager | None = None,
+        consolidation_service: ConsolidationService | None = None,
+        experience_service: ExperienceService | None = None,
     ) -> None:
         self.store = store
         self.turn_record_service = turn_record_service
         self.short_term_service = short_term_service
         self.snapshot_builder = snapshot_builder
         self.analyzer_manager = analyzer_manager or MemoryAnalyzerManager()
+        self.consolidation_service = consolidation_service
+        self.experience_service = experience_service
 
     def bind_provider_manager(self, provider_manager) -> None:
         self.analyzer_manager.bind_provider_manager(provider_manager)
@@ -45,6 +57,19 @@ class MemoryService:
             turn,
             conversation_history=conversation_history,
         )
+        if (
+            self.consolidation_service is not None
+            and await self.consolidation_service.should_run_consolidation(
+                turn.umo,
+                turn.conversation_id,
+            )
+        ):
+            logger.info(
+                "memory consolidation triggered after update: umo=%s conversation_id=%s",
+                turn.umo,
+                turn.conversation_id,
+            )
+            await self.run_consolidation(turn.umo, turn.conversation_id)
         logger.info(
             "memory update finished: turn_id=%s umo=%s conversation_id=%s",
             turn.turn_id,
@@ -67,6 +92,49 @@ class MemoryService:
         )
         return await self.snapshot_builder.build_snapshot(umo, conversation_id, query)
 
+    async def run_consolidation(
+        self,
+        umo: str,
+        conversation_id: str | None,
+    ) -> tuple[SessionInsight | None, list[Experience]]:
+        if self.consolidation_service is None:
+            logger.info(
+                "memory consolidation skipped: service unavailable umo=%s conversation_id=%s",
+                umo,
+                conversation_id,
+            )
+            return None, []
+        if self.experience_service is None:
+            raise RuntimeError(
+                "memory consolidation requested without experience service"
+            )
+
+        logger.info(
+            "memory consolidation started: umo=%s conversation_id=%s",
+            umo,
+            conversation_id,
+        )
+        insight, experiences = await self.consolidation_service.run_for_scope(
+            umo,
+            conversation_id,
+        )
+        persisted_insight = (
+            await self.store.save_session_insight(insight)
+            if insight is not None
+            else None
+        )
+        persisted_experiences = await self.experience_service.persist_experiences(
+            experiences
+        )
+        logger.info(
+            "memory consolidation finished: umo=%s conversation_id=%s insight_created=%s experiences=%s",
+            umo,
+            conversation_id,
+            persisted_insight is not None,
+            len(persisted_experiences),
+        )
+        return persisted_insight, persisted_experiences
+
 
 _MEMORY_SERVICE: MemoryService | None = None
 
@@ -88,6 +156,13 @@ def get_memory_service() -> MemoryService:
             analyzer_manager=analyzer_manager,
             analysis_config=config.analysis,
         )
+        consolidation_service = ConsolidationService(
+            store,
+            analyzer_manager=analyzer_manager,
+            analysis_config=config.analysis,
+            consolidation_config=config.consolidation,
+        )
+        experience_service = ExperienceService(store)
         snapshot_builder = MemorySnapshotBuilder(store)
         _MEMORY_SERVICE = MemoryService(
             store,
@@ -95,6 +170,8 @@ def get_memory_service() -> MemoryService:
             short_term_service,
             snapshot_builder,
             analyzer_manager,
+            consolidation_service,
+            experience_service,
         )
     return _MEMORY_SERVICE
 
