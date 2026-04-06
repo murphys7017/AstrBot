@@ -9,6 +9,8 @@
 - 已完成短期闭环
 - 已完成 snapshot 只读出口
 - 已完成中期 consolidation 第一版
+- 已完成 `Experience` 的 snapshot 暴露
+- 已完成 `Experience` 的 Markdown 投影
 - 未进入长期记忆、人格演进、检索召回
 
 当前可以认为已经完成了：
@@ -73,19 +75,20 @@
 
 1. `MemoryService.get_snapshot(...)`
 2. `MemorySnapshotBuilder.build_snapshot(...)`
-3. `MemoryStore` 读取短期层
+3. `MemoryStore` 读取短期层与当前会话 `Experience`
 
 当前 snapshot 返回：
 
 - `topic_state`
 - `short_term_memory`
-- `experiences=[]`
+- `experiences`
 - `long_term_memories=[]`
 - `persona_state=None`
 
 说明：
 
-- 这里的空中长期字段是接口占位，不代表 retrieval 已实现
+- `Experience` 当前是直接读取当前 scope 最近结果，不代表 retrieval 已实现
+- `long_term_memories` 与 `persona_state` 仍然是占位
 
 ### 2.4 中期 consolidation 链路
 
@@ -97,6 +100,11 @@
 4. `ConsolidationService.run_for_scope(...)`
 5. `MemoryStore.save_session_insight(...)`
 6. `ExperienceService.persist_experiences(...)`
+
+当前已补齐：
+
+- `ExperienceProjectionService`
+- `data/memory/projections/experiences/...` Markdown 投影写入
 
 当前触发方式：
 
@@ -140,6 +148,7 @@
 - `astrbot/core/memory/postprocessor.py`
 - `astrbot/core/memory/consolidation_service.py`
 - `astrbot/core/memory/experience_service.py`
+- `astrbot/core/memory/projection.py`
 
 当前已补齐的 store 能力：
 
@@ -153,6 +162,7 @@
 - `get_latest_session_insight(...)`
 - `save_experience(...)`
 - `list_recent_experiences(...)`
+- `list_experiences_for_scope(...)`
 - `list_experiences_by_time_range(...)`
 - `list_turn_records_by_time_range(...)`
 
@@ -166,7 +176,6 @@
 - `persona_state_service.py`
 - `jobs.py`
 - `graph_store.py`
-- `projection.py`
 
 当前能力边界：
 
@@ -191,7 +200,7 @@
 如果按“能不能给后续 prompt system 提供稳定 memory 输入”来看：
 
 - 短期层：可以
-- 中期层：内部已可用，但尚未暴露给 snapshot
+- 中期层：`Experience` 已可直接通过 snapshot 读取
 - 长期层：还不可以
 
 ## 6. 当前主要限制
@@ -199,14 +208,14 @@
 当前最大的限制不是写入，而是读取范围还刻意收窄：
 
 - `SessionInsight` 已写入，但不进入 snapshot
-- `Experience` 已写入，但不进入 snapshot
 - 还没有 query 驱动的 retrieval
 - 还没有向量召回
 
-所以当前对外真正稳定开放的 memory 结果仍然只有：
+所以当前对外稳定开放的 memory 结果现在是：
 
 - `TopicState`
 - `ShortTermMemory`
+- `Experience`
 
 ## 7. 下一步建议顺序
 
@@ -216,14 +225,14 @@
 2. `jobs-and-scheduling.md`
 3. `vector_index.py`
 4. `retriever.py`
-5. 将 `Experience` 以受控方式接入 snapshot
+5. 将 `SessionInsight` / `LongTermMemory` 以受控方式接入 snapshot
 6. `long_term_service.py`
 7. `persona_state_service.py`
 
 如果继续坚持“memory 先独立收口，再让 prompt 使用”，那当前最合理的下一步是：
 
 1. 完成中长期 read path 设计
-2. 明确 snapshot 什么时候开始暴露 `experiences`
+2. 明确 snapshot 什么时候开始暴露 `SessionInsight` / `LongTermMemory`
 3. 再决定 retrieval 和长期沉淀的先后
 
 ## 8. 当前结论
@@ -232,11 +241,11 @@
 
 `Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> Snapshot`
 
-但这个链路里真正对外开放的仍只有短期层。
+当前这个链路里，对外已经开放到了短期层加 `Experience`。
 
 所以当前最准确的判断是：
 
 - memory 基础设施已成立
 - 中期抽象已落地到 store
-- 对外读取接口仍保持保守
+- `Experience` 已进入 snapshot，projection 已可审阅
 - 系统整体正处于“短期完成，中期内部打通，长期未开始”的阶段

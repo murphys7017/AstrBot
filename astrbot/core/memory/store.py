@@ -309,14 +309,40 @@ class MemoryStore:
         self,
         umo: str,
         limit: int,
+        conversation_id: str | None = None,
     ) -> list[Experience]:
         async with self.get_db() as session:
-            stmt = (
-                select(MemoryExperience)
-                .where(col(MemoryExperience.umo) == umo)
-                .order_by(desc(MemoryExperience.event_time))
-                .limit(limit)
+            stmt = select(MemoryExperience).where(col(MemoryExperience.umo) == umo)
+            if conversation_id is not None:
+                stmt = stmt.where(
+                    col(MemoryExperience.conversation_id) == conversation_id
+                )
+            stmt = stmt.order_by(desc(MemoryExperience.event_time)).limit(limit)
+            result = await session.execute(stmt)
+            return [self._to_experience(item) for item in result.scalars().all()]
+
+    async def list_experiences_for_scope(
+        self,
+        umo: str,
+        scope_type: ScopeType | str,
+        scope_id: str,
+        *,
+        ascending: bool = True,
+    ) -> list[Experience]:
+        async with self.get_db() as session:
+            stmt = select(MemoryExperience).where(
+                and_(
+                    col(MemoryExperience.umo) == umo,
+                    col(MemoryExperience.scope_type) == self._enum_value(scope_type),
+                    col(MemoryExperience.scope_id) == scope_id,
+                )
             )
+            order_by = (
+                MemoryExperience.event_time
+                if ascending
+                else desc(MemoryExperience.event_time)
+            )
+            stmt = stmt.order_by(order_by)
             result = await session.execute(stmt)
             return [self._to_experience(item) for item in result.scalars().all()]
 

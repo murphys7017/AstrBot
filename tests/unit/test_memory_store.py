@@ -302,3 +302,63 @@ async def test_memory_store_lists_turn_records_by_time_range(temp_dir: Path):
         assert [turn.turn_id for turn in turns] == ["turn-2"]
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_store_lists_recent_experiences_by_conversation(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_experience(
+            Experience(
+                experience_id="exp-1",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                scope_type=ScopeType.CONVERSATION,
+                scope_id="conv-1",
+                event_time=now - timedelta(minutes=2),
+                category="project_progress",
+                summary="Conversation one progress",
+                detail_summary=None,
+                importance=0.7,
+                confidence=0.8,
+                source_refs=[],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            Experience(
+                experience_id="exp-2",
+                umo="test:private:user",
+                conversation_id="conv-2",
+                scope_type=ScopeType.CONVERSATION,
+                scope_id="conv-2",
+                event_time=now - timedelta(minutes=1),
+                category="episodic_event",
+                summary="Conversation two event",
+                detail_summary=None,
+                importance=0.6,
+                confidence=0.7,
+                source_refs=[],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+        filtered = await store.list_recent_experiences(
+            "test:private:user",
+            10,
+            conversation_id="conv-1",
+        )
+        scoped = await store.list_experiences_for_scope(
+            "test:private:user",
+            ScopeType.CONVERSATION,
+            "conv-2",
+        )
+    finally:
+        await store.close()
+
+    assert [experience.experience_id for experience in filtered] == ["exp-1"]
+    assert [experience.experience_id for experience in scoped] == ["exp-2"]

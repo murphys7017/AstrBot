@@ -25,12 +25,14 @@ from astrbot.core.memory.postprocessor import (
     register_memory_postprocessor,
     reset_memory_postprocessor,
 )
+from astrbot.core.memory.projection import ExperienceProjectionService
 from astrbot.core.memory.service import MemoryService
 from astrbot.core.memory.short_term_service import ShortTermMemoryService
 from astrbot.core.memory.snapshot_builder import MemorySnapshotBuilder
 from astrbot.core.memory.store import MemoryStore
 from astrbot.core.memory.turn_record_service import TurnRecordService
 from astrbot.core.memory.types import (
+    Experience,
     MemoryUpdateRequest,
     SessionInsight,
     ShortTermMemory,
@@ -774,7 +776,11 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
     assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
     assert latest_insight is not None
     assert len(experiences) == 2
-    assert snapshot.experiences == []
+    assert len(snapshot.experiences) == 2
+    assert {item.summary for item in snapshot.experiences} == {
+        "A memory milestone was reached",
+        "Progress moved forward",
+    }
 
 
 @pytest.mark.asyncio
@@ -825,6 +831,75 @@ async def test_memory_service_keeps_short_term_when_consolidation_fails(temp_dir
     assert snapshot.topic_state is not None
     assert snapshot.short_term_memory is not None
     assert experiences == []
+
+
+@pytest.mark.asyncio
+async def test_experience_service_writes_markdown_projection(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    projection_service = ExperienceProjectionService(
+        store,
+        projections_root=temp_dir / "projections",
+    )
+    experience_service = ExperienceService(
+        store,
+        projection_service=projection_service,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        persisted = await experience_service.persist_experiences(
+            [
+                Experience(
+                    experience_id="exp-1",
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    scope_type="conversation",
+                    scope_id="conv-1",
+                    event_time=now,
+                    category="project_progress",
+                    summary="Implemented snapshot exposure",
+                    detail_summary="Snapshot now includes recent conversation experiences.",
+                    importance=0.81,
+                    confidence=0.93,
+                    source_refs=["turn:turn-1"],
+                    created_at=now,
+                    updated_at=now,
+                ),
+                Experience(
+                    experience_id="exp-2",
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    scope_type="conversation",
+                    scope_id="conv-1",
+                    event_time=now + timedelta(seconds=1),
+                    category="episodic_event",
+                    summary="Wrote the experience projection",
+                    detail_summary="A markdown timeline projection was generated.",
+                    importance=0.78,
+                    confidence=0.9,
+                    source_refs=["turn:turn-2"],
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        projection_path = (
+            temp_dir
+            / "projections"
+            / "experiences"
+            / "test_private_user"
+            / "conversation"
+            / "conv-1.md"
+        )
+    finally:
+        await store.close()
+
+    assert len(persisted) == 2
+    assert projection_path.exists()
+    content = projection_path.read_text(encoding="utf-8")
+    assert "projection_type: experience_timeline" in content
+    assert "Implemented snapshot exposure" in content
+    assert "Wrote the experience projection" in content
 
 
 @pytest.mark.asyncio

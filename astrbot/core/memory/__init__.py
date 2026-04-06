@@ -31,6 +31,7 @@ from .postprocessor import (
     reset_memory_postprocessor,
     unregister_memory_postprocessor,
 )
+from .projection import ExperienceProjectionService
 from .service import MemoryService, get_memory_service, shutdown_memory_service
 from .short_term_service import ShortTermMemoryService
 from .snapshot_builder import MemorySnapshotBuilder
@@ -75,6 +76,7 @@ __all__ = [
     "ensure_memory_config_file",
     "BaseMemoryAnalyzer",
     "ConsolidationService",
+    "ExperienceProjectionService",
     "ExperienceService",
     "MemoryPostProcessor",
     "PromptJsonMemoryAnalyzer",
