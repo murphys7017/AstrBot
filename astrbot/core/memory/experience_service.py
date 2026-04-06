@@ -26,7 +26,6 @@ class ExperienceService:
         persisted: list[Experience] = []
         for experience in experiences:
             persisted.append(await self.store.save_experience(experience))
-        await self.projection_service.refresh_for_experiences(persisted)
         return persisted
 
     async def list_recent(self, umo: str, limit: int) -> list[Experience]:
@@ -51,3 +50,9 @@ class ExperienceService:
             scope_type,
             scope_id,
         )
+
+    async def refresh_projections_for_experiences(
+        self,
+        experiences: list[Experience],
+    ) -> list[Path]:
+        return await self.projection_service.refresh_for_experiences(experiences)

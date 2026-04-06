@@ -362,3 +362,177 @@ async def test_memory_store_lists_recent_experiences_by_conversation(temp_dir: P
 
     assert [experience.experience_id for experience in filtered] == ["exp-1"]
     assert [experience.experience_id for experience in scoped] == ["exp-2"]
+
+
+@pytest.mark.asyncio
+async def test_memory_store_persist_consolidation_batch_is_atomic(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+    original = store._save_experience_with_session
+    call_count = 0
+
+    async def failing_save_experience(session, experience):  # noqa: ANN001
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("forced failure")
+        return await original(session, experience)
+
+    store._save_experience_with_session = failing_save_experience  # type: ignore[method-assign]
+
+    try:
+        with pytest.raises(RuntimeError):
+            await store.persist_consolidation_batch(
+                SessionInsight(
+                    insight_id="insight-1",
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    window_start_at=now - timedelta(minutes=1),
+                    window_end_at=now,
+                    topic_summary="summary",
+                    progress_summary="progress",
+                    summary_text="text",
+                    created_at=now,
+                ),
+                [
+                    Experience(
+                        experience_id="exp-1",
+                        umo="test:private:user",
+                        conversation_id="conv-1",
+                        scope_type=ScopeType.CONVERSATION,
+                        scope_id="conv-1",
+                        event_time=now,
+                        category="project_progress",
+                        summary="first",
+                        detail_summary=None,
+                        importance=0.8,
+                        confidence=0.9,
+                        source_refs=[],
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    Experience(
+                        experience_id="exp-2",
+                        umo="test:private:user",
+                        conversation_id="conv-1",
+                        scope_type=ScopeType.CONVERSATION,
+                        scope_id="conv-1",
+                        event_time=now,
+                        category="episodic_event",
+                        summary="second",
+                        detail_summary=None,
+                        importance=0.7,
+                        confidence=0.8,
+                        source_refs=[],
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                ],
+            )
+
+        latest_insight = await store.get_latest_session_insight(
+            "test:private:user",
+            "conv-1",
+        )
+        experiences = await store.list_recent_experiences(
+            "test:private:user",
+            10,
+            conversation_id="conv-1",
+        )
+    finally:
+        await store.close()
+
+    assert latest_insight is None
+    assert experiences == []
+
+
+@pytest.mark.asyncio
+async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_session_insight(
+            SessionInsight(
+                insight_id="insight-a",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                window_start_at=now,
+                window_end_at=now,
+                topic_summary="a",
+                progress_summary="a",
+                summary_text="a",
+                created_at=now,
+            )
+        )
+        await store.save_session_insight(
+            SessionInsight(
+                insight_id="insight-b",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                window_start_at=now,
+                window_end_at=now,
+                topic_summary="b",
+                progress_summary="b",
+                summary_text="b",
+                created_at=now + timedelta(microseconds=1),
+            )
+        )
+        await store.save_experience(
+            Experience(
+                experience_id="exp-a",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                scope_type=ScopeType.CONVERSATION,
+                scope_id="conv-1",
+                event_time=now,
+                category="project_progress",
+                summary="first",
+                detail_summary=None,
+                importance=0.6,
+                confidence=0.7,
+                source_refs=[],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            Experience(
+                experience_id="exp-b",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                scope_type=ScopeType.CONVERSATION,
+                scope_id="conv-1",
+                event_time=now,
+                category="episodic_event",
+                summary="second",
+                detail_summary=None,
+                importance=0.7,
+                confidence=0.8,
+                source_refs=[],
+                created_at=now + timedelta(microseconds=1),
+                updated_at=now + timedelta(microseconds=1),
+            )
+        )
+
+        latest_insight = await store.get_latest_session_insight(
+            "test:private:user",
+            "conv-1",
+        )
+        recent = await store.list_recent_experiences(
+            "test:private:user",
+            10,
+            conversation_id="conv-1",
+        )
+        scoped = await store.list_experiences_for_scope(
+            "test:private:user",
+            ScopeType.CONVERSATION,
+            "conv-1",
+        )
+    finally:
+        await store.close()
+
+    assert latest_insight is not None
+    assert latest_insight.insight_id == "insight-b"
+    assert [item.experience_id for item in recent] == ["exp-b", "exp-a"]
+    assert [item.experience_id for item in scoped] == ["exp-a", "exp-b"]

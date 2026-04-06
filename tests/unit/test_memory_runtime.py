@@ -399,6 +399,21 @@ class InvalidConsolidationAnalyzerManager:
         raise AssertionError(f"Unexpected stage: {stage}")
 
 
+class FailingProjectionService:
+    async def refresh_for_experiences(self, experiences):  # noqa: ANN001
+        del experiences
+        raise RuntimeError("projection write failed")
+
+    async def refresh_scope_projection(
+        self,
+        umo: str,
+        scope_type: str,
+        scope_id: str,
+    ):
+        del umo, scope_type, scope_id
+        raise RuntimeError("projection write failed")
+
+
 @pytest.mark.asyncio
 async def test_short_term_memory_service_uses_analyzer_when_enabled(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
@@ -784,6 +799,75 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
 
 
 @pytest.mark.asyncio
+async def test_memory_service_keeps_database_results_when_projection_refresh_fails(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    turn_record_service = TurnRecordService(store)
+    short_term_service = ShortTermMemoryService(store, history_source)
+    analyzer_manager = StubConsolidationAnalyzerManager()
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=2,
+        ),
+    )
+    experience_service = ExperienceService(
+        store,
+        projection_service=FailingProjectionService(),  # type: ignore[arg-type]
+    )
+    memory_service = MemoryService(
+        store,
+        turn_record_service,
+        short_term_service,
+        MemorySnapshotBuilder(store),
+        consolidation_service=consolidation_service,
+        experience_service=experience_service,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for index in range(2):
+            await memory_service.update_from_postprocess(
+                MemoryUpdateRequest(
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    platform_id="test",
+                    session_id="session-1",
+                    provider_request=None,
+                    user_message={"role": "user", "content": f"Turn {index}"},
+                    assistant_message={
+                        "role": "assistant",
+                        "content": f"Reply {index}",
+                    },
+                    message_timestamp=now + timedelta(microseconds=index),
+                    source_refs=[],
+                )
+            )
+
+        latest_insight = await store.get_latest_session_insight(
+            "test:private:user",
+            "conv-1",
+        )
+        experiences = await store.list_recent_experiences(
+            "test:private:user",
+            10,
+            conversation_id="conv-1",
+        )
+        snapshot = await memory_service.get_snapshot("test:private:user", "conv-1")
+    finally:
+        await store.close()
+
+    assert latest_insight is not None
+    assert len(experiences) == 2
+    assert len(snapshot.experiences) == 2
+
+
+@pytest.mark.asyncio
 async def test_memory_service_keeps_short_term_when_consolidation_fails(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
@@ -883,6 +967,7 @@ async def test_experience_service_writes_markdown_projection(temp_dir: Path):
                 ),
             ]
         )
+        await experience_service.refresh_projections_for_experiences(persisted)
         projection_path = (
             temp_dir
             / "projections"
@@ -898,8 +983,70 @@ async def test_experience_service_writes_markdown_projection(temp_dir: Path):
     assert projection_path.exists()
     content = projection_path.read_text(encoding="utf-8")
     assert "projection_type: experience_timeline" in content
+    assert "generated_at:" in content
+    assert "## Experience exp-1" in content
+    assert "### Summary" in content
+    assert "```text" in content
     assert "Implemented snapshot exposure" in content
     assert "Wrote the experience projection" in content
+
+
+@pytest.mark.asyncio
+async def test_experience_projection_handles_multiline_markdown_like_content(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    projection_service = ExperienceProjectionService(
+        store,
+        projections_root=temp_dir / "projections",
+    )
+    experience_service = ExperienceService(
+        store,
+        projection_service=projection_service,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        persisted = await experience_service.persist_experiences(
+            [
+                Experience(
+                    experience_id="exp-special",
+                    umo="test:private:user",
+                    conversation_id="conv-1",
+                    scope_type="conversation",
+                    scope_id="conv-1",
+                    event_time=now,
+                    category="episodic_event",
+                    summary="Line 1\n- bullet\n---\n# heading",
+                    detail_summary="code fence ``` inside\nvalue: test",
+                    importance=0.8,
+                    confidence=0.9,
+                    source_refs=["turn:1", "weird:ref:#-value"],
+                    created_at=now,
+                    updated_at=now,
+                )
+            ]
+        )
+        await experience_service.refresh_projections_for_experiences(persisted)
+        projection_path = (
+            temp_dir
+            / "projections"
+            / "experiences"
+            / "test_private_user"
+            / "conversation"
+            / "conv-1.md"
+        )
+    finally:
+        await store.close()
+
+    content = projection_path.read_text(encoding="utf-8")
+    assert content.startswith("---\nprojection_type: experience_timeline\n")
+    assert "## Experience exp-special" in content
+    assert "### Summary" in content
+    assert "### Detail Summary" in content
+    assert "### Source Refs" in content
+    assert "Line 1\n- bullet\n---\n# heading" in content
+    assert "code fence ``` inside\nvalue: test" in content
 
 
 @pytest.mark.asyncio

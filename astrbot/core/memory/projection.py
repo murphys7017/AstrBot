@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+
+import yaml
 
 from .store import MemoryStore
 from .types import Experience, ScopeType
@@ -98,39 +101,78 @@ class ExperienceProjectionService:
         scope_id: str,
     ) -> str:
         generated_at = datetime.now(UTC).isoformat()
-        lines = [
-            "---",
-            "projection_type: experience_timeline",
-            f"umo: {umo}",
-            f"scope_type: {self._enum_value(scope_type)}",
-            f"scope_id: {scope_id}",
-            f"experience_count: {len(experiences)}",
-            f"generated_at: {generated_at}",
-            "---",
-            "",
-            "# Experience Timeline",
-            "",
-        ]
+        front_matter = yaml.safe_dump(
+            {
+                "projection_type": "experience_timeline",
+                "umo": umo,
+                "scope_type": self._enum_value(scope_type),
+                "scope_id": scope_id,
+                "experience_count": len(experiences),
+                "generated_at": generated_at,
+            },
+            allow_unicode=False,
+            sort_keys=False,
+        ).strip()
+        lines = ["---", front_matter, "---", "", "# Experience Timeline", ""]
 
         for experience in experiences:
             lines.extend(
                 [
-                    f"## {experience.event_time.isoformat()}",
-                    f"- id: {experience.experience_id}",
-                    f"- category: {self._enum_value(experience.category)}",
-                    f"- summary: {experience.summary}",
+                    f"## Experience {experience.experience_id}",
+                    f"- event_time: {json.dumps(experience.event_time.isoformat())}",
+                    f"- category: {json.dumps(self._enum_value(experience.category))}",
                     f"- importance: {experience.importance:.2f}",
                     f"- confidence: {experience.confidence:.2f}",
+                    f"- conversation_id: {self._json_scalar(experience.conversation_id)}",
+                    "",
+                    "### Summary",
+                    self._render_text_block(experience.summary),
                 ]
             )
             if experience.detail_summary:
-                lines.append(f"- detail_summary: {experience.detail_summary}")
+                lines.extend(
+                    [
+                        "",
+                        "### Detail Summary",
+                        self._render_text_block(experience.detail_summary),
+                    ]
+                )
             if experience.source_refs:
-                lines.append("- source_refs:")
-                lines.extend(f"  - {ref}" for ref in experience.source_refs)
-            lines.append("")
+                lines.extend(
+                    [
+                        "",
+                        "### Source Refs",
+                        self._render_text_block("\n".join(experience.source_refs)),
+                    ]
+                )
+            lines.extend(
+                [
+                    "",
+                ]
+            )
 
         return "\n".join(lines).rstrip() + "\n"
+
+    @staticmethod
+    def _json_scalar(value: str | None) -> str:
+        return json.dumps(value)
+
+    @staticmethod
+    def _render_text_block(value: str) -> str:
+        fence = ExperienceProjectionService._fence_for_text(value)
+        return f"{fence}text\n{value}\n{fence}"
+
+    @staticmethod
+    def _fence_for_text(value: str) -> str:
+        max_backticks = 0
+        current = 0
+        for char in value:
+            if char == "`":
+                current += 1
+                max_backticks = max(max_backticks, current)
+            else:
+                current = 0
+        return "`" * max(3, max_backticks + 1)
 
     @staticmethod
     def _safe_path_component(value: str) -> str:

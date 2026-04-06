@@ -226,30 +226,7 @@ class MemoryStore:
     async def save_session_insight(self, insight: SessionInsight) -> SessionInsight:
         async with self.get_db() as session:
             async with session.begin():
-                result = await session.execute(
-                    select(MemorySessionInsight).where(
-                        col(MemorySessionInsight.insight_id) == insight.insight_id
-                    )
-                )
-                entity = result.scalar_one_or_none()
-                if entity is None:
-                    entity = MemorySessionInsight(
-                        insight_id=insight.insight_id,
-                        created_at=insight.created_at or datetime.now(UTC),
-                    )
-                    session.add(entity)
-
-                entity.umo = insight.umo
-                entity.conversation_id = insight.conversation_id
-                entity.window_start_at = insight.window_start_at
-                entity.window_end_at = insight.window_end_at
-                entity.topic_summary = insight.topic_summary
-                entity.progress_summary = insight.progress_summary
-                entity.summary_text = insight.summary_text
-
-                await session.flush()
-                await session.refresh(entity)
-                return self._to_session_insight(entity)
+                return await self._save_session_insight_with_session(session, insight)
 
     async def get_latest_session_insight(
         self,
@@ -266,7 +243,11 @@ class MemoryStore:
                 stmt = stmt.where(
                     col(MemorySessionInsight.conversation_id) == conversation_id
                 )
-            stmt = stmt.order_by(desc(MemorySessionInsight.window_end_at)).limit(1)
+            stmt = stmt.order_by(
+                desc(MemorySessionInsight.window_end_at),
+                desc(MemorySessionInsight.created_at),
+                desc(MemorySessionInsight.insight_id),
+            ).limit(1)
             result = await session.execute(stmt)
             entity = result.scalar_one_or_none()
             return self._to_session_insight(entity) if entity else None
@@ -274,36 +255,26 @@ class MemoryStore:
     async def save_experience(self, experience: Experience) -> Experience:
         async with self.get_db() as session:
             async with session.begin():
-                result = await session.execute(
-                    select(MemoryExperience).where(
-                        col(MemoryExperience.experience_id) == experience.experience_id
-                    )
+                return await self._save_experience_with_session(session, experience)
+
+    async def persist_consolidation_batch(
+        self,
+        insight: SessionInsight | None,
+        experiences: list[Experience],
+    ) -> tuple[SessionInsight | None, list[Experience]]:
+        async with self.get_db() as session:
+            async with session.begin():
+                persisted_insight = (
+                    await self._save_session_insight_with_session(session, insight)
+                    if insight is not None
+                    else None
                 )
-                entity = result.scalar_one_or_none()
-                if entity is None:
-                    entity = MemoryExperience(
-                        experience_id=experience.experience_id,
-                        created_at=experience.created_at or datetime.now(UTC),
+                persisted_experiences: list[Experience] = []
+                for experience in experiences:
+                    persisted_experiences.append(
+                        await self._save_experience_with_session(session, experience)
                     )
-                    session.add(entity)
-
-                entity.umo = experience.umo
-                entity.conversation_id = experience.conversation_id
-                entity.scope_type = self._enum_value(experience.scope_type)
-                entity.scope_id = experience.scope_id
-                entity.event_time = experience.event_time
-                entity.category = self._enum_value(experience.category)
-                entity.summary = experience.summary
-                entity.detail_summary = experience.detail_summary
-                entity.importance = self._clamp_score(experience.importance)
-                entity.confidence = self._clamp_score(experience.confidence)
-                entity.source_refs = list(experience.source_refs)
-                if experience.updated_at is not None:
-                    entity.updated_at = experience.updated_at
-
-                await session.flush()
-                await session.refresh(entity)
-                return self._to_experience(entity)
+                return persisted_insight, persisted_experiences
 
     async def list_recent_experiences(
         self,
@@ -317,7 +288,11 @@ class MemoryStore:
                 stmt = stmt.where(
                     col(MemoryExperience.conversation_id) == conversation_id
                 )
-            stmt = stmt.order_by(desc(MemoryExperience.event_time)).limit(limit)
+            stmt = stmt.order_by(
+                desc(MemoryExperience.event_time),
+                desc(MemoryExperience.created_at),
+                desc(MemoryExperience.experience_id),
+            ).limit(limit)
             result = await session.execute(stmt)
             return [self._to_experience(item) for item in result.scalars().all()]
 
@@ -337,12 +312,18 @@ class MemoryStore:
                     col(MemoryExperience.scope_id) == scope_id,
                 )
             )
-            order_by = (
-                MemoryExperience.event_time
-                if ascending
-                else desc(MemoryExperience.event_time)
-            )
-            stmt = stmt.order_by(order_by)
+            if ascending:
+                stmt = stmt.order_by(
+                    MemoryExperience.event_time,
+                    MemoryExperience.created_at,
+                    MemoryExperience.experience_id,
+                )
+            else:
+                stmt = stmt.order_by(
+                    desc(MemoryExperience.event_time),
+                    desc(MemoryExperience.created_at),
+                    desc(MemoryExperience.experience_id),
+                )
             result = await session.execute(stmt)
             return [self._to_experience(item) for item in result.scalars().all()]
 
@@ -361,7 +342,11 @@ class MemoryStore:
             stmt = (
                 select(MemoryExperience)
                 .where(and_(*conditions))
-                .order_by(desc(MemoryExperience.event_time))
+                .order_by(
+                    desc(MemoryExperience.event_time),
+                    desc(MemoryExperience.created_at),
+                    desc(MemoryExperience.experience_id),
+                )
             )
             result = await session.execute(stmt)
             return [self._to_experience(item) for item in result.scalars().all()]
@@ -559,6 +544,72 @@ class MemoryStore:
             )
         )
         return result.scalar_one_or_none()
+
+    async def _save_session_insight_with_session(
+        self,
+        session: AsyncSession,
+        insight: SessionInsight,
+    ) -> SessionInsight:
+        result = await session.execute(
+            select(MemorySessionInsight).where(
+                col(MemorySessionInsight.insight_id) == insight.insight_id
+            )
+        )
+        entity = result.scalar_one_or_none()
+        if entity is None:
+            entity = MemorySessionInsight(
+                insight_id=insight.insight_id,
+                created_at=insight.created_at or datetime.now(UTC),
+            )
+            session.add(entity)
+
+        entity.umo = insight.umo
+        entity.conversation_id = insight.conversation_id
+        entity.window_start_at = insight.window_start_at
+        entity.window_end_at = insight.window_end_at
+        entity.topic_summary = insight.topic_summary
+        entity.progress_summary = insight.progress_summary
+        entity.summary_text = insight.summary_text
+
+        await session.flush()
+        await session.refresh(entity)
+        return self._to_session_insight(entity)
+
+    async def _save_experience_with_session(
+        self,
+        session: AsyncSession,
+        experience: Experience,
+    ) -> Experience:
+        result = await session.execute(
+            select(MemoryExperience).where(
+                col(MemoryExperience.experience_id) == experience.experience_id
+            )
+        )
+        entity = result.scalar_one_or_none()
+        if entity is None:
+            entity = MemoryExperience(
+                experience_id=experience.experience_id,
+                created_at=experience.created_at or datetime.now(UTC),
+            )
+            session.add(entity)
+
+        entity.umo = experience.umo
+        entity.conversation_id = experience.conversation_id
+        entity.scope_type = self._enum_value(experience.scope_type)
+        entity.scope_id = experience.scope_id
+        entity.event_time = experience.event_time
+        entity.category = self._enum_value(experience.category)
+        entity.summary = experience.summary
+        entity.detail_summary = experience.detail_summary
+        entity.importance = self._clamp_score(experience.importance)
+        entity.confidence = self._clamp_score(experience.confidence)
+        entity.source_refs = list(experience.source_refs)
+        if experience.updated_at is not None:
+            entity.updated_at = experience.updated_at
+
+        await session.flush()
+        await session.refresh(entity)
+        return self._to_experience(entity)
 
     @staticmethod
     def _conversation_key(conversation_id: str | None) -> str:

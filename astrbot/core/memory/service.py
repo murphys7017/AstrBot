@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from astrbot.core import logger
@@ -118,20 +119,35 @@ class MemoryService:
             umo,
             conversation_id,
         )
-        persisted_insight = (
-            await self.store.save_session_insight(insight)
-            if insight is not None
-            else None
+        (
+            persisted_insight,
+            persisted_experiences,
+        ) = await self.store.persist_consolidation_batch(
+            insight,
+            experiences,
         )
-        persisted_experiences = await self.experience_service.persist_experiences(
-            experiences
-        )
+        projection_paths: list[Path] = []
+        try:
+            projection_paths = (
+                await self.experience_service.refresh_projections_for_experiences(
+                    persisted_experiences
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "memory consolidation projection refresh failed: umo=%s conversation_id=%s error=%s",
+                umo,
+                conversation_id,
+                exc,
+                exc_info=True,
+            )
         logger.info(
-            "memory consolidation finished: umo=%s conversation_id=%s insight_created=%s experiences=%s",
+            "memory consolidation finished: umo=%s conversation_id=%s insight_created=%s experiences=%s projections=%s",
             umo,
             conversation_id,
             persisted_insight is not None,
             len(persisted_experiences),
+            len(projection_paths),
         )
         return persisted_insight, persisted_experiences
 
