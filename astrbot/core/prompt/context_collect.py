@@ -19,6 +19,7 @@ from .collectors.memory_collector import MemoryCollector
 from .collectors.persona_collector import PersonaCollector
 from .collectors.policy_collector import PolicyCollector
 from .collectors.session_collector import SessionCollector
+from .collectors.skills_collector import SkillsCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot
 from .interfaces.context_collector_inferface import ContextCollectorInterface
@@ -35,6 +36,7 @@ def _default_collectors() -> list[ContextCollectorInterface]:
         PolicyCollector(),
         MemoryCollector(),
         ConversationHistoryCollector(),
+        SkillsCollector(),
     ]
 
 

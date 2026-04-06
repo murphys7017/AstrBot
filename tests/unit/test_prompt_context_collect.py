@@ -19,6 +19,7 @@ from astrbot.core.prompt.collectors import (
     MemoryCollector,
     PolicyCollector,
     SessionCollector,
+    SkillsCollector,
 )
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
@@ -28,6 +29,7 @@ from astrbot.core.prompt.context_collect import (
 from astrbot.core.prompt.context_types import ContextSlot
 from astrbot.core.prompt.interfaces import ContextCollectorInterface
 from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.skills.skill_manager import SkillInfo
 
 
 def _make_event():
@@ -94,6 +96,15 @@ def _patch_memory_service():
         return_value=service,
     ):
         yield service
+
+
+@pytest.fixture(autouse=True)
+def _patch_skills_manager():
+    with patch(
+        "astrbot.core.prompt.collectors.skills_collector.SkillManager.list_skills",
+        return_value=[],
+    ) as mock_list_skills:
+        yield mock_list_skills
 
 
 @pytest.mark.asyncio
@@ -640,10 +651,12 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "PolicyCollector",
         "MemoryCollector",
         "ConversationHistoryCollector",
+        "SkillsCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
     assert pack.get_slot("policy.safety_prompt") is not None
+    assert pack.get_slot("capability.skills_prompt") is None
 
 
 @pytest.mark.asyncio
@@ -1011,6 +1024,151 @@ async def test_collect_context_pack_conversation_history_fail_open_when_parse_ra
         )
 
     assert pack.get_slot("conversation.history") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_skills_inventory_for_local_runtime():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    skills = [
+        SkillInfo(
+            name="docs4agent",
+            description="Write concise technical docs.",
+            path="C:/skills/docs4agent/SKILL.md",
+            active=True,
+            source_type="local_only",
+            source_label="local",
+            local_exists=True,
+            sandbox_exists=False,
+        )
+    ]
+
+    with patch(
+        "astrbot.core.prompt.collectors.skills_collector.SkillManager.list_skills",
+        return_value=skills,
+    ) as mock_list_skills:
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                computer_use_runtime="local",
+            ),
+            collectors=[SkillsCollector()],
+        )
+
+    mock_list_skills.assert_called_once_with(active_only=True, runtime="local")
+    skills_slot = pack.get_slot("capability.skills_prompt")
+    assert skills_slot is not None
+    assert skills_slot.value == {
+        "format": "skills_inventory_v1",
+        "runtime": "local",
+        "skill_count": 1,
+        "skills": [
+            {
+                "name": "docs4agent",
+                "description": "Write concise technical docs.",
+                "path": "C:/skills/docs4agent/SKILL.md",
+                "source_type": "local_only",
+                "source_label": "local",
+                "active": True,
+                "local_exists": True,
+                "sandbox_exists": False,
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_skills_inventory_for_sandbox_runtime():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    skills = [
+        SkillInfo(
+            name="browser_skill",
+            description="Browser workflow skill.",
+            path="/workspace/skills/browser_skill/SKILL.md",
+            active=True,
+            source_type="sandbox_only",
+            source_label="sandbox_preset",
+            local_exists=False,
+            sandbox_exists=True,
+        )
+    ]
+
+    with patch(
+        "astrbot.core.prompt.collectors.skills_collector.SkillManager.list_skills",
+        return_value=skills,
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                computer_use_runtime="sandbox",
+            ),
+            collectors=[SkillsCollector()],
+        )
+
+    skills_slot = pack.get_slot("capability.skills_prompt")
+    assert skills_slot is not None
+    assert skills_slot.value["runtime"] == "sandbox"
+    assert skills_slot.value["skill_count"] == len(skills_slot.value["skills"]) == 1
+    assert skills_slot.value["skills"][0]["path"] == (
+        "/workspace/skills/browser_skill/SKILL.md"
+    )
+    assert skills_slot.value["skills"][0]["source_type"] == "sandbox_only"
+    assert skills_slot.value["skills"][0]["source_label"] == "sandbox_preset"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_skills_slot_when_no_active_skills():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.skills_collector.SkillManager.list_skills",
+        return_value=[],
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[SkillsCollector()],
+        )
+
+    assert pack.get_slot("capability.skills_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skills_fail_open_when_skill_manager_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.skills_collector.SkillManager.list_skills",
+        side_effect=RuntimeError("skills boom"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[SkillsCollector()],
+        )
+
+    assert pack.get_slot("capability.skills_prompt") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):
