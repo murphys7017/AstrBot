@@ -50,7 +50,21 @@
 
 ## 2. 当前已存在文档
 
-### 2.1 `storage-model.md`
+### 2.1 `progress.md`
+
+内容：
+
+- 当前代码已经完成到哪一层
+- 已实现模块
+- 未实现模块
+- 当前真实边界
+- 下一步建议顺序
+
+当前状态：
+
+- 已完成第一版进度收口
+
+### 2.2 `storage-model.md`
 
 内容：
 
@@ -62,7 +76,7 @@
 
 - 已完成第一版共识整理
 
-### 2.2 `short-term-memory.md`
+### 2.3 `short-term-memory.md`
 
 内容：
 
@@ -75,7 +89,7 @@
 
 - 已完成第一版共识整理
 
-### 2.3 `lifecycle.md`
+### 2.4 `lifecycle.md`
 
 内容：
 
@@ -88,7 +102,7 @@
 
 - 已完成第一版链路整理
 
-### 2.4 `architecture.md`
+### 2.5 `architecture.md`
 
 内容：
 
@@ -101,7 +115,7 @@
 
 - 已完成第一版实现导向结构整理
 
-### 2.5 `config.md`
+### 2.6 `config.md`
 
 内容：
 
@@ -114,7 +128,7 @@
 
 - 已完成第一版配置整理
 
-### 2.6 `data-model.md`
+### 2.7 `data-model.md`
 
 内容：
 
@@ -134,7 +148,7 @@
 
 - 已完成第一版数据类型设定
 
-### 2.7 `mvp-plan.md`
+### 2.8 `mvp-plan.md`
 
 内容：
 
@@ -188,10 +202,11 @@
 
 如果是先看当前代码已做到哪里，建议先读：
 
-1. `index.md`
-2. `mvp-plan.md`
-3. `architecture.md`
-4. `lifecycle.md`
+1. `progress.md`
+2. `index.md`
+3. `mvp-plan.md`
+4. `architecture.md`
+5. `lifecycle.md`
 
 ## 5. 推荐编写顺序
 
