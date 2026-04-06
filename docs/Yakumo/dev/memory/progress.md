@@ -9,7 +9,6 @@
 - 已完成短期闭环
 - 已完成 snapshot 只读出口
 - 已完成中期 consolidation 第一版
-- 已完成 `Experience` 的 snapshot 暴露
 - 已完成 `Experience` 的 Markdown 投影
 - 未进入长期记忆、人格演进、检索召回
 
@@ -75,19 +74,19 @@
 
 1. `MemoryService.get_snapshot(...)`
 2. `MemorySnapshotBuilder.build_snapshot(...)`
-3. `MemoryStore` 读取短期层与当前会话 `Experience`
+3. `MemoryStore` 读取短期层
 
 当前 snapshot 返回：
 
 - `topic_state`
 - `short_term_memory`
-- `experiences`
+- `experiences=[]`
 - `long_term_memories=[]`
 - `persona_state=None`
 
 说明：
 
-- `Experience` 当前是直接读取当前 scope 最近结果，不代表 retrieval 已实现
+- 这里的空中长期字段是接口占位，不代表 retrieval 已实现
 - `long_term_memories` 与 `persona_state` 仍然是占位
 
 ### 2.4 中期 consolidation 链路
@@ -200,7 +199,7 @@
 如果按“能不能给后续 prompt system 提供稳定 memory 输入”来看：
 
 - 短期层：可以
-- 中期层：`Experience` 已可直接通过 snapshot 读取
+- 中期层：内部已可用，但不直接暴露给 snapshot
 - 长期层：还不可以
 
 ## 6. 当前主要限制
@@ -215,7 +214,6 @@
 
 - `TopicState`
 - `ShortTermMemory`
-- `Experience`
 
 ## 7. 下一步建议顺序
 
@@ -242,10 +240,11 @@
 `Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> Snapshot`
 
 当前这个链路里，对外已经开放到了短期层加 `Experience`。
+当前这个链路里，对外仍然只开放到短期层。
 
 所以当前最准确的判断是：
 
 - memory 基础设施已成立
 - 中期抽象已落地到 store
-- `Experience` 已进入 snapshot，projection 已可审阅
+- `Experience` 已完成 projection，可供内部审阅
 - 系统整体正处于“短期完成，中期内部打通，长期未开始”的阶段

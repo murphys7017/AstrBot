@@ -11,7 +11,6 @@
 - `MemorySnapshot` 读取链路已接通
 - 短期层已具备配置驱动的 analyzer 基础设施
 - `SessionInsight` 与 `Experience` 已具备模型驱动的 consolidation 链路
-- `Experience` 已进入 `MemorySnapshot`
 - `Experience` 已具备 Markdown 投影
 - consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
 
@@ -34,7 +33,7 @@
 7. `ConsolidationService.run_for_scope(...)`
 8. `ExperienceService.persist_experiences(...)`
 9. `ExperienceProjectionService` 写入 Markdown 投影
-10. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层与 `Experience`
+10. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层只读视图
 
 ## 1. 当前目录目标
 
@@ -253,7 +252,7 @@
 
 - 已落地 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
 - 已落地 `SessionInsight -> Experience` 的 memory 内部闭环
-- `MemorySnapshot` 已开放 `Experience`
+- `MemorySnapshot` 仍停在短期层，只作为统一只读出口
 
 下一步应继续补：
 

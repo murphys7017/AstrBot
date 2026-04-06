@@ -791,11 +791,7 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
     assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
     assert latest_insight is not None
     assert len(experiences) == 2
-    assert len(snapshot.experiences) == 2
-    assert {item.summary for item in snapshot.experiences} == {
-        "A memory milestone was reached",
-        "Progress moved forward",
-    }
+    assert snapshot.experiences == []
 
 
 @pytest.mark.asyncio
@@ -864,7 +860,7 @@ async def test_memory_service_keeps_database_results_when_projection_refresh_fai
 
     assert latest_insight is not None
     assert len(experiences) == 2
-    assert len(snapshot.experiences) == 2
+    assert snapshot.experiences == []
 
 
 @pytest.mark.asyncio
