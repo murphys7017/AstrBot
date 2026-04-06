@@ -124,6 +124,9 @@ Recent dialogue:
 """,
 }
 
+DEFAULT_MEMORY_ANALYZER_PROVIDER_ID = "ollama"
+DEFAULT_MEMORY_ANALYZER_MODEL = "qwen3:1.7b"
+
 
 @dataclass(slots=True)
 class MemoryStorageConfig:
@@ -177,8 +180,8 @@ class MemoryJobsConfig:
 class MemoryAnalyzerConfig:
     enabled: bool = True
     implementation: str = "prompt_json"
-    provider_id: str = ""
-    model: str = ""
+    provider_id: str = DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
+    model: str = DEFAULT_MEMORY_ANALYZER_MODEL
     prompt_file: str = ""
     output_schema: str = ""
     timeout_seconds: int = 20
@@ -284,8 +287,8 @@ def build_default_memory_config_payload() -> dict:
                 "topic_v1": {
                     "enabled": True,
                     "implementation": "prompt_json",
-                    "provider_id": "",
-                    "model": "",
+                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
                     "prompt_file": "topic_v1.md",
                     "output_schema": "TopicStateResult",
                     "timeout_seconds": 20,
@@ -294,8 +297,8 @@ def build_default_memory_config_payload() -> dict:
                 "focus_v1": {
                     "enabled": True,
                     "implementation": "prompt_json",
-                    "provider_id": "",
-                    "model": "",
+                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
                     "prompt_file": "focus_v1.md",
                     "output_schema": "ShortTermFocusResult",
                     "timeout_seconds": 20,
@@ -304,8 +307,8 @@ def build_default_memory_config_payload() -> dict:
                 "summary_v1": {
                     "enabled": True,
                     "implementation": "prompt_json",
-                    "provider_id": "",
-                    "model": "",
+                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
                     "prompt_file": "summary_v1.md",
                     "output_schema": "ShortTermSummaryResult",
                     "timeout_seconds": 20,
@@ -314,8 +317,8 @@ def build_default_memory_config_payload() -> dict:
                 "session_insight_v1": {
                     "enabled": True,
                     "implementation": "prompt_json",
-                    "provider_id": "",
-                    "model": "",
+                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
                     "prompt_file": "session_insight_v1.md",
                     "output_schema": "SessionInsightResult",
                     "timeout_seconds": 20,
@@ -324,8 +327,8 @@ def build_default_memory_config_payload() -> dict:
                 "experience_extract_v1": {
                     "enabled": True,
                     "implementation": "prompt_json",
-                    "provider_id": "",
-                    "model": "",
+                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
                     "prompt_file": "experience_extract_v1.md",
                     "output_schema": "ExperienceExtractResult",
                     "timeout_seconds": 20,
@@ -421,8 +424,14 @@ def _load_analyzer_configs(payload: object) -> dict[str, MemoryAnalyzerConfig]:
                 config_payload.get("implementation"),
                 "prompt_json",
             ),
-            provider_id=_as_str(config_payload.get("provider_id"), ""),
-            model=_as_str(config_payload.get("model"), ""),
+            provider_id=_as_str(
+                config_payload.get("provider_id"),
+                DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+            ),
+            model=_as_str(
+                config_payload.get("model"),
+                DEFAULT_MEMORY_ANALYZER_MODEL,
+            ),
             prompt_file=_as_str(config_payload.get("prompt_file"), ""),
             output_schema=_as_str(config_payload.get("output_schema"), ""),
             timeout_seconds=_as_int(config_payload.get("timeout_seconds"), 20),

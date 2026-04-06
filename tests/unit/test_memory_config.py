@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from astrbot.core.memory.config import (
+    DEFAULT_MEMORY_ANALYZER_MODEL,
     DEFAULT_MEMORY_ANALYZER_PROMPTS,
+    DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
     build_default_memory_config_payload,
     ensure_memory_config_file,
     load_memory_config,
@@ -28,6 +30,8 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "summary_v1:" in content
     assert "session_insight_v1:" in content
     assert "experience_extract_v1:" in content
+    assert f"provider_id: {DEFAULT_MEMORY_ANALYZER_PROVIDER_ID}" in content
+    assert f"model: {DEFAULT_MEMORY_ANALYZER_MODEL}" in content
 
 
 def test_load_memory_config_creates_missing_file_and_uses_defaults(
@@ -58,6 +62,14 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.analysis.prompts_root.exists()
     for prompt_name in DEFAULT_MEMORY_ANALYZER_PROMPTS:
         assert (config.analysis.prompts_root / prompt_name).exists()
+    assert (
+        config.analysis.analyzers["topic_v1"].provider_id
+        == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
+    )
+    assert (
+        config.analysis.analyzers["topic_v1"].model
+        == DEFAULT_MEMORY_ANALYZER_MODEL
+    )
 
 
 def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
@@ -140,6 +152,14 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "analysis",
     }
     assert payload["analysis"]["analyzers"]["topic_v1"]["prompt_file"] == "topic_v1.md"
+    assert (
+        payload["analysis"]["analyzers"]["topic_v1"]["provider_id"]
+        == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
+    )
+    assert (
+        payload["analysis"]["analyzers"]["topic_v1"]["model"]
+        == DEFAULT_MEMORY_ANALYZER_MODEL
+    )
     assert payload["analysis"]["analyzers"]["focus_v1"]["prompt_file"] == "focus_v1.md"
     assert (
         payload["analysis"]["analyzers"]["summary_v1"]["prompt_file"] == "summary_v1.md"
