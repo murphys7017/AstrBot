@@ -2,6 +2,37 @@
 
 本文件记录 `docs/Yakumo/dev/memory/` 的当前文档结构与后续补充顺序。
 
+## 0. 当前实现进度
+
+当前 memory 线已经完成到：
+
+- `Post Process -> MemoryService` 回合后写入链路已接通
+- `TurnRecord`、`TopicState`、`ShortTermMemory` 已稳定写入 `SQLite`
+- `MemorySnapshot` 读取链路已接通
+- 短期层已具备配置驱动的 analyzer 基础设施
+- `SessionInsight` 与 `Experience` 已具备模型驱动的 consolidation 链路
+- consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
+
+当前仍未进入：
+
+- `LongTermMemory` 沉淀
+- `PersonaState` / `PersonaEvolutionLog` 更新
+- `VectorIndex` / `Retriever`
+- `MemorySnapshot` 的中长期结果扩张
+- prompt render / prompt 注入
+
+当前真实闭环：
+
+1. `AFTER_MESSAGE_SENT`
+2. `MemoryPostProcessor`
+3. `MemoryService.update_from_postprocess(...)`
+4. `TurnRecordService.ingest_turn(...)`
+5. `ShortTermMemoryService.update_after_turn(...)`
+6. 达阈值时 `MemoryService.run_consolidation(...)`
+7. `ConsolidationService.run_for_scope(...)`
+8. `ExperienceService.persist_experiences(...)`
+9. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层只读视图
+
 ## 1. 当前目录目标
 
 当前目录用于收口 AstrBot memory 系统的：
@@ -115,6 +146,7 @@
 当前状态：
 
 - 已完成第一版最小实现规划
+- 需要按当前代码状态继续维护阶段完成度说明
 
 ## 3. 建议补充文档
 
@@ -154,6 +186,13 @@
 6. `data-model.md`
 7. `mvp-plan.md`
 
+如果是先看当前代码已做到哪里，建议先读：
+
+1. `index.md`
+2. `mvp-plan.md`
+3. `architecture.md`
+4. `lifecycle.md`
+
 ## 5. 推荐编写顺序
 
 当前推荐补充顺序：
@@ -164,7 +203,7 @@
 说明：
 
 - 目前模块结构、配置、数据对象与 MVP 范围已经基本收口
-- 下一步应该把调度和读取链路继续收紧
+- 当前更需要补的是“已实现状态”和“下一阶段边界”同步
 
 ## 6. 当前目录边界
 
@@ -191,6 +230,12 @@
 - 配置结构
 - 数据类型设定
 - MVP 范围
+
+当前代码进度已经超过最初短期 MVP，正在进入中期抽象阶段：
+
+- 已落地 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
+- 已落地 `SessionInsight -> Experience` 的 memory 内部闭环
+- `MemorySnapshot` 仍停在短期层，只作为统一只读出口
 
 下一步应继续补：
 

@@ -2,6 +2,44 @@
 
 本文件定义 AstrBot memory 系统第一版最小实现范围。
 
+## 0. 当前状态
+
+截至当前代码状态：
+
+- Phase 1 已完成
+- Phase 2 已完成
+- Phase 3 已部分完成
+
+当前已经落地：
+
+- `config.py`
+- `types.py`
+- `store.py`
+- `service.py`
+- `history_source.py`
+- `turn_record_service.py`
+- `short_term_service.py`
+- `snapshot_builder.py`
+- `postprocessor.py`
+- `consolidation_service.py`
+- `experience_service.py`
+
+当前仍未落地：
+
+- `vector_index.py`
+- `retriever.py`
+- `long_term_service.py`
+- `persona_state_service.py`
+- `jobs.py`
+- `graph_store.py`
+
+当前实际边界：
+
+- memory 只负责写入、短期更新、中期 consolidation、snapshot 读取
+- snapshot 当前只暴露短期层
+- `SessionInsight` / `Experience` 已写入 store，但还没有进入 snapshot
+- prompt 系统后续只作为 snapshot 消费方
+
 ## 1. MVP 目标
 
 第一版只要求打通以下闭环：
@@ -35,6 +73,10 @@
 - `postprocessor.py`
 - `__init__.py`
 
+当前状态：
+
+- 已完成
+
 ### 2.2 本次建议一起实现
 
 - `consolidation_service.py`
@@ -47,6 +89,13 @@
 - 这部分建议和 MVP 一起做，是因为你已经明确希望前期就引入简单向量检索
 - 但它们可以在工程节奏上晚于短期链路落地
 
+当前状态：
+
+- `consolidation_service.py` 已完成
+- `experience_service.py` 已完成
+- `vector_index.py` 未开始
+- `retriever.py` 未开始
+
 ### 2.3 本次明确后置
 
 - `long_term_service.py`
@@ -58,6 +107,10 @@
 
 - 第一版先把短期闭环和中长期骨架跑通
 - 长期沉淀与人格更新放到下一阶段
+
+当前状态：
+
+- 保持不变
 
 ## 3. MVP 分阶段
 
@@ -89,6 +142,10 @@
 - 当前会话可更新 `ShortTermMemory`
 - 没有 memory 时不影响现有消息链路
 
+当前状态：
+
+- 已完成
+
 ### 3.2 Phase 2: 请求前读取闭环
 
 目标：
@@ -107,6 +164,10 @@
 - 能按 `umo + conversation_id` 读取 `ShortTermMemory`
 - 返回统一 `MemorySnapshot`
 - 现有 prompt 构建系统不需要立刻修改
+
+当前状态：
+
+- 已完成
 
 ### 3.3 Phase 3: 中长期骨架
 
@@ -133,6 +194,15 @@
 说明：
 
 - 这一阶段只做 `Experience`，不要求真正生成 `LongTermMemory`
+
+当前状态：
+
+- 已完成 `SessionInsight`
+- 已完成 `Experience`
+- 已完成按阈值触发的 consolidation
+- 未完成向量索引
+- 未完成 retrieval
+- `MemorySnapshot` 当前仍不返回 `experiences`
 
 ## 4. MVP 数据对象
 
@@ -239,6 +309,7 @@ async def MemoryRetriever.retrieve_for_snapshot(umo: str, conversation_id: str |
 - `TurnRecord`
 - `TopicState`
 - `ShortTermMemory`
+- 达阈值时继续进入 consolidation
 
 ### 7.2 请求前读取链路
 
@@ -258,16 +329,19 @@ async def MemoryRetriever.retrieve_for_snapshot(umo: str, conversation_id: str |
 
 调用顺序：
 
-1. `ConsolidationService.run_for_scope(...)`
-2. `ExperienceService.persist_experiences(...)`
-3. `VectorIndex.upsert_experience(...)`
-4. `MemorySnapshotBuilder.build_snapshot(...)`
-5. `MemoryRetriever.retrieve_for_snapshot(...)`
+1. `MemoryService.update_from_postprocess(...)`
+2. 达阈值时 `MemoryService.run_consolidation(...)`
+3. `ConsolidationService.run_for_scope(...)`
+4. `MemoryStore.save_session_insight(...)`
+5. `ExperienceService.persist_experiences(...)`
+6. 后续再接 `VectorIndex.upsert_experience(...)`
+7. 后续再接 `MemoryRetriever.retrieve_for_snapshot(...)`
 
 输出：
 
 - `Experience`
-- 中长期召回结果
+- `SessionInsight`
+- 后续中长期召回结果
 
 ## 8. MVP 存储范围
 
@@ -298,6 +372,10 @@ Phase 3 追加：
 
 - `memory_session_insights`
 - `memory_experiences`
+
+当前状态：
+
+- 已落地
 
 当前不需要：
 
@@ -330,6 +408,12 @@ Phase 3 追加：
 
 - 文档中可以先保留这些配置
 - 代码里本阶段不必全部消费
+
+当前状态：
+
+- 已消费短期分析与 consolidation 相关配置
+- 已支持 analyzer / stage / prompt 文件配置
+- `vector_index.*` 仍未实际消费
 
 ## 11. MVP 不做什么
 
@@ -365,6 +449,12 @@ Phase 3 追加：
 - 能做最小 query 检索
 - 检索结果能进入 `MemorySnapshot`
 
+当前状态：
+
+- 已满足“能生成 `Experience`”
+- 未满足“最小 query 检索”
+- 未满足“检索结果进入 `MemorySnapshot`”
+
 ## 13. 实现顺序
 
 建议实际编码顺序：
@@ -388,10 +478,17 @@ Phase 3 追加：
 - 前 9 步完成后，短期闭环和读取闭环就已经成立
 - 后 4 步用于补中长期骨架
 
+当前实际进度：
+
+1. 已完成到 `experience_service.py`
+2. `vector_index.py` / `retriever.py` 暂未开始
+3. 后续再进入长期沉淀与人格层
+
 ## 14. 当前结论
 
 memory 第一版最小实现应理解为：
 
 - 先打通 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
-- 再补 `SessionInsight -> Experience -> Vector Retrieval`
+- 再补 `SessionInsight -> Experience`
+- `Vector Retrieval` 已后移到下一阶段
 - `LongTermMemory` 与 `PersonaState` 先只保留设计，不进入本次实现范围

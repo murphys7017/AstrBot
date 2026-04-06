@@ -27,7 +27,8 @@
 触发关系：
 
 - 回合后：`Post Process -> Turn Ingest -> Short-Term Update`
-- 批量任务：`Scheduler -> Consolidation -> Experience Persist`
+- 当前实现：`Post Process -> Turn Ingest -> Short-Term Update -> Threshold Check -> Consolidation -> Experience Persist`
+- 后续批量任务：`Scheduler -> Consolidation -> Experience Persist`
 - 定时任务：`Scheduler -> Long-Term / Persona Update`
 - 请求前：`Prompt / Collector -> Retrieval -> Snapshot Builder`
 
@@ -57,6 +58,12 @@
 
 - `astrbot/core/memory/graph_store.py`
 - `astrbot/core/memory/projection.py`
+
+当前实现状态：
+
+- 已实现：`__init__.py`、`config.py`、`types.py`、`store.py`、`service.py`、`turn_record_service.py`、`short_term_service.py`、`consolidation_service.py`、`experience_service.py`、`snapshot_builder.py`、`postprocessor.py`、`history_source.py`
+- 未实现：`long_term_service.py`、`persona_state_service.py`、`vector_index.py`、`retriever.py`、`jobs.py`
+- 预留：`graph_store.py`、`projection.py`
 
 ## 3. 核心模块
 
@@ -250,7 +257,8 @@ async def run_for_scope(self, umo: str, conversation_id: str | None) -> tuple[Se
 
 模块协作：
 
-- `jobs.py` 的批量任务调用
+- 当前由 `MemoryService.update_from_postprocess(...)` 在短期更新后按阈值触发
+- 后续可再接 `jobs.py` 的批量任务调用
 - 依赖 `MemoryStore`
 - 为 `ExperienceService`、`LongTermMemoryService` 和 `PersonaStateService` 提供输入
 
@@ -260,8 +268,9 @@ async def run_for_scope(self, umo: str, conversation_id: str | None) -> tuple[Se
 
 - 维护强时间线关联的 `Experience`
 - 把中期抽象结果转成事件流对象
-- 提供时间范围检索与审阅投影导出能力
-- 同步维护 `Experience` 的简单向量索引
+- 提供时间范围检索能力
+- 后续再补审阅投影导出能力
+- 后续再补 `Experience` 的简单向量索引
 
 第一版核心对象：
 
@@ -273,7 +282,6 @@ async def run_for_scope(self, umo: str, conversation_id: str | None) -> tuple[Se
 async def persist_experiences(self, experiences: list[Experience]) -> list[Experience]: ...
 async def list_recent(self, umo: str, limit: int) -> list[Experience]: ...
 async def list_by_time_range(self, umo: str, start_at, end_at) -> list[Experience]: ...
-async def project_timeline_markdown(self, umo: str, start_at=None, end_at=None) -> Path | None: ...
 ```
 
 模块协作：
@@ -534,12 +542,14 @@ async def run_persona_reflection_job(self) -> None: ...
 
 调用顺序：
 
-1. `MemoryJobRunner.run_consolidation_job()`
-2. `MemoryService.run_consolidation(...)`
-3. `ConsolidationService.run_for_scope(...)`
-4. `MemoryStore.save_session_insight(...)`
-5. `ExperienceService.persist_experiences(...)`
-6. `VectorIndex.upsert_experience(...)`
+1. `MemoryService.update_from_postprocess(...)`
+2. `ShortTermMemoryService.update_after_turn(...)`
+3. `ConsolidationService.should_run_consolidation(...)`
+4. 达阈值时 `MemoryService.run_consolidation(...)`
+5. `ConsolidationService.run_for_scope(...)`
+6. `MemoryStore.save_session_insight(...)`
+7. `ExperienceService.persist_experiences(...)`
+8. 后续再接 `VectorIndex.upsert_experience(...)`
 
 结果：
 
@@ -599,8 +609,8 @@ async def run_persona_reflection_job(self) -> None: ...
 
 1. `MemoryService.get_snapshot(...)`
 2. `MemorySnapshotBuilder.build_snapshot(...)`
-3. `MemoryRetriever.retrieve_for_snapshot(...)`
-4. `MemoryStore` 读取短期层与检索结果
+3. 当前直接由 `MemoryStore` 读取短期层
+4. 后续再接 `MemoryRetriever.retrieve_for_snapshot(...)`
 5. 返回 `MemorySnapshot`
 
 结果：
@@ -661,7 +671,5 @@ async def VectorIndex.search_long_term_memories(query: str, limit: int = 5, filt
 - `TurnRecordService` 与 `ShortTermMemoryService` 负责即时更新
 - `ConsolidationService` 负责中期抽象
 - `ExperienceService` 负责独立的时间线事件流
-- `LongTermMemoryService` 负责长期对象沉淀
-- `VectorIndex` 与 `MemoryRetriever` 负责第一版中长期检索
-- `PersonaStateService` 负责动态人格状态
-- `MemorySnapshotBuilder` 负责请求前只读视图
+- `MemorySnapshotBuilder` 当前只负责短期层只读视图
+- `LongTermMemoryService`、`VectorIndex`、`MemoryRetriever`、`PersonaStateService` 仍处于后续阶段
