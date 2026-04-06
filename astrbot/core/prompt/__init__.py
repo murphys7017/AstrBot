@@ -9,6 +9,7 @@ AstrBot Prompt Engine - 上下文数据层（第一阶段）
 """
 
 from .collectors import (
+    ConversationHistoryCollector,
     InputCollector,
     MemoryCollector,
     PersonaCollector,
@@ -66,6 +67,7 @@ __all__ = [
     # Interfaces
     "ContextCollectorInterface",
     # Collectors
+    "ConversationHistoryCollector",
     "InputCollector",
     "MemoryCollector",
     "PersonaCollector",

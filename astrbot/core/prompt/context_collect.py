@@ -13,6 +13,7 @@ from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.star.context import Context
 
+from .collectors.conversation_history_collector import ConversationHistoryCollector
 from .collectors.input_collector import InputCollector
 from .collectors.memory_collector import MemoryCollector
 from .collectors.persona_collector import PersonaCollector
@@ -33,6 +34,7 @@ def _default_collectors() -> list[ContextCollectorInterface]:
         SessionCollector(),
         PolicyCollector(),
         MemoryCollector(),
+        ConversationHistoryCollector(),
     ]
 
 

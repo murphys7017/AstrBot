@@ -14,6 +14,7 @@ from astrbot.core.astr_main_agent_resources import (
 from astrbot.core.memory.types import MemorySnapshot, ShortTermMemory, TopicState
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.collectors import (
+    ConversationHistoryCollector,
     InputCollector,
     MemoryCollector,
     PolicyCollector,
@@ -638,6 +639,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "SessionCollector",
         "PolicyCollector",
         "MemoryCollector",
+        "ConversationHistoryCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
@@ -881,6 +883,134 @@ async def test_collect_context_pack_memory_fail_open_when_snapshot_request_raise
 
     assert pack.get_slot("memory.topic_state") is None
     assert pack.get_slot("memory.short_term") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_conversation_history_from_conversation():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    req.conversation.history = (
+        '[{"role":"user","content":"hi"},{"role":"assistant","content":"hello there"}]'
+    )
+    req.contexts = [{"role": "user", "content": "ignored fallback"}]
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[ConversationHistoryCollector()],
+    )
+
+    history_slot = pack.get_slot("conversation.history")
+    assert history_slot is not None
+    assert history_slot.value == {
+        "format": "turn_pairs",
+        "source": "provider_request.conversation.history",
+        "conversation_id": "conv-id",
+        "turn_count": 1,
+        "turns": [
+            {
+                "user_message": {"role": "user", "content": "hi"},
+                "assistant_message": {
+                    "role": "assistant",
+                    "content": "hello there",
+                },
+            }
+        ],
+    }
+    assert history_slot.meta["format"] == "turn_pairs"
+    assert history_slot.meta["turn_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_conversation_history_falls_back_to_contexts():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    req.conversation.history = '[{"role":"user","content":"dangling user only"}]'
+    req.contexts = [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "draft", "tool_calls": [{"id": "call-1"}]},
+        {"role": "tool", "content": "tool result", "tool_call_id": "call-1"},
+        {"role": "assistant", "content": "final answer"},
+    ]
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[ConversationHistoryCollector()],
+    )
+
+    history_slot = pack.get_slot("conversation.history")
+    assert history_slot is not None
+    assert history_slot.value["source"] == "provider_request.contexts"
+    assert history_slot.value["turn_count"] == len(history_slot.value["turns"]) == 1
+    assert history_slot.value["turns"] == [
+        {
+            "user_message": {"role": "user", "content": "question"},
+            "assistant_message": {
+                "role": "assistant",
+                "content": "final answer",
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_conversation_history_skips_when_unavailable():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[ConversationHistoryCollector()],
+    )
+
+    assert pack.get_slot("conversation.history") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_conversation_history_fail_open_when_parse_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    req.conversation.history = '[{"role":"user","content":"hi"}]'
+    req.contexts = [{"role": "user", "content": "fallback only"}]
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.conversation_history_collector.extract_turn_payloads",
+        side_effect=RuntimeError("history boom"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            provider_request=req,
+            collectors=[ConversationHistoryCollector()],
+        )
+
+    assert pack.get_slot("conversation.history") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):
