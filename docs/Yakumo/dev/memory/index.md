@@ -13,8 +13,10 @@
 - `SessionInsight` 与 `Experience` 已具备模型驱动的 consolidation 链路
 - `Experience` 已具备 Markdown 投影
 - `LongTermMemory + Document Search V1` 已完成第一版实现
+- 长期记忆一致性修复第一轮已完成
+- 手动长期记忆导入 / 更新入口已完成
 - consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
-- 长期记忆当前处于“已实现、待修复稳定性问题”的阶段，详见 `long-term-fix-plan.md`
+- 长期记忆当前处于“第一版已实现，并完成首轮稳定性修复”的阶段，详见 `long-term-fix-plan.md`
 
 当前仍未进入：
 
@@ -35,7 +37,7 @@
 9. `ExperienceProjectionService` 写入 Markdown 投影
 10. 达阈值时 `LongTermMemoryService.run_promotion(...)`
 11. 通过 `DocumentSearchService` 执行长期记忆文档搜索
-12. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层 + `Experience` 只读视图
+12. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层只读视图
 
 ## 1. 当前目录目标
 
@@ -191,6 +193,7 @@
 当前状态：
 
 - 已完成第一版修复计划收口
+- 其中关键修复已落地，需要继续维护“已修复 / 后续待做”状态
 
 ## 3. 建议补充文档
 
@@ -296,7 +299,7 @@
 
 - 已落地 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
 - 已落地 `SessionInsight -> Experience` 的 memory 内部闭环
-- `MemorySnapshot` 当前已开放短期层 + `Experience`，长期层仍未完整接入
+- `MemorySnapshot` 当前仍只开放短期层，长期层与 `Experience` 均未正式接入
 
 下一步应继续补：
 

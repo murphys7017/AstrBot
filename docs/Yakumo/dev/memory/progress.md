@@ -11,6 +11,7 @@
 - 已完成中期 consolidation 第一版
 - 已完成 `Experience` 的 Markdown 投影
 - 已完成 `LongTermMemory + Document Search V1`
+- 已完成长期记忆一致性修复第一轮
 - 未进入人格演进与完整 retrieval 接入
 
 当前可以认为已经完成了：
@@ -81,13 +82,13 @@
 
 - `topic_state`
 - `short_term_memory`
-- `experiences`
+- `experiences=[]`
 - `long_term_memories=[]`
 - `persona_state=None`
 
 说明：
 
-- `experiences` 已进入 snapshot，可供只读消费
+- `experiences` 当前仍未进入 snapshot，保持空列表占位
 - `long_term_memories` 与 `persona_state` 仍然是占位
 - 这里的空中长期字段不代表 retrieval / prompt 接入已实现
 
@@ -149,6 +150,10 @@
 
 - 长期记忆文档与索引第一版已存在
 - 文档搜索第一版已存在
+- 手动导入 / 更新入口已存在
+- 长期文档写入已改成 staging + 原子替换
+- 向量索引开启时，长期导入 / promotion 会先校验 provider 绑定与索引可用性
+- `importance / confidence / topic_confidence` 已收紧到 `0..1`
 - 仍未完整接入 `MemorySnapshot.long_term_memories`
 - 仍未接入 prompt collector / renderer 消费链路
 
@@ -229,7 +234,7 @@
 如果按“能不能给后续 prompt system 提供稳定 memory 输入”来看：
 
 - 短期层：可以
-- 中期层：内部已可用，`experiences` 已可进入 snapshot
+- 中期层：内部已可用，但 `experiences` 仍未进入 snapshot
 - 长期层：内部基础已存在，但还未形成稳定 prompt 消费入口
 
 ## 6. 当前主要限制
@@ -239,13 +244,12 @@
 - `SessionInsight` 已写入，但不进入 snapshot
 - `LongTermMemory` 尚未进入 snapshot
 - 还没有统一 query 驱动的 retrieval
-- 向量索引仍停在基础设施阶段
+- 向量索引已可服务长期记忆文档搜索，但仍未进入统一 retrieval
 
 所以当前对外稳定开放的 memory 结果现在是：
 
 - `TopicState`
 - `ShortTermMemory`
-- `Experience`
 
 ## 7. 下一步建议顺序
 
@@ -254,7 +258,7 @@
 1. `snapshot-and-read-path.md`
 2. `jobs-and-scheduling.md`
 3. `retriever.py`
-4. 将 `SessionInsight` / `LongTermMemory` 以受控方式接入 snapshot
+4. 将 `SessionInsight` / `Experience` / `LongTermMemory` 以受控方式接入 snapshot
 5. 将长期层接入 prompt collector / renderer
 6. `persona_state_service.py`
 
@@ -270,13 +274,13 @@
 
 `Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> LongTermPromotion -> Snapshot`
 
-当前这个链路里，对外已经开放到了短期层加 `Experience`。
+当前这个链路里，对外稳定开放的仍然是短期层。
 当前这个链路里，长期层仍主要停留在 memory 内部服务能力。
 
 所以当前最准确的判断是：
 
 - memory 基础设施已成立
-- 中期抽象已落地到 store 与 snapshot
-- 长期层基础服务与文档搜索第一版已落地
+- 中期抽象已落地到 store
+- 长期层基础服务与文档搜索第一版已落地，并完成第一轮一致性修复
 - `Experience` 已完成 projection，可供内部审阅
 - 系统整体正处于“短期完成，中期可读，长期第一版已落地但尚未完整接入”的阶段
