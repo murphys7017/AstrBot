@@ -366,6 +366,12 @@ class ConsolidationService:
                 raise MemoryAnalyzerExecutionError(
                     f"experience_extract returned invalid category `{category}`"
                 )
+            for score_field in ("importance", "confidence"):
+                score = float(item[score_field])
+                if not 0.0 <= score <= 1.0:
+                    raise MemoryAnalyzerExecutionError(
+                        f"experience_extract field `{score_field}` must be between 0 and 1"
+                    )
             validated.append(item)
         return validated
 

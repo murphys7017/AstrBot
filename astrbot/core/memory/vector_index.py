@@ -32,6 +32,11 @@ class MemoryVectorIndex:
     def bind_provider_manager(self, provider_manager) -> None:
         self.provider_manager = provider_manager
 
+    async def ensure_ready(self) -> None:
+        if not self.config.vector_index.enabled:
+            return
+        await self._ensure_vec_db()
+
     async def upsert_long_term_memory(self, memory_id: str) -> None:
         memory = await self.store.get_long_term_memory_index(memory_id)
         if memory is None:

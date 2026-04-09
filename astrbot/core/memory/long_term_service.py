@@ -163,6 +163,7 @@ class LongTermMemoryService:
             existing_memories=existing_memories,
         )
         self._validate_promote_batch_constraints(actions, candidate_experiences)
+        await self._ensure_vector_index_ready()
         memory_map = {memory.memory_id: memory for memory in existing_memories}
 
         pending_memories: list[LongTermMemoryIndex] = []
@@ -319,18 +320,22 @@ class LongTermMemoryService:
             last_processed_experience_id=latest_pending.experience_id,
             updated_at=now,
         )
-        persisted_indexes, _, _ = await self.store.persist_long_term_promotion_batch(
-            pending_memories,
-            links,
-            cursor_to_save,
-        )
-        refreshed_memory_ids = self._refresh_documents(documents_to_refresh)
-        refreshed_indexes = [
-            index
-            for index in persisted_indexes
-            if index.memory_id in refreshed_memory_ids
-        ]
-        await self._refresh_vector_indexes(refreshed_indexes)
+        prepared_documents = self._prepare_documents(documents_to_refresh)
+        try:
+            self._apply_prepared_documents(prepared_documents)
+            (
+                persisted_indexes,
+                _,
+                _,
+            ) = await self.store.persist_long_term_promotion_batch(
+                pending_memories,
+                links,
+                cursor_to_save,
+            )
+        except Exception:
+            self._rollback_prepared_documents(prepared_documents)
+            raise
+        await self._refresh_vector_indexes(persisted_indexes)
         logger.info(
             "memory long-term promotion finished: umo=%s scope_type=%s scope_id=%s memories=%s links=%s refreshed_docs=%s",
             umo,
@@ -338,7 +343,7 @@ class LongTermMemoryService:
             scope_id,
             len(persisted_indexes),
             len(links),
-            len(refreshed_memory_ids),
+            len(prepared_documents),
         )
         return persisted_indexes
 
@@ -550,7 +555,12 @@ class LongTermMemoryService:
                 raise MemoryAnalyzerExecutionError(
                     f"long_term_compose missing required field `{field_name}`"
                 )
-            validated[field_name] = float(value)
+            score = float(value)
+            if not 0.0 <= score <= 1.0:
+                raise MemoryAnalyzerExecutionError(
+                    f"long_term_compose field `{field_name}` must be between 0 and 1"
+                )
+            validated[field_name] = score
         if validated["status"] not in LONG_TERM_STATUS_VALUES:
             raise MemoryAnalyzerExecutionError(
                 f"long_term_compose returned invalid status `{validated['status']}`"
@@ -592,9 +602,9 @@ class LongTermMemoryService:
     ) -> Path:
         return (
             self.store.config.storage.docs_root
-            / self._safe_path_component(umo)
-            / self._safe_path_component(self._enum_value(scope_type))
-            / f"{self._safe_path_component(memory_id)}.md"
+            / DocumentLoader._safe_path_component(umo)
+            / DocumentLoader._safe_path_component(self._enum_value(scope_type))
+            / f"{DocumentLoader._safe_path_component(memory_id)}.md"
         )
 
     @staticmethod
@@ -652,37 +662,61 @@ class LongTermMemoryService:
         if self.vector_index is None or not self.store.config.vector_index.enabled:
             return
         for index in indexes:
-            try:
-                await self.vector_index.upsert_long_term_memory(index.memory_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "memory long-term vector index refresh failed: memory_id=%s error=%s",
-                    index.memory_id,
-                    exc,
-                    exc_info=True,
-                )
+            await self.vector_index.upsert_long_term_memory(index.memory_id)
 
-    def _refresh_documents(
+    def _prepare_documents(
         self,
         documents: list[tuple[LongTermMemoryDocument, Path]],
-    ) -> set[str]:
-        refreshed_memory_ids: set[str] = set()
+    ) -> list[tuple[LongTermMemoryDocument, object]]:
+        prepared_documents: list[tuple[LongTermMemoryDocument, object]] = []
         for document, doc_path in documents:
+            prepared_documents.append(
+                (
+                    document,
+                    self.document_loader.prepare_long_term_document_write(
+                        document,
+                        doc_path=doc_path,
+                    ),
+                )
+            )
+        return prepared_documents
+
+    def _apply_prepared_documents(
+        self,
+        prepared_documents: list[tuple[LongTermMemoryDocument, object]],
+    ) -> None:
+        applied_documents: list[tuple[LongTermMemoryDocument, object]] = []
+        try:
+            for document, prepared in prepared_documents:
+                self.document_loader.apply_prepared_write(prepared)
+                applied_documents.append((document, prepared))
+        except Exception:
+            for _, prepared in prepared_documents[len(applied_documents) :]:
+                self.document_loader.cleanup_prepared_write(prepared)
+            self._rollback_prepared_documents(applied_documents)
+            raise
+
+    def _rollback_prepared_documents(
+        self,
+        prepared_documents: list[tuple[LongTermMemoryDocument, object]],
+    ) -> None:
+        rollback_errors: list[Exception] = []
+        for _, prepared in reversed(prepared_documents):
             try:
-                self.document_loader.save_long_term_document(
-                    document, doc_path=doc_path
-                )
+                self.document_loader.rollback_prepared_write(prepared)
             except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "memory long-term document refresh failed: memory_id=%s path=%s error=%s",
-                    document.memory_id,
-                    doc_path,
-                    exc,
-                    exc_info=True,
-                )
-                continue
-            refreshed_memory_ids.add(document.memory_id)
-        return refreshed_memory_ids
+                rollback_errors.append(exc)
+            finally:
+                self.document_loader.cleanup_prepared_write(prepared)
+        if rollback_errors:
+            raise RuntimeError(
+                "memory long-term document rollback failed"
+            ) from rollback_errors[0]
+
+    async def _ensure_vector_index_ready(self) -> None:
+        if self.vector_index is None or not self.store.config.vector_index.enabled:
+            return
+        await self.vector_index.ensure_ready()
 
     @staticmethod
     def _experience_to_payload(experience: Experience) -> dict[str, Any]:
@@ -721,13 +755,6 @@ class LongTermMemoryService:
             if memory.last_event_at
             else "",
         }
-
-    @staticmethod
-    def _safe_path_component(value: str) -> str:
-        sanitized = "".join(
-            char if char.isalnum() or char in "._-" else "_" for char in value
-        ).strip("._")
-        return sanitized or "unknown"
 
     @staticmethod
     def _enum_value(value: ScopeType | str) -> str:

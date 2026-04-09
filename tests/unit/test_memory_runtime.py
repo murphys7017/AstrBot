@@ -48,6 +48,7 @@ from astrbot.core.memory.types import (
     ShortTermMemory,
     TopicState,
 )
+from astrbot.core.memory.vector_index import MemoryVectorIndex
 from astrbot.core.postprocess import get_postprocess_manager
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
@@ -499,6 +500,59 @@ class InvalidLongTermAnalyzerManager:
         raise AssertionError(f"Unexpected stage: {stage}")
 
 
+class OutOfRangeLongTermAnalyzerManager:
+    async def dispatch_stage(
+        self,
+        stage: str,
+        *,
+        payload: dict[str, object],
+        umo: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, MemoryAnalyzerResult]:
+        del payload, umo, conversation_id
+        if stage == "long_term_promote":
+            return {
+                "long_term_promote_v1": MemoryAnalyzerResult(
+                    analyzer_name="long_term_promote_v1",
+                    stage=stage,
+                    data={
+                        "actions": [
+                            {
+                                "action": "create",
+                                "target_memory_id": "",
+                                "category": "project_progress",
+                                "reason": "Create a memory for the new experience.",
+                                "experience_ids": ["exp-1"],
+                            }
+                        ]
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        if stage == "long_term_compose":
+            return {
+                "long_term_compose_v1": MemoryAnalyzerResult(
+                    analyzer_name="long_term_compose_v1",
+                    stage=stage,
+                    data={
+                        "title": "Out of range memory",
+                        "summary": "The score is invalid.",
+                        "detail_summary": "The analyzer returned a score above one.",
+                        "tags": ["invalid"],
+                        "importance": 1.2,
+                        "confidence": 0.9,
+                        "status": "active",
+                    },
+                    raw_text="{}",
+                    provider_id="memory-lite",
+                    model="dummy-model",
+                )
+            }
+        raise AssertionError(f"Unexpected stage: {stage}")
+
+
 class MissingCoverageLongTermAnalyzerManager:
     async def dispatch_stage(
         self,
@@ -743,22 +797,28 @@ class StubManualVectorIndex:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
+    async def ensure_ready(self) -> None:
+        return None
+
     async def upsert_long_term_memory(self, memory_id: str) -> None:
         self.calls.append(memory_id)
 
 
 class FailingManualVectorIndex:
+    async def ensure_ready(self) -> None:
+        return None
+
     async def upsert_long_term_memory(self, memory_id: str) -> None:
         del memory_id
         raise RuntimeError("manual vector refresh failed")
 
 
 class FailingDocumentLoader(DocumentLoader):
-    def save_long_term_document(
+    def prepare_long_term_document_write(
         self,
         document: LongTermMemoryDocument,
         doc_path: Path | str | None = None,
-    ) -> Path:
+    ):
         del document, doc_path
         raise RuntimeError("long-term markdown write failed")
 
@@ -1478,7 +1538,7 @@ async def test_long_term_service_creates_memory_document_links_and_cursor(
 
 
 @pytest.mark.asyncio
-async def test_long_term_service_does_not_write_markdown_before_db_commit(
+async def test_long_term_service_rolls_back_markdown_when_db_commit_fails(
     temp_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1666,7 +1726,7 @@ async def test_long_term_service_updates_existing_memory(temp_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_long_term_service_keeps_db_state_when_markdown_refresh_fails(
+async def test_long_term_service_stops_before_db_when_markdown_prepare_fails(
     temp_dir: Path,
 ):
     config_path = temp_dir / "memory-config.yaml"
@@ -1724,8 +1784,14 @@ async def test_long_term_service_keeps_db_state_when_markdown_refresh_fails(
             )
         )
 
-        persisted = await service.run_promotion("test:private:user", "conv-1")
-        stored_memory = await store.get_long_term_memory_index(persisted[0].memory_id)
+        with pytest.raises(RuntimeError, match="long-term markdown write failed"):
+            await service.run_promotion("test:private:user", "conv-1")
+        stored_memory = await store.list_long_term_memory_indexes(
+            "test:private:user",
+            limit=0,
+            scope_type="conversation",
+            scope_id="conv-1",
+        )
         cursor = await store.get_long_term_promotion_cursor(
             "test:private:user",
             "conversation",
@@ -1734,10 +1800,9 @@ async def test_long_term_service_keeps_db_state_when_markdown_refresh_fails(
     finally:
         await store.close()
 
-    assert len(persisted) == 1
-    assert stored_memory is not None
-    assert cursor is not None
-    assert Path(persisted[0].doc_path).exists() is False
+    assert stored_memory == []
+    assert cursor is None
+    assert list((temp_dir / "long_term").rglob("*.md")) == []
 
 
 @pytest.mark.asyncio
@@ -2059,6 +2124,67 @@ async def test_long_term_service_raises_on_invalid_analyzer_payload(temp_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_long_term_service_raises_on_out_of_range_compose_score(temp_dir: Path):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    service = LongTermMemoryService(
+        store,
+        analyzer_manager=OutOfRangeLongTermAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        long_term_config=MemoryLongTermConfig(
+            enabled=True,
+            docs_dir=config.storage.docs_root,
+            min_experience_importance=0.7,
+            min_pending_experiences=1,
+        ),
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_experience(
+            Experience(
+                experience_id="exp-1",
+                umo="test:private:user",
+                conversation_id="conv-1",
+                scope_type="conversation",
+                scope_id="conv-1",
+                event_time=now,
+                category="project_progress",
+                summary="Trigger out-of-range compose score",
+                detail_summary="The analyzer score should be rejected.",
+                importance=0.9,
+                confidence=0.95,
+                source_refs=["turn:1"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        with pytest.raises(
+            MemoryAnalyzerExecutionError,
+            match="must be between 0 and 1",
+        ):
+            await service.run_promotion("test:private:user", "conv-1")
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_document_search_service_hydrates_results_and_loads_body(temp_dir: Path):
     config_path = temp_dir / "memory-config.yaml"
     sqlite_path = (temp_dir / "memory.db").as_posix()
@@ -2219,8 +2345,18 @@ async def test_long_term_manual_service_imports_new_document_and_normalizes_path
     finally:
         await store.close()
 
-    expected_path = (
-        temp_dir / "long_term" / "test_private_user" / "conversation" / "manual-1.md"
+    expected_path = loader.build_long_term_doc_path(
+        LongTermMemoryDocument(
+            memory_id="manual-1",
+            umo="test:private:user",
+            scope_type="conversation",
+            scope_id="conv-1",
+            category="user_preference",
+            status="active",
+            title="Manual imported memory",
+            summary="The user wants manual long-term imports.",
+            detail_summary="This document was created manually before import.",
+        )
     )
     assert persisted.memory_id == "manual-1"
     assert loaded is not None
@@ -2260,8 +2396,18 @@ async def test_long_term_manual_service_updates_existing_memory_from_document(
         document_loader=loader,
     )
     now = datetime.now(UTC)
-    normalized_path = (
-        temp_dir / "long_term" / "test_private_user" / "conversation" / "manual-2.md"
+    normalized_path = loader.build_long_term_doc_path(
+        LongTermMemoryDocument(
+            memory_id="manual-2",
+            umo="test:private:user",
+            scope_type="conversation",
+            scope_id="conv-1",
+            category="project_progress",
+            status="active",
+            title="Original manual memory",
+            summary="Original summary.",
+            detail_summary="Original detail.",
+        )
     )
     update_source_path = temp_dir / "manual-update.md"
 
@@ -2401,7 +2547,72 @@ async def test_long_term_manual_service_rejects_invalid_document_fields(
 
 
 @pytest.mark.asyncio
-async def test_long_term_manual_service_keeps_db_when_vector_refresh_fails(
+async def test_long_term_manual_service_raises_when_vector_enabled_without_binding(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                "  provider_id: embedding-test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    service = LongTermMemoryManualService(
+        store,
+        document_loader=loader,
+        vector_index=MemoryVectorIndex(store, config=config),
+    )
+    source_path = temp_dir / "manual-no-binding.md"
+    now = datetime.now(UTC)
+
+    try:
+        loader.save_long_term_document(
+            LongTermMemoryDocument(
+                memory_id="manual-unbound",
+                umo="test:private:user",
+                scope_type="conversation",
+                scope_id="conv-1",
+                category="project_progress",
+                status="active",
+                title="Unbound vector import",
+                summary="This import should fail before any write.",
+                detail_summary="The vector index is enabled but not bound.",
+                importance=0.8,
+                confidence=0.9,
+                created_at=now,
+                updated_at=now,
+            ),
+            doc_path=source_path,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="not bound to ProviderManager",
+        ):
+            await service.upsert_memory_from_document(source_path)
+        loaded = await store.get_long_term_memory_index("manual-unbound")
+    finally:
+        await store.close()
+
+    assert loaded is None
+
+
+@pytest.mark.asyncio
+async def test_long_term_manual_service_raises_when_vector_refresh_fails(
     temp_dir: Path,
 ):
     config_path = temp_dir / "memory-config.yaml"
@@ -2452,12 +2663,12 @@ async def test_long_term_manual_service_keeps_db_when_vector_refresh_fails(
             ),
             doc_path=source_path,
         )
-        persisted = await service.upsert_memory_from_document(source_path)
+        with pytest.raises(RuntimeError, match="manual vector refresh failed"):
+            await service.upsert_memory_from_document(source_path)
         loaded = await store.get_long_term_memory_index("manual-3")
     finally:
         await store.close()
 
-    assert persisted.memory_id == "manual-3"
     assert loaded is not None
     assert Path(loaded.doc_path).exists()
 

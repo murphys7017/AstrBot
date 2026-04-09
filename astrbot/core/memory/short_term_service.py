@@ -265,7 +265,11 @@ class ShortTermMemoryService:
         return {
             "current_topic": topic_data["current_topic"],
             "topic_summary": topic_data["topic_summary"],
-            "topic_confidence": float(topic_data["topic_confidence"]),
+            "topic_confidence": self._validate_score(
+                analyzer_name=TOPIC_ANALYZER_NAME,
+                field_name="topic_confidence",
+                value=topic_data["topic_confidence"],
+            ),
             "active_focus": focus_data["active_focus"],
             "short_summary": summary_data["short_summary"],
         }
@@ -321,6 +325,24 @@ class ShortTermMemoryService:
         if isinstance(value, str):
             return bool(value.strip())
         return value is not None
+
+    def _validate_score(
+        self,
+        *,
+        analyzer_name: str,
+        field_name: str,
+        value: Any,
+    ) -> float:
+        if not isinstance(value, int | float):
+            raise MemoryAnalyzerExecutionError(
+                f"analyzer `{analyzer_name}` field `{field_name}` has invalid type"
+            )
+        score = float(value)
+        if not 0.0 <= score <= 1.0:
+            raise MemoryAnalyzerExecutionError(
+                f"analyzer `{analyzer_name}` field `{field_name}` must be between 0 and 1"
+            )
+        return score
 
 
 def _build_turn_summary_parts(

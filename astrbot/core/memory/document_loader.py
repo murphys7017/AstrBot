@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +12,14 @@ import yaml
 
 from .config import MemoryConfig, get_memory_config
 from .types import LongTermMemoryDocument, ScopeType
+
+
+@dataclass(slots=True)
+class PreparedLongTermDocumentWrite:
+    target_path: Path
+    staged_path: Path
+    existed_before: bool
+    backup_text: str | None = None
 
 
 class DocumentLoader:
@@ -35,8 +47,8 @@ class DocumentLoader:
             title=str(front_matter["title"]),
             summary=self._extract_section(body, "Summary") or "",
             detail_summary=self._extract_section(body, "Detail"),
-            importance=float(front_matter["importance"]),
-            confidence=float(front_matter["confidence"]),
+            importance=self._parse_score(front_matter["importance"], "importance"),
+            confidence=self._parse_score(front_matter["confidence"], "confidence"),
             supporting_experiences=[
                 str(item)
                 for item in supporting_experiences
@@ -69,24 +81,78 @@ class DocumentLoader:
         document: LongTermMemoryDocument,
         doc_path: Path | str | None = None,
     ) -> Path:
-        resolved_path = self._resolve_doc_path(
-            doc_path or self._build_default_doc_path(document)
-        )
-        resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_path.write_text(
-            self._render_markdown(document),
-            encoding="utf-8",
-        )
-        return resolved_path
+        prepared = self.prepare_long_term_document_write(document, doc_path=doc_path)
+        try:
+            return self.apply_prepared_write(prepared)
+        finally:
+            self.cleanup_prepared_write(prepared)
 
     def extract_body_text(self, document: LongTermMemoryDocument) -> str:
         if isinstance(document.raw_text, str) and document.raw_text.strip():
             _, body = self._split_front_matter(document.raw_text)
             return body.strip()
-        return self._render_markdown(document).strip()
+        _, body = self._split_front_matter(self.render_long_term_document(document))
+        return body.strip()
 
     def build_long_term_doc_path(self, document: LongTermMemoryDocument) -> Path:
         return self._build_default_doc_path(document)
+
+    def render_long_term_document(self, document: LongTermMemoryDocument) -> str:
+        return self._render_markdown(document)
+
+    def prepare_long_term_document_write(
+        self,
+        document: LongTermMemoryDocument,
+        doc_path: Path | str | None = None,
+    ) -> PreparedLongTermDocumentWrite:
+        resolved_path = self._resolve_doc_path(
+            doc_path or self._build_default_doc_path(document)
+        )
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+        existed_before = resolved_path.exists()
+        backup_text = None
+        if existed_before:
+            backup_text = self._normalize_text(
+                resolved_path.read_text(encoding="utf-8")
+            )
+        staged_path = resolved_path.with_name(
+            f".{resolved_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        staged_path.write_text(
+            self.render_long_term_document(document),
+            encoding="utf-8",
+        )
+        return PreparedLongTermDocumentWrite(
+            target_path=resolved_path,
+            staged_path=staged_path,
+            existed_before=existed_before,
+            backup_text=backup_text,
+        )
+
+    def apply_prepared_write(self, prepared: PreparedLongTermDocumentWrite) -> Path:
+        prepared.staged_path.replace(prepared.target_path)
+        return prepared.target_path
+
+    def rollback_prepared_write(self, prepared: PreparedLongTermDocumentWrite) -> None:
+        if prepared.staged_path.exists():
+            prepared.staged_path.unlink()
+        if prepared.existed_before:
+            if prepared.backup_text is None:
+                raise RuntimeError(
+                    f"missing backup text for rollback: {prepared.target_path}"
+                )
+            prepared.target_path.parent.mkdir(parents=True, exist_ok=True)
+            prepared.target_path.write_text(
+                prepared.backup_text,
+                encoding="utf-8",
+            )
+            return
+        if prepared.target_path.exists():
+            prepared.target_path.unlink()
+
+    def cleanup_prepared_write(self, prepared: PreparedLongTermDocumentWrite) -> None:
+        if prepared.staged_path.exists():
+            prepared.staged_path.unlink()
 
     def _build_default_doc_path(self, document: LongTermMemoryDocument) -> Path:
         return (
@@ -237,11 +303,22 @@ class DocumentLoader:
 
     @staticmethod
     def _safe_path_component(value: str) -> str:
-        sanitized = "".join(
-            char if char.isalnum() or char in "._-" else "_" for char in value
-        ).strip("._")
-        return sanitized or "unknown"
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
+        slug = sanitized or "value"
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
+        return f"{slug}--{digest}"
 
     @staticmethod
     def _enum_value(value: ScopeType | str) -> str:
         return value.value if hasattr(value, "value") else str(value)
+
+    @staticmethod
+    def _parse_score(value: object, field_name: str) -> float:
+        if not isinstance(value, int | float):
+            raise ValueError(f"long-term document field `{field_name}` must be numeric")
+        score = float(value)
+        if not 0.0 <= score <= 1.0:
+            raise ValueError(
+                f"long-term document field `{field_name}` must be between 0 and 1"
+            )
+        return score

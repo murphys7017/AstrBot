@@ -53,6 +53,7 @@ class LongTermMemoryManualService:
         document: LongTermMemoryDocument,
     ) -> LongTermMemoryIndex:
         self._validate_document(document)
+        await self._ensure_vector_index_ready()
         normalized_doc = LongTermMemoryDocument(
             memory_id=document.memory_id.strip(),
             umo=document.umo.strip(),
@@ -89,6 +90,8 @@ class LongTermMemoryManualService:
             existing.created_at if existing is not None else datetime.now(UTC)
         )
         updated_at = normalized_doc.updated_at or datetime.now(UTC)
+        normalized_doc.created_at = created_at
+        normalized_doc.updated_at = updated_at
         index = LongTermMemoryIndex(
             memory_id=normalized_doc.memory_id,
             umo=normalized_doc.umo,
@@ -108,13 +111,24 @@ class LongTermMemoryManualService:
             created_at=created_at,
             updated_at=updated_at,
         )
-        persisted = await self.store.upsert_long_term_memory_index(index)
-        normalized_doc.created_at = persisted.created_at
-        normalized_doc.updated_at = persisted.updated_at
-        self.document_loader.save_long_term_document(
+        prepared_write = self.document_loader.prepare_long_term_document_write(
             normalized_doc,
             doc_path=normalized_path,
         )
+        write_applied = False
+        try:
+            self.document_loader.apply_prepared_write(prepared_write)
+            write_applied = True
+            persisted = await self.store.upsert_long_term_memory_index(index)
+        except Exception:
+            if write_applied:
+                self.document_loader.rollback_prepared_write(prepared_write)
+            else:
+                self.document_loader.cleanup_prepared_write(prepared_write)
+            raise
+        finally:
+            self.document_loader.cleanup_prepared_write(prepared_write)
+
         await self._refresh_vector_index(persisted.memory_id)
         logger.info(
             "memory long-term manual import finished: memory_id=%s path=%s",
@@ -188,6 +202,11 @@ class LongTermMemoryManualService:
                 raise ValueError(
                     f"long-term manual import field `{field_name}` must be numeric"
                 )
+            score = float(value)
+            if not 0.0 <= score <= 1.0:
+                raise ValueError(
+                    f"long-term manual import field `{field_name}` must be between 0 and 1"
+                )
 
     @staticmethod
     def _validated_scope_type(value: ScopeType | str) -> str:
@@ -226,12 +245,9 @@ class LongTermMemoryManualService:
     async def _refresh_vector_index(self, memory_id: str) -> None:
         if self.vector_index is None or not self.store.config.vector_index.enabled:
             return
-        try:
-            await self.vector_index.upsert_long_term_memory(memory_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "memory long-term manual import vector refresh failed: memory_id=%s error=%s",
-                memory_id,
-                exc,
-                exc_info=True,
-            )
+        await self.vector_index.upsert_long_term_memory(memory_id)
+
+    async def _ensure_vector_index_ready(self) -> None:
+        if self.vector_index is None or not self.store.config.vector_index.enabled:
+            return
+        await self.vector_index.ensure_ready()
