@@ -10,7 +10,8 @@
 - 已完成 snapshot 只读出口
 - 已完成中期 consolidation 第一版
 - 已完成 `Experience` 的 Markdown 投影
-- 未进入长期记忆、人格演进、检索召回
+- 已完成 `LongTermMemory + Document Search V1`
+- 未进入人格演进与完整 retrieval 接入
 
 当前可以认为已经完成了：
 
@@ -80,14 +81,15 @@
 
 - `topic_state`
 - `short_term_memory`
-- `experiences=[]`
+- `experiences`
 - `long_term_memories=[]`
 - `persona_state=None`
 
 说明：
 
-- 这里的空中长期字段是接口占位，不代表 retrieval 已实现
+- `experiences` 已进入 snapshot，可供只读消费
 - `long_term_memories` 与 `persona_state` 仍然是占位
+- 这里的空中长期字段不代表 retrieval / prompt 接入已实现
 
 ### 2.4 中期 consolidation 链路
 
@@ -132,6 +134,24 @@
     - `importance`
     - `confidence`
 
+### 2.5 长期记忆与文档搜索链路
+
+当前已落地：
+
+1. `LongTermMemoryService.run_promotion(...)`
+2. `MemoryStore.upsert_long_term_memory_index(...)`
+3. `DocumentSerializer`
+4. `DocumentLoader`
+5. `DocumentSearchService`
+6. `MemoryVectorIndex` 接口第一版
+
+当前状态：
+
+- 长期记忆文档与索引第一版已存在
+- 文档搜索第一版已存在
+- 仍未完整接入 `MemorySnapshot.long_term_memories`
+- 仍未接入 prompt collector / renderer 消费链路
+
 ## 3. 已完成模块
 
 当前已实现模块：
@@ -148,6 +168,11 @@
 - `astrbot/core/memory/consolidation_service.py`
 - `astrbot/core/memory/experience_service.py`
 - `astrbot/core/memory/projection.py`
+- `astrbot/core/memory/long_term_service.py`
+- `astrbot/core/memory/document_serializer.py`
+- `astrbot/core/memory/document_loader.py`
+- `astrbot/core/memory/document_search.py`
+- `astrbot/core/memory/vector_index.py`
 
 当前已补齐的 store 能力：
 
@@ -164,25 +189,30 @@
 - `list_experiences_for_scope(...)`
 - `list_experiences_by_time_range(...)`
 - `list_turn_records_by_time_range(...)`
+- `upsert_long_term_memory_index(...)`
+- `list_long_term_memory_indexes(...)`
+- `get_long_term_memory_index(...)`
+- `save_long_term_memory_link(...)`
+- `list_long_term_memory_links(...)`
+- `upsert_long_term_promotion_cursor(...)`
+- `get_long_term_promotion_cursor(...)`
 
 ## 4. 当前未完成部分
 
 当前明确未做：
 
-- `vector_index.py`
 - `retriever.py`
-- `long_term_service.py`
 - `persona_state_service.py`
 - `jobs.py`
 - `graph_store.py`
 
 当前能力边界：
 
-- memory 只负责内部写入、内部 consolidation、内部 snapshot
+- memory 已负责短期写入、中期 consolidation、长期文档与索引第一版
 - prompt system 只消费 snapshot
 - memory 还不负责 prompt render
 - memory 还不负责 selector / router / chat state
-- memory 还不负责长期记忆 markdown 正文落盘
+- memory 还未把长期记忆稳定暴露到 snapshot
 - memory 还不负责人格演进更新
 
 ## 5. 当前完成度判断
@@ -192,28 +222,30 @@
 - Phase 1 短期写入闭环：已完成
 - Phase 2 snapshot 读取闭环：已完成
 - Phase 3 中期抽象链路：已部分完成
-- 长期记忆层：未开始
+- 长期记忆层：已完成第一版基础服务，但未完成对外读取闭环
 - 人格演进层：未开始
-- retrieval 层：未开始
+- retrieval 层：仅完成文档搜索基础，未完成统一召回链路
 
 如果按“能不能给后续 prompt system 提供稳定 memory 输入”来看：
 
 - 短期层：可以
-- 中期层：内部已可用，但不直接暴露给 snapshot
-- 长期层：还不可以
+- 中期层：内部已可用，`experiences` 已可进入 snapshot
+- 长期层：内部基础已存在，但还未形成稳定 prompt 消费入口
 
 ## 6. 当前主要限制
 
 当前最大的限制不是写入，而是读取范围还刻意收窄：
 
 - `SessionInsight` 已写入，但不进入 snapshot
-- 还没有 query 驱动的 retrieval
-- 还没有向量召回
+- `LongTermMemory` 尚未进入 snapshot
+- 还没有统一 query 驱动的 retrieval
+- 向量索引仍停在基础设施阶段
 
 所以当前对外稳定开放的 memory 结果现在是：
 
 - `TopicState`
 - `ShortTermMemory`
+- `Experience`
 
 ## 7. 下一步建议顺序
 
@@ -221,11 +253,10 @@
 
 1. `snapshot-and-read-path.md`
 2. `jobs-and-scheduling.md`
-3. `vector_index.py`
-4. `retriever.py`
-5. 将 `SessionInsight` / `LongTermMemory` 以受控方式接入 snapshot
-6. `long_term_service.py`
-7. `persona_state_service.py`
+3. `retriever.py`
+4. 将 `SessionInsight` / `LongTermMemory` 以受控方式接入 snapshot
+5. 将长期层接入 prompt collector / renderer
+6. `persona_state_service.py`
 
 如果继续坚持“memory 先独立收口，再让 prompt 使用”，那当前最合理的下一步是：
 
@@ -237,14 +268,15 @@
 
 当前 memory 已经不是“只有设计”，而是已经完成了第一条真实工作链路：
 
-`Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> Snapshot`
+`Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> LongTermPromotion -> Snapshot`
 
 当前这个链路里，对外已经开放到了短期层加 `Experience`。
-当前这个链路里，对外仍然只开放到短期层。
+当前这个链路里，长期层仍主要停留在 memory 内部服务能力。
 
 所以当前最准确的判断是：
 
 - memory 基础设施已成立
-- 中期抽象已落地到 store
+- 中期抽象已落地到 store 与 snapshot
+- 长期层基础服务与文档搜索第一版已落地
 - `Experience` 已完成 projection，可供内部审阅
-- 系统整体正处于“短期完成，中期内部打通，长期未开始”的阶段
+- 系统整体正处于“短期完成，中期可读，长期第一版已落地但尚未完整接入”的阶段

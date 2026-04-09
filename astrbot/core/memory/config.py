@@ -122,10 +122,97 @@ Session overall summary:
 Recent dialogue:
 {recent_dialogue_text}
 """,
+    "long_term_promote_v1.md": """You are a long-term memory promotion planner.
+
+Task:
+- Read the pending experiences and existing long-term memories for the same scope.
+- Decide which pending experiences should create a new long-term memory, update an existing one, or be ignored.
+- Return JSON only.
+
+Requirements:
+- actions: list of objects
+- each object must contain:
+  - action
+  - target_memory_id
+  - category
+  - reason
+  - experience_ids
+
+Allowed actions:
+- create
+- update
+- ignore
+
+Allowed categories:
+- user_fact
+- user_preference
+- project_progress
+- interaction_pattern
+- relationship_signal
+- episodic_event
+
+Pending experiences JSON:
+{pending_experiences_json}
+
+Existing long-term memories JSON:
+{existing_memories_json}
+""",
+    "long_term_compose_v1.md": """You are a long-term memory composer.
+
+Task:
+- Read the selected action, the supporting experiences, and the current long-term memory state if one exists.
+- Produce the final long-term memory content.
+- Return JSON only.
+
+Requirements:
+- title
+- summary
+- detail_summary
+- tags
+- importance
+- confidence
+- status
+
+Allowed status values:
+- active
+- archived
+- contradicted
+
+Action:
+{promotion_action}
+
+Category:
+{promotion_category}
+
+Promotion reason:
+{promotion_reason}
+
+Existing memory JSON:
+{existing_memory_json}
+
+Supporting experiences JSON:
+{supporting_experiences_json}
+""",
 }
 
 DEFAULT_MEMORY_ANALYZER_PROVIDER_ID = "ollama"
 DEFAULT_MEMORY_ANALYZER_MODEL = "qwen3:1.7b"
+DEFAULT_MEMORY_ANALYZER_SPECS: dict[str, tuple[str, str]] = {
+    "topic_v1": ("topic_v1.md", "TopicStateResult"),
+    "focus_v1": ("focus_v1.md", "ShortTermFocusResult"),
+    "summary_v1": ("summary_v1.md", "ShortTermSummaryResult"),
+    "session_insight_v1": ("session_insight_v1.md", "SessionInsightResult"),
+    "experience_extract_v1": ("experience_extract_v1.md", "ExperienceExtractResult"),
+    "long_term_promote_v1": ("long_term_promote_v1.md", "LongTermPromoteResult"),
+    "long_term_compose_v1": ("long_term_compose_v1.md", "LongTermComposeResult"),
+}
+DEFAULT_MEMORY_ANALYSIS_STAGES: dict[str, list[str]] = {
+    "short_term_update": ["topic_v1", "focus_v1", "summary_v1"],
+    "session_insight_update": ["session_insight_v1"],
+    "experience_extract": ["experience_extract_v1"],
+    "long_term_promote": ["long_term_promote_v1"],
+    "long_term_compose": ["long_term_compose_v1"],
+}
 
 
 @dataclass(slots=True)
@@ -153,12 +240,18 @@ class MemoryLongTermConfig:
     enabled: bool = True
     docs_dir: Path | None = None
     min_experience_importance: float = 0.7
+    min_pending_experiences: int = 3
 
 
 @dataclass(slots=True)
 class MemoryVectorIndexConfig:
-    enabled: bool = True
-    provider: str = "simple"
+    enabled: bool = False
+    provider: str = "faiss"
+    provider_id: str = ""
+    model: str = ""
+    root_dir: Path = field(
+        default_factory=lambda: resolve_memory_path("data/memory/vector_index")
+    )
     experience_top_k: int = 5
     long_term_top_k: int = 5
 
@@ -242,109 +335,122 @@ def get_default_memory_config_path() -> Path:
     return resolve_memory_path("data/memory/config.yaml")
 
 
-def build_default_memory_config_payload() -> dict:
+def _build_default_analysis_analyzers() -> dict[str, MemoryAnalyzerConfig]:
+    analyzers: dict[str, MemoryAnalyzerConfig] = {}
+    for analyzer_name, (
+        prompt_file,
+        output_schema,
+    ) in DEFAULT_MEMORY_ANALYZER_SPECS.items():
+        analyzers[analyzer_name] = MemoryAnalyzerConfig(
+            enabled=True,
+            implementation="prompt_json",
+            provider_id=DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+            model=DEFAULT_MEMORY_ANALYZER_MODEL,
+            prompt_file=prompt_file,
+            output_schema=output_schema,
+            timeout_seconds=20,
+            temperature=0.0,
+        )
+    return analyzers
+
+
+def _build_default_analysis_stages() -> dict[str, MemoryAnalysisStageConfig]:
     return {
-        "enabled": True,
+        stage_name: MemoryAnalysisStageConfig(analyzers=list(analyzer_names))
+        for stage_name, analyzer_names in DEFAULT_MEMORY_ANALYSIS_STAGES.items()
+    }
+
+
+def _build_default_memory_config() -> MemoryConfig:
+    config = MemoryConfig()
+    config.analysis.analyzers = _build_default_analysis_analyzers()
+    config.analysis.stages = _build_default_analysis_stages()
+    return config
+
+
+def _serialize_path_for_payload(path: Path | None) -> str | None:
+    if path is None:
+        return None
+
+    astrbot_root = Path(get_astrbot_root()).resolve()
+    try:
+        return path.resolve().relative_to(astrbot_root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def build_default_memory_config_payload() -> dict:
+    default_config = _build_default_memory_config()
+    return {
+        "enabled": default_config.enabled,
         "storage": {
-            "sqlite_path": "data/memory/memory.db",
-            "docs_root": "data/memory/long_term",
-            "projections_root": "data/memory/projections",
+            "sqlite_path": _serialize_path_for_payload(
+                default_config.storage.sqlite_path
+            ),
+            "docs_root": _serialize_path_for_payload(default_config.storage.docs_root),
+            "projections_root": _serialize_path_for_payload(
+                default_config.storage.projections_root
+            ),
         },
         "short_term": {
-            "enabled": True,
-            "recent_turns_window": 8,
+            "enabled": default_config.short_term.enabled,
+            "recent_turns_window": default_config.short_term.recent_turns_window,
         },
         "consolidation": {
-            "enabled": True,
-            "min_short_term_updates": 12,
-            "batch_window_hours": 6,
+            "enabled": default_config.consolidation.enabled,
+            "min_short_term_updates": default_config.consolidation.min_short_term_updates,
+            "batch_window_hours": default_config.consolidation.batch_window_hours,
         },
         "long_term": {
-            "enabled": True,
-            "docs_dir": "data/memory/long_term",
-            "min_experience_importance": 0.7,
+            "enabled": default_config.long_term.enabled,
+            "docs_dir": _serialize_path_for_payload(default_config.long_term.docs_dir),
+            "min_experience_importance": default_config.long_term.min_experience_importance,
+            "min_pending_experiences": default_config.long_term.min_pending_experiences,
         },
         "vector_index": {
-            "enabled": True,
-            "provider": "simple",
-            "experience_top_k": 5,
-            "long_term_top_k": 5,
+            "enabled": default_config.vector_index.enabled,
+            "provider": default_config.vector_index.provider,
+            "provider_id": default_config.vector_index.provider_id,
+            "model": default_config.vector_index.model,
+            "root_dir": _serialize_path_for_payload(
+                default_config.vector_index.root_dir
+            ),
+            "experience_top_k": default_config.vector_index.experience_top_k,
+            "long_term_top_k": default_config.vector_index.long_term_top_k,
         },
         "persona": {
-            "enabled": False,
-            "reflection_interval_hours": 24,
+            "enabled": default_config.persona.enabled,
+            "reflection_interval_hours": default_config.persona.reflection_interval_hours,
         },
         "jobs": {
-            "consolidation_enabled": True,
-            "long_term_enabled": True,
-            "persona_reflection_enabled": False,
+            "consolidation_enabled": default_config.jobs.consolidation_enabled,
+            "long_term_enabled": default_config.jobs.long_term_enabled,
+            "persona_reflection_enabled": default_config.jobs.persona_reflection_enabled,
         },
         "analysis": {
-            "enabled": False,
-            "strict": True,
-            "prompts_root": "data/memory/prompts",
+            "enabled": default_config.analysis.enabled,
+            "strict": default_config.analysis.strict,
+            "prompts_root": _serialize_path_for_payload(
+                default_config.analysis.prompts_root
+            ),
             "analyzers": {
-                "topic_v1": {
-                    "enabled": True,
-                    "implementation": "prompt_json",
-                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
-                    "prompt_file": "topic_v1.md",
-                    "output_schema": "TopicStateResult",
-                    "timeout_seconds": 20,
-                    "temperature": 0.0,
-                },
-                "focus_v1": {
-                    "enabled": True,
-                    "implementation": "prompt_json",
-                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
-                    "prompt_file": "focus_v1.md",
-                    "output_schema": "ShortTermFocusResult",
-                    "timeout_seconds": 20,
-                    "temperature": 0.0,
-                },
-                "summary_v1": {
-                    "enabled": True,
-                    "implementation": "prompt_json",
-                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
-                    "prompt_file": "summary_v1.md",
-                    "output_schema": "ShortTermSummaryResult",
-                    "timeout_seconds": 20,
-                    "temperature": 0.0,
-                },
-                "session_insight_v1": {
-                    "enabled": True,
-                    "implementation": "prompt_json",
-                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
-                    "prompt_file": "session_insight_v1.md",
-                    "output_schema": "SessionInsightResult",
-                    "timeout_seconds": 20,
-                    "temperature": 0.0,
-                },
-                "experience_extract_v1": {
-                    "enabled": True,
-                    "implementation": "prompt_json",
-                    "provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-                    "model": DEFAULT_MEMORY_ANALYZER_MODEL,
-                    "prompt_file": "experience_extract_v1.md",
-                    "output_schema": "ExperienceExtractResult",
-                    "timeout_seconds": 20,
-                    "temperature": 0.0,
-                },
+                analyzer_name: {
+                    "enabled": analyzer_config.enabled,
+                    "implementation": analyzer_config.implementation,
+                    "provider_id": analyzer_config.provider_id,
+                    "model": analyzer_config.model,
+                    "prompt_file": analyzer_config.prompt_file,
+                    "output_schema": analyzer_config.output_schema,
+                    "timeout_seconds": analyzer_config.timeout_seconds,
+                    "temperature": analyzer_config.temperature,
+                }
+                for analyzer_name, analyzer_config in default_config.analysis.analyzers.items()
             },
             "stages": {
-                "short_term_update": {
-                    "analyzers": ["topic_v1", "focus_v1", "summary_v1"],
-                },
-                "session_insight_update": {
-                    "analyzers": ["session_insight_v1"],
-                },
-                "experience_extract": {
-                    "analyzers": ["experience_extract_v1"],
-                },
+                stage_name: {
+                    "analyzers": list(stage_config.analyzers),
+                }
+                for stage_name, stage_config in default_config.analysis.stages.items()
             },
         },
     }
@@ -526,10 +632,21 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
                 long_term_payload.get("min_experience_importance"),
                 0.7,
             ),
+            min_pending_experiences=_as_int(
+                long_term_payload.get("min_pending_experiences"),
+                3,
+            ),
         ),
         vector_index=MemoryVectorIndexConfig(
-            enabled=_as_bool(vector_index_payload.get("enabled"), True),
-            provider=_as_str(vector_index_payload.get("provider"), "simple"),
+            enabled=_as_bool(vector_index_payload.get("enabled"), False),
+            provider=_as_str(vector_index_payload.get("provider"), "faiss"),
+            provider_id=_as_str(vector_index_payload.get("provider_id"), ""),
+            model=_as_str(vector_index_payload.get("model"), ""),
+            root_dir=resolve_memory_path(
+                _as_str(
+                    vector_index_payload.get("root_dir"), "data/memory/vector_index"
+                )
+            ),
             experience_top_k=_as_int(
                 vector_index_payload.get("experience_top_k"),
                 5,
@@ -580,6 +697,7 @@ def ensure_memory_runtime_dirs(config: MemoryConfig) -> None:
     config.storage.projections_root.mkdir(parents=True, exist_ok=True)
     if config.long_term.docs_dir is not None:
         config.long_term.docs_dir.mkdir(parents=True, exist_ok=True)
+    config.vector_index.root_dir.mkdir(parents=True, exist_ok=True)
     config.analysis.prompts_root.mkdir(parents=True, exist_ok=True)
     ensure_default_memory_prompt_files(config.analysis.prompts_root)
 

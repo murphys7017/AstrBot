@@ -12,13 +12,13 @@
 - 短期层已具备配置驱动的 analyzer 基础设施
 - `SessionInsight` 与 `Experience` 已具备模型驱动的 consolidation 链路
 - `Experience` 已具备 Markdown 投影
+- `LongTermMemory + Document Search V1` 已完成第一版实现
 - consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
+- 长期记忆当前处于“已实现、待修复稳定性问题”的阶段，详见 `long-term-fix-plan.md`
 
 当前仍未进入：
 
-- `LongTermMemory` 沉淀
 - `PersonaState` / `PersonaEvolutionLog` 更新
-- `VectorIndex` / `Retriever`
 - `MemorySnapshot` 的长期层结果扩张
 - prompt render / prompt 注入
 
@@ -33,7 +33,9 @@
 7. `ConsolidationService.run_for_scope(...)`
 8. `ExperienceService.persist_experiences(...)`
 9. `ExperienceProjectionService` 写入 Markdown 投影
-10. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层只读视图
+10. 达阈值时 `LongTermMemoryService.run_promotion(...)`
+11. 通过 `DocumentSearchService` 执行长期记忆文档搜索
+12. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层 + `Experience` 只读视图
 
 ## 1. 当前目录目标
 
@@ -164,6 +166,32 @@
 - 已完成第一版最小实现规划
 - 需要按当前代码状态继续维护阶段完成度说明
 
+### 2.9 `document-search.md`
+
+内容：
+
+- `LongTermMemory` 的设计思想回顾
+- 文档搜索的职责边界
+- 长期记忆文档对象、索引对象与搜索对象的分层
+- 向量索引、回表与正文加载的推荐实现方式
+
+当前状态：
+
+- 已完成第一版设计收口
+
+### 2.10 `long-term-fix-plan.md`
+
+内容：
+
+- 当前 `LongTermMemory + Document Search V1` 的已确认问题
+- 哪些外部审阅结论已确认是误报
+- 修复优先级
+- 修复顺序与验收标准
+
+当前状态：
+
+- 已完成第一版修复计划收口
+
 ## 3. 建议补充文档
 
 ### 3.1 `jobs-and-scheduling.md`
@@ -190,6 +218,18 @@
 
 - 中
 
+### 3.3 `long-term-memory.md`
+
+内容：
+
+- 长期记忆对象本体
+- `Experience -> LongTermMemory` 的晋升与更新规则
+- 长期记忆与文档搜索、向量索引之间的关系
+
+优先级：
+
+- 高
+
 ## 4. 推荐阅读顺序
 
 当前推荐顺序：
@@ -200,27 +240,31 @@
 4. `architecture.md`
 5. `config.md`
 6. `data-model.md`
-7. `mvp-plan.md`
+7. `document-search.md`
+8. `mvp-plan.md`
+9. `long-term-fix-plan.md`
 
 如果是先看当前代码已做到哪里，建议先读：
 
 1. `progress.md`
 2. `index.md`
-3. `mvp-plan.md`
-4. `architecture.md`
-5. `lifecycle.md`
+3. `document-search.md`
+4. `mvp-plan.md`
+5. `architecture.md`
+6. `lifecycle.md`
 
 ## 5. 推荐编写顺序
 
 当前推荐补充顺序：
 
 1. `jobs-and-scheduling.md`
-2. `snapshot-and-read-path.md`
+2. `long-term-memory.md`
+3. `snapshot-and-read-path.md`
 
 说明：
 
 - 目前模块结构、配置、数据对象与 MVP 范围已经基本收口
-- 当前更需要补的是“已实现状态”和“下一阶段边界”同步
+- 当前更需要补的是“长期记忆本体”和“读取路径”设计同步
 
 ## 6. 当前目录边界
 
@@ -252,9 +296,10 @@
 
 - 已落地 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
 - 已落地 `SessionInsight -> Experience` 的 memory 内部闭环
-- `MemorySnapshot` 仍停在短期层，只作为统一只读出口
+- `MemorySnapshot` 当前已开放短期层 + `Experience`，长期层仍未完整接入
 
 下一步应继续补：
 
+- `long-term-memory.md`
 - `jobs-and-scheduling.md`
 - `snapshot-and-read-path.md`

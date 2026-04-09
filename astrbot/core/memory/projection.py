@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import UTC, datetime
@@ -177,7 +178,9 @@ class ExperienceProjectionService:
     @staticmethod
     def _safe_path_component(value: str) -> str:
         sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
-        return sanitized or "unknown"
+        slug = sanitized or "value"
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
+        return f"{slug}--{digest}"
 
     @staticmethod
     def _enum_value(value: ScopeType | str) -> str:

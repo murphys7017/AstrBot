@@ -6,6 +6,7 @@ from astrbot.core.memory.config import (
     DEFAULT_MEMORY_ANALYZER_MODEL,
     DEFAULT_MEMORY_ANALYZER_PROMPTS,
     DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
+    _build_default_memory_config,
     build_default_memory_config_payload,
     ensure_memory_config_file,
     load_memory_config,
@@ -30,6 +31,8 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "summary_v1:" in content
     assert "session_insight_v1:" in content
     assert "experience_extract_v1:" in content
+    assert "long_term_promote_v1:" in content
+    assert "long_term_compose_v1:" in content
     assert f"provider_id: {DEFAULT_MEMORY_ANALYZER_PROVIDER_ID}" in content
     assert f"model: {DEFAULT_MEMORY_ANALYZER_MODEL}" in content
 
@@ -54,6 +57,9 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.storage.projections_root == (
         temp_dir / "runtime-root" / "data/memory/projections"
     )
+    assert config.vector_index.root_dir == (
+        temp_dir / "runtime-root" / "data/memory/vector_index"
+    )
     assert config.storage.docs_root.exists()
     assert config.storage.projections_root.exists()
     assert config.analysis.prompts_root == (
@@ -62,14 +68,12 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.analysis.prompts_root.exists()
     for prompt_name in DEFAULT_MEMORY_ANALYZER_PROMPTS:
         assert (config.analysis.prompts_root / prompt_name).exists()
+    assert config.vector_index.enabled is False
     assert (
         config.analysis.analyzers["topic_v1"].provider_id
         == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
     )
-    assert (
-        config.analysis.analyzers["topic_v1"].model
-        == DEFAULT_MEMORY_ANALYZER_MODEL
-    )
+    assert config.analysis.analyzers["topic_v1"].model == DEFAULT_MEMORY_ANALYZER_MODEL
 
 
 def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
@@ -90,6 +94,9 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
                 "  min_short_term_updates: 20",
                 "vector_index:",
                 "  enabled: false",
+                '  provider_id: "embed-lite"',
+                '  model: "embedding-model"',
+                '  root_dir: "custom/vector_index"',
                 "  experience_top_k: 9",
                 "analysis:",
                 "  enabled: true",
@@ -125,6 +132,11 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
     assert config.short_term.recent_turns_window == 16
     assert config.consolidation.min_short_term_updates == 20
     assert config.vector_index.enabled is False
+    assert config.vector_index.provider_id == "embed-lite"
+    assert config.vector_index.model == "embedding-model"
+    assert config.vector_index.root_dir == (
+        temp_dir / "astrbot-root" / "custom/vector_index"
+    )
     assert config.vector_index.experience_top_k == 9
     assert config.analysis.enabled is True
     assert config.analysis.strict is True
@@ -139,6 +151,7 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
 
 def test_build_default_memory_config_payload_contains_expected_sections():
     payload = build_default_memory_config_payload()
+    default_config = _build_default_memory_config()
 
     assert set(payload) == {
         "enabled",
@@ -151,6 +164,29 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "jobs",
         "analysis",
     }
+    assert payload["enabled"] is default_config.enabled
+    assert payload["storage"]["sqlite_path"] == "data/memory/memory.db"
+    assert payload["storage"]["docs_root"] == "data/memory/long_term"
+    assert payload["storage"]["projections_root"] == "data/memory/projections"
+    assert payload["long_term"]["docs_dir"] == "data/memory/long_term"
+    assert payload["vector_index"]["root_dir"] == "data/memory/vector_index"
+    assert payload["analysis"]["prompts_root"] == "data/memory/prompts"
+    assert (
+        payload["short_term"]["recent_turns_window"]
+        == default_config.short_term.recent_turns_window
+    )
+    assert (
+        payload["consolidation"]["min_short_term_updates"]
+        == default_config.consolidation.min_short_term_updates
+    )
+    assert (
+        payload["long_term"]["min_pending_experiences"]
+        == default_config.long_term.min_pending_experiences
+    )
+    assert (
+        payload["vector_index"]["experience_top_k"]
+        == default_config.vector_index.experience_top_k
+    )
     assert payload["analysis"]["analyzers"]["topic_v1"]["prompt_file"] == "topic_v1.md"
     assert (
         payload["analysis"]["analyzers"]["topic_v1"]["provider_id"]
@@ -172,6 +208,17 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         payload["analysis"]["analyzers"]["experience_extract_v1"]["prompt_file"]
         == "experience_extract_v1.md"
     )
+    assert (
+        payload["analysis"]["analyzers"]["long_term_promote_v1"]["prompt_file"]
+        == "long_term_promote_v1.md"
+    )
+    assert (
+        payload["analysis"]["analyzers"]["long_term_compose_v1"]["prompt_file"]
+        == "long_term_compose_v1.md"
+    )
+    assert payload["vector_index"]["enabled"] is False
+    assert payload["vector_index"]["provider"] == "faiss"
+    assert payload["vector_index"]["provider_id"] == ""
     assert payload["analysis"]["stages"]["short_term_update"]["analyzers"] == [
         "topic_v1",
         "focus_v1",
@@ -182,4 +229,10 @@ def test_build_default_memory_config_payload_contains_expected_sections():
     ]
     assert payload["analysis"]["stages"]["experience_extract"]["analyzers"] == [
         "experience_extract_v1",
+    ]
+    assert payload["analysis"]["stages"]["long_term_promote"]["analyzers"] == [
+        "long_term_promote_v1",
+    ]
+    assert payload["analysis"]["stages"]["long_term_compose"]["analyzers"] == [
+        "long_term_compose_v1",
     ]
