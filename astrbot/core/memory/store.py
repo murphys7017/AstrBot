@@ -15,6 +15,8 @@ from .po import (
     BaseMemoryModel,
     MemoryExperience,
     MemoryLongTermMemoryIndex,
+    MemoryLongTermMemoryLink,
+    MemoryLongTermPromotionCursor,
     MemoryPersonaEvolutionLog,
     MemoryPersonaState,
     MemorySessionInsight,
@@ -25,6 +27,8 @@ from .po import (
 from .types import (
     Experience,
     LongTermMemoryIndex,
+    LongTermMemoryLink,
+    LongTermPromotionCursor,
     PersonaEvolutionLog,
     PersonaState,
     ScopeType,
@@ -384,51 +388,189 @@ class MemoryStore:
     ) -> LongTermMemoryIndex:
         async with self.get_db() as session:
             async with session.begin():
-                result = await session.execute(
-                    select(MemoryLongTermMemoryIndex).where(
-                        col(MemoryLongTermMemoryIndex.memory_id) == memory.memory_id
-                    )
+                return await self._upsert_long_term_memory_index_with_session(
+                    session,
+                    memory,
                 )
-                entity = result.scalar_one_or_none()
-                if entity is None:
-                    entity = MemoryLongTermMemoryIndex(
-                        memory_id=memory.memory_id,
-                        created_at=memory.created_at or datetime.now(UTC),
-                    )
-                    session.add(entity)
 
-                entity.umo = memory.umo
-                entity.scope_type = self._enum_value(memory.scope_type)
-                entity.scope_id = memory.scope_id
-                entity.summary = memory.summary
-                entity.doc_path = memory.doc_path
-                entity.importance = self._clamp_score(memory.importance)
-                entity.confidence = self._clamp_score(memory.confidence)
-                entity.tags = list(memory.tags)
-                entity.source_refs = list(memory.source_refs)
-                if memory.updated_at is not None:
-                    entity.updated_at = memory.updated_at
-
-                await session.flush()
-                await session.refresh(entity)
-                return self._to_long_term_memory_index(entity)
+    async def get_long_term_memory_index(
+        self,
+        memory_id: str,
+    ) -> LongTermMemoryIndex | None:
+        async with self.get_db() as session:
+            result = await session.execute(
+                select(MemoryLongTermMemoryIndex).where(
+                    col(MemoryLongTermMemoryIndex.memory_id) == memory_id
+                )
+            )
+            entity = result.scalar_one_or_none()
+            return self._to_long_term_memory_index(entity) if entity else None
 
     async def list_long_term_memory_indexes(
         self,
         umo: str,
         limit: int,
+        *,
+        scope_type: ScopeType | str | None = None,
+        scope_id: str | None = None,
     ) -> list[LongTermMemoryIndex]:
         async with self.get_db() as session:
-            stmt = (
-                select(MemoryLongTermMemoryIndex)
-                .where(col(MemoryLongTermMemoryIndex.umo) == umo)
-                .order_by(desc(MemoryLongTermMemoryIndex.updated_at))
-                .limit(limit)
+            stmt = select(MemoryLongTermMemoryIndex).where(
+                col(MemoryLongTermMemoryIndex.umo) == umo
             )
+            if scope_type is not None:
+                stmt = stmt.where(
+                    col(MemoryLongTermMemoryIndex.scope_type)
+                    == self._enum_value(scope_type)
+                )
+            if scope_id is not None:
+                stmt = stmt.where(col(MemoryLongTermMemoryIndex.scope_id) == scope_id)
+            stmt = stmt.order_by(
+                desc(MemoryLongTermMemoryIndex.updated_at),
+                desc(MemoryLongTermMemoryIndex.memory_id),
+            )
+            if limit > 0:
+                stmt = stmt.limit(limit)
             result = await session.execute(stmt)
             return [
                 self._to_long_term_memory_index(item) for item in result.scalars().all()
             ]
+
+    async def save_long_term_memory_link(
+        self,
+        link: LongTermMemoryLink,
+    ) -> LongTermMemoryLink:
+        async with self.get_db() as session:
+            async with session.begin():
+                return await self._save_long_term_memory_link_with_session(
+                    session, link
+                )
+
+    async def list_long_term_memory_links(
+        self,
+        memory_id: str,
+    ) -> list[LongTermMemoryLink]:
+        async with self.get_db() as session:
+            stmt = (
+                select(MemoryLongTermMemoryLink)
+                .where(col(MemoryLongTermMemoryLink.memory_id) == memory_id)
+                .order_by(
+                    MemoryLongTermMemoryLink.created_at,
+                    MemoryLongTermMemoryLink.link_id,
+                )
+            )
+            result = await session.execute(stmt)
+            return [
+                self._to_long_term_memory_link(item) for item in result.scalars().all()
+            ]
+
+    async def get_long_term_promotion_cursor(
+        self,
+        umo: str,
+        scope_type: ScopeType | str,
+        scope_id: str,
+    ) -> LongTermPromotionCursor | None:
+        async with self.get_db() as session:
+            entity = await self._get_long_term_promotion_cursor_entity(
+                session,
+                umo,
+                self._enum_value(scope_type),
+                scope_id,
+            )
+            return self._to_long_term_promotion_cursor(entity) if entity else None
+
+    async def upsert_long_term_promotion_cursor(
+        self,
+        cursor: LongTermPromotionCursor,
+    ) -> LongTermPromotionCursor:
+        async with self.get_db() as session:
+            async with session.begin():
+                return await self._upsert_long_term_promotion_cursor_with_session(
+                    session,
+                    cursor,
+                )
+
+    async def list_pending_experiences_for_scope(
+        self,
+        umo: str,
+        scope_type: ScopeType | str,
+        scope_id: str,
+        cursor: LongTermPromotionCursor | None,
+    ) -> list[Experience]:
+        async with self.get_db() as session:
+            stmt = (
+                select(MemoryExperience)
+                .where(
+                    and_(
+                        col(MemoryExperience.umo) == umo,
+                        col(MemoryExperience.scope_type)
+                        == self._enum_value(scope_type),
+                        col(MemoryExperience.scope_id) == scope_id,
+                    )
+                )
+                .order_by(
+                    MemoryExperience.created_at,
+                    MemoryExperience.experience_id,
+                )
+            )
+            result = await session.execute(stmt)
+            experiences = [self._to_experience(item) for item in result.scalars().all()]
+            if cursor is None or cursor.last_processed_created_at is None:
+                return experiences
+
+            pending: list[Experience] = []
+            for experience in experiences:
+                created_at = experience.created_at
+                if created_at is None:
+                    pending.append(experience)
+                    continue
+                if created_at > cursor.last_processed_created_at:
+                    pending.append(experience)
+                    continue
+                if (
+                    created_at == cursor.last_processed_created_at
+                    and cursor.last_processed_experience_id is not None
+                    and experience.experience_id > cursor.last_processed_experience_id
+                ):
+                    pending.append(experience)
+            return pending
+
+    async def persist_long_term_promotion_batch(
+        self,
+        memories: list[LongTermMemoryIndex],
+        links: list[LongTermMemoryLink],
+        cursor: LongTermPromotionCursor | None,
+    ) -> tuple[
+        list[LongTermMemoryIndex],
+        list[LongTermMemoryLink],
+        LongTermPromotionCursor | None,
+    ]:
+        async with self.get_db() as session:
+            async with session.begin():
+                persisted_memories: list[LongTermMemoryIndex] = []
+                for memory in memories:
+                    persisted_memories.append(
+                        await self._upsert_long_term_memory_index_with_session(
+                            session,
+                            memory,
+                        )
+                    )
+                persisted_links: list[LongTermMemoryLink] = []
+                for link in links:
+                    persisted_links.append(
+                        await self._save_long_term_memory_link_with_session(
+                            session, link
+                        )
+                    )
+                persisted_cursor = None
+                if cursor is not None:
+                    persisted_cursor = (
+                        await self._upsert_long_term_promotion_cursor_with_session(
+                            session,
+                            cursor,
+                        )
+                    )
+                return persisted_memories, persisted_links, persisted_cursor
 
     async def upsert_persona_state(self, state: PersonaState) -> PersonaState:
         async with self.get_db() as session:
@@ -545,6 +687,24 @@ class MemoryStore:
         )
         return result.scalar_one_or_none()
 
+    async def _get_long_term_promotion_cursor_entity(
+        self,
+        session: AsyncSession,
+        umo: str,
+        scope_type: str,
+        scope_id: str,
+    ) -> MemoryLongTermPromotionCursor | None:
+        result = await session.execute(
+            select(MemoryLongTermPromotionCursor).where(
+                and_(
+                    col(MemoryLongTermPromotionCursor.umo) == umo,
+                    col(MemoryLongTermPromotionCursor.scope_type) == scope_type,
+                    col(MemoryLongTermPromotionCursor.scope_id) == scope_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def _save_session_insight_with_session(
         self,
         session: AsyncSession,
@@ -610,6 +770,103 @@ class MemoryStore:
         await session.flush()
         await session.refresh(entity)
         return self._to_experience(entity)
+
+    async def _upsert_long_term_memory_index_with_session(
+        self,
+        session: AsyncSession,
+        memory: LongTermMemoryIndex,
+    ) -> LongTermMemoryIndex:
+        result = await session.execute(
+            select(MemoryLongTermMemoryIndex).where(
+                col(MemoryLongTermMemoryIndex.memory_id) == memory.memory_id
+            )
+        )
+        entity = result.scalar_one_or_none()
+        if entity is None:
+            entity = MemoryLongTermMemoryIndex(
+                memory_id=memory.memory_id,
+                created_at=memory.created_at or datetime.now(UTC),
+            )
+            session.add(entity)
+
+        entity.umo = memory.umo
+        entity.scope_type = self._enum_value(memory.scope_type)
+        entity.scope_id = memory.scope_id
+        entity.category = self._enum_value(memory.category)
+        entity.title = memory.title
+        entity.summary = memory.summary
+        entity.status = self._enum_value(memory.status)
+        entity.doc_path = memory.doc_path
+        entity.importance = self._clamp_score(memory.importance)
+        entity.confidence = self._clamp_score(memory.confidence)
+        entity.tags = list(memory.tags)
+        entity.source_refs = list(memory.source_refs)
+        entity.first_event_at = memory.first_event_at
+        entity.last_event_at = memory.last_event_at
+        if memory.updated_at is not None:
+            entity.updated_at = memory.updated_at
+
+        await session.flush()
+        await session.refresh(entity)
+        return self._to_long_term_memory_index(entity)
+
+    async def _save_long_term_memory_link_with_session(
+        self,
+        session: AsyncSession,
+        link: LongTermMemoryLink,
+    ) -> LongTermMemoryLink:
+        result = await session.execute(
+            select(MemoryLongTermMemoryLink).where(
+                and_(
+                    col(MemoryLongTermMemoryLink.memory_id) == link.memory_id,
+                    col(MemoryLongTermMemoryLink.experience_id) == link.experience_id,
+                )
+            )
+        )
+        entity = result.scalar_one_or_none()
+        if entity is None:
+            entity = MemoryLongTermMemoryLink(
+                link_id=link.link_id,
+                created_at=link.created_at or datetime.now(UTC),
+            )
+            session.add(entity)
+
+        entity.memory_id = link.memory_id
+        entity.experience_id = link.experience_id
+        entity.relation_type = self._enum_value(link.relation_type)
+
+        await session.flush()
+        await session.refresh(entity)
+        return self._to_long_term_memory_link(entity)
+
+    async def _upsert_long_term_promotion_cursor_with_session(
+        self,
+        session: AsyncSession,
+        cursor: LongTermPromotionCursor,
+    ) -> LongTermPromotionCursor:
+        entity = await self._get_long_term_promotion_cursor_entity(
+            session,
+            cursor.umo,
+            self._enum_value(cursor.scope_type),
+            cursor.scope_id,
+        )
+        if entity is None:
+            entity = MemoryLongTermPromotionCursor(
+                cursor_id=cursor.cursor_id,
+                umo=cursor.umo,
+                scope_type=self._enum_value(cursor.scope_type),
+                scope_id=cursor.scope_id,
+            )
+            session.add(entity)
+
+        entity.last_processed_created_at = cursor.last_processed_created_at
+        entity.last_processed_experience_id = cursor.last_processed_experience_id
+        if cursor.updated_at is not None:
+            entity.updated_at = cursor.updated_at
+
+        await session.flush()
+        await session.refresh(entity)
+        return self._to_long_term_promotion_cursor(entity)
 
     @staticmethod
     def _conversation_key(conversation_id: str | None) -> str:
@@ -705,13 +962,44 @@ class MemoryStore:
             umo=entity.umo,
             scope_type=entity.scope_type,
             scope_id=entity.scope_id,
+            category=entity.category,
+            title=entity.title,
             summary=entity.summary,
+            status=entity.status,
             doc_path=entity.doc_path,
             importance=entity.importance,
             confidence=entity.confidence,
             tags=list(entity.tags or []),
             source_refs=list(entity.source_refs or []),
+            first_event_at=entity.first_event_at,
+            last_event_at=entity.last_event_at,
             created_at=entity.created_at,
+            updated_at=entity.updated_at,
+        )
+
+    @staticmethod
+    def _to_long_term_memory_link(
+        entity: MemoryLongTermMemoryLink,
+    ) -> LongTermMemoryLink:
+        return LongTermMemoryLink(
+            link_id=entity.link_id,
+            memory_id=entity.memory_id,
+            experience_id=entity.experience_id,
+            relation_type=entity.relation_type,
+            created_at=entity.created_at,
+        )
+
+    @staticmethod
+    def _to_long_term_promotion_cursor(
+        entity: MemoryLongTermPromotionCursor,
+    ) -> LongTermPromotionCursor:
+        return LongTermPromotionCursor(
+            cursor_id=entity.cursor_id,
+            umo=entity.umo,
+            scope_type=entity.scope_type,
+            scope_id=entity.scope_id,
+            last_processed_created_at=entity.last_processed_created_at,
+            last_processed_experience_id=entity.last_processed_experience_id,
             updated_at=entity.updated_at,
         )
 

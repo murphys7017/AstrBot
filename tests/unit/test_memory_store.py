@@ -8,6 +8,10 @@ from sqlmodel import select
 
 from astrbot.core.memory import (
     LongTermMemoryIndex,
+    LongTermMemoryLink,
+    LongTermMemoryLinkRelation,
+    LongTermMemoryStatus,
+    LongTermPromotionCursor,
     MemoryStore,
     PersonaEvolutionLog,
     PersonaState,
@@ -21,6 +25,8 @@ from astrbot.core.memory import (
 from astrbot.core.memory.po import (
     MemoryExperience,
     MemoryLongTermMemoryIndex,
+    MemoryLongTermMemoryLink,
+    MemoryLongTermPromotionCursor,
     MemoryPersonaEvolutionLog,
     MemoryPersonaState,
     MemorySessionInsight,
@@ -68,6 +74,8 @@ async def test_memory_store_initializes_tables_and_runtime_dirs(temp_dir: Path):
                 MemorySessionInsight,
                 MemoryExperience,
                 MemoryLongTermMemoryIndex,
+                MemoryLongTermMemoryLink,
+                MemoryLongTermPromotionCursor,
                 MemoryPersonaState,
                 MemoryPersonaEvolutionLog,
             ):
@@ -179,13 +187,38 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
                 umo="test:private:user",
                 scope_type=ScopeType.USER,
                 scope_id="test:private:user",
+                category="user_preference",
+                title="Infrastructure-first preference",
                 summary="User prefers infrastructure-first sequencing",
+                status=LongTermMemoryStatus.ACTIVE,
                 doc_path="user/ltm-1.md",
                 importance=0.7,
                 confidence=0.8,
                 tags=["architecture", "planning"],
                 source_refs=["exp:exp-1"],
+                first_event_at=now - timedelta(hours=1),
+                last_event_at=now,
                 created_at=now,
+                updated_at=now,
+            )
+        )
+        saved_link = await store.save_long_term_memory_link(
+            LongTermMemoryLink(
+                link_id="link-1",
+                memory_id="ltm-1",
+                experience_id="exp-1",
+                relation_type=LongTermMemoryLinkRelation.SEED,
+                created_at=now,
+            )
+        )
+        saved_cursor = await store.upsert_long_term_promotion_cursor(
+            LongTermPromotionCursor(
+                cursor_id="cursor-1",
+                umo="test:private:user",
+                scope_type=ScopeType.USER,
+                scope_id="test:private:user",
+                last_processed_created_at=now,
+                last_processed_experience_id="exp-1",
                 updated_at=now,
             )
         )
@@ -226,6 +259,13 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             "test:private:user",
             5,
         )
+        loaded_memory = await store.get_long_term_memory_index("ltm-1")
+        links = await store.list_long_term_memory_links("ltm-1")
+        loaded_cursor = await store.get_long_term_promotion_cursor(
+            "test:private:user",
+            ScopeType.USER,
+            "test:private:user",
+        )
         loaded_state = await store.get_persona_state(
             ScopeType.USER,
             "test:private:user",
@@ -249,13 +289,97 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
         assert recent_experiences[0].summary == "Implemented memory store foundation"
         assert len(ranged_experiences) == 1
         assert saved_memory.memory_id == "ltm-1"
+        assert saved_memory.title == "Infrastructure-first preference"
+        assert saved_memory.status == LongTermMemoryStatus.ACTIVE.value
         assert long_term_memories[0].tags == ["architecture", "planning"]
+        assert loaded_memory is not None
+        assert loaded_memory.category == "user_preference"
+        assert saved_link.relation_type == LongTermMemoryLinkRelation.SEED.value
+        assert len(links) == 1
+        assert saved_cursor.last_processed_experience_id == "exp-1"
+        assert loaded_cursor is not None
+        assert loaded_cursor.scope_id == "test:private:user"
         assert saved_state.trust == 0.7
         assert loaded_state is not None
         assert loaded_state.directness_preference == 0.9
         assert saved_log.reason == "Repeated productive collaboration"
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_store_persist_long_term_promotion_batch_rolls_back_on_failure(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+
+    async def failing_save_link(session, link):  # noqa: ANN001
+        del session, link
+        raise RuntimeError("link insert failed")
+
+    monkeypatch.setattr(
+        store, "_save_long_term_memory_link_with_session", failing_save_link
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="link insert failed"):
+            await store.persist_long_term_promotion_batch(
+                [
+                    LongTermMemoryIndex(
+                        memory_id="ltm-rollback",
+                        umo="test:private:user",
+                        scope_type=ScopeType.USER,
+                        scope_id="test:private:user",
+                        category="user_preference",
+                        title="Rollback candidate",
+                        summary="Should not survive failed batch.",
+                        status=LongTermMemoryStatus.ACTIVE,
+                        doc_path="user/ltm-rollback.md",
+                        importance=0.7,
+                        confidence=0.8,
+                        tags=["rollback"],
+                        source_refs=["exp:exp-1"],
+                        first_event_at=now,
+                        last_event_at=now,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                ],
+                [
+                    LongTermMemoryLink(
+                        link_id="link-rollback",
+                        memory_id="ltm-rollback",
+                        experience_id="exp-1",
+                        relation_type=LongTermMemoryLinkRelation.SEED,
+                        created_at=now,
+                    )
+                ],
+                LongTermPromotionCursor(
+                    cursor_id="cursor-rollback",
+                    umo="test:private:user",
+                    scope_type=ScopeType.USER,
+                    scope_id="test:private:user",
+                    last_processed_created_at=now,
+                    last_processed_experience_id="exp-1",
+                    updated_at=now,
+                ),
+            )
+
+        loaded_memory = await store.get_long_term_memory_index("ltm-rollback")
+        loaded_links = await store.list_long_term_memory_links("ltm-rollback")
+        loaded_cursor = await store.get_long_term_promotion_cursor(
+            "test:private:user",
+            ScopeType.USER,
+            "test:private:user",
+        )
+    finally:
+        await store.close()
+
+    assert loaded_memory is None
+    assert loaded_links == []
+    assert loaded_cursor is None
 
 
 @pytest.mark.asyncio

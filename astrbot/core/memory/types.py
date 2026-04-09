@@ -27,6 +27,19 @@ class ExperienceCategory(str, Enum):
     EPISODIC_EVENT = "episodic_event"
 
 
+class LongTermMemoryStatus(str, Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    CONTRADICTED = "contradicted"
+
+
+class LongTermMemoryLinkRelation(str, Enum):
+    SEED = "seed"
+    SUPPORT = "support"
+    UPDATE = "update"
+    CONTRADICT = "contradict"
+
+
 @dataclass(slots=True)
 class ScopeRef:
     scope_type: ScopeType | str
@@ -116,13 +129,94 @@ class LongTermMemoryIndex:
     umo: str
     scope_type: ScopeType | str
     scope_id: str
+    category: ExperienceCategory | str
+    title: str
     summary: str
+    status: LongTermMemoryStatus | str
     doc_path: str
     importance: float = 0.0
     confidence: float = 0.0
     tags: list[str] = field(default_factory=list)
     source_refs: list[SourceRef] = field(default_factory=list)
+    first_event_at: datetime | None = None
+    last_event_at: datetime | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class LongTermMemoryLink:
+    link_id: str
+    memory_id: str
+    experience_id: str
+    relation_type: LongTermMemoryLinkRelation | str
+    created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class LongTermPromotionCursor:
+    cursor_id: str
+    umo: str
+    scope_type: ScopeType | str
+    scope_id: str
+    last_processed_created_at: datetime | None = None
+    last_processed_experience_id: str | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class LongTermMemoryDocument:
+    memory_id: str
+    umo: str
+    scope_type: ScopeType | str
+    scope_id: str
+    category: ExperienceCategory | str
+    status: LongTermMemoryStatus | str
+    title: str
+    summary: str
+    detail_summary: str | None
+    importance: float = 0.0
+    confidence: float = 0.0
+    supporting_experiences: list[str] = field(default_factory=list)
+    updates: list[JsonDict] = field(default_factory=list)
+    source_refs: list[SourceRef] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    first_event_at: datetime | None = None
+    last_event_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    raw_text: str | None = None
+
+
+@dataclass(slots=True)
+class VectorSearchHit:
+    memory_id: str
+    score: float
+    metadata: JsonDict = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class DocumentSearchRequest:
+    umo: str
+    query: str
+    conversation_id: str | None = None
+    scope_type: ScopeType | str | None = None
+    scope_id: str | None = None
+    category: ExperienceCategory | str | None = None
+    top_k: int = 5
+    include_body: bool = False
+
+
+@dataclass(slots=True)
+class DocumentSearchResult:
+    memory_id: str
+    score: float
+    title: str
+    summary: str
+    category: ExperienceCategory | str
+    tags: list[str] = field(default_factory=list)
+    doc_path: str = ""
+    body_text: str | None = None
     updated_at: datetime | None = None
 
 

@@ -8,19 +8,26 @@ from astrbot.core import logger
 from .analyzer_manager import MemoryAnalyzerManager
 from .config import get_memory_config
 from .consolidation_service import ConsolidationService
+from .document_search import DocumentSearchService
 from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
+from .long_term_service import LongTermMemoryService
+from .manual_service import LongTermMemoryManualService
 from .short_term_service import ShortTermMemoryService
 from .snapshot_builder import MemorySnapshotBuilder
 from .store import MemoryStore
 from .turn_record_service import TurnRecordService
 from .types import (
+    DocumentSearchRequest,
+    DocumentSearchResult,
     Experience,
+    LongTermMemoryIndex,
     MemorySnapshot,
     MemoryUpdateRequest,
     SessionInsight,
     TurnRecord,
 )
+from .vector_index import MemoryVectorIndex
 
 
 class MemoryService:
@@ -33,6 +40,9 @@ class MemoryService:
         analyzer_manager: MemoryAnalyzerManager | None = None,
         consolidation_service: ConsolidationService | None = None,
         experience_service: ExperienceService | None = None,
+        long_term_service: LongTermMemoryService | None = None,
+        manual_long_term_service: LongTermMemoryManualService | None = None,
+        document_search_service: DocumentSearchService | None = None,
     ) -> None:
         self.store = store
         self.turn_record_service = turn_record_service
@@ -41,9 +51,16 @@ class MemoryService:
         self.analyzer_manager = analyzer_manager or MemoryAnalyzerManager()
         self.consolidation_service = consolidation_service
         self.experience_service = experience_service
+        self.long_term_service = long_term_service
+        self.manual_long_term_service = manual_long_term_service
+        self.document_search_service = document_search_service
 
     def bind_provider_manager(self, provider_manager) -> None:
         self.analyzer_manager.bind_provider_manager(provider_manager)
+        if self.long_term_service is not None:
+            self.long_term_service.bind_provider_manager(provider_manager)
+        if self.manual_long_term_service is not None:
+            self.manual_long_term_service.bind_provider_manager(provider_manager)
 
     async def update_from_postprocess(self, req: MemoryUpdateRequest) -> TurnRecord:
         logger.info(
@@ -70,7 +87,26 @@ class MemoryService:
                 turn.umo,
                 turn.conversation_id,
             )
-            await self.run_consolidation(turn.umo, turn.conversation_id)
+            _, experiences = await self.run_consolidation(
+                turn.umo, turn.conversation_id
+            )
+            if (
+                experiences
+                and self.long_term_service is not None
+                and await self.long_term_service.should_run_promotion(
+                    turn.umo,
+                    turn.conversation_id,
+                )
+            ):
+                logger.info(
+                    "memory long-term promotion triggered after consolidation: umo=%s conversation_id=%s",
+                    turn.umo,
+                    turn.conversation_id,
+                )
+                await self.long_term_service.run_promotion(
+                    turn.umo,
+                    turn.conversation_id,
+                )
         logger.info(
             "memory update finished: turn_id=%s umo=%s conversation_id=%s",
             turn.turn_id,
@@ -151,6 +187,22 @@ class MemoryService:
         )
         return persisted_insight, persisted_experiences
 
+    async def search_long_term_memories(
+        self,
+        req: DocumentSearchRequest,
+    ) -> list[DocumentSearchResult]:
+        if self.document_search_service is None:
+            raise RuntimeError("memory document search service is unavailable")
+        return await self.document_search_service.search_long_term_memories(req)
+
+    async def import_long_term_memory_document(
+        self,
+        doc_path: Path | str,
+    ) -> LongTermMemoryIndex:
+        if self.manual_long_term_service is None:
+            raise RuntimeError("memory manual long-term service is unavailable")
+        return await self.manual_long_term_service.upsert_memory_from_document(doc_path)
+
 
 _MEMORY_SERVICE: MemoryService | None = None
 
@@ -179,6 +231,22 @@ def get_memory_service() -> MemoryService:
             consolidation_config=config.consolidation,
         )
         experience_service = ExperienceService(store)
+        vector_index = MemoryVectorIndex(store, config=config)
+        long_term_service = LongTermMemoryService(
+            store,
+            analyzer_manager=analyzer_manager,
+            analysis_config=config.analysis,
+            long_term_config=config.long_term,
+            vector_index=vector_index,
+        )
+        manual_long_term_service = LongTermMemoryManualService(
+            store,
+            vector_index=vector_index,
+        )
+        document_search_service = DocumentSearchService(
+            store,
+            vector_index=vector_index,
+        )
         snapshot_builder = MemorySnapshotBuilder(store)
         _MEMORY_SERVICE = MemoryService(
             store,
@@ -188,6 +256,9 @@ def get_memory_service() -> MemoryService:
             analyzer_manager,
             consolidation_service,
             experience_service,
+            long_term_service,
+            manual_long_term_service,
+            document_search_service,
         )
     return _MEMORY_SERVICE
 

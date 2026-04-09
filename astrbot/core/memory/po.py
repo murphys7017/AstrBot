@@ -159,16 +159,82 @@ class MemoryLongTermMemoryIndex(BaseMemoryModel, table=True):
     umo: str = Field(nullable=False, index=True, max_length=255)
     scope_type: str = Field(nullable=False, index=True, max_length=32)
     scope_id: str = Field(nullable=False, index=True, max_length=255)
+    category: str = Field(nullable=False, index=True, max_length=64)
+    title: str = Field(nullable=False, max_length=255)
     summary: str = Field(nullable=False, sa_type=Text)
+    status: str = Field(nullable=False, index=True, max_length=32, default="active")
     doc_path: str = Field(nullable=False, max_length=512)
     importance: float = Field(default=0.0, nullable=False)
     confidence: float = Field(default=0.0, nullable=False)
     tags: list = Field(default_factory=list, sa_type=JSON)
     source_refs: list = Field(default_factory=list, sa_type=JSON)
+    first_event_at: datetime | None = Field(default=None, index=True)
+    last_event_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
+    )
+
+
+class MemoryLongTermMemoryLink(BaseMemoryModel, table=True):
+    __tablename__ = "memory_long_term_memory_links"  # type: ignore
+
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True},
+    )
+    link_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        nullable=False,
+        unique=True,
+        index=True,
+        max_length=64,
+    )
+    memory_id: str = Field(nullable=False, index=True, max_length=64)
+    experience_id: str = Field(nullable=False, index=True, max_length=64)
+    relation_type: str = Field(nullable=False, index=True, max_length=32)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "memory_id",
+            "experience_id",
+            name="uix_memory_long_term_memory_experience_link",
+        ),
+    )
+
+
+class MemoryLongTermPromotionCursor(BaseMemoryModel, table=True):
+    __tablename__ = "memory_long_term_promotion_cursors"  # type: ignore
+
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True},
+    )
+    cursor_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        nullable=False,
+        unique=True,
+        index=True,
+        max_length=64,
+    )
+    umo: str = Field(nullable=False, index=True, max_length=255)
+    scope_type: str = Field(nullable=False, index=True, max_length=32)
+    scope_id: str = Field(nullable=False, index=True, max_length=255)
+    last_processed_created_at: datetime | None = Field(default=None, index=True)
+    last_processed_experience_id: str | None = Field(default=None, max_length=64)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "umo",
+            "scope_type",
+            "scope_id",
+            name="uix_memory_long_term_promotion_cursor_scope",
+        ),
     )
 
 

@@ -23,8 +23,13 @@ from .config import (
     resolve_memory_path,
 )
 from .consolidation_service import ConsolidationService
+from .document_loader import DocumentLoader
+from .document_search import DocumentSearchService
+from .document_serializer import DocumentSerializer
 from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
+from .long_term_service import LongTermMemoryService
+from .manual_service import LongTermMemoryManualService
 from .postprocessor import (
     MemoryPostProcessor,
     register_memory_postprocessor,
@@ -38,10 +43,17 @@ from .snapshot_builder import MemorySnapshotBuilder
 from .store import MemoryStore
 from .turn_record_service import TurnRecordService
 from .types import (
+    DocumentSearchRequest,
+    DocumentSearchResult,
     Experience,
     ExperienceCategory,
     JsonDict,
+    LongTermMemoryDocument,
     LongTermMemoryIndex,
+    LongTermMemoryLink,
+    LongTermMemoryLinkRelation,
+    LongTermMemoryStatus,
+    LongTermPromotionCursor,
     MemorySnapshot,
     MemoryUpdateRequest,
     MessagePayload,
@@ -54,7 +66,9 @@ from .types import (
     SourceRef,
     TopicState,
     TurnRecord,
+    VectorSearchHit,
 )
+from .vector_index import MemoryVectorIndex
 
 __all__ = [
     "Experience",
@@ -76,8 +90,14 @@ __all__ = [
     "ensure_memory_config_file",
     "BaseMemoryAnalyzer",
     "ConsolidationService",
+    "DocumentLoader",
+    "DocumentSearchRequest",
+    "DocumentSearchResult",
+    "DocumentSearchService",
+    "DocumentSerializer",
     "ExperienceProjectionService",
     "ExperienceService",
+    "LongTermMemoryDocument",
     "MemoryPostProcessor",
     "PromptJsonMemoryAnalyzer",
     "MemorySnapshot",
@@ -86,6 +106,8 @@ __all__ = [
     "MemoryStore",
     "MemoryUpdateRequest",
     "MessagePayload",
+    "LongTermMemoryLink",
+    "LongTermMemoryLinkRelation",
     "PersonaEvolutionLog",
     "PersonaState",
     "RecentConversationSource",
@@ -98,6 +120,12 @@ __all__ = [
     "TopicState",
     "TurnRecordService",
     "TurnRecord",
+    "LongTermMemoryService",
+    "LongTermMemoryManualService",
+    "LongTermMemoryStatus",
+    "LongTermPromotionCursor",
+    "MemoryVectorIndex",
+    "VectorSearchHit",
     "get_default_memory_config_path",
     "get_memory_service",
     "get_memory_config",
