@@ -54,16 +54,32 @@
 第一版统一约定：
 
 - `umo: str`
+- `platform_user_key: str`
+- `canonical_user_id: str | None`
 - `conversation_id: str | None`
 - `platform_id: str | None`
 - `session_id: str | None`
 
 说明：
 
-- `umo` 是 memory 系统的主归属标识，第一版所有核心对象都围绕它组织
+- `umo` 是短期会话来源标识，只服务短期层与来源追踪
+- `platform_user_key` 表示 `platform + sender_user_id`，用于保留来源用户事实
+- `canonical_user_id` 是中长期归属标识，用于跨平台聚合 `SessionInsight / Experience / LongTermMemory`
 - `conversation_id` 用于区分同一 `umo` 下的不同会话
 - `platform_id` 用于保留平台来源信息
 - `session_id` 用于承接运行期 session 语义
+
+第一版身份语义固定为三层：
+
+- 短期层：`umo + conversation_id`
+- 来源层：`platform_user_key`
+- 中长期层：`canonical_user_id`
+
+约束：
+
+- `platform_user_key` 必须能从事件对象直接计算
+- `canonical_user_id` 只允许来自显式映射表
+- 不从 prompt、`system_reminder` 或 nickname 反推长期归属
 
 建议在 `types.py` 中用 type alias 表达：
 

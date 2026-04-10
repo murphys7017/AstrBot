@@ -58,13 +58,13 @@ class MemoryVectorIndex:
 
     async def search_long_term_memories(
         self,
-        umo: str,
+        canonical_user_id: str,
         query: str,
         top_k: int,
         metadata_filters: dict | None = None,
     ) -> list[VectorSearchHit]:
         vec_db = await self._ensure_vec_db()
-        filters = {"umo": umo}
+        filters = {"canonical_user_id": canonical_user_id}
         if metadata_filters:
             filters.update(metadata_filters)
         results = await vec_db.retrieve(
@@ -140,6 +140,7 @@ class MemoryVectorIndex:
     def _build_metadata(memory: LongTermMemoryIndex) -> dict[str, object]:
         return {
             "memory_id": memory.memory_id,
+            "canonical_user_id": memory.canonical_user_id,
             "umo": memory.umo,
             "scope_type": MemoryVectorIndex._enum_value(memory.scope_type),
             "scope_id": memory.scope_id,

@@ -40,6 +40,7 @@ class DocumentLoader:
         return LongTermMemoryDocument(
             memory_id=str(front_matter["memory_id"]),
             umo=str(front_matter["umo"]),
+            canonical_user_id=str(front_matter["canonical_user_id"]),
             scope_type=str(front_matter["scope_type"]),
             scope_id=str(front_matter["scope_id"]),
             category=str(front_matter["category"]),
@@ -157,7 +158,7 @@ class DocumentLoader:
     def _build_default_doc_path(self, document: LongTermMemoryDocument) -> Path:
         return (
             self.config.storage.docs_root
-            / self._safe_path_component(document.umo)
+            / self._safe_path_component(document.canonical_user_id)
             / self._safe_path_component(self._enum_value(document.scope_type))
             / f"{self._safe_path_component(document.memory_id)}.md"
         )
@@ -173,6 +174,7 @@ class DocumentLoader:
             {
                 "memory_id": document.memory_id,
                 "umo": document.umo,
+                "canonical_user_id": document.canonical_user_id,
                 "scope_type": self._enum_value(document.scope_type),
                 "scope_id": document.scope_id,
                 "category": self._enum_value(document.category),
@@ -229,6 +231,7 @@ class DocumentLoader:
         required_fields = (
             "memory_id",
             "umo",
+            "canonical_user_id",
             "scope_type",
             "scope_id",
             "category",

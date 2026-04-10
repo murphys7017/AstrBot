@@ -26,7 +26,7 @@ class DocumentSearchService:
     ) -> list[DocumentSearchResult]:
         metadata_filters = self._build_metadata_filters(req)
         hits = await self.vector_index.search_long_term_memories(
-            req.umo,
+            req.canonical_user_id,
             req.query,
             top_k=max(1, req.top_k),
             metadata_filters=metadata_filters,

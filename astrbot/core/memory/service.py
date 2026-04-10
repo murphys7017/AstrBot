@@ -11,6 +11,7 @@ from .consolidation_service import ConsolidationService
 from .document_search import DocumentSearchService
 from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
+from .identity import MemoryIdentityMappingService, MemoryIdentityResolver
 from .long_term_service import LongTermMemoryService
 from .manual_service import LongTermMemoryManualService
 from .short_term_service import ShortTermMemoryService
@@ -22,6 +23,7 @@ from .types import (
     DocumentSearchResult,
     Experience,
     LongTermMemoryIndex,
+    MemoryIdentityBinding,
     MemorySnapshot,
     MemoryUpdateRequest,
     SessionInsight,
@@ -38,6 +40,8 @@ class MemoryService:
         short_term_service: ShortTermMemoryService,
         snapshot_builder: MemorySnapshotBuilder,
         analyzer_manager: MemoryAnalyzerManager | None = None,
+        identity_mapping_service: MemoryIdentityMappingService | None = None,
+        identity_resolver: MemoryIdentityResolver | None = None,
         consolidation_service: ConsolidationService | None = None,
         experience_service: ExperienceService | None = None,
         long_term_service: LongTermMemoryService | None = None,
@@ -49,6 +53,8 @@ class MemoryService:
         self.short_term_service = short_term_service
         self.snapshot_builder = snapshot_builder
         self.analyzer_manager = analyzer_manager or MemoryAnalyzerManager()
+        self.identity_mapping_service = identity_mapping_service
+        self.identity_resolver = identity_resolver
         self.consolidation_service = consolidation_service
         self.experience_service = experience_service
         self.long_term_service = long_term_service
@@ -75,10 +81,24 @@ class MemoryService:
             turn,
             conversation_history=conversation_history,
         )
+        if not turn.canonical_user_id:
+            logger.warning(
+                "memory update skipped mid-long pipeline: missing canonical_user_id turn_id=%s umo=%s platform_user_key=%s",
+                turn.turn_id,
+                turn.umo,
+                turn.platform_user_key,
+            )
+            logger.info(
+                "memory update finished: turn_id=%s umo=%s conversation_id=%s",
+                turn.turn_id,
+                turn.umo,
+                turn.conversation_id,
+            )
+            return turn
         if (
             self.consolidation_service is not None
             and await self.consolidation_service.should_run_consolidation(
-                turn.umo,
+                turn.canonical_user_id,
                 turn.conversation_id,
             )
         ):
@@ -88,24 +108,23 @@ class MemoryService:
                 turn.conversation_id,
             )
             _, experiences = await self.run_consolidation(
-                turn.umo, turn.conversation_id
+                turn.canonical_user_id,
+                turn.conversation_id,
             )
             if (
                 experiences
                 and self.long_term_service is not None
                 and await self.long_term_service.should_run_promotion(
-                    turn.umo,
-                    turn.conversation_id,
+                    turn.canonical_user_id,
                 )
             ):
                 logger.info(
-                    "memory long-term promotion triggered after consolidation: umo=%s conversation_id=%s",
-                    turn.umo,
+                    "memory long-term promotion triggered after consolidation: canonical_user_id=%s conversation_id=%s",
+                    turn.canonical_user_id,
                     turn.conversation_id,
                 )
                 await self.long_term_service.run_promotion(
-                    turn.umo,
-                    turn.conversation_id,
+                    turn.canonical_user_id,
                 )
         logger.info(
             "memory update finished: turn_id=%s umo=%s conversation_id=%s",
@@ -131,13 +150,13 @@ class MemoryService:
 
     async def run_consolidation(
         self,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
     ) -> tuple[SessionInsight | None, list[Experience]]:
         if self.consolidation_service is None:
             logger.info(
-                "memory consolidation skipped: service unavailable umo=%s conversation_id=%s",
-                umo,
+                "memory consolidation skipped: service unavailable canonical_user_id=%s conversation_id=%s",
+                canonical_user_id,
                 conversation_id,
             )
             return None, []
@@ -147,12 +166,12 @@ class MemoryService:
             )
 
         logger.info(
-            "memory consolidation started: umo=%s conversation_id=%s",
-            umo,
+            "memory consolidation started: canonical_user_id=%s conversation_id=%s",
+            canonical_user_id,
             conversation_id,
         )
         insight, experiences = await self.consolidation_service.run_for_scope(
-            umo,
+            canonical_user_id,
             conversation_id,
         )
         (
@@ -172,20 +191,53 @@ class MemoryService:
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "memory consolidation projection refresh failed: umo=%s conversation_id=%s error=%s",
-                umo,
+                canonical_user_id,
                 conversation_id,
                 exc,
                 exc_info=True,
             )
         logger.info(
-            "memory consolidation finished: umo=%s conversation_id=%s insight_created=%s experiences=%s projections=%s",
-            umo,
+            "memory consolidation finished: canonical_user_id=%s conversation_id=%s insight_created=%s experiences=%s projections=%s",
+            canonical_user_id,
             conversation_id,
             persisted_insight is not None,
             len(persisted_experiences),
             len(projection_paths),
         )
         return persisted_insight, persisted_experiences
+
+    async def bind_platform_user(
+        self,
+        platform_id: str,
+        sender_user_id: str,
+        canonical_user_id: str,
+        nickname_hint: str | None = None,
+    ) -> MemoryIdentityBinding:
+        if self.identity_mapping_service is None:
+            raise RuntimeError("memory identity mapping service is unavailable")
+        return await self.identity_mapping_service.bind_platform_user(
+            platform_id,
+            sender_user_id,
+            canonical_user_id,
+            nickname_hint=nickname_hint,
+        )
+
+    async def unbind_platform_user(self, platform_user_key: str) -> bool:
+        if self.identity_mapping_service is None:
+            raise RuntimeError("memory identity mapping service is unavailable")
+        return await self.identity_mapping_service.unbind_platform_user(
+            platform_user_key
+        )
+
+    async def list_bindings_for_canonical_user(
+        self,
+        canonical_user_id: str,
+    ) -> list[MemoryIdentityBinding]:
+        if self.identity_mapping_service is None:
+            raise RuntimeError("memory identity mapping service is unavailable")
+        return await self.identity_mapping_service.list_bindings_for_canonical_user(
+            canonical_user_id
+        )
 
     async def search_long_term_memories(
         self,
@@ -213,6 +265,8 @@ def get_memory_service() -> MemoryService:
         config = get_memory_config()
         store = MemoryStore(config=config)
         analyzer_manager = MemoryAnalyzerManager(config.analysis)
+        identity_mapping_service = MemoryIdentityMappingService(store)
+        identity_resolver = MemoryIdentityResolver(identity_mapping_service)
         history_source = RecentConversationSource(
             store,
             recent_turns_window=config.short_term.recent_turns_window,
@@ -254,6 +308,8 @@ def get_memory_service() -> MemoryService:
             short_term_service,
             snapshot_builder,
             analyzer_manager,
+            identity_mapping_service,
+            identity_resolver,
             consolidation_service,
             experience_service,
             long_term_service,

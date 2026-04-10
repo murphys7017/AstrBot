@@ -51,6 +51,8 @@ class MemoryUpdateRequest:
     umo: str
     conversation_id: str | None
     platform_id: str | None
+    platform_user_key: str
+    canonical_user_id: str | None
     session_id: str | None
     provider_request: JsonDict | None
     user_message: MessagePayload
@@ -65,6 +67,8 @@ class TurnRecord:
     umo: str
     conversation_id: str | None
     platform_id: str | None
+    platform_user_key: str
+    canonical_user_id: str | None
     session_id: str | None
     user_message: MessagePayload
     assistant_message: MessagePayload
@@ -97,6 +101,8 @@ class SessionInsight:
     insight_id: str
     umo: str
     conversation_id: str | None
+    platform_user_key: str
+    canonical_user_id: str
     window_start_at: datetime | None
     window_end_at: datetime | None
     topic_summary: str | None
@@ -110,6 +116,8 @@ class Experience:
     experience_id: str
     umo: str
     conversation_id: str | None
+    platform_user_key: str
+    canonical_user_id: str
     scope_type: ScopeType | str
     scope_id: str
     event_time: datetime
@@ -127,6 +135,7 @@ class Experience:
 class LongTermMemoryIndex:
     memory_id: str
     umo: str
+    canonical_user_id: str
     scope_type: ScopeType | str
     scope_id: str
     category: ExperienceCategory | str
@@ -157,6 +166,7 @@ class LongTermMemoryLink:
 class LongTermPromotionCursor:
     cursor_id: str
     umo: str
+    canonical_user_id: str
     scope_type: ScopeType | str
     scope_id: str
     last_processed_created_at: datetime | None = None
@@ -168,6 +178,7 @@ class LongTermPromotionCursor:
 class LongTermMemoryDocument:
     memory_id: str
     umo: str
+    canonical_user_id: str
     scope_type: ScopeType | str
     scope_id: str
     category: ExperienceCategory | str
@@ -197,8 +208,9 @@ class VectorSearchHit:
 
 @dataclass(slots=True)
 class DocumentSearchRequest:
-    umo: str
+    canonical_user_id: str
     query: str
+    umo: str | None = None
     conversation_id: str | None = None
     scope_type: ScopeType | str | None = None
     scope_id: str | None = None
@@ -247,9 +259,33 @@ class PersonaEvolutionLog:
 
 
 @dataclass(slots=True)
+class MemoryIdentity:
+    umo: str
+    platform_id: str
+    sender_user_id: str
+    sender_nickname: str | None
+    platform_user_key: str
+    canonical_user_id: str | None = None
+
+
+@dataclass(slots=True)
+class MemoryIdentityBinding:
+    mapping_id: str
+    platform_id: str
+    sender_user_id: str
+    platform_user_key: str
+    canonical_user_id: str
+    nickname_hint: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(slots=True)
 class MemorySnapshot:
     umo: str
     conversation_id: str | None
+    platform_user_key: str | None = None
+    canonical_user_id: str | None = None
     topic_state: TopicState | None = None
     short_term_memory: ShortTermMemory | None = None
     experiences: list[Experience] = field(default_factory=list)

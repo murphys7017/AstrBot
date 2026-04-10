@@ -28,25 +28,38 @@ class ExperienceService:
             persisted.append(await self.store.save_experience(experience))
         return persisted
 
-    async def list_recent(self, umo: str, limit: int) -> list[Experience]:
-        return await self.store.list_recent_experiences(umo, limit)
+    async def list_recent(
+        self,
+        canonical_user_id: str,
+        limit: int,
+        conversation_id: str | None = None,
+    ) -> list[Experience]:
+        return await self.store.list_recent_experiences(
+            canonical_user_id,
+            limit,
+            conversation_id=conversation_id,
+        )
 
     async def list_by_time_range(
         self,
-        umo: str,
+        canonical_user_id: str,
         start_at: datetime | None,
         end_at: datetime | None,
     ) -> list[Experience]:
-        return await self.store.list_experiences_by_time_range(umo, start_at, end_at)
+        return await self.store.list_experiences_by_time_range(
+            canonical_user_id,
+            start_at,
+            end_at,
+        )
 
     async def refresh_projection_for_scope(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: str,
         scope_id: str,
     ) -> Path | None:
         return await self.projection_service.refresh_scope_projection(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
         )

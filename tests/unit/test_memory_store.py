@@ -24,6 +24,7 @@ from astrbot.core.memory import (
 )
 from astrbot.core.memory.po import (
     MemoryExperience,
+    MemoryIdentityMapping,
     MemoryLongTermMemoryIndex,
     MemoryLongTermMemoryLink,
     MemoryLongTermPromotionCursor,
@@ -35,6 +36,160 @@ from astrbot.core.memory.po import (
     MemoryTurnRecord,
 )
 from astrbot.core.memory.types import Experience
+
+TEST_UMO = "test:private:user"
+TEST_PLATFORM_ID = "test"
+TEST_PLATFORM_USER_KEY = "test:user-1"
+TEST_CANONICAL_USER_ID = "canonical-user-1"
+
+
+def _turn_record(
+    *,
+    turn_id: str,
+    conversation_id: str | None = "conv-1",
+    user_content: str = "hello",
+    assistant_content: str = "hi",
+    message_timestamp: datetime,
+    created_at: datetime,
+) -> TurnRecord:
+    return TurnRecord(
+        turn_id=turn_id,
+        umo=TEST_UMO,
+        conversation_id=conversation_id,
+        platform_id=TEST_PLATFORM_ID,
+        platform_user_key=TEST_PLATFORM_USER_KEY,
+        canonical_user_id=TEST_CANONICAL_USER_ID,
+        session_id="session-1",
+        user_message={"role": "user", "content": user_content},
+        assistant_message={"role": "assistant", "content": assistant_content},
+        message_timestamp=message_timestamp,
+        source_refs=[],
+        created_at=created_at,
+    )
+
+
+def _session_insight(
+    *,
+    insight_id: str,
+    conversation_id: str | None = "conv-1",
+    window_start_at: datetime | None,
+    window_end_at: datetime | None,
+    topic_summary: str,
+    progress_summary: str,
+    summary_text: str,
+    created_at: datetime,
+) -> SessionInsight:
+    return SessionInsight(
+        insight_id=insight_id,
+        umo=TEST_UMO,
+        conversation_id=conversation_id,
+        platform_user_key=TEST_PLATFORM_USER_KEY,
+        canonical_user_id=TEST_CANONICAL_USER_ID,
+        window_start_at=window_start_at,
+        window_end_at=window_end_at,
+        topic_summary=topic_summary,
+        progress_summary=progress_summary,
+        summary_text=summary_text,
+        created_at=created_at,
+    )
+
+
+def _experience(
+    *,
+    experience_id: str,
+    scope_type: ScopeType | str,
+    scope_id: str,
+    event_time: datetime,
+    category: str,
+    summary: str,
+    detail_summary: str | None = None,
+    conversation_id: str | None = "conv-1",
+    importance: float = 0.0,
+    confidence: float = 0.0,
+    source_refs: list[str] | None = None,
+    created_at: datetime,
+    updated_at: datetime,
+) -> Experience:
+    return Experience(
+        experience_id=experience_id,
+        umo=TEST_UMO,
+        conversation_id=conversation_id,
+        platform_user_key=TEST_PLATFORM_USER_KEY,
+        canonical_user_id=TEST_CANONICAL_USER_ID,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        event_time=event_time,
+        category=category,
+        summary=summary,
+        detail_summary=detail_summary,
+        importance=importance,
+        confidence=confidence,
+        source_refs=list(source_refs or []),
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+
+def _long_term_memory_index(
+    *,
+    memory_id: str,
+    scope_type: ScopeType | str,
+    scope_id: str,
+    category: str,
+    title: str,
+    summary: str,
+    status: LongTermMemoryStatus,
+    doc_path: str,
+    importance: float,
+    confidence: float,
+    tags: list[str],
+    source_refs: list[str],
+    first_event_at: datetime | None,
+    last_event_at: datetime | None,
+    created_at: datetime,
+    updated_at: datetime,
+) -> LongTermMemoryIndex:
+    return LongTermMemoryIndex(
+        memory_id=memory_id,
+        umo=TEST_UMO,
+        canonical_user_id=TEST_CANONICAL_USER_ID,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        category=category,
+        title=title,
+        summary=summary,
+        status=status,
+        doc_path=doc_path,
+        importance=importance,
+        confidence=confidence,
+        tags=tags,
+        source_refs=source_refs,
+        first_event_at=first_event_at,
+        last_event_at=last_event_at,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+
+def _promotion_cursor(
+    *,
+    cursor_id: str,
+    scope_type: ScopeType | str,
+    scope_id: str,
+    last_processed_created_at: datetime | None,
+    last_processed_experience_id: str | None,
+    updated_at: datetime,
+) -> LongTermPromotionCursor:
+    return LongTermPromotionCursor(
+        cursor_id=cursor_id,
+        umo=TEST_UMO,
+        canonical_user_id=TEST_CANONICAL_USER_ID,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        last_processed_created_at=last_processed_created_at,
+        last_processed_experience_id=last_processed_experience_id,
+        updated_at=updated_at,
+    )
 
 
 @pytest.mark.asyncio
@@ -73,6 +228,7 @@ async def test_memory_store_initializes_tables_and_runtime_dirs(temp_dir: Path):
                 MemoryShortTermMemory,
                 MemorySessionInsight,
                 MemoryExperience,
+                MemoryIdentityMapping,
                 MemoryLongTermMemoryIndex,
                 MemoryLongTermMemoryLink,
                 MemoryLongTermPromotionCursor,
@@ -92,16 +248,9 @@ async def test_memory_store_round_trip_for_short_term_objects(temp_dir: Path):
 
     try:
         saved_turn = await store.save_turn_record(
-            TurnRecord(
+            _turn_record(
                 turn_id="turn-1",
-                umo="test:private:user",
-                conversation_id="conv-1",
-                platform_id="test",
-                session_id="session-1",
-                user_message={"role": "user", "content": "hello"},
-                assistant_message={"role": "assistant", "content": "hi"},
                 message_timestamp=now,
-                source_refs=["msg:test:1"],
                 created_at=now,
             )
         )
@@ -125,10 +274,10 @@ async def test_memory_store_round_trip_for_short_term_objects(temp_dir: Path):
             )
         )
 
-        recent_turns = await store.get_recent_turn_records("test:private:user", 10)
-        loaded_topic = await store.get_topic_state("test:private:user", "conv-1")
+        recent_turns = await store.get_recent_turn_records(TEST_UMO, 10)
+        loaded_topic = await store.get_topic_state(TEST_UMO, "conv-1")
         loaded_short_term = await store.get_short_term_memory(
-            "test:private:user",
+            TEST_UMO,
             "conv-1",
         )
 
@@ -151,10 +300,8 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
 
     try:
         saved_insight = await store.save_session_insight(
-            SessionInsight(
+            _session_insight(
                 insight_id="insight-1",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 window_start_at=now - timedelta(hours=1),
                 window_end_at=now,
                 topic_summary="Memory planning",
@@ -164,12 +311,10 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             )
         )
         saved_experience = await store.save_experience(
-            Experience(
+            _experience(
                 experience_id="exp-1",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 scope_type=ScopeType.USER,
-                scope_id="test:private:user",
+                scope_id=TEST_CANONICAL_USER_ID,
                 event_time=now,
                 category="project_progress",
                 summary="Implemented memory store foundation",
@@ -182,11 +327,10 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             )
         )
         saved_memory = await store.upsert_long_term_memory_index(
-            LongTermMemoryIndex(
+            _long_term_memory_index(
                 memory_id="ltm-1",
-                umo="test:private:user",
                 scope_type=ScopeType.USER,
-                scope_id="test:private:user",
+                scope_id=TEST_CANONICAL_USER_ID,
                 category="user_preference",
                 title="Infrastructure-first preference",
                 summary="User prefers infrastructure-first sequencing",
@@ -212,11 +356,10 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             )
         )
         saved_cursor = await store.upsert_long_term_promotion_cursor(
-            LongTermPromotionCursor(
+            _promotion_cursor(
                 cursor_id="cursor-1",
-                umo="test:private:user",
                 scope_type=ScopeType.USER,
-                scope_id="test:private:user",
+                scope_id=TEST_CANONICAL_USER_ID,
                 last_processed_created_at=now,
                 last_processed_experience_id="exp-1",
                 updated_at=now,
@@ -226,7 +369,7 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             PersonaState(
                 state_id="state-1",
                 scope_type=ScopeType.USER,
-                scope_id="test:private:user",
+                scope_id=TEST_CANONICAL_USER_ID,
                 persona_id=None,
                 familiarity=0.6,
                 trust=0.7,
@@ -240,7 +383,7 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             PersonaEvolutionLog(
                 log_id="log-1",
                 scope_type=ScopeType.USER,
-                scope_id="test:private:user",
+                scope_id=TEST_CANONICAL_USER_ID,
                 before_state={"trust": 0.5},
                 after_state={"trust": 0.7},
                 reason="Repeated productive collaboration",
@@ -249,33 +392,36 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
             )
         )
 
-        recent_experiences = await store.list_recent_experiences("test:private:user", 5)
+        recent_experiences = await store.list_recent_experiences(
+            TEST_CANONICAL_USER_ID,
+            5,
+        )
         ranged_experiences = await store.list_experiences_by_time_range(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             now - timedelta(minutes=1),
             now + timedelta(minutes=1),
         )
         long_term_memories = await store.list_long_term_memory_indexes(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             5,
         )
         loaded_memory = await store.get_long_term_memory_index("ltm-1")
         links = await store.list_long_term_memory_links("ltm-1")
         loaded_cursor = await store.get_long_term_promotion_cursor(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             ScopeType.USER,
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
         )
         loaded_state = await store.get_persona_state(
             ScopeType.USER,
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
         )
         latest_insight = await store.get_latest_session_insight(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             "conv-1",
         )
         turns_in_range = await store.list_turn_records_by_time_range(
-            "test:private:user",
+            TEST_UMO,
             "conv-1",
             now - timedelta(minutes=5),
             now + timedelta(minutes=5),
@@ -298,7 +444,7 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
         assert len(links) == 1
         assert saved_cursor.last_processed_experience_id == "exp-1"
         assert loaded_cursor is not None
-        assert loaded_cursor.scope_id == "test:private:user"
+        assert loaded_cursor.scope_id == TEST_CANONICAL_USER_ID
         assert saved_state.trust == 0.7
         assert loaded_state is not None
         assert loaded_state.directness_preference == 0.9
@@ -327,11 +473,10 @@ async def test_memory_store_persist_long_term_promotion_batch_rolls_back_on_fail
         with pytest.raises(RuntimeError, match="link insert failed"):
             await store.persist_long_term_promotion_batch(
                 [
-                    LongTermMemoryIndex(
+                    _long_term_memory_index(
                         memory_id="ltm-rollback",
-                        umo="test:private:user",
                         scope_type=ScopeType.USER,
-                        scope_id="test:private:user",
+                        scope_id=TEST_CANONICAL_USER_ID,
                         category="user_preference",
                         title="Rollback candidate",
                         summary="Should not survive failed batch.",
@@ -356,11 +501,10 @@ async def test_memory_store_persist_long_term_promotion_batch_rolls_back_on_fail
                         created_at=now,
                     )
                 ],
-                LongTermPromotionCursor(
+                _promotion_cursor(
                     cursor_id="cursor-rollback",
-                    umo="test:private:user",
                     scope_type=ScopeType.USER,
-                    scope_id="test:private:user",
+                    scope_id=TEST_CANONICAL_USER_ID,
                     last_processed_created_at=now,
                     last_processed_experience_id="exp-1",
                     updated_at=now,
@@ -370,9 +514,9 @@ async def test_memory_store_persist_long_term_promotion_batch_rolls_back_on_fail
         loaded_memory = await store.get_long_term_memory_index("ltm-rollback")
         loaded_links = await store.list_long_term_memory_links("ltm-rollback")
         loaded_cursor = await store.get_long_term_promotion_cursor(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             ScopeType.USER,
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
         )
     finally:
         await store.close()
@@ -389,36 +533,24 @@ async def test_memory_store_lists_turn_records_by_time_range(temp_dir: Path):
 
     try:
         await store.save_turn_record(
-            TurnRecord(
+            _turn_record(
                 turn_id="turn-1",
-                umo="test:private:user",
-                conversation_id="conv-1",
-                platform_id="test",
-                session_id="session-1",
-                user_message={"role": "user", "content": "hello"},
-                assistant_message={"role": "assistant", "content": "hi"},
                 message_timestamp=now - timedelta(minutes=3),
-                source_refs=[],
                 created_at=now,
             )
         )
         await store.save_turn_record(
-            TurnRecord(
+            _turn_record(
                 turn_id="turn-2",
-                umo="test:private:user",
-                conversation_id="conv-1",
-                platform_id="test",
-                session_id="session-1",
-                user_message={"role": "user", "content": "second"},
-                assistant_message={"role": "assistant", "content": "reply"},
+                user_content="second",
+                assistant_content="reply",
                 message_timestamp=now - timedelta(minutes=1),
-                source_refs=[],
                 created_at=now,
             )
         )
 
         turns = await store.list_turn_records_by_time_range(
-            "test:private:user",
+            TEST_UMO,
             "conv-1",
             now - timedelta(minutes=2),
         )
@@ -435,10 +567,8 @@ async def test_memory_store_lists_recent_experiences_by_conversation(temp_dir: P
 
     try:
         await store.save_experience(
-            Experience(
+            _experience(
                 experience_id="exp-1",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 scope_type=ScopeType.CONVERSATION,
                 scope_id="conv-1",
                 event_time=now - timedelta(minutes=2),
@@ -453,9 +583,8 @@ async def test_memory_store_lists_recent_experiences_by_conversation(temp_dir: P
             )
         )
         await store.save_experience(
-            Experience(
+            _experience(
                 experience_id="exp-2",
-                umo="test:private:user",
                 conversation_id="conv-2",
                 scope_type=ScopeType.CONVERSATION,
                 scope_id="conv-2",
@@ -472,12 +601,12 @@ async def test_memory_store_lists_recent_experiences_by_conversation(temp_dir: P
         )
 
         filtered = await store.list_recent_experiences(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             10,
             conversation_id="conv-1",
         )
         scoped = await store.list_experiences_for_scope(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             ScopeType.CONVERSATION,
             "conv-2",
         )
@@ -507,10 +636,8 @@ async def test_memory_store_persist_consolidation_batch_is_atomic(temp_dir: Path
     try:
         with pytest.raises(RuntimeError):
             await store.persist_consolidation_batch(
-                SessionInsight(
+                _session_insight(
                     insight_id="insight-1",
-                    umo="test:private:user",
-                    conversation_id="conv-1",
                     window_start_at=now - timedelta(minutes=1),
                     window_end_at=now,
                     topic_summary="summary",
@@ -519,10 +646,8 @@ async def test_memory_store_persist_consolidation_batch_is_atomic(temp_dir: Path
                     created_at=now,
                 ),
                 [
-                    Experience(
+                    _experience(
                         experience_id="exp-1",
-                        umo="test:private:user",
-                        conversation_id="conv-1",
                         scope_type=ScopeType.CONVERSATION,
                         scope_id="conv-1",
                         event_time=now,
@@ -535,10 +660,8 @@ async def test_memory_store_persist_consolidation_batch_is_atomic(temp_dir: Path
                         created_at=now,
                         updated_at=now,
                     ),
-                    Experience(
+                    _experience(
                         experience_id="exp-2",
-                        umo="test:private:user",
-                        conversation_id="conv-1",
                         scope_type=ScopeType.CONVERSATION,
                         scope_id="conv-1",
                         event_time=now,
@@ -555,11 +678,11 @@ async def test_memory_store_persist_consolidation_batch_is_atomic(temp_dir: Path
             )
 
         latest_insight = await store.get_latest_session_insight(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             "conv-1",
         )
         experiences = await store.list_recent_experiences(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             10,
             conversation_id="conv-1",
         )
@@ -577,10 +700,8 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
 
     try:
         await store.save_session_insight(
-            SessionInsight(
+            _session_insight(
                 insight_id="insight-a",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 window_start_at=now,
                 window_end_at=now,
                 topic_summary="a",
@@ -590,10 +711,8 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
             )
         )
         await store.save_session_insight(
-            SessionInsight(
+            _session_insight(
                 insight_id="insight-b",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 window_start_at=now,
                 window_end_at=now,
                 topic_summary="b",
@@ -603,10 +722,8 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
             )
         )
         await store.save_experience(
-            Experience(
+            _experience(
                 experience_id="exp-a",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 scope_type=ScopeType.CONVERSATION,
                 scope_id="conv-1",
                 event_time=now,
@@ -621,10 +738,8 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
             )
         )
         await store.save_experience(
-            Experience(
+            _experience(
                 experience_id="exp-b",
-                umo="test:private:user",
-                conversation_id="conv-1",
                 scope_type=ScopeType.CONVERSATION,
                 scope_id="conv-1",
                 event_time=now,
@@ -640,16 +755,16 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
         )
 
         latest_insight = await store.get_latest_session_insight(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             "conv-1",
         )
         recent = await store.list_recent_experiences(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             10,
             conversation_id="conv-1",
         )
         scoped = await store.list_experiences_for_scope(
-            "test:private:user",
+            TEST_CANONICAL_USER_ID,
             ScopeType.CONVERSATION,
             "conv-1",
         )

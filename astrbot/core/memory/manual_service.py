@@ -57,6 +57,7 @@ class LongTermMemoryManualService:
         normalized_doc = LongTermMemoryDocument(
             memory_id=document.memory_id.strip(),
             umo=document.umo.strip(),
+            canonical_user_id=document.canonical_user_id.strip(),
             scope_type=self._validated_scope_type(document.scope_type),
             scope_id=document.scope_id.strip(),
             category=self._validated_category(document.category),
@@ -95,6 +96,7 @@ class LongTermMemoryManualService:
         index = LongTermMemoryIndex(
             memory_id=normalized_doc.memory_id,
             umo=normalized_doc.umo,
+            canonical_user_id=normalized_doc.canonical_user_id,
             scope_type=normalized_doc.scope_type,
             scope_id=normalized_doc.scope_id,
             category=normalized_doc.category,
@@ -151,6 +153,7 @@ class LongTermMemoryManualService:
         return LongTermMemoryDocument(
             memory_id=str(payload.get("memory_id", "")).strip(),
             umo=str(payload.get("umo", "")).strip(),
+            canonical_user_id=str(payload.get("canonical_user_id", "")).strip(),
             scope_type=str(payload.get("scope_type", "")).strip(),
             scope_id=str(payload.get("scope_id", "")).strip(),
             category=str(payload.get("category", "")).strip(),
@@ -183,6 +186,10 @@ class LongTermMemoryManualService:
             )
         if not document.umo.strip():
             raise ValueError("long-term manual import missing required field `umo`")
+        if not document.canonical_user_id.strip():
+            raise ValueError(
+                "long-term manual import missing required field `canonical_user_id`"
+            )
         if not document.scope_id.strip():
             raise ValueError(
                 "long-term manual import missing required field `scope_id`"

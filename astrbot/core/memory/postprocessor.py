@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +26,16 @@ class MemoryPostProcessor:
         self,
         ctx: PostProcessContext,
     ) -> MemoryUpdateRequest | None:
+        if self.memory_service.identity_resolver is None:
+            raise RuntimeError("memory postprocess requires identity resolver")
+        identity_result = self.memory_service.identity_resolver.resolve_from_event(
+            ctx.event
+        )
+        identity = (
+            await identity_result
+            if inspect.isawaitable(identity_result)
+            else identity_result
+        )
         material = _resolve_turn_material(ctx)
         if material is None:
             logger.debug(
@@ -54,9 +65,11 @@ class MemoryPostProcessor:
             source_refs.append(f"conversation:{material['conversation_id']}")
 
         return MemoryUpdateRequest(
-            umo=event.unified_msg_origin,
+            umo=identity.umo,
             conversation_id=material["conversation_id"],
-            platform_id=event.get_platform_id(),
+            platform_id=identity.platform_id,
+            platform_user_key=identity.platform_user_key,
+            canonical_user_id=identity.canonical_user_id,
             session_id=(
                 ctx.provider_request.session_id if ctx.provider_request else None
             )

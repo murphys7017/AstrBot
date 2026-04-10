@@ -17,6 +17,8 @@ class TurnRecordService:
             umo=req.umo,
             conversation_id=req.conversation_id,
             platform_id=req.platform_id,
+            platform_user_key=req.platform_user_key,
+            canonical_user_id=req.canonical_user_id,
             session_id=req.session_id,
             user_message=dict(req.user_message),
             assistant_message=dict(req.assistant_message),

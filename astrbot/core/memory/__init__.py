@@ -28,6 +28,11 @@ from .document_search import DocumentSearchService
 from .document_serializer import DocumentSerializer
 from .experience_service import ExperienceService
 from .history_source import RecentConversationSource
+from .identity import (
+    MemoryIdentityMappingService,
+    MemoryIdentityResolver,
+    build_platform_user_key,
+)
 from .long_term_service import LongTermMemoryService
 from .manual_service import LongTermMemoryManualService
 from .postprocessor import (
@@ -54,6 +59,8 @@ from .types import (
     LongTermMemoryLinkRelation,
     LongTermMemoryStatus,
     LongTermPromotionCursor,
+    MemoryIdentity,
+    MemoryIdentityBinding,
     MemorySnapshot,
     MemoryUpdateRequest,
     MessagePayload,
@@ -98,7 +105,12 @@ __all__ = [
     "ExperienceProjectionService",
     "ExperienceService",
     "LongTermMemoryDocument",
+    "build_platform_user_key",
     "MemoryPostProcessor",
+    "MemoryIdentity",
+    "MemoryIdentityBinding",
+    "MemoryIdentityMappingService",
+    "MemoryIdentityResolver",
     "PromptJsonMemoryAnalyzer",
     "MemorySnapshot",
     "MemoryService",

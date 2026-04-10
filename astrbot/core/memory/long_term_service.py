@@ -59,24 +59,22 @@ class LongTermMemoryService:
 
     async def should_run_promotion(
         self,
-        umo: str,
-        conversation_id: str | None,
+        canonical_user_id: str,
     ) -> bool:
         if not self._is_enabled():
             logger.info(
-                "memory long-term promotion skipped: disabled umo=%s conversation_id=%s",
-                umo,
-                conversation_id,
+                "memory long-term promotion skipped: disabled canonical_user_id=%s",
+                canonical_user_id,
             )
             return False
-        scope_type, scope_id = self._resolve_scope(umo, conversation_id)
+        scope_type, scope_id = self._resolve_scope(canonical_user_id)
         cursor = await self.store.get_long_term_promotion_cursor(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
         )
         pending_experiences = await self.store.list_pending_experiences_for_scope(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
             cursor,
@@ -84,8 +82,8 @@ class LongTermMemoryService:
         threshold = max(1, int(self.long_term_config.min_pending_experiences))
         should_run = len(pending_experiences) >= threshold
         logger.info(
-            "memory long-term promotion check: umo=%s scope_type=%s scope_id=%s pending_experiences=%s threshold=%s should_run=%s",
-            umo,
+            "memory long-term promotion check: canonical_user_id=%s scope_type=%s scope_id=%s pending_experiences=%s threshold=%s should_run=%s",
+            canonical_user_id,
             self._enum_value(scope_type),
             scope_id,
             len(pending_experiences),
@@ -96,22 +94,21 @@ class LongTermMemoryService:
 
     async def run_promotion(
         self,
-        umo: str,
-        conversation_id: str | None,
+        canonical_user_id: str,
     ) -> list[LongTermMemoryIndex]:
         if not self._is_enabled():
             return []
         if self.analyzer_manager is None:
             raise RuntimeError("long-term promotion requested without analyzer manager")
 
-        scope_type, scope_id = self._resolve_scope(umo, conversation_id)
+        scope_type, scope_id = self._resolve_scope(canonical_user_id)
         cursor = await self.store.get_long_term_promotion_cursor(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
         )
         pending_experiences = await self.store.list_pending_experiences_for_scope(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
             cursor,
@@ -131,7 +128,8 @@ class LongTermMemoryService:
                     cursor_id=cursor.cursor_id
                     if cursor is not None
                     else str(uuid.uuid4()),
-                    umo=umo,
+                    umo=latest_pending.umo,
+                    canonical_user_id=canonical_user_id,
                     scope_type=scope_type,
                     scope_id=scope_id,
                     last_processed_created_at=latest_pending.created_at,
@@ -140,8 +138,8 @@ class LongTermMemoryService:
                 )
             )
             logger.info(
-                "memory long-term promotion skipped after filtering: umo=%s scope_type=%s scope_id=%s pending=%s threshold=%s min_importance=%s",
-                umo,
+                "memory long-term promotion skipped after filtering: canonical_user_id=%s scope_type=%s scope_id=%s pending=%s threshold=%s min_importance=%s",
+                canonical_user_id,
                 self._enum_value(scope_type),
                 scope_id,
                 len(pending_experiences),
@@ -151,14 +149,13 @@ class LongTermMemoryService:
             return []
 
         existing_memories = await self.store.list_long_term_memory_indexes(
-            umo,
+            canonical_user_id,
             limit=0,
             scope_type=scope_type,
             scope_id=scope_id,
         )
         actions = await self._build_promotion_actions(
-            umo=umo,
-            conversation_id=conversation_id,
+            canonical_user_id=canonical_user_id,
             pending_experiences=candidate_experiences,
             existing_memories=existing_memories,
         )
@@ -198,9 +195,12 @@ class LongTermMemoryService:
                     existing_memory.doc_path
                 )
 
+            source_umo = related_experiences[-1].umo
+            source_conversation_id = related_experiences[-1].conversation_id
             compose_data = await self._compose_memory(
-                umo=umo,
-                conversation_id=conversation_id,
+                canonical_user_id=canonical_user_id,
+                source_umo=source_umo,
+                conversation_id=source_conversation_id,
                 action=action,
                 related_experiences=related_experiences,
                 existing_memory=existing_memory,
@@ -215,7 +215,7 @@ class LongTermMemoryService:
             doc_path = (
                 Path(existing_memory.doc_path)
                 if existing_memory is not None
-                else self._build_doc_path(umo, scope_type, memory_id)
+                else self._build_doc_path(canonical_user_id, scope_type, memory_id)
             )
             created_at = existing_memory.created_at if existing_memory else now
             existing_updates = (
@@ -252,7 +252,8 @@ class LongTermMemoryService:
             )
             document = LongTermMemoryDocument(
                 memory_id=memory_id,
-                umo=umo,
+                umo=source_umo,
+                canonical_user_id=canonical_user_id,
                 scope_type=scope_type,
                 scope_id=scope_id,
                 category=compose_data["category"],
@@ -275,7 +276,8 @@ class LongTermMemoryService:
             pending_memories.append(
                 LongTermMemoryIndex(
                     memory_id=memory_id,
-                    umo=umo,
+                    umo=source_umo,
+                    canonical_user_id=canonical_user_id,
                     scope_type=scope_type,
                     scope_id=scope_id,
                     category=compose_data["category"],
@@ -313,7 +315,8 @@ class LongTermMemoryService:
         latest_pending = pending_experiences[-1]
         cursor_to_save = LongTermPromotionCursor(
             cursor_id=cursor.cursor_id if cursor is not None else str(uuid.uuid4()),
-            umo=umo,
+            umo=latest_pending.umo,
+            canonical_user_id=canonical_user_id,
             scope_type=scope_type,
             scope_id=scope_id,
             last_processed_created_at=latest_pending.created_at,
@@ -337,8 +340,8 @@ class LongTermMemoryService:
             raise
         await self._refresh_vector_indexes(persisted_indexes)
         logger.info(
-            "memory long-term promotion finished: umo=%s scope_type=%s scope_id=%s memories=%s links=%s refreshed_docs=%s",
-            umo,
+            "memory long-term promotion finished: canonical_user_id=%s scope_type=%s scope_id=%s memories=%s links=%s refreshed_docs=%s",
+            canonical_user_id,
             self._enum_value(scope_type),
             scope_id,
             len(persisted_indexes),
@@ -359,12 +362,12 @@ class LongTermMemoryService:
     async def _build_promotion_actions(
         self,
         *,
-        umo: str,
-        conversation_id: str | None,
+        canonical_user_id: str,
         pending_experiences: list[Experience],
         existing_memories: list[LongTermMemoryIndex],
     ) -> list[dict[str, Any]]:
         payload = {
+            "canonical_user_id": canonical_user_id,
             "pending_experiences_json": json.dumps(
                 [self._experience_to_payload(item) for item in pending_experiences],
                 ensure_ascii=False,
@@ -374,11 +377,15 @@ class LongTermMemoryService:
                 ensure_ascii=False,
             ),
         }
+        source_umo = pending_experiences[-1].umo if pending_experiences else None
+        source_conversation_id = (
+            pending_experiences[-1].conversation_id if pending_experiences else None
+        )
         results = await self.analyzer_manager.dispatch_stage(
             "long_term_promote",
             payload=payload,
-            umo=umo,
-            conversation_id=conversation_id,
+            umo=source_umo,
+            conversation_id=source_conversation_id,
         )
         result = results.get(LONG_TERM_PROMOTE_ANALYZER_NAME)
         if result is None:
@@ -390,7 +397,8 @@ class LongTermMemoryService:
     async def _compose_memory(
         self,
         *,
-        umo: str,
+        canonical_user_id: str,
+        source_umo: str | None,
         conversation_id: str | None,
         action: dict[str, Any],
         related_experiences: list[Experience],
@@ -406,6 +414,7 @@ class LongTermMemoryService:
                 )
                 existing_memory_payload["updates"] = list(existing_document.updates)
         payload = {
+            "canonical_user_id": canonical_user_id,
             "promotion_action": action["action"],
             "promotion_category": action["category"],
             "promotion_reason": action["reason"],
@@ -421,7 +430,7 @@ class LongTermMemoryService:
         results = await self.analyzer_manager.dispatch_stage(
             "long_term_compose",
             payload=payload,
-            umo=umo,
+            umo=source_umo,
             conversation_id=conversation_id,
         )
         result = results.get(LONG_TERM_COMPOSE_ANALYZER_NAME)
@@ -569,12 +578,9 @@ class LongTermMemoryService:
 
     @staticmethod
     def _resolve_scope(
-        umo: str,
-        conversation_id: str | None,
+        canonical_user_id: str,
     ) -> tuple[ScopeType, str]:
-        if conversation_id is not None:
-            return ScopeType.CONVERSATION, conversation_id
-        return ScopeType.USER, umo
+        return ScopeType.USER, canonical_user_id
 
     @staticmethod
     def _resolve_related_experiences(
@@ -596,13 +602,13 @@ class LongTermMemoryService:
 
     def _build_doc_path(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         memory_id: str,
     ) -> Path:
         return (
             self.store.config.storage.docs_root
-            / DocumentLoader._safe_path_component(umo)
+            / DocumentLoader._safe_path_component(canonical_user_id)
             / DocumentLoader._safe_path_component(self._enum_value(scope_type))
             / f"{DocumentLoader._safe_path_component(memory_id)}.md"
         )
@@ -723,6 +729,8 @@ class LongTermMemoryService:
         return {
             "experience_id": experience.experience_id,
             "conversation_id": experience.conversation_id,
+            "platform_user_key": experience.platform_user_key,
+            "canonical_user_id": experience.canonical_user_id,
             "scope_type": LongTermMemoryService._enum_value(experience.scope_type),
             "scope_id": experience.scope_id,
             "event_time": experience.event_time.isoformat(),
@@ -738,6 +746,7 @@ class LongTermMemoryService:
     def _memory_to_payload(memory: LongTermMemoryIndex) -> dict[str, Any]:
         return {
             "memory_id": memory.memory_id,
+            "canonical_user_id": memory.canonical_user_id,
             "scope_type": LongTermMemoryService._enum_value(memory.scope_type),
             "scope_id": memory.scope_id,
             "category": LongTermMemoryService._enum_value(memory.category),

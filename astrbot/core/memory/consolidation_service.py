@@ -56,23 +56,26 @@ class ConsolidationService:
 
     async def should_run_consolidation(
         self,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
     ) -> bool:
         if not self._is_enabled():
             logger.info(
                 "memory consolidation skipped: disabled umo=%s conversation_id=%s",
-                umo,
+                canonical_user_id,
                 conversation_id,
             )
             return False
 
-        turn_records = await self._get_pending_turn_records(umo, conversation_id)
+        turn_records = await self._get_pending_turn_records(
+            canonical_user_id,
+            conversation_id,
+        )
         threshold = self._get_threshold()
         should_run = len(turn_records) >= threshold
         logger.info(
-            "memory consolidation check: umo=%s conversation_id=%s pending_turns=%s threshold=%s should_run=%s",
-            umo,
+            "memory consolidation check: canonical_user_id=%s conversation_id=%s pending_turns=%s threshold=%s should_run=%s",
+            canonical_user_id,
             conversation_id,
             len(turn_records),
             threshold,
@@ -82,21 +85,28 @@ class ConsolidationService:
 
     async def run_for_scope(
         self,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
     ) -> tuple[SessionInsight | None, list[Experience]]:
         if not self._is_enabled():
             return None, []
 
-        turn_records = await self._get_pending_turn_records(umo, conversation_id)
+        turn_records = await self._get_pending_turn_records(
+            canonical_user_id,
+            conversation_id,
+        )
         if len(turn_records) < self._get_threshold():
             return None, []
 
-        topic_state = await self.store.get_topic_state(umo, conversation_id)
-        short_term_memory = await self.store.get_short_term_memory(umo, conversation_id)
+        latest_turn = turn_records[-1]
+        topic_state = await self.store.get_topic_state(latest_turn.umo, conversation_id)
+        short_term_memory = await self.store.get_short_term_memory(
+            latest_turn.umo,
+            conversation_id,
+        )
 
         insight = await self._build_session_insight(
-            umo=umo,
+            canonical_user_id=canonical_user_id,
             conversation_id=conversation_id,
             turn_records=turn_records,
             topic_state=topic_state,
@@ -124,15 +134,16 @@ class ConsolidationService:
 
     async def _get_pending_turn_records(
         self,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
     ) -> list[TurnRecord]:
         latest_insight = await self.store.get_latest_session_insight(
-            umo, conversation_id
+            canonical_user_id,
+            conversation_id,
         )
         start_at = latest_insight.window_end_at if latest_insight is not None else None
-        turn_records = await self.store.list_turn_records_by_time_range(
-            umo,
+        turn_records = await self.store.list_turn_records_by_canonical_user(
+            canonical_user_id,
             conversation_id,
             start_at,
         )
@@ -145,7 +156,7 @@ class ConsolidationService:
     async def _build_session_insight(
         self,
         *,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
         turn_records: list[TurnRecord],
         topic_state: TopicState | None,
@@ -160,15 +171,15 @@ class ConsolidationService:
             short_term_memory=short_term_memory,
         )
         logger.info(
-            "memory consolidation session insight started: umo=%s conversation_id=%s turns=%s",
-            umo,
+            "memory consolidation session insight started: canonical_user_id=%s conversation_id=%s turns=%s",
+            canonical_user_id,
             conversation_id,
             len(turn_records),
         )
         results = await self.analyzer_manager.dispatch_stage(
             "session_insight_update",
             payload=payload,
-            umo=umo,
+            umo=turn_records[-1].umo,
             conversation_id=conversation_id,
         )
         result = results.get(SESSION_INSIGHT_ANALYZER_NAME)
@@ -179,8 +190,10 @@ class ConsolidationService:
         data = self._validate_session_insight_payload(result.data)
         return SessionInsight(
             insight_id=str(uuid.uuid4()),
-            umo=umo,
+            umo=turn_records[-1].umo,
             conversation_id=conversation_id,
+            platform_user_key=turn_records[-1].platform_user_key,
+            canonical_user_id=canonical_user_id,
             window_start_at=turn_records[0].message_timestamp,
             window_end_at=turn_records[-1].message_timestamp,
             topic_summary=data["topic_summary"],
@@ -220,12 +233,8 @@ class ConsolidationService:
             )
         raw_experiences = self._validate_experience_extract_payload(result.data)
 
-        scope_type = (
-            ScopeType.CONVERSATION
-            if insight.conversation_id is not None
-            else ScopeType.USER
-        )
-        scope_id = insight.conversation_id or insight.umo
+        scope_type = ScopeType.USER
+        scope_id = insight.canonical_user_id
         turn_source_refs = [f"turn:{turn.turn_id}" for turn in turn_records]
         insight_source_ref = f"insight:{insight.insight_id}"
 
@@ -242,6 +251,8 @@ class ConsolidationService:
                     experience_id=str(uuid.uuid4()),
                     umo=insight.umo,
                     conversation_id=insight.conversation_id,
+                    platform_user_key=insight.platform_user_key,
+                    canonical_user_id=insight.canonical_user_id,
                     scope_type=scope_type,
                     scope_id=scope_id,
                     event_time=insight.window_end_at or datetime.now(UTC),

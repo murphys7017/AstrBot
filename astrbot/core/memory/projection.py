@@ -35,7 +35,7 @@ class ExperienceProjectionService:
 
         for experience in experiences:
             scope_key = (
-                experience.umo,
+                experience.canonical_user_id,
                 self._enum_value(experience.scope_type),
                 experience.scope_id,
             )
@@ -43,7 +43,7 @@ class ExperienceProjectionService:
                 continue
             seen_scopes.add(scope_key)
             path = await self.refresh_scope_projection(
-                experience.umo,
+                experience.canonical_user_id,
                 experience.scope_type,
                 experience.scope_id,
             )
@@ -53,12 +53,12 @@ class ExperienceProjectionService:
 
     async def refresh_scope_projection(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
     ) -> Path | None:
         experiences = await self.store.list_experiences_for_scope(
-            umo,
+            canonical_user_id,
             scope_type,
             scope_id,
             ascending=True,
@@ -66,12 +66,16 @@ class ExperienceProjectionService:
         if not experiences:
             return None
 
-        projection_path = self._build_projection_path(umo, scope_type, scope_id)
+        projection_path = self._build_projection_path(
+            canonical_user_id,
+            scope_type,
+            scope_id,
+        )
         projection_path.parent.mkdir(parents=True, exist_ok=True)
         projection_path.write_text(
             self._render_projection_markdown(
                 experiences,
-                umo=umo,
+                canonical_user_id=canonical_user_id,
                 scope_type=scope_type,
                 scope_id=scope_id,
             ),
@@ -81,14 +85,14 @@ class ExperienceProjectionService:
 
     def _build_projection_path(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
     ) -> Path:
         return (
             self.projections_root
             / "experiences"
-            / self._safe_path_component(umo)
+            / self._safe_path_component(canonical_user_id)
             / self._safe_path_component(self._enum_value(scope_type))
             / f"{self._safe_path_component(scope_id)}.md"
         )
@@ -97,7 +101,7 @@ class ExperienceProjectionService:
         self,
         experiences: list[Experience],
         *,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
     ) -> str:
@@ -105,7 +109,7 @@ class ExperienceProjectionService:
         front_matter = yaml.safe_dump(
             {
                 "projection_type": "experience_timeline",
-                "umo": umo,
+                "canonical_user_id": canonical_user_id,
                 "scope_type": self._enum_value(scope_type),
                 "scope_id": scope_id,
                 "experience_count": len(experiences),

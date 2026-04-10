@@ -12,6 +12,7 @@
 - 已完成 `Experience` 的 Markdown 投影
 - 已完成 `LongTermMemory + Document Search V1`
 - 已完成长期记忆一致性修复第一轮
+- 已完成 identity 三层拆分第一版
 - 未进入人格演进与完整 retrieval 接入
 
 当前可以认为已经完成了：
@@ -40,6 +41,18 @@
 - 写入 `TurnRecord`
 - 更新 `TopicState`
 - 更新 `ShortTermMemory`
+
+当前身份解析已固定为只看事件对象：
+
+- `umo = event.unified_msg_origin`
+- `platform_user_key = event.get_platform_id() + ":" + event.get_sender_id()`
+- `canonical_user_id` 只通过 SQLite 显式映射表解析
+
+当前行为约束：
+
+- 短期层继续按 `umo + conversation_id` 工作
+- `canonical_user_id` 缺失时，不阻断短期写入
+- `canonical_user_id` 缺失时，中长期链路直接停止，不做 fallback
 
 ### 2.2 短期分析链路
 
@@ -116,7 +129,7 @@
 
 当前阈值语义：
 
-- 按 `umo + conversation_id` 判断
+- 按 `canonical_user_id + conversation_id` 判断
 - 统计最新 `SessionInsight.window_end_at` 之后的新 turn 数
 - 达到 `consolidation.min_short_term_updates` 才触发
 
@@ -151,6 +164,7 @@
 - 长期记忆文档与索引第一版已存在
 - 文档搜索第一版已存在
 - 手动导入 / 更新入口已存在
+- 长期归属已切到 `canonical_user_id`
 - 长期文档写入已改成 staging + 原子替换
 - 向量索引开启时，长期导入 / promotion 会先校验 provider 绑定与索引可用性
 - `importance / confidence / topic_confidence` 已收紧到 `0..1`
@@ -166,6 +180,7 @@
 - `astrbot/core/memory/store.py`
 - `astrbot/core/memory/service.py`
 - `astrbot/core/memory/history_source.py`
+- `astrbot/core/memory/identity.py`
 - `astrbot/core/memory/turn_record_service.py`
 - `astrbot/core/memory/short_term_service.py`
 - `astrbot/core/memory/snapshot_builder.py`
@@ -194,6 +209,7 @@
 - `list_experiences_for_scope(...)`
 - `list_experiences_by_time_range(...)`
 - `list_turn_records_by_time_range(...)`
+- `list_turn_records_by_canonical_user(...)`
 - `upsert_long_term_memory_index(...)`
 - `list_long_term_memory_indexes(...)`
 - `get_long_term_memory_index(...)`
@@ -201,6 +217,10 @@
 - `list_long_term_memory_links(...)`
 - `upsert_long_term_promotion_cursor(...)`
 - `get_long_term_promotion_cursor(...)`
+- `save_identity_mapping(...)`
+- `get_identity_mapping(...)`
+- `delete_identity_mapping(...)`
+- `list_identity_mappings_for_canonical_user(...)`
 
 ## 4. 当前未完成部分
 

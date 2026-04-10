@@ -14,6 +14,7 @@ from .config import MemoryConfig, get_memory_config
 from .po import (
     BaseMemoryModel,
     MemoryExperience,
+    MemoryIdentityMapping,
     MemoryLongTermMemoryIndex,
     MemoryLongTermMemoryLink,
     MemoryLongTermPromotionCursor,
@@ -29,6 +30,7 @@ from .types import (
     LongTermMemoryIndex,
     LongTermMemoryLink,
     LongTermPromotionCursor,
+    MemoryIdentityBinding,
     PersonaEvolutionLog,
     PersonaState,
     ScopeType,
@@ -115,6 +117,8 @@ class MemoryStore:
                 entity.umo = record.umo
                 entity.conversation_id = record.conversation_id
                 entity.platform_id = record.platform_id
+                entity.platform_user_key = record.platform_user_key
+                entity.canonical_user_id = record.canonical_user_id
                 entity.session_id = record.session_id
                 entity.user_message = record.user_message
                 entity.assistant_message = record.assistant_message
@@ -234,12 +238,12 @@ class MemoryStore:
 
     async def get_latest_session_insight(
         self,
-        umo: str,
+        canonical_user_id: str,
         conversation_id: str | None,
     ) -> SessionInsight | None:
         async with self.get_db() as session:
             stmt = select(MemorySessionInsight).where(
-                col(MemorySessionInsight.umo) == umo
+                col(MemorySessionInsight.canonical_user_id) == canonical_user_id
             )
             if conversation_id is None:
                 stmt = stmt.where(col(MemorySessionInsight.conversation_id).is_(None))
@@ -282,12 +286,14 @@ class MemoryStore:
 
     async def list_recent_experiences(
         self,
-        umo: str,
+        canonical_user_id: str,
         limit: int,
         conversation_id: str | None = None,
     ) -> list[Experience]:
         async with self.get_db() as session:
-            stmt = select(MemoryExperience).where(col(MemoryExperience.umo) == umo)
+            stmt = select(MemoryExperience).where(
+                col(MemoryExperience.canonical_user_id) == canonical_user_id
+            )
             if conversation_id is not None:
                 stmt = stmt.where(
                     col(MemoryExperience.conversation_id) == conversation_id
@@ -302,7 +308,7 @@ class MemoryStore:
 
     async def list_experiences_for_scope(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
         *,
@@ -311,7 +317,7 @@ class MemoryStore:
         async with self.get_db() as session:
             stmt = select(MemoryExperience).where(
                 and_(
-                    col(MemoryExperience.umo) == umo,
+                    col(MemoryExperience.canonical_user_id) == canonical_user_id,
                     col(MemoryExperience.scope_type) == self._enum_value(scope_type),
                     col(MemoryExperience.scope_id) == scope_id,
                 )
@@ -333,12 +339,12 @@ class MemoryStore:
 
     async def list_experiences_by_time_range(
         self,
-        umo: str,
+        canonical_user_id: str,
         start_at: datetime | None,
         end_at: datetime | None,
     ) -> list[Experience]:
         async with self.get_db() as session:
-            conditions = [col(MemoryExperience.umo) == umo]
+            conditions = [col(MemoryExperience.canonical_user_id) == canonical_user_id]
             if start_at is not None:
                 conditions.append(col(MemoryExperience.event_time) >= start_at)
             if end_at is not None:
@@ -364,6 +370,33 @@ class MemoryStore:
     ) -> list[TurnRecord]:
         async with self.get_db() as session:
             conditions = [col(MemoryTurnRecord.umo) == umo]
+            if conversation_id is None:
+                conditions.append(col(MemoryTurnRecord.conversation_id).is_(None))
+            else:
+                conditions.append(
+                    col(MemoryTurnRecord.conversation_id) == conversation_id
+                )
+            if start_at is not None:
+                conditions.append(col(MemoryTurnRecord.message_timestamp) >= start_at)
+            if end_at is not None:
+                conditions.append(col(MemoryTurnRecord.message_timestamp) <= end_at)
+            stmt = (
+                select(MemoryTurnRecord)
+                .where(and_(*conditions))
+                .order_by(MemoryTurnRecord.message_timestamp)
+            )
+            result = await session.execute(stmt)
+            return [self._to_turn_record(item) for item in result.scalars().all()]
+
+    async def list_turn_records_by_canonical_user(
+        self,
+        canonical_user_id: str,
+        conversation_id: str | None,
+        start_at: datetime | None,
+        end_at: datetime | None = None,
+    ) -> list[TurnRecord]:
+        async with self.get_db() as session:
+            conditions = [col(MemoryTurnRecord.canonical_user_id) == canonical_user_id]
             if conversation_id is None:
                 conditions.append(col(MemoryTurnRecord.conversation_id).is_(None))
             else:
@@ -408,7 +441,7 @@ class MemoryStore:
 
     async def list_long_term_memory_indexes(
         self,
-        umo: str,
+        canonical_user_id: str,
         limit: int,
         *,
         scope_type: ScopeType | str | None = None,
@@ -416,7 +449,7 @@ class MemoryStore:
     ) -> list[LongTermMemoryIndex]:
         async with self.get_db() as session:
             stmt = select(MemoryLongTermMemoryIndex).where(
-                col(MemoryLongTermMemoryIndex.umo) == umo
+                col(MemoryLongTermMemoryIndex.canonical_user_id) == canonical_user_id
             )
             if scope_type is not None:
                 stmt = stmt.where(
@@ -466,14 +499,14 @@ class MemoryStore:
 
     async def get_long_term_promotion_cursor(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
     ) -> LongTermPromotionCursor | None:
         async with self.get_db() as session:
             entity = await self._get_long_term_promotion_cursor_entity(
                 session,
-                umo,
+                canonical_user_id,
                 self._enum_value(scope_type),
                 scope_id,
             )
@@ -492,7 +525,7 @@ class MemoryStore:
 
     async def list_pending_experiences_for_scope(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: ScopeType | str,
         scope_id: str,
         cursor: LongTermPromotionCursor | None,
@@ -502,7 +535,7 @@ class MemoryStore:
                 select(MemoryExperience)
                 .where(
                     and_(
-                        col(MemoryExperience.umo) == umo,
+                        col(MemoryExperience.canonical_user_id) == canonical_user_id,
                         col(MemoryExperience.scope_type)
                         == self._enum_value(scope_type),
                         col(MemoryExperience.scope_id) == scope_id,
@@ -571,6 +604,85 @@ class MemoryStore:
                         )
                     )
                 return persisted_memories, persisted_links, persisted_cursor
+
+    async def save_identity_mapping(
+        self,
+        binding: MemoryIdentityBinding,
+    ) -> MemoryIdentityBinding:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryIdentityMapping).where(
+                        col(MemoryIdentityMapping.platform_user_key)
+                        == binding.platform_user_key
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is None:
+                    entity = MemoryIdentityMapping(
+                        mapping_id=binding.mapping_id,
+                        created_at=binding.created_at or datetime.now(UTC),
+                    )
+                    session.add(entity)
+
+                entity.platform_id = binding.platform_id
+                entity.sender_user_id = binding.sender_user_id
+                entity.platform_user_key = binding.platform_user_key
+                entity.canonical_user_id = binding.canonical_user_id
+                entity.nickname_hint = binding.nickname_hint
+                if binding.updated_at is not None:
+                    entity.updated_at = binding.updated_at
+
+                await session.flush()
+                await session.refresh(entity)
+                return self._to_identity_binding(entity)
+
+    async def get_identity_mapping(
+        self,
+        platform_user_key: str,
+    ) -> MemoryIdentityBinding | None:
+        async with self.get_db() as session:
+            result = await session.execute(
+                select(MemoryIdentityMapping).where(
+                    col(MemoryIdentityMapping.platform_user_key) == platform_user_key
+                )
+            )
+            entity = result.scalar_one_or_none()
+            return self._to_identity_binding(entity) if entity else None
+
+    async def delete_identity_mapping(self, platform_user_key: str) -> bool:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryIdentityMapping).where(
+                        col(MemoryIdentityMapping.platform_user_key)
+                        == platform_user_key
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is None:
+                    return False
+                await session.delete(entity)
+                return True
+
+    async def list_identity_mappings_for_canonical_user(
+        self,
+        canonical_user_id: str,
+    ) -> list[MemoryIdentityBinding]:
+        async with self.get_db() as session:
+            stmt = (
+                select(MemoryIdentityMapping)
+                .where(
+                    col(MemoryIdentityMapping.canonical_user_id) == canonical_user_id
+                )
+                .order_by(
+                    MemoryIdentityMapping.platform_id,
+                    MemoryIdentityMapping.sender_user_id,
+                    MemoryIdentityMapping.platform_user_key,
+                )
+            )
+            result = await session.execute(stmt)
+            return [self._to_identity_binding(item) for item in result.scalars().all()]
 
     async def upsert_persona_state(self, state: PersonaState) -> PersonaState:
         async with self.get_db() as session:
@@ -690,14 +802,15 @@ class MemoryStore:
     async def _get_long_term_promotion_cursor_entity(
         self,
         session: AsyncSession,
-        umo: str,
+        canonical_user_id: str,
         scope_type: str,
         scope_id: str,
     ) -> MemoryLongTermPromotionCursor | None:
         result = await session.execute(
             select(MemoryLongTermPromotionCursor).where(
                 and_(
-                    col(MemoryLongTermPromotionCursor.umo) == umo,
+                    col(MemoryLongTermPromotionCursor.canonical_user_id)
+                    == canonical_user_id,
                     col(MemoryLongTermPromotionCursor.scope_type) == scope_type,
                     col(MemoryLongTermPromotionCursor.scope_id) == scope_id,
                 )
@@ -725,6 +838,8 @@ class MemoryStore:
 
         entity.umo = insight.umo
         entity.conversation_id = insight.conversation_id
+        entity.platform_user_key = insight.platform_user_key
+        entity.canonical_user_id = insight.canonical_user_id
         entity.window_start_at = insight.window_start_at
         entity.window_end_at = insight.window_end_at
         entity.topic_summary = insight.topic_summary
@@ -755,6 +870,8 @@ class MemoryStore:
 
         entity.umo = experience.umo
         entity.conversation_id = experience.conversation_id
+        entity.platform_user_key = experience.platform_user_key
+        entity.canonical_user_id = experience.canonical_user_id
         entity.scope_type = self._enum_value(experience.scope_type)
         entity.scope_id = experience.scope_id
         entity.event_time = experience.event_time
@@ -790,6 +907,7 @@ class MemoryStore:
             session.add(entity)
 
         entity.umo = memory.umo
+        entity.canonical_user_id = memory.canonical_user_id
         entity.scope_type = self._enum_value(memory.scope_type)
         entity.scope_id = memory.scope_id
         entity.category = self._enum_value(memory.category)
@@ -846,7 +964,7 @@ class MemoryStore:
     ) -> LongTermPromotionCursor:
         entity = await self._get_long_term_promotion_cursor_entity(
             session,
-            cursor.umo,
+            cursor.canonical_user_id,
             self._enum_value(cursor.scope_type),
             cursor.scope_id,
         )
@@ -854,11 +972,14 @@ class MemoryStore:
             entity = MemoryLongTermPromotionCursor(
                 cursor_id=cursor.cursor_id,
                 umo=cursor.umo,
+                canonical_user_id=cursor.canonical_user_id,
                 scope_type=self._enum_value(cursor.scope_type),
                 scope_id=cursor.scope_id,
             )
             session.add(entity)
 
+        entity.umo = cursor.umo
+        entity.canonical_user_id = cursor.canonical_user_id
         entity.last_processed_created_at = cursor.last_processed_created_at
         entity.last_processed_experience_id = cursor.last_processed_experience_id
         if cursor.updated_at is not None:
@@ -890,6 +1011,8 @@ class MemoryStore:
             umo=entity.umo,
             conversation_id=entity.conversation_id,
             platform_id=entity.platform_id,
+            platform_user_key=entity.platform_user_key,
+            canonical_user_id=entity.canonical_user_id,
             session_id=entity.session_id,
             user_message=dict(entity.user_message or {}),
             assistant_message=dict(entity.assistant_message or {}),
@@ -926,6 +1049,8 @@ class MemoryStore:
             insight_id=entity.insight_id,
             umo=entity.umo,
             conversation_id=entity.conversation_id,
+            platform_user_key=entity.platform_user_key,
+            canonical_user_id=entity.canonical_user_id,
             window_start_at=entity.window_start_at,
             window_end_at=entity.window_end_at,
             topic_summary=entity.topic_summary,
@@ -940,6 +1065,8 @@ class MemoryStore:
             experience_id=entity.experience_id,
             umo=entity.umo,
             conversation_id=entity.conversation_id,
+            platform_user_key=entity.platform_user_key,
+            canonical_user_id=entity.canonical_user_id,
             scope_type=entity.scope_type,
             scope_id=entity.scope_id,
             event_time=entity.event_time,
@@ -960,6 +1087,7 @@ class MemoryStore:
         return LongTermMemoryIndex(
             memory_id=entity.memory_id,
             umo=entity.umo,
+            canonical_user_id=entity.canonical_user_id,
             scope_type=entity.scope_type,
             scope_id=entity.scope_id,
             category=entity.category,
@@ -996,10 +1124,24 @@ class MemoryStore:
         return LongTermPromotionCursor(
             cursor_id=entity.cursor_id,
             umo=entity.umo,
+            canonical_user_id=entity.canonical_user_id,
             scope_type=entity.scope_type,
             scope_id=entity.scope_id,
             last_processed_created_at=entity.last_processed_created_at,
             last_processed_experience_id=entity.last_processed_experience_id,
+            updated_at=entity.updated_at,
+        )
+
+    @staticmethod
+    def _to_identity_binding(entity: MemoryIdentityMapping) -> MemoryIdentityBinding:
+        return MemoryIdentityBinding(
+            mapping_id=entity.mapping_id,
+            platform_id=entity.platform_id,
+            sender_user_id=entity.sender_user_id,
+            platform_user_key=entity.platform_user_key,
+            canonical_user_id=entity.canonical_user_id,
+            nickname_hint=entity.nickname_hint,
+            created_at=entity.created_at,
             updated_at=entity.updated_at,
         )
 

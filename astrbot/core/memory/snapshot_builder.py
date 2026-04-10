@@ -18,6 +18,12 @@ class MemorySnapshotBuilder:
     ) -> MemorySnapshot:
         topic_state = await self.store.get_topic_state(umo, conversation_id)
         short_term_memory = await self.store.get_short_term_memory(umo, conversation_id)
+        recent_turns = await self.store.get_recent_turn_records(
+            umo,
+            limit=1,
+            conversation_id=conversation_id,
+        )
+        latest_turn = recent_turns[0] if recent_turns else None
         logger.info(
             "memory snapshot built: umo=%s conversation_id=%s topic_state=%s short_term_memory=%s query_present=%s",
             umo,
@@ -29,6 +35,8 @@ class MemorySnapshotBuilder:
         return MemorySnapshot(
             umo=umo,
             conversation_id=conversation_id,
+            platform_user_key=latest_turn.platform_user_key if latest_turn else None,
+            canonical_user_id=latest_turn.canonical_user_id if latest_turn else None,
             topic_state=topic_state,
             short_term_memory=short_term_memory,
             experiences=[],

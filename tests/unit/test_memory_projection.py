@@ -19,12 +19,13 @@ class _StubStore:
 
     async def list_experiences_for_scope(
         self,
-        umo: str,
+        canonical_user_id: str,
         scope_type: str,
         scope_id: str,
         *,
         ascending: bool = False,
     ) -> list[Experience]:
+        del canonical_user_id, scope_type, scope_id, ascending
         return list(self._experiences)
 
 
@@ -39,6 +40,8 @@ def _build_experience(
         experience_id="exp-1",
         umo=umo,
         conversation_id="conv-1",
+        platform_user_key=f"test:{umo}",
+        canonical_user_id=umo,
         scope_type=scope_type,
         scope_id=scope_id,
         event_time=now,

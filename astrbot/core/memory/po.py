@@ -28,6 +28,8 @@ class MemoryTurnRecord(BaseMemoryModel, table=True):
     umo: str = Field(nullable=False, index=True, max_length=255)
     conversation_id: str | None = Field(default=None, index=True, max_length=64)
     platform_id: str | None = Field(default=None, index=True, max_length=64)
+    platform_user_key: str = Field(nullable=False, index=True, max_length=255)
+    canonical_user_id: str | None = Field(default=None, index=True, max_length=255)
     session_id: str | None = Field(default=None, index=True, max_length=128)
     user_message: dict = Field(default_factory=dict, sa_type=JSON)
     assistant_message: dict = Field(default_factory=dict, sa_type=JSON)
@@ -100,6 +102,8 @@ class MemorySessionInsight(BaseMemoryModel, table=True):
     )
     umo: str = Field(nullable=False, index=True, max_length=255)
     conversation_id: str | None = Field(default=None, index=True, max_length=64)
+    platform_user_key: str = Field(nullable=False, index=True, max_length=255)
+    canonical_user_id: str = Field(nullable=False, index=True, max_length=255)
     window_start_at: datetime | None = Field(default=None, index=True)
     window_end_at: datetime | None = Field(default=None, index=True)
     topic_summary: str | None = Field(default=None, sa_type=Text)
@@ -125,6 +129,8 @@ class MemoryExperience(BaseMemoryModel, table=True):
     )
     umo: str = Field(nullable=False, index=True, max_length=255)
     conversation_id: str | None = Field(default=None, index=True, max_length=64)
+    platform_user_key: str = Field(nullable=False, index=True, max_length=255)
+    canonical_user_id: str = Field(nullable=False, index=True, max_length=255)
     scope_type: str = Field(nullable=False, index=True, max_length=32)
     scope_id: str = Field(nullable=False, index=True, max_length=255)
     event_time: datetime = Field(nullable=False, index=True)
@@ -157,6 +163,7 @@ class MemoryLongTermMemoryIndex(BaseMemoryModel, table=True):
         max_length=64,
     )
     umo: str = Field(nullable=False, index=True, max_length=255)
+    canonical_user_id: str = Field(nullable=False, index=True, max_length=255)
     scope_type: str = Field(nullable=False, index=True, max_length=32)
     scope_id: str = Field(nullable=False, index=True, max_length=255)
     category: str = Field(nullable=False, index=True, max_length=64)
@@ -222,6 +229,7 @@ class MemoryLongTermPromotionCursor(BaseMemoryModel, table=True):
         max_length=64,
     )
     umo: str = Field(nullable=False, index=True, max_length=255)
+    canonical_user_id: str = Field(nullable=False, index=True, max_length=255)
     scope_type: str = Field(nullable=False, index=True, max_length=32)
     scope_id: str = Field(nullable=False, index=True, max_length=255)
     last_processed_created_at: datetime | None = Field(default=None, index=True)
@@ -230,11 +238,40 @@ class MemoryLongTermPromotionCursor(BaseMemoryModel, table=True):
 
     __table_args__ = (
         UniqueConstraint(
-            "umo",
+            "canonical_user_id",
             "scope_type",
             "scope_id",
             name="uix_memory_long_term_promotion_cursor_scope",
         ),
+    )
+
+
+class MemoryIdentityMapping(BaseMemoryModel, table=True):
+    __tablename__ = "memory_identity_mappings"  # type: ignore
+
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True},
+    )
+    mapping_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        nullable=False,
+        unique=True,
+        index=True,
+        max_length=64,
+    )
+    platform_id: str = Field(nullable=False, index=True, max_length=64)
+    sender_user_id: str = Field(nullable=False, index=True, max_length=255)
+    platform_user_key: str = Field(
+        nullable=False, unique=True, index=True, max_length=255
+    )
+    canonical_user_id: str = Field(nullable=False, index=True, max_length=255)
+    nickname_hint: str | None = Field(default=None, max_length=255)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
     )
 
 
