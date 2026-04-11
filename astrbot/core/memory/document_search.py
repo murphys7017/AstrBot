@@ -4,7 +4,6 @@ from .document_loader import DocumentLoader
 from .types import (
     DocumentSearchRequest,
     DocumentSearchResult,
-    ScopeType,
 )
 from .vector_index import MemoryVectorIndex
 
@@ -69,19 +68,14 @@ class DocumentSearchService:
 
     def _build_metadata_filters(self, req: DocumentSearchRequest) -> dict[str, object]:
         filters: dict[str, object] = {}
-        scope_type = req.scope_type
-        scope_id = req.scope_id
-        if scope_type is None and req.conversation_id is not None:
-            scope_type = ScopeType.CONVERSATION
-            scope_id = req.conversation_id
-        if scope_type is not None:
-            filters["scope_type"] = self._enum_value(scope_type)
-        if scope_id is not None:
-            filters["scope_id"] = scope_id
+        if req.scope_type is not None:
+            filters["scope_type"] = self._enum_value(req.scope_type)
+        if req.scope_id is not None:
+            filters["scope_id"] = req.scope_id
         if req.category is not None:
             filters["category"] = self._enum_value(req.category)
         return filters
 
     @staticmethod
-    def _enum_value(value: ScopeType | str) -> str:
+    def _enum_value(value: str) -> str:
         return value.value if hasattr(value, "value") else str(value)

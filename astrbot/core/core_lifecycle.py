@@ -203,6 +203,7 @@ class AstrBotCoreLifecycle:
         )
         self.memory_service = get_memory_service()
         self.memory_service.bind_provider_manager(self.provider_manager)
+        await self.memory_service.initialize()
         self.memory_postprocessor = register_memory_postprocessor(self.memory_service)
 
         # 初始化插件管理器

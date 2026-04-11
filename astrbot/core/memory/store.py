@@ -650,6 +650,51 @@ class MemoryStore:
             entity = result.scalar_one_or_none()
             return self._to_identity_binding(entity) if entity else None
 
+    async def list_all_identity_mappings(self) -> list[MemoryIdentityBinding]:
+        async with self.get_db() as session:
+            stmt = select(MemoryIdentityMapping).order_by(
+                MemoryIdentityMapping.platform_id,
+                MemoryIdentityMapping.sender_user_id,
+                MemoryIdentityMapping.platform_user_key,
+            )
+            result = await session.execute(stmt)
+            return [self._to_identity_binding(item) for item in result.scalars().all()]
+
+    async def sync_identity_mappings(
+        self,
+        bindings: list[MemoryIdentityBinding],
+    ) -> int:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(select(MemoryIdentityMapping))
+                existing_entities = {
+                    entity.platform_user_key: entity for entity in result.scalars().all()
+                }
+                target_keys = {binding.platform_user_key for binding in bindings}
+
+                for platform_user_key, entity in existing_entities.items():
+                    if platform_user_key in target_keys:
+                        continue
+                    await session.delete(entity)
+
+                for binding in bindings:
+                    entity = existing_entities.get(binding.platform_user_key)
+                    if entity is None:
+                        entity = MemoryIdentityMapping(
+                            mapping_id=binding.mapping_id,
+                            created_at=binding.created_at or datetime.now(UTC),
+                        )
+                        session.add(entity)
+                    entity.platform_id = binding.platform_id
+                    entity.sender_user_id = binding.sender_user_id
+                    entity.platform_user_key = binding.platform_user_key
+                    entity.canonical_user_id = binding.canonical_user_id
+                    entity.nickname_hint = binding.nickname_hint
+                    if binding.updated_at is not None:
+                        entity.updated_at = binding.updated_at
+
+                return len(bindings)
+
     async def delete_identity_mapping(self, platform_user_key: str) -> bool:
         async with self.get_db() as session:
             async with session.begin():

@@ -51,7 +51,7 @@ class MemoryUpdateRequest:
     umo: str
     conversation_id: str | None
     platform_id: str | None
-    platform_user_key: str
+    platform_user_key: str | None
     canonical_user_id: str | None
     session_id: str | None
     provider_request: JsonDict | None
@@ -67,7 +67,7 @@ class TurnRecord:
     umo: str
     conversation_id: str | None
     platform_id: str | None
-    platform_user_key: str
+    platform_user_key: str | None
     canonical_user_id: str | None
     session_id: str | None
     user_message: MessagePayload
@@ -261,10 +261,10 @@ class PersonaEvolutionLog:
 @dataclass(slots=True)
 class MemoryIdentity:
     umo: str
-    platform_id: str
-    sender_user_id: str
+    platform_id: str | None
+    sender_user_id: str | None
     sender_nickname: str | None
-    platform_user_key: str
+    platform_user_key: str | None
     canonical_user_id: str | None = None
 
 

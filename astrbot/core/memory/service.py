@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,8 @@ class MemoryService:
         self.long_term_service = long_term_service
         self.manual_long_term_service = manual_long_term_service
         self.document_search_service = document_search_service
+        self._initialized = False
+        self._initialize_lock = asyncio.Lock()
 
     def bind_provider_manager(self, provider_manager) -> None:
         self.analyzer_manager.bind_provider_manager(provider_manager)
@@ -68,7 +71,22 @@ class MemoryService:
         if self.manual_long_term_service is not None:
             self.manual_long_term_service.bind_provider_manager(provider_manager)
 
+    async def initialize(self) -> None:
+        if self._initialized:
+            return
+        async with self._initialize_lock:
+            if self._initialized:
+                return
+            if self.identity_mapping_service is not None:
+                count = await self.identity_mapping_service.reload_from_yaml()
+                logger.info(
+                    "memory identity mappings synchronized: count=%s",
+                    count,
+                )
+            self._initialized = True
+
     async def update_from_postprocess(self, req: MemoryUpdateRequest) -> TurnRecord:
+        await self.initialize()
         logger.info(
             "memory update started: umo=%s conversation_id=%s source_refs=%s",
             req.umo,
@@ -140,6 +158,7 @@ class MemoryService:
         conversation_id: str | None,
         query: str | None = None,
     ) -> MemorySnapshot:
+        await self.initialize()
         logger.info(
             "memory snapshot requested: umo=%s conversation_id=%s query_present=%s",
             umo,
@@ -153,6 +172,7 @@ class MemoryService:
         canonical_user_id: str,
         conversation_id: str | None,
     ) -> tuple[SessionInsight | None, list[Experience]]:
+        await self.initialize()
         if self.consolidation_service is None:
             logger.info(
                 "memory consolidation skipped: service unavailable canonical_user_id=%s conversation_id=%s",
@@ -213,6 +233,7 @@ class MemoryService:
         canonical_user_id: str,
         nickname_hint: str | None = None,
     ) -> MemoryIdentityBinding:
+        await self.initialize()
         if self.identity_mapping_service is None:
             raise RuntimeError("memory identity mapping service is unavailable")
         return await self.identity_mapping_service.bind_platform_user(
@@ -223,6 +244,7 @@ class MemoryService:
         )
 
     async def unbind_platform_user(self, platform_user_key: str) -> bool:
+        await self.initialize()
         if self.identity_mapping_service is None:
             raise RuntimeError("memory identity mapping service is unavailable")
         return await self.identity_mapping_service.unbind_platform_user(
@@ -233,16 +255,26 @@ class MemoryService:
         self,
         canonical_user_id: str,
     ) -> list[MemoryIdentityBinding]:
+        await self.initialize()
         if self.identity_mapping_service is None:
             raise RuntimeError("memory identity mapping service is unavailable")
         return await self.identity_mapping_service.list_bindings_for_canonical_user(
             canonical_user_id
         )
 
+    async def reload_identity_mappings(self) -> int:
+        if self.identity_mapping_service is None:
+            raise RuntimeError("memory identity mapping service is unavailable")
+        count = await self.identity_mapping_service.reload_from_yaml()
+        self._initialized = True
+        logger.info("memory identity mappings reloaded: count=%s", count)
+        return count
+
     async def search_long_term_memories(
         self,
         req: DocumentSearchRequest,
     ) -> list[DocumentSearchResult]:
+        await self.initialize()
         if self.document_search_service is None:
             raise RuntimeError("memory document search service is unavailable")
         return await self.document_search_service.search_long_term_memories(req)
@@ -251,6 +283,7 @@ class MemoryService:
         self,
         doc_path: Path | str,
     ) -> LongTermMemoryIndex:
+        await self.initialize()
         if self.manual_long_term_service is None:
             raise RuntimeError("memory manual long-term service is unavailable")
         return await self.manual_long_term_service.upsert_memory_from_document(doc_path)
@@ -265,7 +298,7 @@ def get_memory_service() -> MemoryService:
         config = get_memory_config()
         store = MemoryStore(config=config)
         analyzer_manager = MemoryAnalyzerManager(config.analysis)
-        identity_mapping_service = MemoryIdentityMappingService(store)
+        identity_mapping_service = MemoryIdentityMappingService(store, config=config)
         identity_resolver = MemoryIdentityResolver(identity_mapping_service)
         history_source = RecentConversationSource(
             store,

@@ -28,7 +28,7 @@ class MemoryTurnRecord(BaseMemoryModel, table=True):
     umo: str = Field(nullable=False, index=True, max_length=255)
     conversation_id: str | None = Field(default=None, index=True, max_length=64)
     platform_id: str | None = Field(default=None, index=True, max_length=64)
-    platform_user_key: str = Field(nullable=False, index=True, max_length=255)
+    platform_user_key: str | None = Field(default=None, index=True, max_length=255)
     canonical_user_id: str | None = Field(default=None, index=True, max_length=255)
     session_id: str | None = Field(default=None, index=True, max_length=128)
     user_message: dict = Field(default_factory=dict, sa_type=JSON)

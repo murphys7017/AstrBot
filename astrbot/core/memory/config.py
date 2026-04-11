@@ -213,6 +213,9 @@ DEFAULT_MEMORY_ANALYSIS_STAGES: dict[str, list[str]] = {
     "long_term_promote": ["long_term_promote_v1"],
     "long_term_compose": ["long_term_compose_v1"],
 }
+DEFAULT_IDENTITY_MAPPINGS_PAYLOAD: dict[str, list[dict[str, str]]] = {
+    "bindings": []
+}
 
 
 @dataclass(slots=True)
@@ -220,6 +223,14 @@ class MemoryStorageConfig:
     sqlite_path: Path
     docs_root: Path
     projections_root: Path
+
+
+@dataclass(slots=True)
+class MemoryIdentityConfig:
+    enabled: bool = True
+    mappings_path: Path = field(
+        default_factory=lambda: resolve_memory_path("data/memory/identity_mappings.yaml")
+    )
 
 
 @dataclass(slots=True)
@@ -314,6 +325,7 @@ class MemoryConfig:
             projections_root=resolve_memory_path("data/memory/projections"),
         )
     )
+    identity: MemoryIdentityConfig = field(default_factory=MemoryIdentityConfig)
     short_term: MemoryShortTermConfig = field(default_factory=MemoryShortTermConfig)
     consolidation: MemoryConsolidationConfig = field(
         default_factory=MemoryConsolidationConfig
@@ -333,6 +345,10 @@ class MemoryConfig:
 
 def get_default_memory_config_path() -> Path:
     return resolve_memory_path("data/memory/config.yaml")
+
+
+def get_default_identity_mappings_path() -> Path:
+    return resolve_memory_path("data/memory/identity_mappings.yaml")
 
 
 def _build_default_analysis_analyzers() -> dict[str, MemoryAnalyzerConfig]:
@@ -383,6 +399,12 @@ def build_default_memory_config_payload() -> dict:
     default_config = _build_default_memory_config()
     return {
         "enabled": default_config.enabled,
+        "identity": {
+            "enabled": default_config.identity.enabled,
+            "mappings_path": _serialize_path_for_payload(
+                default_config.identity.mappings_path
+            ),
+        },
         "storage": {
             "sqlite_path": _serialize_path_for_payload(
                 default_config.storage.sqlite_path
@@ -477,6 +499,28 @@ def ensure_memory_config_file(
         encoding="utf-8",
     )
     return config_path
+
+
+def ensure_identity_mappings_file(
+    path: Path | None = None,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    mappings_path = path or get_default_identity_mappings_path()
+    mappings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if mappings_path.exists() and not overwrite:
+        return mappings_path
+
+    mappings_path.write_text(
+        yaml.safe_dump(
+            DEFAULT_IDENTITY_MAPPINGS_PAYLOAD,
+            allow_unicode=False,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return mappings_path
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -588,9 +632,19 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
     persona_payload = payload.get("persona", {}) if isinstance(payload, dict) else {}
     jobs_payload = payload.get("jobs", {}) if isinstance(payload, dict) else {}
     analysis_payload = payload.get("analysis", {}) if isinstance(payload, dict) else {}
+    identity_payload = payload.get("identity", {}) if isinstance(payload, dict) else {}
 
     config = MemoryConfig(
         enabled=_as_bool(payload.get("enabled"), True),
+        identity=MemoryIdentityConfig(
+            enabled=_as_bool(identity_payload.get("enabled"), True),
+            mappings_path=resolve_memory_path(
+                _as_str(
+                    identity_payload.get("mappings_path"),
+                    "data/memory/identity_mappings.yaml",
+                )
+            ),
+        ),
         storage=MemoryStorageConfig(
             sqlite_path=resolve_memory_path(
                 _as_str(storage_payload.get("sqlite_path"), "data/memory/memory.db")
@@ -695,11 +749,13 @@ def ensure_memory_runtime_dirs(config: MemoryConfig) -> None:
     config.storage.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     config.storage.docs_root.mkdir(parents=True, exist_ok=True)
     config.storage.projections_root.mkdir(parents=True, exist_ok=True)
+    config.identity.mappings_path.parent.mkdir(parents=True, exist_ok=True)
     if config.long_term.docs_dir is not None:
         config.long_term.docs_dir.mkdir(parents=True, exist_ok=True)
     config.vector_index.root_dir.mkdir(parents=True, exist_ok=True)
     config.analysis.prompts_root.mkdir(parents=True, exist_ok=True)
     ensure_default_memory_prompt_files(config.analysis.prompts_root)
+    ensure_identity_mappings_file(config.identity.mappings_path)
 
 
 def ensure_default_memory_prompt_files(

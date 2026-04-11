@@ -1149,8 +1149,29 @@ async def test_memory_service_snapshot_keeps_query_as_debug_meta(temp_dir: Path)
 
 @pytest.mark.asyncio
 async def test_memory_identity_resolver_uses_event_and_mapping(temp_dir: Path):
-    store = MemoryStore(db_path=temp_dir / "memory.db")
-    mapping_service = MemoryIdentityMappingService(store)
+    config_path = temp_dir / "memory-config.yaml"
+    mappings_path = (temp_dir / "identity_mappings.yaml").as_posix()
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "identity:",
+                "  enabled: true",
+                f'  mappings_path: "{mappings_path}"',
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
     resolver = MemoryIdentityResolver(mapping_service)
     event = MagicMock()
     event.unified_msg_origin = TEST_UMO
