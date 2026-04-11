@@ -213,7 +213,9 @@ class MemoryIdentityMappingService:
     def _required_string(value: Any, field_name: str) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
-        raise ValueError(f"memory identity mapping missing required field `{field_name}`")
+        raise ValueError(
+            f"memory identity mapping missing required field `{field_name}`"
+        )
 
     @staticmethod
     def _optional_string(value: Any) -> str | None:
@@ -298,7 +300,9 @@ class MemoryIdentityResolver:
         return normalized or None
 
     def _resolve_sender_nickname(self, event: AstrMessageEvent) -> str | None:
-        direct_name = self._normalize_optional_string(self._safe_call(event, "get_sender_name"))
+        direct_name = self._normalize_optional_string(
+            self._safe_call(event, "get_sender_name")
+        )
         if direct_name:
             return direct_name
 

@@ -47,6 +47,7 @@ from astrbot.core.memory.types import (
     LongTermMemoryDocument,
     LongTermMemoryIndex,
     LongTermMemoryStatus,
+    LongTermVectorSyncStatus,
     MemoryIdentity,
     MemoryUpdateRequest,
     SessionInsight,
@@ -179,6 +180,10 @@ def _long_term_memory_index(
     source_refs: list[str],
     first_event_at: datetime | None = None,
     last_event_at: datetime | None = None,
+    vector_sync_status: LongTermVectorSyncStatus
+    | str = LongTermVectorSyncStatus.PENDING,
+    vector_synced_at: datetime | None = None,
+    vector_sync_error: str | None = None,
     created_at: datetime,
     updated_at: datetime,
     canonical_user_id: str = TEST_CANONICAL_USER_ID,
@@ -201,6 +206,9 @@ def _long_term_memory_index(
         source_refs=source_refs,
         first_event_at=first_event_at,
         last_event_at=last_event_at,
+        vector_sync_status=vector_sync_status,
+        vector_synced_at=vector_synced_at,
+        vector_sync_error=vector_sync_error,
         created_at=created_at,
         updated_at=updated_at,
     )
@@ -984,6 +992,15 @@ class FailingManualVectorIndex:
         raise RuntimeError("manual vector refresh failed")
 
 
+class FailingPromotionVectorIndex:
+    async def ensure_ready(self) -> None:
+        return None
+
+    async def upsert_long_term_memory(self, memory_id: str) -> None:
+        del memory_id
+        raise RuntimeError("promotion vector refresh failed")
+
+
 class FailingDocumentLoader(DocumentLoader):
     def prepare_long_term_document_write(
         self,
@@ -1491,7 +1508,6 @@ async def test_memory_service_update_triggers_long_term_promotion_after_consolid
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=2,
         ),
@@ -1675,7 +1691,6 @@ async def test_long_term_service_creates_memory_document_links_and_cursor(
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=2,
         ),
@@ -1778,7 +1793,6 @@ async def test_long_term_service_rolls_back_markdown_when_db_commit_fails(
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=1,
         ),
@@ -1909,7 +1923,6 @@ async def test_long_term_service_updates_existing_memory(temp_dir: Path):
             analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
             long_term_config=MemoryLongTermConfig(
                 enabled=True,
-                docs_dir=config.storage.docs_root,
                 min_experience_importance=0.7,
                 min_pending_experiences=1,
             ),
@@ -1961,7 +1974,6 @@ async def test_long_term_service_stops_before_db_when_markdown_prepare_fails(
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=1,
         ),
@@ -2038,7 +2050,6 @@ async def test_long_term_service_raises_when_promote_does_not_cover_all_candidat
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=2,
         ),
@@ -2118,7 +2129,6 @@ async def test_long_term_service_raises_when_promote_duplicates_experience_cover
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=2,
         ),
@@ -2246,7 +2256,6 @@ async def test_long_term_service_raises_on_duplicate_update_target_in_same_batch
             analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
             long_term_config=MemoryLongTermConfig(
                 enabled=True,
-                docs_dir=config.storage.docs_root,
                 min_experience_importance=0.7,
                 min_pending_experiences=2,
             ),
@@ -2288,7 +2297,6 @@ async def test_long_term_service_raises_on_invalid_analyzer_payload(temp_dir: Pa
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=1,
         ),
@@ -2319,6 +2327,70 @@ async def test_long_term_service_raises_on_invalid_analyzer_payload(temp_dir: Pa
 
 
 @pytest.mark.asyncio
+async def test_long_term_service_marks_vector_dirty_when_refresh_fails(temp_dir: Path):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    service = LongTermMemoryService(
+        store,
+        analyzer_manager=StubLongTermAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        long_term_config=MemoryLongTermConfig(
+            enabled=True,
+            min_experience_importance=0.7,
+            min_pending_experiences=1,
+        ),
+        vector_index=FailingPromotionVectorIndex(),  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_experience(
+            _experience(
+                experience_id="exp-vector-dirty",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="Promotion vector failure",
+                detail_summary="The vector refresh fails after persistence.",
+                importance=0.9,
+                confidence=0.95,
+                source_refs=["turn:1"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        persisted = await service.run_promotion(TEST_CANONICAL_USER_ID)
+        loaded = await store.get_long_term_memory_index(persisted[0].memory_id)
+    finally:
+        await store.close()
+
+    assert len(persisted) == 1
+    assert loaded is not None
+    assert loaded.vector_sync_status == LongTermVectorSyncStatus.DIRTY
+    assert loaded.vector_sync_error == "promotion vector refresh failed"
+    assert Path(loaded.doc_path).exists()
+
+
+@pytest.mark.asyncio
 async def test_long_term_service_raises_on_out_of_range_compose_score(temp_dir: Path):
     config_path = temp_dir / "memory-config.yaml"
     sqlite_path = (temp_dir / "memory.db").as_posix()
@@ -2344,7 +2416,6 @@ async def test_long_term_service_raises_on_out_of_range_compose_score(temp_dir: 
         analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
         long_term_config=MemoryLongTermConfig(
             enabled=True,
-            docs_dir=config.storage.docs_root,
             min_experience_importance=0.7,
             min_pending_experiences=1,
         ),
@@ -2559,6 +2630,8 @@ async def test_long_term_manual_service_imports_new_document_and_normalizes_path
     assert loaded.doc_path == str(expected_path)
     assert expected_path.exists()
     assert source_path.exists()
+    assert loaded.vector_sync_status == LongTermVectorSyncStatus.READY
+    assert loaded.vector_sync_error is None
     assert vector_index.calls == ["manual-1"]
 
 
@@ -2864,14 +2937,16 @@ async def test_long_term_manual_service_raises_when_vector_refresh_fails(
             ),
             doc_path=source_path,
         )
-        with pytest.raises(RuntimeError, match="manual vector refresh failed"):
-            await service.upsert_memory_from_document(source_path)
+        persisted = await service.upsert_memory_from_document(source_path)
         loaded = await store.get_long_term_memory_index("manual-3")
     finally:
         await store.close()
 
+    assert persisted.memory_id == "manual-3"
     assert loaded is not None
     assert Path(loaded.doc_path).exists()
+    assert loaded.vector_sync_status == LongTermVectorSyncStatus.DIRTY
+    assert loaded.vector_sync_error == "manual vector refresh failed"
 
 
 @pytest.mark.asyncio
@@ -2912,6 +2987,126 @@ async def test_memory_service_import_long_term_memory_document_delegates_to_manu
         await store.close()
 
     assert result.memory_id == "manual-service-1"
+
+
+@pytest.mark.asyncio
+async def test_memory_service_refresh_long_term_vector_index_marks_ready(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(
+            store, RecentConversationSource(store, recent_turns_window=8)
+        ),
+        MemorySnapshotBuilder(store),
+        long_term_service=MagicMock(vector_index=StubManualVectorIndex()),
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="refresh-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                title="Refresh candidate",
+                summary="Needs vector repair.",
+                status="active",
+                doc_path=str(temp_dir / "refresh-1.md"),
+                importance=0.8,
+                confidence=0.9,
+                tags=[],
+                source_refs=[],
+                first_event_at=now,
+                last_event_at=now,
+                vector_sync_status=LongTermVectorSyncStatus.DIRTY,
+                vector_sync_error="failed before",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        refreshed = await memory_service.refresh_long_term_vector_index("refresh-1")
+    finally:
+        await store.close()
+
+    assert refreshed.vector_sync_status == LongTermVectorSyncStatus.READY
+    assert refreshed.vector_sync_error is None
+
+
+@pytest.mark.asyncio
+async def test_memory_service_refresh_dirty_long_term_vector_indexes_only_processes_dirty(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    vector_index = StubManualVectorIndex()
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(
+            store, RecentConversationSource(store, recent_turns_window=8)
+        ),
+        MemorySnapshotBuilder(store),
+        long_term_service=MagicMock(vector_index=vector_index),
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for memory_id, status in (
+            ("dirty-1", LongTermVectorSyncStatus.DIRTY),
+            ("dirty-2", LongTermVectorSyncStatus.DIRTY),
+            ("ready-1", LongTermVectorSyncStatus.READY),
+        ):
+            await store.upsert_long_term_memory_index(
+                _long_term_memory_index(
+                    memory_id=memory_id,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    title=memory_id,
+                    summary=memory_id,
+                    status="active",
+                    doc_path=str(temp_dir / f"{memory_id}.md"),
+                    importance=0.8,
+                    confidence=0.9,
+                    tags=[],
+                    source_refs=[],
+                    first_event_at=now,
+                    last_event_at=now,
+                    vector_sync_status=status,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        refreshed = await memory_service.refresh_dirty_long_term_vector_indexes(
+            limit=10
+        )
+    finally:
+        await store.close()
+
+    assert [item.memory_id for item in refreshed] == ["dirty-1", "dirty-2"]
+    assert vector_index.calls == ["dirty-1", "dirty-2"]
 
 
 @pytest.mark.asyncio

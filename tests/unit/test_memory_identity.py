@@ -151,7 +151,9 @@ async def test_identity_resolver_returns_partial_identity_when_sender_missing(
 ):
     config, _ = _write_memory_config(temp_dir)
     store = MemoryStore(config=config)
-    resolver = MemoryIdentityResolver(MemoryIdentityMappingService(store, config=config))
+    resolver = MemoryIdentityResolver(
+        MemoryIdentityMappingService(store, config=config)
+    )
     event = MagicMock()
     event.unified_msg_origin = TEST_UMO
     event.get_platform_id.return_value = TEST_PLATFORM_ID

@@ -13,6 +13,7 @@ from .types import (
     LongTermMemoryDocument,
     LongTermMemoryIndex,
     LongTermMemoryStatus,
+    LongTermVectorSyncStatus,
     ScopeType,
 )
 from .vector_index import MemoryVectorIndex
@@ -110,6 +111,9 @@ class LongTermMemoryManualService:
             source_refs=list(normalized_doc.source_refs),
             first_event_at=normalized_doc.first_event_at,
             last_event_at=normalized_doc.last_event_at,
+            vector_sync_status=LongTermVectorSyncStatus.PENDING,
+            vector_synced_at=None,
+            vector_sync_error=None,
             created_at=created_at,
             updated_at=updated_at,
         )
@@ -117,21 +121,16 @@ class LongTermMemoryManualService:
             normalized_doc,
             doc_path=normalized_path,
         )
-        write_applied = False
         try:
-            self.document_loader.apply_prepared_write(prepared_write)
-            write_applied = True
             persisted = await self.store.upsert_long_term_memory_index(index)
+            self.document_loader.apply_prepared_write(prepared_write)
         except Exception:
-            if write_applied:
-                self.document_loader.rollback_prepared_write(prepared_write)
-            else:
-                self.document_loader.cleanup_prepared_write(prepared_write)
+            self.document_loader.cleanup_prepared_write(prepared_write)
             raise
         finally:
             self.document_loader.cleanup_prepared_write(prepared_write)
 
-        await self._refresh_vector_index(persisted.memory_id)
+        persisted = await self._refresh_vector_index(persisted.memory_id)
         logger.info(
             "memory long-term manual import finished: memory_id=%s path=%s",
             persisted.memory_id,
@@ -249,10 +248,35 @@ class LongTermMemoryManualService:
             return datetime.fromisoformat(value)
         raise ValueError("long-term manual import datetime field must be ISO string")
 
-    async def _refresh_vector_index(self, memory_id: str) -> None:
+    async def _refresh_vector_index(self, memory_id: str) -> LongTermMemoryIndex:
         if self.vector_index is None or not self.store.config.vector_index.enabled:
-            return
-        await self.vector_index.upsert_long_term_memory(memory_id)
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.READY,
+                synced_at=None,
+                error=None,
+            )
+        try:
+            await self.vector_index.upsert_long_term_memory(memory_id)
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.READY,
+                synced_at=datetime.now(UTC),
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "memory long-term manual vector refresh failed: memory_id=%s error=%s",
+                memory_id,
+                exc,
+                exc_info=True,
+            )
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.DIRTY,
+                synced_at=None,
+                error=str(exc)[:500],
+            )
 
     async def _ensure_vector_index_ready(self) -> None:
         if self.vector_index is None or not self.store.config.vector_index.enabled:

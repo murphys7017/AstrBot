@@ -33,6 +33,12 @@ class LongTermMemoryStatus(str, Enum):
     CONTRADICTED = "contradicted"
 
 
+class LongTermVectorSyncStatus(str, Enum):
+    PENDING = "pending"
+    READY = "ready"
+    DIRTY = "dirty"
+
+
 class LongTermMemoryLinkRelation(str, Enum):
     SEED = "seed"
     SUPPORT = "support"
@@ -149,6 +155,11 @@ class LongTermMemoryIndex:
     source_refs: list[SourceRef] = field(default_factory=list)
     first_event_at: datetime | None = None
     last_event_at: datetime | None = None
+    vector_sync_status: LongTermVectorSyncStatus | str = (
+        LongTermVectorSyncStatus.PENDING
+    )
+    vector_synced_at: datetime | None = None
+    vector_sync_error: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

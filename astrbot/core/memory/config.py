@@ -213,9 +213,7 @@ DEFAULT_MEMORY_ANALYSIS_STAGES: dict[str, list[str]] = {
     "long_term_promote": ["long_term_promote_v1"],
     "long_term_compose": ["long_term_compose_v1"],
 }
-DEFAULT_IDENTITY_MAPPINGS_PAYLOAD: dict[str, list[dict[str, str]]] = {
-    "bindings": []
-}
+DEFAULT_IDENTITY_MAPPINGS_PAYLOAD: dict[str, list[dict[str, str]]] = {"bindings": []}
 
 
 @dataclass(slots=True)
@@ -229,7 +227,9 @@ class MemoryStorageConfig:
 class MemoryIdentityConfig:
     enabled: bool = True
     mappings_path: Path = field(
-        default_factory=lambda: resolve_memory_path("data/memory/identity_mappings.yaml")
+        default_factory=lambda: resolve_memory_path(
+            "data/memory/identity_mappings.yaml"
+        )
     )
 
 
@@ -249,7 +249,6 @@ class MemoryConsolidationConfig:
 @dataclass(slots=True)
 class MemoryLongTermConfig:
     enabled: bool = True
-    docs_dir: Path | None = None
     min_experience_importance: float = 0.7
     min_pending_experiences: int = 3
 
@@ -330,11 +329,7 @@ class MemoryConfig:
     consolidation: MemoryConsolidationConfig = field(
         default_factory=MemoryConsolidationConfig
     )
-    long_term: MemoryLongTermConfig = field(
-        default_factory=lambda: MemoryLongTermConfig(
-            docs_dir=resolve_memory_path("data/memory/long_term")
-        )
-    )
+    long_term: MemoryLongTermConfig = field(default_factory=MemoryLongTermConfig)
     vector_index: MemoryVectorIndexConfig = field(
         default_factory=MemoryVectorIndexConfig
     )
@@ -425,7 +420,6 @@ def build_default_memory_config_payload() -> dict:
         },
         "long_term": {
             "enabled": default_config.long_term.enabled,
-            "docs_dir": _serialize_path_for_payload(default_config.long_term.docs_dir),
             "min_experience_importance": default_config.long_term.min_experience_importance,
             "min_pending_experiences": default_config.long_term.min_pending_experiences,
         },
@@ -679,9 +673,6 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
         ),
         long_term=MemoryLongTermConfig(
             enabled=_as_bool(long_term_payload.get("enabled"), True),
-            docs_dir=resolve_memory_path(
-                _as_str(long_term_payload.get("docs_dir"), "data/memory/long_term")
-            ),
             min_experience_importance=_as_float(
                 long_term_payload.get("min_experience_importance"),
                 0.7,
@@ -750,8 +741,6 @@ def ensure_memory_runtime_dirs(config: MemoryConfig) -> None:
     config.storage.docs_root.mkdir(parents=True, exist_ok=True)
     config.storage.projections_root.mkdir(parents=True, exist_ok=True)
     config.identity.mappings_path.parent.mkdir(parents=True, exist_ok=True)
-    if config.long_term.docs_dir is not None:
-        config.long_term.docs_dir.mkdir(parents=True, exist_ok=True)
     config.vector_index.root_dir.mkdir(parents=True, exist_ok=True)
     config.analysis.prompts_root.mkdir(parents=True, exist_ok=True)
     ensure_default_memory_prompt_files(config.analysis.prompts_root)

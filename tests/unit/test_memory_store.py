@@ -12,6 +12,7 @@ from astrbot.core.memory import (
     LongTermMemoryLinkRelation,
     LongTermMemoryStatus,
     LongTermPromotionCursor,
+    LongTermVectorSyncStatus,
     MemoryStore,
     PersonaEvolutionLog,
     PersonaState,
@@ -146,6 +147,10 @@ def _long_term_memory_index(
     source_refs: list[str],
     first_event_at: datetime | None,
     last_event_at: datetime | None,
+    vector_sync_status: LongTermVectorSyncStatus
+    | str = LongTermVectorSyncStatus.PENDING,
+    vector_synced_at: datetime | None = None,
+    vector_sync_error: str | None = None,
     created_at: datetime,
     updated_at: datetime,
 ) -> LongTermMemoryIndex:
@@ -166,6 +171,9 @@ def _long_term_memory_index(
         source_refs=source_refs,
         first_event_at=first_event_at,
         last_event_at=last_event_at,
+        vector_sync_status=vector_sync_status,
+        vector_synced_at=vector_synced_at,
+        vector_sync_error=vector_sync_error,
         created_at=created_at,
         updated_at=updated_at,
     )
@@ -437,6 +445,7 @@ async def test_memory_store_round_trip_for_mid_and_long_term_objects(temp_dir: P
         assert saved_memory.memory_id == "ltm-1"
         assert saved_memory.title == "Infrastructure-first preference"
         assert saved_memory.status == LongTermMemoryStatus.ACTIVE.value
+        assert saved_memory.vector_sync_status == LongTermVectorSyncStatus.PENDING.value
         assert long_term_memories[0].tags == ["architecture", "planning"]
         assert loaded_memory is not None
         assert loaded_memory.category == "user_preference"
@@ -775,3 +784,57 @@ async def test_memory_store_experience_and_insight_ordering_is_stable(temp_dir: 
     assert latest_insight.insight_id == "insight-b"
     assert [item.experience_id for item in recent] == ["exp-b", "exp-a"]
     assert [item.experience_id for item in scoped] == ["exp-a", "exp-b"]
+
+
+@pytest.mark.asyncio
+async def test_memory_store_updates_and_lists_vector_sync_state(temp_dir: Path):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    now = datetime.now(UTC)
+
+    try:
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="ltm-dirty",
+                scope_type=ScopeType.USER,
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                title="Dirty memory",
+                summary="Needs vector refresh.",
+                status=LongTermMemoryStatus.ACTIVE,
+                doc_path="user/ltm-dirty.md",
+                importance=0.8,
+                confidence=0.9,
+                tags=["dirty"],
+                source_refs=["exp:1"],
+                first_event_at=now,
+                last_event_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        dirty = await store.update_long_term_vector_sync_state(
+            "ltm-dirty",
+            status=LongTermVectorSyncStatus.DIRTY,
+            synced_at=None,
+            error="refresh failed",
+        )
+        listed_dirty = await store.list_long_term_memories_by_vector_status(
+            LongTermVectorSyncStatus.DIRTY,
+            limit=10,
+        )
+        ready = await store.update_long_term_vector_sync_state(
+            "ltm-dirty",
+            status=LongTermVectorSyncStatus.READY,
+            synced_at=now,
+            error=None,
+        )
+    finally:
+        await store.close()
+
+    assert dirty.vector_sync_status == LongTermVectorSyncStatus.DIRTY.value
+    assert dirty.vector_sync_error == "refresh failed"
+    assert [item.memory_id for item in listed_dirty] == ["ltm-dirty"]
+    assert ready.vector_sync_status == LongTermVectorSyncStatus.READY.value
+    assert ready.vector_synced_at is not None
+    assert ready.vector_synced_at.isoformat() == now.replace(tzinfo=None).isoformat()
+    assert ready.vector_sync_error is None

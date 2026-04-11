@@ -25,6 +25,7 @@ from .types import (
     LongTermMemoryLinkRelation,
     LongTermMemoryStatus,
     LongTermPromotionCursor,
+    LongTermVectorSyncStatus,
     ScopeType,
 )
 from .vector_index import MemoryVectorIndex
@@ -291,6 +292,9 @@ class LongTermMemoryService:
                     source_refs=source_refs,
                     first_event_at=first_event_at,
                     last_event_at=last_event_at,
+                    vector_sync_status=LongTermVectorSyncStatus.PENDING,
+                    vector_synced_at=None,
+                    vector_sync_error=None,
                     created_at=created_at,
                     updated_at=now,
                 )
@@ -325,7 +329,6 @@ class LongTermMemoryService:
         )
         prepared_documents = self._prepare_documents(documents_to_refresh)
         try:
-            self._apply_prepared_documents(prepared_documents)
             (
                 persisted_indexes,
                 _,
@@ -336,9 +339,10 @@ class LongTermMemoryService:
                 cursor_to_save,
             )
         except Exception:
-            self._rollback_prepared_documents(prepared_documents)
+            self._cleanup_prepared_documents(prepared_documents)
             raise
-        await self._refresh_vector_indexes(persisted_indexes)
+        self._apply_prepared_documents(prepared_documents)
+        persisted_indexes = await self._refresh_vector_indexes(persisted_indexes)
         logger.info(
             "memory long-term promotion finished: canonical_user_id=%s scope_type=%s scope_id=%s memories=%s links=%s refreshed_docs=%s",
             canonical_user_id,
@@ -664,11 +668,47 @@ class LongTermMemoryService:
     async def _refresh_vector_indexes(
         self,
         indexes: list[LongTermMemoryIndex],
-    ) -> None:
+    ) -> list[LongTermMemoryIndex]:
+        refreshed: list[LongTermMemoryIndex] = []
         if self.vector_index is None or not self.store.config.vector_index.enabled:
-            return
+            for index in indexes:
+                refreshed.append(
+                    await self.store.update_long_term_vector_sync_state(
+                        index.memory_id,
+                        status=LongTermVectorSyncStatus.READY,
+                        synced_at=None,
+                        error=None,
+                    )
+                )
+            return refreshed
         for index in indexes:
-            await self.vector_index.upsert_long_term_memory(index.memory_id)
+            try:
+                await self.vector_index.upsert_long_term_memory(index.memory_id)
+                refreshed.append(
+                    await self.store.update_long_term_vector_sync_state(
+                        index.memory_id,
+                        status=LongTermVectorSyncStatus.READY,
+                        synced_at=datetime.now(UTC),
+                        error=None,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "memory long-term vector refresh failed: memory_id=%s canonical_user_id=%s error=%s",
+                    index.memory_id,
+                    index.canonical_user_id,
+                    exc,
+                    exc_info=True,
+                )
+                refreshed.append(
+                    await self.store.update_long_term_vector_sync_state(
+                        index.memory_id,
+                        status=LongTermVectorSyncStatus.DIRTY,
+                        synced_at=None,
+                        error=str(exc)[:500],
+                    )
+                )
+        return refreshed
 
     def _prepare_documents(
         self,
@@ -691,33 +731,20 @@ class LongTermMemoryService:
         self,
         prepared_documents: list[tuple[LongTermMemoryDocument, object]],
     ) -> None:
-        applied_documents: list[tuple[LongTermMemoryDocument, object]] = []
         try:
-            for document, prepared in prepared_documents:
+            for _, prepared in prepared_documents:
                 self.document_loader.apply_prepared_write(prepared)
-                applied_documents.append((document, prepared))
         except Exception:
-            for _, prepared in prepared_documents[len(applied_documents) :]:
-                self.document_loader.cleanup_prepared_write(prepared)
-            self._rollback_prepared_documents(applied_documents)
+            self._cleanup_prepared_documents(prepared_documents)
             raise
+        self._cleanup_prepared_documents(prepared_documents)
 
-    def _rollback_prepared_documents(
+    def _cleanup_prepared_documents(
         self,
         prepared_documents: list[tuple[LongTermMemoryDocument, object]],
     ) -> None:
-        rollback_errors: list[Exception] = []
-        for _, prepared in reversed(prepared_documents):
-            try:
-                self.document_loader.rollback_prepared_write(prepared)
-            except Exception as exc:  # noqa: BLE001
-                rollback_errors.append(exc)
-            finally:
-                self.document_loader.cleanup_prepared_write(prepared)
-        if rollback_errors:
-            raise RuntimeError(
-                "memory long-term document rollback failed"
-            ) from rollback_errors[0]
+        for _, prepared in prepared_documents:
+            self.document_loader.cleanup_prepared_write(prepared)
 
     async def _ensure_vector_index_ready(self) -> None:
         if self.vector_index is None or not self.store.config.vector_index.enabled:

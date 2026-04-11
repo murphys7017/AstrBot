@@ -177,6 +177,14 @@ class MemoryLongTermMemoryIndex(BaseMemoryModel, table=True):
     source_refs: list = Field(default_factory=list, sa_type=JSON)
     first_event_at: datetime | None = Field(default=None, index=True)
     last_event_at: datetime | None = Field(default=None, index=True)
+    vector_sync_status: str = Field(
+        nullable=False,
+        index=True,
+        max_length=32,
+        default="pending",
+    )
+    vector_synced_at: datetime | None = Field(default=None, index=True)
+    vector_sync_error: str | None = Field(default=None, sa_type=Text)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

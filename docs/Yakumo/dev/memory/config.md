@@ -35,7 +35,6 @@ consolidation:
 
 long_term:
   enabled: true
-  docs_dir: data/memory/long_term
   min_experience_importance: 0.7
 
 vector_index:
@@ -221,21 +220,7 @@ jobs:
 
 - `true`
 
-### 6.2 `long_term.docs_dir`
-
-类型：
-
-- `str`
-
-作用：
-
-- 长期记忆正文文档目录
-
-默认值：
-
-- `data/memory/long_term`
-
-### 6.3 `long_term.min_experience_importance`
+### 6.2 `long_term.min_experience_importance`
 
 类型：
 

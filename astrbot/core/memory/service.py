@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from .types import (
     DocumentSearchResult,
     Experience,
     LongTermMemoryIndex,
+    LongTermVectorSyncStatus,
     MemoryIdentityBinding,
     MemorySnapshot,
     MemoryUpdateRequest,
@@ -287,6 +289,72 @@ class MemoryService:
         if self.manual_long_term_service is None:
             raise RuntimeError("memory manual long-term service is unavailable")
         return await self.manual_long_term_service.upsert_memory_from_document(doc_path)
+
+    async def refresh_long_term_vector_index(
+        self,
+        memory_id: str,
+    ) -> LongTermMemoryIndex:
+        await self.initialize()
+        memory = await self.store.get_long_term_memory_index(memory_id)
+        if memory is None:
+            raise RuntimeError(f"long-term memory `{memory_id}` was not found")
+        vector_index = self._get_vector_index()
+        if vector_index is None or not self.store.config.vector_index.enabled:
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.READY,
+                synced_at=None,
+                error=None,
+            )
+        await vector_index.ensure_ready()
+        try:
+            await vector_index.upsert_long_term_memory(memory_id)
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.READY,
+                synced_at=datetime.now(UTC),
+                error=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "memory long-term vector refresh failed: memory_id=%s error=%s",
+                memory_id,
+                exc,
+                exc_info=True,
+            )
+            return await self.store.update_long_term_vector_sync_state(
+                memory_id,
+                status=LongTermVectorSyncStatus.DIRTY,
+                synced_at=None,
+                error=str(exc)[:500],
+            )
+
+    async def refresh_dirty_long_term_vector_indexes(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[LongTermMemoryIndex]:
+        await self.initialize()
+        dirty_memories = await self.store.list_long_term_memories_by_vector_status(
+            LongTermVectorSyncStatus.DIRTY,
+            limit=limit,
+        )
+        refreshed: list[LongTermMemoryIndex] = []
+        for memory in dirty_memories:
+            refreshed.append(
+                await self.refresh_long_term_vector_index(memory.memory_id)
+            )
+        return refreshed
+
+    def _get_vector_index(self) -> MemoryVectorIndex | None:
+        if self.long_term_service is not None and self.long_term_service.vector_index:
+            return self.long_term_service.vector_index
+        if (
+            self.manual_long_term_service is not None
+            and self.manual_long_term_service.vector_index
+        ):
+            return self.manual_long_term_service.vector_index
+        return None
 
 
 _MEMORY_SERVICE: MemoryService | None = None

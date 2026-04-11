@@ -30,6 +30,7 @@ from .types import (
     LongTermMemoryIndex,
     LongTermMemoryLink,
     LongTermPromotionCursor,
+    LongTermVectorSyncStatus,
     MemoryIdentityBinding,
     PersonaEvolutionLog,
     PersonaState,
@@ -469,6 +470,59 @@ class MemoryStore:
                 self._to_long_term_memory_index(item) for item in result.scalars().all()
             ]
 
+    async def list_long_term_memories_by_vector_status(
+        self,
+        status: LongTermVectorSyncStatus | str,
+        *,
+        limit: int = 100,
+    ) -> list[LongTermMemoryIndex]:
+        async with self.get_db() as session:
+            stmt = (
+                select(MemoryLongTermMemoryIndex)
+                .where(
+                    col(MemoryLongTermMemoryIndex.vector_sync_status)
+                    == self._enum_value(status)
+                )
+                .order_by(
+                    MemoryLongTermMemoryIndex.updated_at,
+                    MemoryLongTermMemoryIndex.memory_id,
+                )
+            )
+            if limit > 0:
+                stmt = stmt.limit(limit)
+            result = await session.execute(stmt)
+            return [
+                self._to_long_term_memory_index(item) for item in result.scalars().all()
+            ]
+
+    async def update_long_term_vector_sync_state(
+        self,
+        memory_id: str,
+        *,
+        status: LongTermVectorSyncStatus | str,
+        synced_at: datetime | None = None,
+        error: str | None = None,
+    ) -> LongTermMemoryIndex:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryLongTermMemoryIndex).where(
+                        col(MemoryLongTermMemoryIndex.memory_id) == memory_id
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is None:
+                    raise RuntimeError(
+                        f"long-term memory `{memory_id}` was not found for vector sync update"
+                    )
+                entity.vector_sync_status = self._enum_value(status)
+                entity.vector_synced_at = synced_at
+                entity.vector_sync_error = error
+                entity.updated_at = datetime.now(UTC)
+                await session.flush()
+                await session.refresh(entity)
+                return self._to_long_term_memory_index(entity)
+
     async def save_long_term_memory_link(
         self,
         link: LongTermMemoryLink,
@@ -668,7 +722,8 @@ class MemoryStore:
             async with session.begin():
                 result = await session.execute(select(MemoryIdentityMapping))
                 existing_entities = {
-                    entity.platform_user_key: entity for entity in result.scalars().all()
+                    entity.platform_user_key: entity
+                    for entity in result.scalars().all()
                 }
                 target_keys = {binding.platform_user_key for binding in bindings}
 
@@ -966,6 +1021,9 @@ class MemoryStore:
         entity.source_refs = list(memory.source_refs)
         entity.first_event_at = memory.first_event_at
         entity.last_event_at = memory.last_event_at
+        entity.vector_sync_status = self._enum_value(memory.vector_sync_status)
+        entity.vector_synced_at = memory.vector_synced_at
+        entity.vector_sync_error = memory.vector_sync_error
         if memory.updated_at is not None:
             entity.updated_at = memory.updated_at
 
@@ -1146,6 +1204,9 @@ class MemoryStore:
             source_refs=list(entity.source_refs or []),
             first_event_at=entity.first_event_at,
             last_event_at=entity.last_event_at,
+            vector_sync_status=entity.vector_sync_status,
+            vector_synced_at=entity.vector_synced_at,
+            vector_sync_error=entity.vector_sync_error,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
         )
