@@ -68,7 +68,7 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.analysis.prompts_root.exists()
     for prompt_name in DEFAULT_MEMORY_ANALYZER_PROMPTS:
         assert (config.analysis.prompts_root / prompt_name).exists()
-    assert config.vector_index.enabled is False
+    assert config.vector_index.enabled is True
     assert (
         config.analysis.analyzers["topic_v1"].provider_id
         == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
@@ -217,7 +217,7 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         payload["analysis"]["analyzers"]["long_term_compose_v1"]["prompt_file"]
         == "long_term_compose_v1.md"
     )
-    assert payload["vector_index"]["enabled"] is False
+    assert payload["vector_index"]["enabled"] is True
     assert payload["vector_index"]["provider"] == "faiss"
     assert payload["vector_index"]["provider_id"] == ""
     assert payload["analysis"]["stages"]["short_term_update"]["analyzers"] == [

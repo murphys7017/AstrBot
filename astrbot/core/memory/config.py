@@ -255,7 +255,7 @@ class MemoryLongTermConfig:
 
 @dataclass(slots=True)
 class MemoryVectorIndexConfig:
-    enabled: bool = False
+    enabled: bool = True
     provider: str = "faiss"
     provider_id: str = ""
     model: str = ""
@@ -683,7 +683,7 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
             ),
         ),
         vector_index=MemoryVectorIndexConfig(
-            enabled=_as_bool(vector_index_payload.get("enabled"), False),
+            enabled=_as_bool(vector_index_payload.get("enabled"), True),
             provider=_as_str(vector_index_payload.get("provider"), "faiss"),
             provider_id=_as_str(vector_index_payload.get("provider_id"), ""),
             model=_as_str(vector_index_payload.get("model"), ""),

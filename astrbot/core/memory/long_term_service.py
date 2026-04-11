@@ -149,11 +149,11 @@ class LongTermMemoryService:
             )
             return []
 
-        existing_memories = await self.store.list_long_term_memory_indexes(
-            canonical_user_id,
-            limit=0,
+        existing_memories = await self._retrieve_candidate_memories(
+            canonical_user_id=canonical_user_id,
             scope_type=scope_type,
             scope_id=scope_id,
+            pending_experiences=candidate_experiences,
         )
         actions = await self._build_promotion_actions(
             canonical_user_id=canonical_user_id,
@@ -603,6 +603,62 @@ class LongTermMemoryService:
                 )
             related.append(experience)
         return related
+
+    async def _retrieve_candidate_memories(
+        self,
+        *,
+        canonical_user_id: str,
+        scope_type: ScopeType | str,
+        scope_id: str,
+        pending_experiences: list[Experience],
+    ) -> list[LongTermMemoryIndex]:
+        all_memories = await self.store.list_long_term_memory_indexes(
+            canonical_user_id,
+            limit=0,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        )
+        if not all_memories:
+            return []
+        if self.vector_index is None or not self.store.config.vector_index.enabled:
+            return all_memories
+
+        query_text = self._build_candidate_query_text(pending_experiences)
+        if not query_text:
+            return all_memories
+
+        hits = await self.vector_index.search_long_term_memories(
+            canonical_user_id,
+            query_text,
+            top_k=max(1, self.store.config.vector_index.long_term_top_k),
+            metadata_filters={
+                "scope_type": self._enum_value(scope_type),
+                "scope_id": scope_id,
+            },
+        )
+        if not hits:
+            return all_memories
+
+        memory_by_id = {memory.memory_id: memory for memory in all_memories}
+        candidate_memories: list[LongTermMemoryIndex] = []
+        for hit in hits:
+            memory = memory_by_id.get(hit.memory_id)
+            if memory is not None:
+                candidate_memories.append(memory)
+        return candidate_memories or all_memories
+
+    @staticmethod
+    def _build_candidate_query_text(experiences: list[Experience]) -> str:
+        sections: list[str] = []
+        for experience in experiences:
+            parts = [
+                experience.summary.strip(),
+                (experience.detail_summary or "").strip(),
+            ]
+            block = "\n".join(part for part in parts if part)
+            if block:
+                sections.append(block)
+        return "\n".join(sections).strip()
 
     def _build_doc_path(
         self,

@@ -19,6 +19,7 @@ from astrbot.core.memory.config import (
 from astrbot.core.memory.consolidation_service import ConsolidationService
 from astrbot.core.memory.document_loader import DocumentLoader
 from astrbot.core.memory.document_search import DocumentSearchService
+from astrbot.core.memory.document_serializer import DocumentSerializer
 from astrbot.core.memory.experience_service import ExperienceService
 from astrbot.core.memory.history_source import (
     RecentConversationSource,
@@ -57,6 +58,7 @@ from astrbot.core.memory.types import (
 from astrbot.core.memory.vector_index import MemoryVectorIndex
 from astrbot.core.postprocess import get_postprocess_manager
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
+from astrbot.core.provider.provider import EmbeddingProvider
 
 TEST_UMO = "test:private:user"
 TEST_PLATFORM_ID = "test"
@@ -592,6 +594,7 @@ class InvalidConsolidationAnalyzerManager:
 class StubLongTermAnalyzerManager:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.promote_existing_memories: list[dict[str, object]] = []
 
     async def dispatch_stage(
         self,
@@ -607,6 +610,10 @@ class StubLongTermAnalyzerManager:
             pending_raw = payload.get("pending_experiences_json")
             pending_experiences = (
                 json.loads(pending_raw) if isinstance(pending_raw, str) else []
+            )
+            existing_raw = payload.get("existing_memories_json")
+            self.promote_existing_memories = (
+                json.loads(existing_raw) if isinstance(existing_raw, str) else []
             )
             experience_ids = [
                 str(item.get("experience_id"))
@@ -951,6 +958,13 @@ class StubVectorIndex:
         self.calls: list[dict[str, object]] = []
         self.config = MagicMock()
 
+    async def ensure_ready(self) -> None:
+        return None
+
+    async def upsert_long_term_memory(self, memory_id: str) -> None:
+        del memory_id
+        return None
+
     async def search_long_term_memories(
         self,
         umo: str,
@@ -1024,6 +1038,37 @@ class FailingProjectionService:
     ):
         del umo, scope_type, scope_id
         raise RuntimeError("projection write failed")
+
+
+class DummyEmbeddingProvider(EmbeddingProvider):
+    def __init__(self, provider_id: str = "embedding-test") -> None:
+        super().__init__({"id": provider_id, "type": "dummy_embedding"}, {})
+
+    async def get_embedding(self, text: str) -> list[float]:
+        lowered = text.lower()
+        return [
+            float(lowered.count("memory")),
+            float(lowered.count("project")),
+            float(lowered.count("preference")),
+            float(lowered.count("search")),
+        ]
+
+    async def get_embeddings(self, text: list[str]) -> list[list[float]]:
+        return [await self.get_embedding(item) for item in text]
+
+    def get_dim(self) -> int:
+        return 4
+
+
+class DummyEmbeddingProviderManager:
+    def __init__(self, provider: EmbeddingProvider) -> None:
+        self.provider = provider
+        self.embedding_provider_insts = [provider]
+
+    async def get_provider_by_id(self, provider_id: str):
+        if provider_id == self.provider.provider_config.get("id"):
+            return self.provider
+        return None
 
 
 @pytest.mark.asyncio
@@ -1759,6 +1804,146 @@ async def test_long_term_service_creates_memory_document_links_and_cursor(
     assert len(links) == 2
     assert cursor is not None
     assert cursor.last_processed_experience_id == "exp-2"
+    assert analyzer_manager.promote_existing_memories == []
+
+
+@pytest.mark.asyncio
+async def test_long_term_service_uses_vector_candidates_for_promotion_context(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                f'  root_dir: "{vector_root}"',
+                "  long_term_top_k: 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    analyzer_manager = StubLongTermAnalyzerManager()
+    vector_index = StubVectorIndex([("ltm-target", 0.97)])
+    long_term_service = LongTermMemoryService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        long_term_config=MemoryLongTermConfig(
+            enabled=True,
+            min_experience_importance=0.7,
+            min_pending_experiences=2,
+        ),
+        vector_index=vector_index,  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for memory_id, title in (
+            ("ltm-target", "Memory-first implementation preference"),
+            ("ltm-other", "Frontend polishing story"),
+        ):
+            doc_path = loader.save_long_term_document(
+                LongTermMemoryDocument(
+                    memory_id=memory_id,
+                    umo=TEST_UMO,
+                    canonical_user_id=TEST_CANONICAL_USER_ID,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    status="active",
+                    title=title,
+                    summary=title,
+                    detail_summary=f"Detail for {title}.",
+                    importance=0.8,
+                    confidence=0.9,
+                    supporting_experiences=[],
+                    updates=[],
+                    source_refs=[],
+                    tags=["memory"],
+                    first_event_at=now,
+                    last_event_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await store.upsert_long_term_memory_index(
+                _long_term_memory_index(
+                    memory_id=memory_id,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    title=title,
+                    summary=title,
+                    status="active",
+                    doc_path=str(doc_path),
+                    importance=0.8,
+                    confidence=0.9,
+                    tags=["memory"],
+                    source_refs=[],
+                    first_event_at=now,
+                    last_event_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        await store.save_experience(
+            _experience(
+                experience_id="exp-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="Implemented memory postprocess integration",
+                detail_summary="The memory pipeline was integrated after message send.",
+                importance=0.82,
+                confidence=0.91,
+                source_refs=["turn:1"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-2",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now + timedelta(seconds=1),
+                category="project_progress",
+                summary="Settled on memory-first roadmap",
+                detail_summary="The team aligned around shipping memory before prompt integration.",
+                importance=0.88,
+                confidence=0.93,
+                source_refs=["turn:2"],
+                created_at=now + timedelta(microseconds=1),
+                updated_at=now + timedelta(microseconds=1),
+            )
+        )
+
+        await long_term_service.run_promotion(TEST_CANONICAL_USER_ID)
+    finally:
+        await store.close()
+
+    assert len(vector_index.calls) == 1
+    assert vector_index.calls[0]["metadata_filters"] == {
+        "scope_type": "user",
+        "scope_id": TEST_CANONICAL_USER_ID,
+    }
+    assert len(analyzer_manager.promote_existing_memories) == 1
+    assert analyzer_manager.promote_existing_memories[0]["memory_id"] == "ltm-target"
 
 
 @pytest.mark.asyncio
@@ -2544,6 +2729,241 @@ async def test_document_search_service_hydrates_results_and_loads_body(temp_dir:
         "scope_type": "user",
         "scope_id": TEST_CANONICAL_USER_ID,
     }
+
+
+def test_document_serializer_builds_structured_search_text_with_keywords():
+    serializer = DocumentSerializer()
+    now = datetime.now(UTC)
+
+    search_text = serializer.build_search_text(
+        _long_term_memory_index(
+            memory_id="ltm-serializer",
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            title="记忆优先实现方案",
+            summary="用户持续强调先完成 memory 和向量检索能力。",
+            status="active",
+            doc_path="ignored.md",
+            importance=0.9,
+            confidence=0.95,
+            tags=["memory", "vector"],
+            source_refs=[],
+            first_event_at=now,
+            last_event_at=now,
+            created_at=now,
+            updated_at=now,
+        ),
+        LongTermMemoryDocument(
+            memory_id="ltm-serializer",
+            umo=TEST_UMO,
+            canonical_user_id=TEST_CANONICAL_USER_ID,
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            status="active",
+            title="记忆优先实现方案",
+            summary="用户持续强调先完成 memory 和向量检索能力。",
+            detail_summary="长期记忆应该先具备 story 检索和向量召回。",
+            importance=0.9,
+            confidence=0.95,
+            supporting_experiences=["exp-1", "exp-2"],
+            updates=[
+                {
+                    "timestamp": now.isoformat(),
+                    "action": "update",
+                    "summary": "完成向量检索接入",
+                }
+            ],
+            source_refs=[],
+            tags=["memory", "vector"],
+            first_event_at=now,
+            last_event_at=now,
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+
+    assert "Supporting Experiences:" in search_text
+    assert "- exp-1" in search_text
+    assert "Updates:" in search_text
+    assert "完成向量检索接入" in search_text
+    assert "Keywords:" in search_text
+    assert "memory" in search_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_index_upserts_and_searches_real_faiss(temp_dir: Path):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                '  provider_id: "embedding-test"',
+                f'  root_dir: "{vector_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    provider = DummyEmbeddingProvider("embedding-test")
+    provider_manager = DummyEmbeddingProviderManager(provider)
+    vector_index = MemoryVectorIndex(store, config=config, document_loader=loader)
+    vector_index.bind_provider_manager(provider_manager)
+    now = datetime.now(UTC)
+
+    try:
+        doc_path = loader.save_long_term_document(
+            LongTermMemoryDocument(
+                memory_id="ltm-real-1",
+                umo=TEST_UMO,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                status="active",
+                title="Memory project roadmap",
+                summary="The project roadmap should stay searchable in long-term memory.",
+                detail_summary="This memory records the project roadmap and memory search behavior.",
+                tags=["memory", "project", "search"],
+                importance=0.9,
+                confidence=0.93,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="ltm-real-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                title="Memory project roadmap",
+                summary="The project roadmap should stay searchable in long-term memory.",
+                status="active",
+                doc_path=str(doc_path),
+                importance=0.9,
+                confidence=0.93,
+                tags=["memory", "project", "search"],
+                source_refs=["exp:1"],
+                first_event_at=now,
+                last_event_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await vector_index.upsert_long_term_memory("ltm-real-1")
+        hits = await vector_index.search_long_term_memories(
+            TEST_CANONICAL_USER_ID,
+            "memory project search",
+            top_k=3,
+        )
+    finally:
+        await store.close()
+
+    assert hits
+    assert hits[0].memory_id == "ltm-real-1"
+    assert isinstance(hits[0].score, float)
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_index_falls_back_to_first_embedding_provider_when_provider_id_missing(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                '  provider_id: ""',
+                f'  root_dir: "{vector_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    provider = DummyEmbeddingProvider("embedding-fallback")
+    provider_manager = DummyEmbeddingProviderManager(provider)
+    vector_index = MemoryVectorIndex(store, config=config, document_loader=loader)
+    vector_index.bind_provider_manager(provider_manager)
+    now = datetime.now(UTC)
+
+    try:
+        doc_path = loader.save_long_term_document(
+            LongTermMemoryDocument(
+                memory_id="ltm-fallback-1",
+                umo=TEST_UMO,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="user_preference",
+                status="active",
+                title="Search fallback memory",
+                summary="Fallback provider selection should still support search.",
+                detail_summary="The first embedding provider is reused when provider_id is absent.",
+                tags=["fallback", "memory"],
+                importance=0.84,
+                confidence=0.9,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="ltm-fallback-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="user_preference",
+                title="Search fallback memory",
+                summary="Fallback provider selection should still support search.",
+                status="active",
+                doc_path=str(doc_path),
+                importance=0.84,
+                confidence=0.9,
+                tags=["fallback", "memory"],
+                source_refs=["exp:2"],
+                first_event_at=now,
+                last_event_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await vector_index.ensure_ready()
+        await vector_index.upsert_long_term_memory("ltm-fallback-1")
+        hits = await vector_index.search_long_term_memories(
+            TEST_CANONICAL_USER_ID,
+            "fallback memory",
+            top_k=3,
+        )
+    finally:
+        await store.close()
+
+    assert hits
+    assert hits[0].memory_id == "ltm-fallback-1"
 
 
 @pytest.mark.asyncio

@@ -98,23 +98,14 @@ class MemoryVectorIndex:
             raise RuntimeError("memory vector index is disabled")
         if self.provider_manager is None:
             raise RuntimeError("memory vector index is not bound to ProviderManager")
-        if not self.config.vector_index.provider_id:
-            raise RuntimeError("memory vector index provider_id is not configured")
         if self._vec_db is not None:
             return self._vec_db
 
-        embedding_provider = await self.provider_manager.get_provider_by_id(
-            self.config.vector_index.provider_id
-        )
-        if embedding_provider is None:
-            raise RuntimeError(
-                "memory vector index embedding provider was not found: "
-                f"{self.config.vector_index.provider_id}"
-            )
+        provider_id, embedding_provider = await self._resolve_embedding_provider()
         if not isinstance(embedding_provider, EmbeddingProvider):
             raise RuntimeError(
                 "memory vector index provider is not an embedding provider: "
-                f"{self.config.vector_index.provider_id}"
+                f"{provider_id}"
             )
         if self.config.vector_index.model:
             embedding_provider.set_model(self.config.vector_index.model)
@@ -130,11 +121,44 @@ class MemoryVectorIndex:
         self._vec_db = vec_db
         logger.info(
             "memory vector index initialized: provider_id=%s model=%s root=%s",
-            self.config.vector_index.provider_id,
+            provider_id,
             self.config.vector_index.model or None,
             root_dir,
         )
         return vec_db
+
+    async def _resolve_embedding_provider(self) -> tuple[str, EmbeddingProvider]:
+        configured_provider_id = self.config.vector_index.provider_id.strip()
+        if configured_provider_id:
+            embedding_provider = await self.provider_manager.get_provider_by_id(
+                configured_provider_id
+            )
+            if embedding_provider is None:
+                raise RuntimeError(
+                    "memory vector index embedding provider was not found: "
+                    f"{configured_provider_id}"
+                )
+            return configured_provider_id, embedding_provider
+
+        available_providers = list(
+            getattr(self.provider_manager, "embedding_provider_insts", [])
+        )
+        if not available_providers:
+            raise RuntimeError(
+                "memory vector index provider_id is not configured and no embedding provider is available"
+            )
+        embedding_provider = available_providers[0]
+        provider_id = (
+            str(
+                getattr(embedding_provider, "provider_config", {}).get("id", "")
+            ).strip()
+            or "auto"
+        )
+        logger.info(
+            "memory vector index falling back to first embedding provider: provider_id=%s",
+            provider_id,
+        )
+        return provider_id, embedding_provider
 
     @staticmethod
     def _build_metadata(memory: LongTermMemoryIndex) -> dict[str, object]:
