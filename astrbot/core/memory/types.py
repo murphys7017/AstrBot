@@ -107,7 +107,7 @@ class SessionInsight:
     insight_id: str
     umo: str
     conversation_id: str | None
-    platform_user_key: str
+    platform_user_key: str | None
     canonical_user_id: str
     window_start_at: datetime | None
     window_end_at: datetime | None
@@ -122,7 +122,7 @@ class Experience:
     experience_id: str
     umo: str
     conversation_id: str | None
-    platform_user_key: str
+    platform_user_key: str | None
     canonical_user_id: str
     scope_type: ScopeType | str
     scope_id: str

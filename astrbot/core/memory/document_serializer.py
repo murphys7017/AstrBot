@@ -14,9 +14,6 @@ class DocumentSerializer:
         document: LongTermMemoryDocument | None = None,
     ) -> str:
         detail = document.detail_summary if document is not None else None
-        supporting_experiences = (
-            list(document.supporting_experiences) if document is not None else []
-        )
         updates = self._format_updates(document)
         keyword_source = self._build_keyword_source_text(index, document, updates)
         keywords = self._extract_keywords(keyword_source)
@@ -29,8 +26,6 @@ class DocumentSerializer:
             f"Tags: {', '.join(index.tags)}",
             f"First Event At: {self._format_datetime(index.first_event_at)}",
             f"Last Event At: {self._format_datetime(index.last_event_at)}",
-            "Supporting Experiences:",
-            self._render_bullets(supporting_experiences),
             "Updates:",
             self._render_bullets(updates),
             f"Keywords: {', '.join(keywords)}",
@@ -44,15 +39,11 @@ class DocumentSerializer:
         updates: list[str],
     ) -> str:
         detail = document.detail_summary if document is not None else ""
-        supporting_experiences = (
-            "\n".join(document.supporting_experiences) if document is not None else ""
-        )
         sections = [
             index.title,
             index.summary,
             detail,
             " ".join(index.tags),
-            supporting_experiences,
             "\n".join(updates),
         ]
         return "\n".join(section for section in sections if section).strip()

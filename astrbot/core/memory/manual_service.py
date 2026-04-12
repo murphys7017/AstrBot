@@ -122,9 +122,10 @@ class LongTermMemoryManualService:
             doc_path=normalized_path,
         )
         try:
-            persisted = await self.store.upsert_long_term_memory_index(index)
             self.document_loader.apply_prepared_write(prepared_write)
+            persisted = await self.store.upsert_long_term_memory_index(index)
         except Exception:
+            self.document_loader.rollback_prepared_write(prepared_write)
             self.document_loader.cleanup_prepared_write(prepared_write)
             raise
         finally:

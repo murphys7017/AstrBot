@@ -85,12 +85,13 @@ def _memory_update_request(
     provider_request: dict | None = None,
     source_refs: list[str] | None = None,
     canonical_user_id: str | None = TEST_CANONICAL_USER_ID,
+    platform_user_key: str | None = TEST_PLATFORM_USER_KEY,
 ) -> MemoryUpdateRequest:
     return MemoryUpdateRequest(
         umo=TEST_UMO,
         conversation_id=conversation_id,
         platform_id=TEST_PLATFORM_ID,
-        platform_user_key=TEST_PLATFORM_USER_KEY,
+        platform_user_key=platform_user_key,
         canonical_user_id=canonical_user_id,
         session_id="session-1",
         provider_request=provider_request,
@@ -889,6 +890,7 @@ class StubLongTermUpdateAnalyzerManager:
     def __init__(self, memory_id: str) -> None:
         self.memory_id = memory_id
         self.calls: list[str] = []
+        self.promote_existing_memories: list[dict[str, object]] = []
 
     async def dispatch_stage(
         self,
@@ -904,6 +906,10 @@ class StubLongTermUpdateAnalyzerManager:
             pending_raw = payload.get("pending_experiences_json")
             pending_experiences = (
                 json.loads(pending_raw) if isinstance(pending_raw, str) else []
+            )
+            existing_raw = payload.get("existing_memories_json")
+            self.promote_existing_memories = (
+                json.loads(existing_raw) if isinstance(existing_raw, str) else []
             )
             experience_ids = [
                 str(item.get("experience_id"))
@@ -983,6 +989,33 @@ class StubVectorIndex:
         return [
             MagicMock(memory_id=memory_id, score=score, metadata={})
             for memory_id, score in self.hits
+        ]
+
+
+class SequencedStubVectorIndex(StubVectorIndex):
+    def __init__(self, hit_sequences: list[list[tuple[str, float]]]) -> None:
+        super().__init__([])
+        self.hit_sequences = list(hit_sequences)
+
+    async def search_long_term_memories(
+        self,
+        umo: str,
+        query: str,
+        top_k: int,
+        metadata_filters: dict | None = None,
+    ):
+        self.calls.append(
+            {
+                "umo": umo,
+                "query": query,
+                "top_k": top_k,
+                "metadata_filters": metadata_filters,
+            }
+        )
+        hits = self.hit_sequences.pop(0) if self.hit_sequences else []
+        return [
+            MagicMock(memory_id=memory_id, score=score, metadata={})
+            for memory_id, score in hits
         ]
 
 
@@ -1511,6 +1544,65 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
 
 
 @pytest.mark.asyncio
+async def test_memory_service_consolidation_allows_missing_platform_user_key(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    turn_record_service = TurnRecordService(store)
+    short_term_service = ShortTermMemoryService(store, history_source)
+    analyzer_manager = StubConsolidationAnalyzerManager()
+    consolidation_service = ConsolidationService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        consolidation_config=MemoryConsolidationConfig(
+            enabled=True,
+            min_short_term_updates=2,
+        ),
+    )
+    experience_service = ExperienceService(store)
+    memory_service = MemoryService(
+        store,
+        turn_record_service,
+        short_term_service,
+        MemorySnapshotBuilder(store),
+        consolidation_service=consolidation_service,
+        experience_service=experience_service,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for index in range(2):
+            await memory_service.update_from_postprocess(
+                _memory_update_request(
+                    user_message={"role": "user", "content": f"Turn {index}"},
+                    assistant_message={
+                        "role": "assistant",
+                        "content": f"Reply {index}",
+                    },
+                    message_timestamp=now + timedelta(microseconds=index),
+                    source_refs=[],
+                    platform_user_key=None,
+                )
+            )
+
+        latest_insight = await store.get_latest_session_insight(
+            TEST_CANONICAL_USER_ID,
+            "conv-1",
+        )
+        experiences = await store.list_recent_experiences(TEST_CANONICAL_USER_ID, 10)
+    finally:
+        await store.close()
+
+    assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
+    assert latest_insight is not None
+    assert latest_insight.platform_user_key is None
+    assert len(experiences) == 2
+    assert all(item.platform_user_key is None for item in experiences)
+
+
+@pytest.mark.asyncio
 async def test_memory_service_update_triggers_long_term_promotion_after_consolidation(
     temp_dir: Path,
 ):
@@ -1947,6 +2039,173 @@ async def test_long_term_service_uses_vector_candidates_for_promotion_context(
 
 
 @pytest.mark.asyncio
+async def test_long_term_service_merges_experience_and_context_vector_candidates(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                f'  root_dir: "{vector_root}"',
+                "  long_term_top_k: 2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    analyzer_manager = StubLongTermAnalyzerManager()
+    vector_index = SequencedStubVectorIndex(
+        [
+            [("ltm-experience", 0.97)],
+            [("ltm-context", 0.94)],
+        ]
+    )
+    long_term_service = LongTermMemoryService(
+        store,
+        analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+        long_term_config=MemoryLongTermConfig(
+            enabled=True,
+            min_experience_importance=0.7,
+            min_pending_experiences=2,
+        ),
+        vector_index=vector_index,  # type: ignore[arg-type]
+    )
+    now = datetime.now(UTC)
+
+    try:
+        for memory_id, title in (
+            ("ltm-experience", "Memory-first implementation preference"),
+            ("ltm-context", "Active roadmap planning"),
+        ):
+            doc_path = loader.save_long_term_document(
+                LongTermMemoryDocument(
+                    memory_id=memory_id,
+                    umo=TEST_UMO,
+                    canonical_user_id=TEST_CANONICAL_USER_ID,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    status="active",
+                    title=title,
+                    summary=title,
+                    detail_summary=f"Detail for {title}.",
+                    importance=0.8,
+                    confidence=0.9,
+                    supporting_experiences=[],
+                    updates=[],
+                    source_refs=[],
+                    tags=["memory"],
+                    first_event_at=now,
+                    last_event_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            await store.upsert_long_term_memory_index(
+                _long_term_memory_index(
+                    memory_id=memory_id,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    title=title,
+                    summary=title,
+                    status="active",
+                    doc_path=str(doc_path),
+                    importance=0.8,
+                    confidence=0.9,
+                    tags=["memory"],
+                    source_refs=[],
+                    first_event_at=now,
+                    last_event_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        await store.upsert_topic_state(
+            TopicState(
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                current_topic="Roadmap planning",
+                topic_summary="The discussion is currently focused on memory roadmap decisions.",
+                topic_confidence=0.95,
+                last_active_at=now,
+            )
+        )
+        await store.upsert_short_term_memory(
+            ShortTermMemory(
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                short_summary="The user wants to connect long-term memory with the active roadmap topic.",
+                active_focus="Choose the next memory milestone",
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="Implemented memory postprocess integration",
+                detail_summary="The memory pipeline was integrated after message send.",
+                importance=0.82,
+                confidence=0.91,
+                source_refs=["turn:1"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-2",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now + timedelta(seconds=1),
+                category="project_progress",
+                summary="Settled on memory-first roadmap",
+                detail_summary="The team aligned around shipping memory before prompt integration.",
+                importance=0.88,
+                confidence=0.93,
+                source_refs=["turn:2"],
+                created_at=now + timedelta(microseconds=1),
+                updated_at=now + timedelta(microseconds=1),
+            )
+        )
+
+        await long_term_service.run_promotion(TEST_CANONICAL_USER_ID)
+    finally:
+        await store.close()
+
+    assert len(vector_index.calls) == 2
+    assert "Implemented memory postprocess integration" in str(
+        vector_index.calls[0]["query"]
+    )
+    assert "Keywords:" in str(vector_index.calls[0]["query"])
+    assert "Roadmap planning" in str(vector_index.calls[1]["query"])
+    assert "Choose the next memory milestone" in str(vector_index.calls[1]["query"])
+    assert "Keywords:" in str(vector_index.calls[1]["query"])
+    assert {
+        item["memory_id"] for item in analyzer_manager.promote_existing_memories
+    } == {"ltm-experience", "ltm-context"}
+
+
+@pytest.mark.asyncio
 async def test_long_term_service_rolls_back_markdown_when_db_commit_fails(
     temp_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2016,6 +2275,123 @@ async def test_long_term_service_rolls_back_markdown_when_db_commit_fails(
         await store.close()
 
     assert list((temp_dir / "long_term").rglob("*.md")) == []
+
+
+@pytest.mark.asyncio
+async def test_long_term_service_restores_existing_markdown_when_db_commit_fails(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    now = datetime.now(UTC)
+
+    async def failing_persist_batch(memories, links, cursor):  # noqa: ANN001
+        del memories, links, cursor
+        raise RuntimeError("db batch failed")
+
+    monkeypatch.setattr(
+        store, "persist_long_term_promotion_batch", failing_persist_batch
+    )
+
+    try:
+        existing_path = loader.save_long_term_document(
+            LongTermMemoryDocument(
+                memory_id="ltm-existing",
+                umo=TEST_UMO,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                status="active",
+                title="Existing memory-first preference",
+                summary="The user prefers memory-first sequencing.",
+                detail_summary="Original detail summary.",
+                supporting_experiences=["exp-old"],
+                updates=[{"timestamp": now.isoformat(), "summary": "created"}],
+                source_refs=["exp:old"],
+                tags=["memory"],
+                first_event_at=now - timedelta(days=1),
+                last_event_at=now - timedelta(days=1),
+                created_at=now - timedelta(days=1),
+                updated_at=now - timedelta(days=1),
+            )
+        )
+        before_content = existing_path.read_text(encoding="utf-8")
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="ltm-existing",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                title="Existing memory-first preference",
+                summary="The user prefers memory-first sequencing.",
+                status="active",
+                doc_path=str(existing_path),
+                importance=0.8,
+                confidence=0.85,
+                tags=["memory"],
+                source_refs=["exp:old"],
+                first_event_at=now - timedelta(days=1),
+                last_event_at=now - timedelta(days=1),
+                created_at=now - timedelta(days=1),
+                updated_at=now - timedelta(days=1),
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-new",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="A new experience reinforced the roadmap preference",
+                detail_summary="The roadmap preference was reinforced again.",
+                importance=0.9,
+                confidence=0.95,
+                source_refs=["turn:new"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        service = LongTermMemoryService(
+            store,
+            analyzer_manager=StubLongTermUpdateAnalyzerManager("ltm-existing"),  # type: ignore[arg-type]
+            analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+            long_term_config=MemoryLongTermConfig(
+                enabled=True,
+                min_experience_importance=0.7,
+                min_pending_experiences=1,
+            ),
+            document_loader=loader,
+        )
+
+        with pytest.raises(RuntimeError, match="db batch failed"):
+            await service.run_promotion(TEST_CANONICAL_USER_ID)
+        after_content = existing_path.read_text(encoding="utf-8")
+    finally:
+        await store.close()
+
+    assert after_content == before_content
 
 
 @pytest.mark.asyncio
@@ -2102,9 +2478,10 @@ async def test_long_term_service_updates_existing_memory(temp_dir: Path):
                 updated_at=now,
             )
         )
+        analyzer_manager = StubLongTermUpdateAnalyzerManager("ltm-1")
         service = LongTermMemoryService(
             store,
-            analyzer_manager=StubLongTermUpdateAnalyzerManager("ltm-1"),  # type: ignore[arg-type]
+            analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
             analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
             long_term_config=MemoryLongTermConfig(
                 enabled=True,
@@ -2126,6 +2503,13 @@ async def test_long_term_service_updates_existing_memory(temp_dir: Path):
     assert len(links) == 1
     assert updated_doc.title == "Updated memory-first implementation preference"
     assert "exp-new" in updated_doc.supporting_experiences
+    assert len(analyzer_manager.promote_existing_memories) == 1
+    assert analyzer_manager.promote_existing_memories[0]["detail_summary"] == (
+        "Original detail summary."
+    )
+    assert analyzer_manager.promote_existing_memories[0]["updates"] == [
+        {"timestamp": now.isoformat(), "summary": "created"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -2784,12 +3168,17 @@ def test_document_serializer_builds_structured_search_text_with_keywords():
         ),
     )
 
-    assert "Supporting Experiences:" in search_text
-    assert "- exp-1" in search_text
+    assert "Supporting Experiences:" not in search_text
+    assert "exp-1" not in search_text
     assert "Updates:" in search_text
     assert "完成向量检索接入" in search_text
     assert "Keywords:" in search_text
     assert "memory" in search_text.lower()
+    keyword_line = next(
+        line for line in search_text.splitlines() if line.startswith("Keywords:")
+    )
+    assert "exp-1" not in keyword_line
+    assert "exp-2" not in keyword_line
 
 
 @pytest.mark.asyncio
@@ -3173,6 +3562,111 @@ async def test_long_term_manual_service_updates_existing_memory_from_document(
     assert loaded_doc.title == "Updated manual memory"
     assert loaded_doc.importance == pytest.approx(0.92)
     assert loaded_doc.confidence == pytest.approx(0.96)
+
+
+@pytest.mark.asyncio
+async def test_long_term_manual_service_restores_existing_markdown_when_db_write_fails(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    loader = DocumentLoader(config)
+    service = LongTermMemoryManualService(
+        store,
+        document_loader=loader,
+    )
+    now = datetime.now(UTC)
+    normalized_path = loader.build_long_term_doc_path(
+        LongTermMemoryDocument(
+            memory_id="manual-rollback",
+            umo=TEST_UMO,
+            canonical_user_id=TEST_CANONICAL_USER_ID,
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            status="active",
+            title="Original manual memory",
+            summary="Original summary.",
+            detail_summary="Original detail.",
+        )
+    )
+    update_source_path = temp_dir / "manual-rollback-update.md"
+
+    async def failing_upsert(index):  # noqa: ANN001
+        del index
+        raise RuntimeError("db write failed")
+
+    monkeypatch.setattr(store, "upsert_long_term_memory_index", failing_upsert)
+
+    try:
+        original_doc = LongTermMemoryDocument(
+            memory_id="manual-rollback",
+            umo=TEST_UMO,
+            canonical_user_id=TEST_CANONICAL_USER_ID,
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            status="active",
+            title="Original manual memory",
+            summary="Original summary.",
+            detail_summary="Original detail.",
+            importance=0.7,
+            confidence=0.8,
+            source_refs=["manual:original"],
+            tags=["original"],
+            created_at=now - timedelta(days=1),
+            updated_at=now - timedelta(days=1),
+        )
+        loader.save_long_term_document(original_doc, doc_path=normalized_path)
+        before_content = normalized_path.read_text(encoding="utf-8")
+        loader.save_long_term_document(
+            LongTermMemoryDocument(
+                memory_id="manual-rollback",
+                umo=TEST_UMO,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                status="archived",
+                title="Updated manual memory",
+                summary="Updated summary.",
+                detail_summary="Updated detail.",
+                importance=0.92,
+                confidence=0.96,
+                source_refs=["manual:updated"],
+                tags=["updated"],
+                created_at=now - timedelta(days=1),
+                updated_at=now,
+            ),
+            doc_path=update_source_path,
+        )
+
+        with pytest.raises(RuntimeError, match="db write failed"):
+            await service.upsert_memory_from_document(update_source_path)
+        after_content = normalized_path.read_text(encoding="utf-8")
+    finally:
+        await store.close()
+
+    assert after_content == before_content
 
 
 @pytest.mark.asyncio
@@ -3767,6 +4261,63 @@ async def test_memory_postprocessor_falls_back_to_provider_request_conversation(
     assert req.conversation_id == "conv-1"
     assert req.platform_user_key == TEST_PLATFORM_USER_KEY
     assert req.canonical_user_id == TEST_CANONICAL_USER_ID
+    assert req.user_message["content"] == "Current user turn."
+    assert req.assistant_message["content"] == "Current assistant reply."
+    assert req.provider_request is not None
+    assert (
+        req.provider_request["history_source"]
+        == "provider_request.conversation.history"
+    )
+
+
+@pytest.mark.asyncio
+async def test_memory_postprocessor_ignores_stale_conversation_history_for_current_turn():
+    stale_history = [
+        {"role": "user", "content": "Previous turn."},
+        {"role": "assistant", "content": "Previous answer."},
+    ]
+    conversation = Conversation(
+        platform_id="test",
+        user_id="test:private:user",
+        cid="conv-1",
+        history=json.dumps(stale_history),
+    )
+    provider_conversation = Conversation(
+        platform_id="test",
+        user_id="test:private:user",
+        cid="conv-1",
+        history=json.dumps(stale_history),
+    )
+    event = MagicMock()
+    event.unified_msg_origin = TEST_UMO
+    event.get_platform_id.return_value = TEST_PLATFORM_ID
+    event.get_sender_id.return_value = "user-1"
+    event.get_sender_name.return_value = "tester"
+    event.session_id = "session-1"
+    memory_service = MagicMock()
+    memory_service.update_from_postprocess = AsyncMock()
+    memory_service.identity_resolver = MagicMock()
+    memory_service.identity_resolver.resolve_from_event = AsyncMock(
+        return_value=_memory_identity()
+    )
+    processor = MemoryPostProcessor(memory_service)
+    ctx = MagicMock()
+    ctx.event = event
+    ctx.conversation = conversation
+    ctx.provider_request = ProviderRequest(
+        prompt="Current user turn.",
+        session_id="session-1",
+        conversation=provider_conversation,
+    )
+    ctx.llm_response = LLMResponse(
+        role="assistant",
+        completion_text="Current assistant reply.",
+    )
+    ctx.timestamp = datetime.now(UTC)
+
+    req = await processor.build_update_request(ctx)
+
+    assert req is not None
     assert req.user_message["content"] == "Current user turn."
     assert req.assistant_message["content"] == "Current assistant reply."
     assert req.provider_request is not None

@@ -147,15 +147,22 @@ def _resolve_turn_material(
 
     if ctx.conversation is not None:
         conversation_history = parse_conversation_history(ctx.conversation.history)
-        if (
-            RecentConversationSource.get_latest_turn_payload(conversation_history)
-            is not None
-        ):
-            return {
-                "conversation_history": conversation_history,
-                "conversation_id": ctx.conversation.cid,
-                "history_source": "conversation.history",
-            }
+        latest_turn = RecentConversationSource.get_latest_turn_payload(
+            conversation_history
+        )
+        if latest_turn is not None:
+            if current_assistant_message is not None and not _is_current_turn_match(
+                latest_turn,
+                current_user_message,
+                current_assistant_message,
+            ):
+                pass
+            else:
+                return {
+                    "conversation_history": conversation_history,
+                    "conversation_id": ctx.conversation.cid,
+                    "history_source": "conversation.history",
+                }
 
     provider_request = ctx.provider_request
     if provider_request is not None:

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import jieba.analyse
+
 from astrbot.core import logger
 
 from .analyzer_manager import MemoryAnalyzerManager
@@ -329,6 +331,7 @@ class LongTermMemoryService:
         )
         prepared_documents = self._prepare_documents(documents_to_refresh)
         try:
+            self._apply_prepared_documents(prepared_documents)
             (
                 persisted_indexes,
                 _,
@@ -339,9 +342,10 @@ class LongTermMemoryService:
                 cursor_to_save,
             )
         except Exception:
+            self._rollback_prepared_documents(prepared_documents)
             self._cleanup_prepared_documents(prepared_documents)
             raise
-        self._apply_prepared_documents(prepared_documents)
+        self._cleanup_prepared_documents(prepared_documents)
         persisted_indexes = await self._refresh_vector_indexes(persisted_indexes)
         logger.info(
             "memory long-term promotion finished: canonical_user_id=%s scope_type=%s scope_id=%s memories=%s links=%s refreshed_docs=%s",
@@ -370,6 +374,9 @@ class LongTermMemoryService:
         pending_experiences: list[Experience],
         existing_memories: list[LongTermMemoryIndex],
     ) -> list[dict[str, Any]]:
+        existing_memory_payloads = [
+            self._memory_to_promote_payload(item) for item in existing_memories
+        ]
         payload = {
             "canonical_user_id": canonical_user_id,
             "pending_experiences_json": json.dumps(
@@ -377,7 +384,7 @@ class LongTermMemoryService:
                 ensure_ascii=False,
             ),
             "existing_memories_json": json.dumps(
-                [self._memory_to_payload(item) for item in existing_memories],
+                existing_memory_payloads,
                 ensure_ascii=False,
             ),
         }
@@ -397,6 +404,13 @@ class LongTermMemoryService:
                 "long_term_promote missing required analyzer `long_term_promote_v1`"
             )
         return self._validate_promote_payload(result.data)
+
+    def _memory_to_promote_payload(self, memory: LongTermMemoryIndex) -> dict[str, Any]:
+        payload = self._memory_to_payload(memory)
+        document = self.document_loader.load_long_term_document(memory.doc_path)
+        payload["detail_summary"] = document.detail_summary or ""
+        payload["updates"] = list(document.updates)
+        return payload
 
     async def _compose_memory(
         self,
@@ -623,32 +637,43 @@ class LongTermMemoryService:
         if self.vector_index is None or not self.store.config.vector_index.enabled:
             return all_memories
 
-        query_text = self._build_candidate_query_text(pending_experiences)
-        if not query_text:
+        query_texts = await self._build_candidate_query_texts(pending_experiences)
+        if not query_texts:
             return all_memories
 
-        hits = await self.vector_index.search_long_term_memories(
-            canonical_user_id,
-            query_text,
-            top_k=max(1, self.store.config.vector_index.long_term_top_k),
-            metadata_filters={
-                "scope_type": self._enum_value(scope_type),
-                "scope_id": scope_id,
-            },
+        hits = await self._search_candidate_memory_hits(
+            canonical_user_id=canonical_user_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            query_texts=query_texts,
         )
         if not hits:
             return all_memories
 
         memory_by_id = {memory.memory_id: memory for memory in all_memories}
         candidate_memories: list[LongTermMemoryIndex] = []
+        seen_memory_ids: set[str] = set()
         for hit in hits:
             memory = memory_by_id.get(hit.memory_id)
-            if memory is not None:
+            if memory is not None and memory.memory_id not in seen_memory_ids:
+                seen_memory_ids.add(memory.memory_id)
                 candidate_memories.append(memory)
         return candidate_memories or all_memories
 
-    @staticmethod
-    def _build_candidate_query_text(experiences: list[Experience]) -> str:
+    async def _build_candidate_query_texts(
+        self,
+        experiences: list[Experience],
+    ) -> list[str]:
+        query_texts = []
+        experience_query = self._build_experience_query_text(experiences)
+        if experience_query:
+            query_texts.append(experience_query)
+        context_query = await self._build_context_query_text(experiences)
+        if context_query:
+            query_texts.append(context_query)
+        return query_texts
+
+    def _build_experience_query_text(self, experiences: list[Experience]) -> str:
         sections: list[str] = []
         for experience in experiences:
             parts = [
@@ -658,7 +683,84 @@ class LongTermMemoryService:
             block = "\n".join(part for part in parts if part)
             if block:
                 sections.append(block)
-        return "\n".join(sections).strip()
+        return self._compose_query_text(sections)
+
+    async def _build_context_query_text(self, experiences: list[Experience]) -> str:
+        if not experiences:
+            return ""
+        latest_experience = experiences[-1]
+        topic_state = await self.store.get_topic_state(
+            latest_experience.umo,
+            latest_experience.conversation_id,
+        )
+        short_term_memory = await self.store.get_short_term_memory(
+            latest_experience.umo,
+            latest_experience.conversation_id,
+        )
+        sections = [
+            topic_state.current_topic.strip()
+            if topic_state is not None and topic_state.current_topic
+            else "",
+            topic_state.topic_summary.strip()
+            if topic_state is not None and topic_state.topic_summary
+            else "",
+            short_term_memory.active_focus.strip()
+            if short_term_memory is not None and short_term_memory.active_focus
+            else "",
+            short_term_memory.short_summary.strip()
+            if short_term_memory is not None and short_term_memory.short_summary
+            else "",
+        ]
+        return self._compose_query_text(sections)
+
+    async def _search_candidate_memory_hits(
+        self,
+        *,
+        canonical_user_id: str,
+        scope_type: ScopeType | str,
+        scope_id: str,
+        query_texts: list[str],
+    ) -> list[Any]:
+        metadata_filters = {
+            "scope_type": self._enum_value(scope_type),
+            "scope_id": scope_id,
+        }
+        combined_hits: list[Any] = []
+        seen_memory_ids: set[str] = set()
+        for query_text in query_texts:
+            hits = await self.vector_index.search_long_term_memories(
+                canonical_user_id,
+                query_text,
+                top_k=max(1, self.store.config.vector_index.long_term_top_k),
+                metadata_filters=metadata_filters,
+            )
+            for hit in hits:
+                if hit.memory_id not in seen_memory_ids:
+                    seen_memory_ids.add(hit.memory_id)
+                    combined_hits.append(hit)
+        return combined_hits
+
+    def _compose_query_text(self, sections: list[str]) -> str:
+        normalized_sections = [section for section in sections if section]
+        if not normalized_sections:
+            return ""
+        keywords = self._extract_keywords("\n".join(normalized_sections))
+        if keywords:
+            normalized_sections.append(f"Keywords: {', '.join(keywords)}")
+        return "\n".join(normalized_sections).strip()
+
+    def _extract_keywords(self, text: str) -> list[str]:
+        if not text.strip():
+            return []
+        return [
+            keyword.strip()
+            for keyword in jieba.analyse.extract_tags(
+                text,
+                topK=12,
+                withWeight=False,
+            )
+            if keyword.strip()
+        ]
 
     def _build_doc_path(
         self,
@@ -791,9 +893,22 @@ class LongTermMemoryService:
             for _, prepared in prepared_documents:
                 self.document_loader.apply_prepared_write(prepared)
         except Exception:
-            self._cleanup_prepared_documents(prepared_documents)
+            self._rollback_prepared_documents(prepared_documents)
             raise
-        self._cleanup_prepared_documents(prepared_documents)
+
+    def _rollback_prepared_documents(
+        self,
+        prepared_documents: list[tuple[LongTermMemoryDocument, object]],
+    ) -> None:
+        for _, prepared in reversed(prepared_documents):
+            try:
+                self.document_loader.rollback_prepared_write(prepared)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "memory long-term document rollback failed: error=%s",
+                    exc,
+                    exc_info=True,
+                )
 
     def _cleanup_prepared_documents(
         self,
