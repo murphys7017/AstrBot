@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -44,16 +45,21 @@ from astrbot.core.memory.store import MemoryStore
 from astrbot.core.memory.turn_record_service import TurnRecordService
 from astrbot.core.memory.types import (
     DocumentSearchRequest,
+    DocumentSearchResult,
     Experience,
     LongTermMemoryDocument,
     LongTermMemoryIndex,
+    LongTermMemoryLink,
     LongTermMemoryStatus,
     LongTermVectorSyncStatus,
     MemoryIdentity,
     MemoryUpdateRequest,
+    PersonaState,
+    ScopeType,
     SessionInsight,
     ShortTermMemory,
     TopicState,
+    TurnRecord,
 )
 from astrbot.core.memory.vector_index import MemoryVectorIndex
 from astrbot.core.postprocess import get_postprocess_manager
@@ -112,12 +118,13 @@ def _session_insight(
     summary_text: str,
     created_at: datetime,
     conversation_id: str | None = "conv-1",
+    platform_user_key: str | None = TEST_PLATFORM_USER_KEY,
 ) -> SessionInsight:
     return SessionInsight(
         insight_id=insight_id,
         umo=TEST_UMO,
         conversation_id=conversation_id,
-        platform_user_key=TEST_PLATFORM_USER_KEY,
+        platform_user_key=platform_user_key,
         canonical_user_id=TEST_CANONICAL_USER_ID,
         window_start_at=window_start_at,
         window_end_at=window_end_at,
@@ -1030,6 +1037,30 @@ class StubManualVectorIndex:
         self.calls.append(memory_id)
 
 
+class StubSnapshotDocumentSearchService:
+    def __init__(self, memory_ids: list[str]) -> None:
+        self.memory_ids = list(memory_ids)
+        self.calls: list[DocumentSearchRequest] = []
+
+    async def search_long_term_memories(
+        self,
+        req: DocumentSearchRequest,
+    ) -> list[DocumentSearchResult]:
+        self.calls.append(req)
+        return [
+            DocumentSearchResult(
+                memory_id=memory_id,
+                score=1.0 - (index * 0.1),
+                title=memory_id,
+                summary=memory_id,
+                category="project_progress",
+                tags=[],
+                doc_path=f"{memory_id}.md",
+            )
+            for index, memory_id in enumerate(self.memory_ids)
+        ]
+
+
 class FailingManualVectorIndex:
     async def ensure_ready(self) -> None:
         return None
@@ -1240,6 +1271,340 @@ async def test_memory_service_snapshot_keeps_query_as_debug_meta(temp_dir: Path)
         await store.close()
 
     assert snapshot.debug_meta == {"query": "memory lookup query"}
+
+
+@pytest.mark.asyncio
+async def test_memory_service_snapshot_uses_query_search_for_long_term_memories(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    document_search_service = StubSnapshotDocumentSearchService(
+        ["ltm-query-2", "ltm-query-1"]
+    )
+    snapshot_builder = MemorySnapshotBuilder(
+        store,
+        document_search_service=document_search_service,  # type: ignore[arg-type]
+    )
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(store, RecentConversationSource(store)),
+        snapshot_builder,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_turn_record(
+            TurnRecord(
+                turn_id="turn-query-1",
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                platform_id=TEST_PLATFORM_ID,
+                platform_user_key=TEST_PLATFORM_USER_KEY,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                session_id="session-1",
+                user_message={"role": "user", "content": "Need memory search."},
+                assistant_message={
+                    "role": "assistant",
+                    "content": "Searching memories.",
+                },
+                message_timestamp=now,
+                source_refs=[],
+                created_at=now,
+            )
+        )
+        for memory_id, updated_at in (
+            ("ltm-query-1", now),
+            ("ltm-query-2", now + timedelta(seconds=1)),
+        ):
+            await store.upsert_long_term_memory_index(
+                _long_term_memory_index(
+                    memory_id=memory_id,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    title=memory_id,
+                    summary=f"Summary for {memory_id}",
+                    status="active",
+                    doc_path=str(temp_dir / f"{memory_id}.md"),
+                    importance=0.8,
+                    confidence=0.9,
+                    tags=[],
+                    source_refs=[],
+                    first_event_at=updated_at,
+                    last_event_at=updated_at,
+                    created_at=updated_at,
+                    updated_at=updated_at,
+                )
+            )
+
+        snapshot = await memory_service.get_snapshot(
+            TEST_UMO,
+            "conv-1",
+            query="query driven snapshot",
+        )
+    finally:
+        await store.close()
+
+    assert snapshot.debug_meta == {"query": "query driven snapshot"}
+    assert [item.memory_id for item in snapshot.long_term_memories] == [
+        "ltm-query-2",
+        "ltm-query-1",
+    ]
+    assert len(document_search_service.calls) == 1
+    assert document_search_service.calls[0].query == "query driven snapshot"
+    assert document_search_service.calls[0].canonical_user_id == TEST_CANONICAL_USER_ID
+    assert document_search_service.calls[0].scope_type == ScopeType.USER
+    assert document_search_service.calls[0].scope_id == TEST_CANONICAL_USER_ID
+
+
+@pytest.mark.asyncio
+async def test_memory_service_snapshot_uses_story_links_for_query_aware_experiences(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    document_search_service = StubSnapshotDocumentSearchService(
+        ["ltm-query-2", "ltm-query-1"]
+    )
+    snapshot_builder = MemorySnapshotBuilder(
+        store,
+        document_search_service=document_search_service,  # type: ignore[arg-type]
+    )
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(store, RecentConversationSource(store)),
+        snapshot_builder,
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_turn_record(
+            TurnRecord(
+                turn_id="turn-query-experiences-1",
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                platform_id=TEST_PLATFORM_ID,
+                platform_user_key=TEST_PLATFORM_USER_KEY,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                session_id="session-1",
+                user_message={"role": "user", "content": "Need story-linked context."},
+                assistant_message={
+                    "role": "assistant",
+                    "content": "Searching linked experiences.",
+                },
+                message_timestamp=now,
+                source_refs=[],
+                created_at=now,
+            )
+        )
+        for memory_id, updated_at in (
+            ("ltm-query-1", now),
+            ("ltm-query-2", now + timedelta(seconds=1)),
+        ):
+            await store.upsert_long_term_memory_index(
+                _long_term_memory_index(
+                    memory_id=memory_id,
+                    scope_type="user",
+                    scope_id=TEST_CANONICAL_USER_ID,
+                    category="project_progress",
+                    title=memory_id,
+                    summary=f"Summary for {memory_id}",
+                    status="active",
+                    doc_path=str(temp_dir / f"{memory_id}.md"),
+                    importance=0.8,
+                    confidence=0.9,
+                    tags=[],
+                    source_refs=[],
+                    first_event_at=updated_at,
+                    last_event_at=updated_at,
+                    created_at=updated_at,
+                    updated_at=updated_at,
+                )
+            )
+
+        await store.save_experience(
+            _experience(
+                experience_id="exp-linked-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="First linked experience",
+                detail_summary="Supports the older matched story.",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-linked-2",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now + timedelta(seconds=1),
+                category="project_progress",
+                summary="Second linked experience",
+                detail_summary="Supports the higher-ranked matched story.",
+                created_at=now + timedelta(seconds=1),
+                updated_at=now + timedelta(seconds=1),
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-recent-fallback",
+                scope_type="conversation",
+                scope_id="conv-1",
+                event_time=now + timedelta(seconds=2),
+                category="episodic_event",
+                summary="Most recent conversation experience",
+                detail_summary="Fills the snapshot after linked experiences.",
+                created_at=now + timedelta(seconds=2),
+                updated_at=now + timedelta(seconds=2),
+            )
+        )
+
+        await store.save_long_term_memory_link(
+            LongTermMemoryLink(
+                link_id="link-query-1",
+                memory_id="ltm-query-1",
+                experience_id="exp-linked-1",
+                relation_type="support",
+                created_at=now,
+            )
+        )
+        await store.save_long_term_memory_link(
+            LongTermMemoryLink(
+                link_id="link-query-2",
+                memory_id="ltm-query-2",
+                experience_id="exp-linked-2",
+                relation_type="support",
+                created_at=now + timedelta(seconds=1),
+            )
+        )
+
+        snapshot = await memory_service.get_snapshot(
+            TEST_UMO,
+            "conv-1",
+            query="query driven snapshot",
+        )
+    finally:
+        await store.close()
+
+    assert [item.memory_id for item in snapshot.long_term_memories] == [
+        "ltm-query-2",
+        "ltm-query-1",
+    ]
+    assert [item.experience_id for item in snapshot.experiences[:3]] == [
+        "exp-linked-2",
+        "exp-linked-1",
+        "exp-recent-fallback",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_store_migrates_platform_user_key_to_nullable(
+    temp_dir: Path,
+):
+    db_path = temp_dir / "memory.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE memory_session_insights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                insight_id VARCHAR(64) NOT NULL,
+                umo VARCHAR(255) NOT NULL,
+                conversation_id VARCHAR(64),
+                platform_user_key VARCHAR(255) NOT NULL,
+                canonical_user_id VARCHAR(255) NOT NULL,
+                window_start_at DATETIME,
+                window_end_at DATETIME,
+                topic_summary TEXT,
+                progress_summary TEXT,
+                summary_text TEXT,
+                created_at DATETIME NOT NULL
+            );
+            CREATE UNIQUE INDEX ix_memory_session_insights_insight_id ON memory_session_insights (insight_id);
+            CREATE INDEX ix_memory_session_insights_umo ON memory_session_insights (umo);
+            CREATE INDEX ix_memory_session_insights_conversation_id ON memory_session_insights (conversation_id);
+            CREATE INDEX ix_memory_session_insights_platform_user_key ON memory_session_insights (platform_user_key);
+            CREATE INDEX ix_memory_session_insights_canonical_user_id ON memory_session_insights (canonical_user_id);
+            CREATE INDEX ix_memory_session_insights_window_start_at ON memory_session_insights (window_start_at);
+            CREATE INDEX ix_memory_session_insights_window_end_at ON memory_session_insights (window_end_at);
+
+            CREATE TABLE memory_experiences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experience_id VARCHAR(64) NOT NULL,
+                umo VARCHAR(255) NOT NULL,
+                conversation_id VARCHAR(64),
+                platform_user_key VARCHAR(255) NOT NULL,
+                canonical_user_id VARCHAR(255) NOT NULL,
+                scope_type VARCHAR(32) NOT NULL,
+                scope_id VARCHAR(255) NOT NULL,
+                event_time DATETIME NOT NULL,
+                category VARCHAR(64) NOT NULL,
+                summary TEXT NOT NULL,
+                detail_summary TEXT,
+                importance FLOAT NOT NULL DEFAULT 0.0,
+                confidence FLOAT NOT NULL DEFAULT 0.0,
+                source_refs JSON,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+            CREATE UNIQUE INDEX ix_memory_experiences_experience_id ON memory_experiences (experience_id);
+            CREATE INDEX ix_memory_experiences_umo ON memory_experiences (umo);
+            CREATE INDEX ix_memory_experiences_conversation_id ON memory_experiences (conversation_id);
+            CREATE INDEX ix_memory_experiences_platform_user_key ON memory_experiences (platform_user_key);
+            CREATE INDEX ix_memory_experiences_canonical_user_id ON memory_experiences (canonical_user_id);
+            CREATE INDEX ix_memory_experiences_scope_type ON memory_experiences (scope_type);
+            CREATE INDEX ix_memory_experiences_scope_id ON memory_experiences (scope_id);
+            CREATE INDEX ix_memory_experiences_event_time ON memory_experiences (event_time);
+            CREATE INDEX ix_memory_experiences_category ON memory_experiences (category);
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = MemoryStore(db_path=db_path)
+    now = datetime.now(UTC)
+
+    try:
+        await store.initialize()
+        insight = await store.save_session_insight(
+            _session_insight(
+                insight_id="insight-migrated",
+                window_start_at=now,
+                window_end_at=now,
+                topic_summary="Migrated insight",
+                progress_summary="Migrated progress",
+                summary_text="Migrated summary",
+                created_at=now,
+                platform_user_key=None,
+            )
+        )
+        experience = await store.save_experience(
+            _experience(
+                experience_id="exp-migrated",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="Migrated experience",
+                detail_summary="The migrated table should allow null platform_user_key.",
+                importance=0.8,
+                confidence=0.9,
+                source_refs=[],
+                created_at=now,
+                updated_at=now,
+                platform_user_key=None,
+            )
+        )
+    finally:
+        await store.close()
+
+    assert insight.platform_user_key is None
+    assert experience.platform_user_key is None
 
 
 @pytest.mark.asyncio
@@ -1540,7 +1905,12 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
     assert analyzer_manager.calls == ["session_insight_update", "experience_extract"]
     assert latest_insight is not None
     assert len(experiences) == 2
-    assert snapshot.experiences == []
+    assert len(snapshot.experiences) == 2
+    assert {item.experience_id for item in snapshot.experiences} == {
+        item.experience_id for item in experiences
+    }
+    assert snapshot.long_term_memories == []
+    assert snapshot.persona_state is None
 
 
 @pytest.mark.asyncio
@@ -1679,11 +2049,15 @@ async def test_memory_service_update_triggers_long_term_promotion_after_consolid
             scope_type="user",
             scope_id=TEST_CANONICAL_USER_ID,
         )
+        snapshot = await memory_service.get_snapshot(TEST_UMO, "conv-1")
     finally:
         await store.close()
 
     assert long_term_analyzer.calls == ["long_term_promote", "long_term_compose"]
     assert len(memories) == 1
+    assert len(snapshot.experiences) == 2
+    assert len(snapshot.long_term_memories) == 1
+    assert snapshot.long_term_memories[0].memory_id == memories[0].memory_id
 
 
 @pytest.mark.asyncio
@@ -1747,7 +2121,127 @@ async def test_memory_service_keeps_database_results_when_projection_refresh_fai
 
     assert latest_insight is not None
     assert len(experiences) == 2
-    assert snapshot.experiences == []
+    assert len(snapshot.experiences) == 2
+
+
+@pytest.mark.asyncio
+async def test_memory_service_snapshot_returns_persona_state_and_long_term_context(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    memory_service = MemoryService(
+        store,
+        TurnRecordService(store),
+        ShortTermMemoryService(store, history_source),
+        MemorySnapshotBuilder(store),
+    )
+    now = datetime.now(UTC)
+
+    try:
+        await store.save_turn_record(
+            TurnRecord(
+                turn_id="turn-snapshot-1",
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                platform_id=TEST_PLATFORM_ID,
+                platform_user_key=TEST_PLATFORM_USER_KEY,
+                canonical_user_id=TEST_CANONICAL_USER_ID,
+                session_id="session-1",
+                user_message={"role": "user", "content": "Need memory context."},
+                assistant_message={
+                    "role": "assistant",
+                    "content": "Here is the context.",
+                },
+                message_timestamp=now,
+                source_refs=[],
+                created_at=now,
+            )
+        )
+        await store.upsert_topic_state(
+            TopicState(
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                current_topic="Snapshot assembly",
+                topic_summary="Assemble a useful memory snapshot.",
+                topic_confidence=0.91,
+                last_active_at=now,
+            )
+        )
+        await store.upsert_short_term_memory(
+            ShortTermMemory(
+                umo=TEST_UMO,
+                conversation_id="conv-1",
+                short_summary="The user wants the snapshot to include multiple memory layers.",
+                active_focus="Return relevant memory data",
+                updated_at=now,
+            )
+        )
+        await store.save_experience(
+            _experience(
+                experience_id="exp-snapshot-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                event_time=now,
+                category="project_progress",
+                summary="Built the snapshot aggregator",
+                detail_summary="The snapshot now reads from persisted memory layers.",
+                importance=0.85,
+                confidence=0.93,
+                source_refs=["turn:turn-snapshot-1"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.upsert_long_term_memory_index(
+            _long_term_memory_index(
+                memory_id="ltm-snapshot-1",
+                scope_type="user",
+                scope_id=TEST_CANONICAL_USER_ID,
+                category="project_progress",
+                title="Snapshot should expose memory layers",
+                summary="Snapshot should include recent experience and long-term memory context.",
+                status="active",
+                doc_path=str(temp_dir / "ltm-snapshot-1.md"),
+                importance=0.84,
+                confidence=0.9,
+                tags=["snapshot", "memory"],
+                source_refs=["exp:exp-snapshot-1"],
+                first_event_at=now,
+                last_event_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.upsert_persona_state(
+            PersonaState(
+                state_id="persona-state-1",
+                scope_type=ScopeType.USER,
+                scope_id=TEST_CANONICAL_USER_ID,
+                persona_id=None,
+                familiarity=0.6,
+                trust=0.72,
+                warmth=0.64,
+                formality_preference=0.35,
+                directness_preference=0.88,
+                updated_at=now,
+            )
+        )
+
+        snapshot = await memory_service.get_snapshot(TEST_UMO, "conv-1")
+    finally:
+        await store.close()
+
+    assert snapshot.topic_state is not None
+    assert snapshot.short_term_memory is not None
+    assert snapshot.canonical_user_id == TEST_CANONICAL_USER_ID
+    assert len(snapshot.experiences) == 1
+    assert snapshot.experiences[0].experience_id == "exp-snapshot-1"
+    assert len(snapshot.long_term_memories) == 1
+    assert snapshot.long_term_memories[0].memory_id == "ltm-snapshot-1"
+    assert snapshot.persona_state is not None
+    assert snapshot.persona_state.scope_id == TEST_CANONICAL_USER_ID
+    assert snapshot.persona_state.directness_preference == 0.88
 
 
 @pytest.mark.asyncio
@@ -3115,6 +3609,86 @@ async def test_document_search_service_hydrates_results_and_loads_body(temp_dir:
     }
 
 
+def test_document_loader_raises_on_missing_front_matter(temp_dir: Path):
+    loader = DocumentLoader()
+    doc_path = temp_dir / "invalid.md"
+    doc_path.write_text("# Missing front matter\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing YAML front matter"):
+        loader.load_long_term_document(doc_path)
+
+
+def test_document_loader_raises_on_missing_required_field(temp_dir: Path):
+    loader = DocumentLoader()
+    doc_path = temp_dir / "missing-field.md"
+    doc_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "memory_id: ltm-1",
+                "umo: test:private:user",
+                "canonical_user_id: canonical-user-1",
+                "scope_type: user",
+                "scope_id: canonical-user-1",
+                "category: project_progress",
+                "status: active",
+                "importance: 0.8",
+                "confidence: 0.9",
+                "---",
+                "",
+                "# Missing title",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing required field `title`"):
+        loader.load_long_term_document(doc_path)
+
+
+def test_document_loader_extracts_fenced_sections(temp_dir: Path):
+    loader = DocumentLoader()
+    doc_path = temp_dir / "fenced.md"
+    doc_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "memory_id: ltm-fenced",
+                "umo: test:private:user",
+                "canonical_user_id: canonical-user-1",
+                "scope_type: user",
+                "scope_id: canonical-user-1",
+                "category: project_progress",
+                "status: active",
+                "title: Fenced Memory",
+                "importance: 0.8",
+                "confidence: 0.9",
+                "---",
+                "",
+                "# Fenced Memory",
+                "",
+                "## Summary",
+                "```text",
+                "Summary line 1",
+                "Summary line 2",
+                "```",
+                "",
+                "## Detail",
+                "```text",
+                "Detail line 1",
+                "Detail line 2",
+                "```",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    document = loader.load_long_term_document(doc_path)
+
+    assert document.summary == "Summary line 1\nSummary line 2"
+    assert document.detail_summary == "Detail line 1\nDetail line 2"
+
+
 def test_document_serializer_builds_structured_search_text_with_keywords():
     serializer = DocumentSerializer()
     now = datetime.now(UTC)
@@ -3353,6 +3927,90 @@ async def test_memory_vector_index_falls_back_to_first_embedding_provider_when_p
 
     assert hits
     assert hits[0].memory_id == "ltm-fallback-1"
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_index_raises_when_configured_provider_is_missing(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                '  provider_id: "missing-provider"',
+                f'  root_dir: "{vector_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    provider = DummyEmbeddingProvider("embedding-test")
+    provider_manager = DummyEmbeddingProviderManager(provider)
+    vector_index = MemoryVectorIndex(store, config=config)
+    vector_index.bind_provider_manager(provider_manager)
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="embedding provider was not found: missing-provider",
+        ):
+            await vector_index.ensure_ready()
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_index_raises_when_provider_is_not_embedding_provider(
+    temp_dir: Path,
+):
+    config_path = temp_dir / "memory-config.yaml"
+    sqlite_path = (temp_dir / "memory.db").as_posix()
+    docs_root = (temp_dir / "long_term").as_posix()
+    projections_root = (temp_dir / "projections").as_posix()
+    vector_root = (temp_dir / "vector_index").as_posix()
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "storage:",
+                f'  sqlite_path: "{sqlite_path}"',
+                f'  docs_root: "{docs_root}"',
+                f'  projections_root: "{projections_root}"',
+                "vector_index:",
+                "  enabled: true",
+                '  provider_id: "not-embedding"',
+                f'  root_dir: "{vector_root}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    store = MemoryStore(config=config)
+    provider_manager = MagicMock()
+    provider_manager.get_provider_by_id = AsyncMock(return_value=object())
+    vector_index = MemoryVectorIndex(store, config=config)
+    vector_index.bind_provider_manager(provider_manager)
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="provider is not an embedding provider: not-embedding",
+        ):
+            await vector_index.ensure_ready()
+    finally:
+        await store.close()
 
 
 @pytest.mark.asyncio

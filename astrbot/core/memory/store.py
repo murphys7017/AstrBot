@@ -43,6 +43,72 @@ from .types import (
 
 
 class MemoryStore:
+    _PLATFORM_USER_KEY_NULLABLE_MIGRATIONS = (
+        {
+            "table": "memory_session_insights",
+            "create_sql": """
+                CREATE TABLE "__tmp_memory_session_insights" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    insight_id VARCHAR(64) NOT NULL,
+                    umo VARCHAR(255) NOT NULL,
+                    conversation_id VARCHAR(64),
+                    platform_user_key VARCHAR(255),
+                    canonical_user_id VARCHAR(255) NOT NULL,
+                    window_start_at DATETIME,
+                    window_end_at DATETIME,
+                    topic_summary TEXT,
+                    progress_summary TEXT,
+                    summary_text TEXT,
+                    created_at DATETIME NOT NULL
+                )
+            """,
+            "indexes": (
+                'CREATE UNIQUE INDEX "ix_memory_session_insights_insight_id" ON "memory_session_insights" ("insight_id")',
+                'CREATE INDEX "ix_memory_session_insights_umo" ON "memory_session_insights" ("umo")',
+                'CREATE INDEX "ix_memory_session_insights_conversation_id" ON "memory_session_insights" ("conversation_id")',
+                'CREATE INDEX "ix_memory_session_insights_platform_user_key" ON "memory_session_insights" ("platform_user_key")',
+                'CREATE INDEX "ix_memory_session_insights_canonical_user_id" ON "memory_session_insights" ("canonical_user_id")',
+                'CREATE INDEX "ix_memory_session_insights_window_start_at" ON "memory_session_insights" ("window_start_at")',
+                'CREATE INDEX "ix_memory_session_insights_window_end_at" ON "memory_session_insights" ("window_end_at")',
+            ),
+        },
+        {
+            "table": "memory_experiences",
+            "create_sql": """
+                CREATE TABLE "__tmp_memory_experiences" (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    experience_id VARCHAR(64) NOT NULL,
+                    umo VARCHAR(255) NOT NULL,
+                    conversation_id VARCHAR(64),
+                    platform_user_key VARCHAR(255),
+                    canonical_user_id VARCHAR(255) NOT NULL,
+                    scope_type VARCHAR(32) NOT NULL,
+                    scope_id VARCHAR(255) NOT NULL,
+                    event_time DATETIME NOT NULL,
+                    category VARCHAR(64) NOT NULL,
+                    summary TEXT NOT NULL,
+                    detail_summary TEXT,
+                    importance FLOAT NOT NULL DEFAULT 0.0,
+                    confidence FLOAT NOT NULL DEFAULT 0.0,
+                    source_refs JSON,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+            """,
+            "indexes": (
+                'CREATE UNIQUE INDEX "ix_memory_experiences_experience_id" ON "memory_experiences" ("experience_id")',
+                'CREATE INDEX "ix_memory_experiences_umo" ON "memory_experiences" ("umo")',
+                'CREATE INDEX "ix_memory_experiences_conversation_id" ON "memory_experiences" ("conversation_id")',
+                'CREATE INDEX "ix_memory_experiences_platform_user_key" ON "memory_experiences" ("platform_user_key")',
+                'CREATE INDEX "ix_memory_experiences_canonical_user_id" ON "memory_experiences" ("canonical_user_id")',
+                'CREATE INDEX "ix_memory_experiences_scope_type" ON "memory_experiences" ("scope_type")',
+                'CREATE INDEX "ix_memory_experiences_scope_id" ON "memory_experiences" ("scope_id")',
+                'CREATE INDEX "ix_memory_experiences_event_time" ON "memory_experiences" ("event_time")',
+                'CREATE INDEX "ix_memory_experiences_category" ON "memory_experiences" ("category")',
+            ),
+        },
+    )
+
     def __init__(
         self,
         db_path: str | Path | None = None,
@@ -78,14 +144,54 @@ class MemoryStore:
     async def initialize(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(BaseMemoryModel.metadata.create_all)
+            await self._migrate_nullable_platform_user_key_columns(conn)
+        async with self.engine.connect() as conn:
+            conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
             await conn.execute(text("PRAGMA journal_mode=WAL"))
             await conn.execute(text("PRAGMA synchronous=NORMAL"))
             await conn.execute(text("PRAGMA cache_size=20000"))
             await conn.execute(text("PRAGMA temp_store=MEMORY"))
             await conn.execute(text("PRAGMA mmap_size=134217728"))
             await conn.execute(text("PRAGMA optimize"))
-            await conn.commit()
         self.inited = True
+
+    async def _migrate_nullable_platform_user_key_columns(self, conn) -> None:
+        for migration in self._PLATFORM_USER_KEY_NULLABLE_MIGRATIONS:
+            table_name = migration["table"]
+            column_info = await self._get_table_column_info(conn, table_name)
+            if not column_info:
+                continue
+            platform_user_key = next(
+                (item for item in column_info if item["name"] == "platform_user_key"),
+                None,
+            )
+            if platform_user_key is None or int(platform_user_key["notnull"]) == 0:
+                continue
+
+            temp_table = f"__tmp_{table_name}"
+            column_names = ", ".join(item["name"] for item in column_info)
+            await conn.execute(text(f'DROP TABLE IF EXISTS "{temp_table}"'))
+            await conn.execute(text(str(migration["create_sql"])))
+            await conn.execute(
+                text(
+                    f'INSERT INTO "{temp_table}" ({column_names}) '
+                    f'SELECT {column_names} FROM "{table_name}"'
+                )
+            )
+            await conn.execute(text(f'DROP TABLE "{table_name}"'))
+            await conn.execute(
+                text(f'ALTER TABLE "{temp_table}" RENAME TO "{table_name}"')
+            )
+            for index_sql in migration["indexes"]:
+                await conn.execute(text(str(index_sql)))
+            logger.info(
+                "memory store migrated nullable platform_user_key: table=%s",
+                table_name,
+            )
+
+    async def _get_table_column_info(self, conn, table_name: str) -> list[dict]:
+        result = await conn.execute(text(f'PRAGMA table_info("{table_name}")'))
+        return [dict(row) for row in result.mappings().all()]
 
     async def close(self) -> None:
         await self.engine.dispose()
@@ -265,6 +371,19 @@ class MemoryStore:
         async with self.get_db() as session:
             async with session.begin():
                 return await self._save_experience_with_session(session, experience)
+
+    async def get_experience(
+        self,
+        experience_id: str,
+    ) -> Experience | None:
+        async with self.get_db() as session:
+            result = await session.execute(
+                select(MemoryExperience).where(
+                    col(MemoryExperience.experience_id) == experience_id
+                )
+            )
+            entity = result.scalar_one_or_none()
+            return self._to_experience(entity) if entity else None
 
     async def persist_consolidation_batch(
         self,

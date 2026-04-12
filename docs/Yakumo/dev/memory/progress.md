@@ -7,12 +7,13 @@
 当前 memory 处于：
 
 - 已完成短期闭环
-- 已完成 snapshot 只读出口
+- 已完成 snapshot 只读出口扩张
 - 已完成中期 consolidation 第一版
 - 已完成 `Experience` 的 Markdown 投影
 - 已完成 `LongTermMemory + Document Search V1`
 - 已完成长期记忆一致性修复第一轮
 - 已完成 identity 三层拆分第一版
+- 已完成向量检索主链路与严格失败校验
 - 未进入人格演进与完整 retrieval 接入
 
 当前可以认为已经完成了：
@@ -95,15 +96,22 @@
 
 - `topic_state`
 - `short_term_memory`
-- `experiences=[]`
-- `long_term_memories=[]`
-- `persona_state=None`
+- `experiences`
+- `long_term_memories`
+- `persona_state`
 
 说明：
 
-- `experiences` 当前仍未进入 snapshot，保持空列表占位
-- `long_term_memories` 与 `persona_state` 仍然是占位
-- 这里的空中长期字段不代表 retrieval / prompt 接入已实现
+- `canonical_user_id` 只看当前 latest turn，不做历史 turn 回溯补全
+- latest turn 没有 `canonical_user_id` 时，snapshot 只返回短期层
+- 无 query 时：
+  - `experiences` 返回当前用户最近经验
+  - `long_term_memories` 返回当前用户最近长期记忆
+- 有 query 时：
+  - `long_term_memories` 通过 `DocumentSearchService` 按 query 检索
+  - `experiences` 优先通过命中 story 的 `LongTermMemoryLink` 回查
+  - 不足部分再用最近经验补齐
+- 这里的中长期字段已进入 snapshot，但还不等于 prompt 消费链路已经完整收口
 
 ### 2.4 中期 consolidation 链路
 
@@ -167,8 +175,10 @@
 - 长期归属已切到 `canonical_user_id`
 - 长期文档写入已改成 staging + 原子替换
 - 向量索引开启时，长期导入 / promotion 会先校验 provider 绑定与索引可用性
+- 向量索引 provider 缺失 / 类型错误时按 strict failure 暴露
 - `importance / confidence / topic_confidence` 已收紧到 `0..1`
-- 仍未完整接入 `MemorySnapshot.long_term_memories`
+- 已接入 `MemorySnapshot.long_term_memories`
+- 已接入 query-aware 的 snapshot 长期读取链路
 - 仍未接入 prompt collector / renderer 消费链路
 
 ## 3. 已完成模块
@@ -205,6 +215,7 @@
 - `save_session_insight(...)`
 - `get_latest_session_insight(...)`
 - `save_experience(...)`
+- `get_experience(...)`
 - `list_recent_experiences(...)`
 - `list_experiences_for_scope(...)`
 - `list_experiences_by_time_range(...)`
@@ -213,6 +224,8 @@
 - `upsert_long_term_memory_index(...)`
 - `list_long_term_memory_indexes(...)`
 - `get_long_term_memory_index(...)`
+- `list_long_term_memories_by_vector_status(...)`
+- `update_long_term_vector_sync_state(...)`
 - `save_long_term_memory_link(...)`
 - `list_long_term_memory_links(...)`
 - `upsert_long_term_promotion_cursor(...)`
@@ -237,7 +250,7 @@
 - prompt system 只消费 snapshot
 - memory 还不负责 prompt render
 - memory 还不负责 selector / router / chat state
-- memory 还未把长期记忆稳定暴露到 snapshot
+- snapshot 的 query-aware `experiences` 当前仍基于命中 story 的 links 回查，不是独立 experience 向量检索
 - memory 还不负责人格演进更新
 
 ## 5. 当前完成度判断
@@ -247,15 +260,15 @@
 - Phase 1 短期写入闭环：已完成
 - Phase 2 snapshot 读取闭环：已完成
 - Phase 3 中期抽象链路：已部分完成
-- 长期记忆层：已完成第一版基础服务，但未完成对外读取闭环
+- 长期记忆层：已完成第一版基础服务与 snapshot 读取闭环
 - 人格演进层：未开始
 - retrieval 层：仅完成文档搜索基础，未完成统一召回链路
 
 如果按“能不能给后续 prompt system 提供稳定 memory 输入”来看：
 
 - 短期层：可以
-- 中期层：内部已可用，但 `experiences` 仍未进入 snapshot
-- 长期层：内部基础已存在，但还未形成稳定 prompt 消费入口
+- 中期层：已可通过 snapshot 暴露，但 retrieval 仍未统一
+- 长期层：已可通过 snapshot 暴露，但还未形成稳定 prompt 消费入口
 
 ## 6. 当前主要限制
 

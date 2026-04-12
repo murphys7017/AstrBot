@@ -402,7 +402,10 @@ def get_memory_service() -> MemoryService:
             store,
             vector_index=vector_index,
         )
-        snapshot_builder = MemorySnapshotBuilder(store)
+        snapshot_builder = MemorySnapshotBuilder(
+            store,
+            document_search_service=document_search_service,
+        )
         _MEMORY_SERVICE = MemoryService(
             store,
             turn_record_service,

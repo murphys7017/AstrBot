@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from astrbot.core.memory.analyzer import (
-    MemoryAnalyzerConfigurationError,
     MemoryAnalyzerManager,
     MemoryAnalyzerPromptError,
+    MemoryAnalyzerProviderError,
     render_prompt_template,
 )
 from astrbot.core.memory.config import load_memory_config
@@ -201,5 +201,5 @@ async def test_memory_analyzer_manager_requires_configured_provider(
     prompt_path.write_text("Analyze text: {text}", encoding="utf-8")
     manager = MemoryAnalyzerManager(config.analysis)
 
-    with pytest.raises(MemoryAnalyzerConfigurationError):
+    with pytest.raises(MemoryAnalyzerProviderError):
         await manager.dispatch_stage("short_term_update", payload={"text": "hello"})

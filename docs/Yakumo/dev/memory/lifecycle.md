@@ -96,8 +96,9 @@
 
 触发时机：
 
-- 定时任务
-- 不跟随每一轮对话立即执行
+- 当前实现按回合后阈值触发
+- 不是独立 scheduler
+- 不要求每轮都执行
 
 输入：
 
@@ -114,6 +115,7 @@
 - `LongTermMemory` 是高价值长期认知对象。
 - 长期记忆采用 `SQLite` 索引 + `Markdown` 正文。
 - 这一阶段允许对已有长期记忆对象做补充与更新。
+- 当前向量索引开启时，会先严格校验 provider 绑定与 embedding provider 可用性。
 
 ## 6. 人格状态更新阶段
 
@@ -162,6 +164,12 @@
 
 - `MemorySnapshot` 是给 Prompt System 消费的只读视图。
 - Prompt System 只读取 snapshot，不直接参与 memory update。
+- 当前 snapshot 只用 latest turn 的 `canonical_user_id` 判断是否允许读取中长期层。
+- latest turn 没有身份映射时，只返回短期层。
+- 有 query 时：
+  - `LongTermMemory` 先通过文档搜索检索
+  - `Experience` 再通过命中 story 的 links 回查
+  - 剩余名额用最近经验补齐
 
 ## 8. 各阶段职责边界
 

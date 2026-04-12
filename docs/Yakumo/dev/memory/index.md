@@ -9,20 +9,22 @@
 - `Post Process -> MemoryService` 回合后写入链路已接通
 - `TurnRecord`、`TopicState`、`ShortTermMemory` 已稳定写入 `SQLite`
 - `MemorySnapshot` 读取链路已接通
+- `MemorySnapshot` 已能返回 `experiences / long_term_memories / persona_state`
 - 短期层已具备配置驱动的 analyzer 基础设施
 - `SessionInsight` 与 `Experience` 已具备模型驱动的 consolidation 链路
 - `Experience` 已具备 Markdown 投影
 - `LongTermMemory + Document Search V1` 已完成第一版实现
 - 长期记忆一致性修复第一轮已完成
 - 手动长期记忆导入 / 更新入口已完成
+- 向量检索主链路已完成真实测试覆盖
 - consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
 - 长期记忆当前处于“第一版已实现，并完成首轮稳定性修复”的阶段，详见 `long-term-fix-plan.md`
 
 当前仍未进入：
 
 - `PersonaState` / `PersonaEvolutionLog` 更新
-- `MemorySnapshot` 的长期层结果扩张
 - prompt render / prompt 注入
+- 统一 retriever / selector
 
 当前真实闭环：
 
@@ -37,7 +39,7 @@
 9. `ExperienceProjectionService` 写入 Markdown 投影
 10. 达阈值时 `LongTermMemoryService.run_promotion(...)`
 11. 通过 `DocumentSearchService` 执行长期记忆文档搜索
-12. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层只读视图
+12. 请求前通过 `MemoryService.get_snapshot(...)` 读取短期层 + 中长期只读视图
 
 ## 1. 当前目录目标
 
@@ -194,6 +196,7 @@
 
 - 已完成第一版修复计划收口
 - 其中关键修复已落地，需要继续维护“已修复 / 后续待做”状态
+- 当前 snapshot query 读取链路已开始消费文档搜索结果
 
 ## 3. 建议补充文档
 

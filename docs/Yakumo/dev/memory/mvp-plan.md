@@ -8,7 +8,7 @@
 
 - Phase 1 已完成
 - Phase 2 已完成
-- Phase 3 已部分完成
+- Phase 3 已大部分完成
 
 当前已经落地：
 
@@ -23,21 +23,24 @@
 - `postprocessor.py`
 - `consolidation_service.py`
 - `experience_service.py`
+- `long_term_service.py`
+- `document_loader.py`
+- `document_search.py`
+- `document_serializer.py`
+- `vector_index.py`
 
 当前仍未落地：
 
-- `vector_index.py`
 - `retriever.py`
-- `long_term_service.py`
 - `persona_state_service.py`
 - `jobs.py`
 - `graph_store.py`
 
 当前实际边界：
 
-- memory 只负责写入、短期更新、中期 consolidation、snapshot 读取
-- snapshot 当前只暴露短期层
-- `SessionInsight` / `Experience` 已写入 store，但还没有进入 snapshot
+- memory 已负责写入、短期更新、中期 consolidation、长期记忆文档与向量检索第一版、snapshot 读取
+- snapshot 已暴露短期层、经验层、长期层与 persona_state 读取结果
+- `SessionInsight` 当前仍不直接进入 snapshot
 - prompt 系统后续只作为 snapshot 消费方
 
 ## 1. MVP 目标
@@ -93,7 +96,7 @@
 
 - `consolidation_service.py` 已完成
 - `experience_service.py` 已完成
-- `vector_index.py` 未开始
+- `vector_index.py` 已完成第一版
 - `retriever.py` 未开始
 
 ### 2.3 本次明确后置
@@ -110,7 +113,8 @@
 
 当前状态：
 
-- 保持不变
+- `long_term_service.py` 已完成第一版
+- 其余保持不变
 
 ## 3. MVP 分阶段
 
@@ -200,9 +204,9 @@
 - 已完成 `SessionInsight`
 - 已完成 `Experience`
 - 已完成按阈值触发的 consolidation
-- 未完成向量索引
+- 已完成长期记忆向量索引第一版
 - 未完成 retrieval
-- `MemorySnapshot` 当前仍不返回 `experiences`
+- `MemorySnapshot` 已返回 `experiences / long_term_memories / persona_state`
 
 ## 4. MVP 数据对象
 

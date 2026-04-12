@@ -15,6 +15,7 @@ from astrbot.core.memory.history_source import RecentConversationSource
 from astrbot.core.memory.identity import (
     MemoryIdentityMappingService,
     MemoryIdentityResolver,
+    build_platform_user_key,
 )
 from astrbot.core.memory.postprocessor import MemoryPostProcessor
 from astrbot.core.memory.service import MemoryService
@@ -342,3 +343,181 @@ async def test_memory_service_short_term_survives_without_platform_user_key(
     assert short_term_memory is not None
     assert topic_state.current_topic == "Please keep this short-term only."
     assert short_term_memory.active_focus == "Please keep this short-term only."
+
+
+@pytest.mark.asyncio
+async def test_identity_mapping_service_bind_updates_yaml_and_store(temp_dir: Path):
+    config, mappings_path = _write_memory_config(temp_dir)
+    _write_identity_yaml(
+        mappings_path,
+        {
+            "bindings": [
+                {
+                    "platform_id": "qq",
+                    "sender_user_id": "10001",
+                    "canonical_user_id": "aki",
+                    "nickname_hint": "old-name",
+                }
+            ]
+        },
+    )
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
+
+    try:
+        binding = await mapping_service.bind_platform_user(
+            "qq",
+            "10001",
+            "aki-updated",
+            nickname_hint="new-name",
+        )
+        loaded = await store.get_identity_mapping("qq:10001")
+        yaml_payload = yaml.safe_load(mappings_path.read_text(encoding="utf-8"))
+    finally:
+        await store.close()
+
+    assert binding.platform_user_key == "qq:10001"
+    assert binding.canonical_user_id == "aki-updated"
+    assert loaded is not None
+    assert loaded.nickname_hint == "new-name"
+    assert yaml_payload["bindings"] == [
+        {
+            "platform_id": "qq",
+            "sender_user_id": "10001",
+            "canonical_user_id": "aki-updated",
+            "nickname_hint": "new-name",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_identity_mapping_service_unbind_updates_yaml_and_store(temp_dir: Path):
+    config, mappings_path = _write_memory_config(temp_dir)
+    _write_identity_yaml(
+        mappings_path,
+        {
+            "bindings": [
+                {
+                    "platform_id": "qq",
+                    "sender_user_id": "10001",
+                    "canonical_user_id": "aki",
+                }
+            ]
+        },
+    )
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
+
+    try:
+        await mapping_service.reload_from_yaml()
+        removed = await mapping_service.unbind_platform_user("qq:10001")
+        removed_again = await mapping_service.unbind_platform_user("qq:10001")
+        loaded = await store.get_identity_mapping("qq:10001")
+        yaml_payload = yaml.safe_load(mappings_path.read_text(encoding="utf-8"))
+    finally:
+        await store.close()
+
+    assert removed is True
+    assert removed_again is False
+    assert loaded is None
+    assert yaml_payload == {"bindings": []}
+
+
+@pytest.mark.asyncio
+async def test_identity_mapping_service_lists_bindings_for_canonical_user(
+    temp_dir: Path,
+):
+    config, mappings_path = _write_memory_config(temp_dir)
+    _write_identity_yaml(
+        mappings_path,
+        {
+            "bindings": [
+                {
+                    "platform_id": "discord",
+                    "sender_user_id": "aki-user",
+                    "canonical_user_id": "aki",
+                },
+                {
+                    "platform_id": "qq",
+                    "sender_user_id": "10001",
+                    "canonical_user_id": "aki",
+                },
+                {
+                    "platform_id": "telegram",
+                    "sender_user_id": "other-user",
+                    "canonical_user_id": "other",
+                },
+            ]
+        },
+    )
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
+
+    try:
+        await mapping_service.reload_from_yaml()
+        bindings = await mapping_service.list_bindings_for_canonical_user("aki")
+    finally:
+        await store.close()
+
+    assert [item.platform_user_key for item in bindings] == [
+        "discord:aki-user",
+        "qq:10001",
+    ]
+
+
+def test_identity_mappings_validate_rejects_non_list_payload(temp_dir: Path):
+    config, mappings_path = _write_memory_config(temp_dir)
+    _write_identity_yaml(mappings_path, {"bindings": "invalid"})
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
+
+    with pytest.raises(ValueError, match="field `bindings` must be a list"):
+        mapping_service.validate_yaml()
+
+
+@pytest.mark.asyncio
+async def test_identity_resolver_uses_message_obj_sender_nickname(temp_dir: Path):
+    config, _ = _write_memory_config(temp_dir)
+    store = MemoryStore(config=config)
+    resolver = MemoryIdentityResolver(
+        MemoryIdentityMappingService(store, config=config)
+    )
+    event = MagicMock()
+    event.unified_msg_origin = TEST_UMO
+    event.get_platform_id.return_value = "qq"
+    event.get_sender_id.return_value = "10001"
+    event.get_sender_name.return_value = None
+    event.message_obj = MagicMock(sender=MagicMock(nickname="fallback-nickname"))
+
+    try:
+        identity = await resolver.resolve_from_event(event)
+    finally:
+        await store.close()
+
+    assert identity.sender_nickname == "fallback-nickname"
+    assert identity.platform_user_key == build_platform_user_key("qq", "10001")
+
+
+@pytest.mark.asyncio
+async def test_document_search_passes_combined_filters():
+    vector_index = _CapturingVectorIndex()
+    store = MagicMock()
+    service = DocumentSearchService(store, vector_index=vector_index)  # type: ignore[arg-type]
+
+    results = await service.search_long_term_memories(
+        DocumentSearchRequest(
+            canonical_user_id=TEST_CANONICAL_USER_ID,
+            query="memory roadmap",
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            top_k=3,
+        )
+    )
+
+    assert results == []
+    assert vector_index.calls[0]["metadata_filters"] == {
+        "scope_type": "user",
+        "scope_id": TEST_CANONICAL_USER_ID,
+        "category": "project_progress",
+    }
