@@ -9,7 +9,8 @@ import pytest
 import yaml
 
 from astrbot.core.db.po import Conversation
-from astrbot.core.memory.config import load_memory_config
+from astrbot.core.memory.analyzer import MemoryAnalyzerResult
+from astrbot.core.memory.config import MemoryAnalysisConfig, load_memory_config
 from astrbot.core.memory.document_search import DocumentSearchService
 from astrbot.core.memory.history_source import RecentConversationSource
 from astrbot.core.memory.identity import (
@@ -33,6 +34,59 @@ from astrbot.core.provider.entities import ProviderRequest
 TEST_UMO = "test:private:user"
 TEST_PLATFORM_ID = "test"
 TEST_CANONICAL_USER_ID = "canonical-user-1"
+
+
+class _StubShortTermAnalyzerManager:
+    async def dispatch_stage(
+        self,
+        stage: str,
+        *,
+        payload: dict[str, object],
+        umo: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, MemoryAnalyzerResult]:
+        del payload, umo, conversation_id
+        return {
+            "topic_v1": MemoryAnalyzerResult(
+                analyzer_name="topic_v1",
+                stage=stage,
+                data={
+                    "current_topic": "Identity topic",
+                    "topic_summary": "Identity topic summary",
+                    "topic_confidence": 0.9,
+                },
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+            "focus_v1": MemoryAnalyzerResult(
+                analyzer_name="focus_v1",
+                stage=stage,
+                data={"active_focus": "Identity focus"},
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+            "summary_v1": MemoryAnalyzerResult(
+                analyzer_name="summary_v1",
+                stage=stage,
+                data={"short_summary": "Identity summary"},
+                raw_text="{}",
+                provider_id="memory-lite",
+                model="dummy-model",
+            ),
+        }
+
+
+def _build_short_term_service(
+    store: MemoryStore, history_source
+) -> ShortTermMemoryService:
+    return ShortTermMemoryService(
+        store,
+        history_source,
+        analyzer_manager=_StubShortTermAnalyzerManager(),  # type: ignore[arg-type]
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+    )
 
 
 def _write_memory_config(temp_dir: Path) -> tuple[object, Path]:
@@ -280,7 +334,7 @@ async def test_memory_service_reload_identity_mappings(temp_dir: Path):
     service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, MagicMock()),
+        _build_short_term_service(store, MagicMock()),
         MemorySnapshotBuilder(store),
         identity_mapping_service=identity_mapping_service,
     )
@@ -306,7 +360,7 @@ async def test_memory_service_short_term_survives_without_platform_user_key(
     service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, history_source),
+        _build_short_term_service(store, history_source),
         MemorySnapshotBuilder(store),
         identity_mapping_service=MemoryIdentityMappingService(store, config=config),
     )
@@ -341,8 +395,8 @@ async def test_memory_service_short_term_survives_without_platform_user_key(
     assert turn.canonical_user_id is None
     assert topic_state is not None
     assert short_term_memory is not None
-    assert topic_state.current_topic == "Please keep this short-term only."
-    assert short_term_memory.active_focus == "Please keep this short-term only."
+    assert topic_state.current_topic == "Identity topic"
+    assert short_term_memory.active_focus == "Identity focus"
 
 
 @pytest.mark.asyncio

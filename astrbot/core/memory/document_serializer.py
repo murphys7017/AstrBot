@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-import jieba.analyse
-
+from .config import MemoryConfig, get_memory_config
+from .keyword_extractor import (
+    ConfiguredMemoryKeywordExtractor,
+    build_keyword_extractor,
+)
 from .types import LongTermMemoryDocument, LongTermMemoryIndex, ScopeType
 
 
 class DocumentSerializer:
-    KEYWORD_TOP_K = 12
+    def __init__(
+        self,
+        config: MemoryConfig | None = None,
+        keyword_extractor: ConfiguredMemoryKeywordExtractor | None = None,
+    ) -> None:
+        self.config = config or get_memory_config()
+        self.keyword_extractor = keyword_extractor or build_keyword_extractor(
+            self.config.keyword_extraction
+        )
 
     def build_search_text(
         self,
@@ -73,17 +84,7 @@ class DocumentSerializer:
         return rendered_updates
 
     def _extract_keywords(self, text: str) -> list[str]:
-        if not text.strip():
-            return []
-        return [
-            keyword.strip()
-            for keyword in jieba.analyse.extract_tags(
-                text,
-                topK=self.KEYWORD_TOP_K,
-                withWeight=False,
-            )
-            if keyword.strip()
-        ]
+        return self.keyword_extractor.extract(text)
 
     @staticmethod
     def _render_bullets(items: list[str]) -> str:

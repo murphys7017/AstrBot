@@ -25,7 +25,7 @@ class MemoryVectorIndex:
         self.store = store
         self.config = config or get_memory_config()
         self.document_loader = document_loader or DocumentLoader(self.config)
-        self.serializer = serializer or DocumentSerializer()
+        self.serializer = serializer or DocumentSerializer(config=self.config)
         self.provider_manager = None
         self._vec_db: FaissVecDB | None = None
 

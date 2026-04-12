@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from astrbot.core.memory.analyzer import (
+    MemoryAnalyzerConfigurationError,
     MemoryAnalyzerManager,
     MemoryAnalyzerPromptError,
     MemoryAnalyzerProviderError,
@@ -155,6 +156,7 @@ async def test_memory_analyzer_manager_requires_prompt_file(
                 "    emotion_v1:",
                 '      implementation: "prompt_json"',
                 '      provider_id: "memory-lite"',
+                '      model: "dummy-model"',
                 '      prompt_file: "missing.md"',
                 "  stages:",
                 "    short_term_update:",
@@ -172,7 +174,7 @@ async def test_memory_analyzer_manager_requires_prompt_file(
 
 
 @pytest.mark.asyncio
-async def test_memory_analyzer_manager_requires_configured_provider(
+async def test_memory_analyzer_manager_requires_provider_id_configuration(
     temp_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -201,5 +203,84 @@ async def test_memory_analyzer_manager_requires_configured_provider(
     prompt_path.write_text("Analyze text: {text}", encoding="utf-8")
     manager = MemoryAnalyzerManager(config.analysis)
 
-    with pytest.raises(MemoryAnalyzerProviderError):
+    with pytest.raises(
+        MemoryAnalyzerConfigurationError,
+        match="has no provider_id configured",
+    ):
+        await manager.dispatch_stage("short_term_update", payload={"text": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_memory_analyzer_manager_requires_model_configuration(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "astrbot-root"))
+    config_path = temp_dir / "memory-config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "analysis:",
+                "  enabled: true",
+                '  prompts_root: "custom/prompts"',
+                "  analyzers:",
+                "    emotion_v1:",
+                '      implementation: "prompt_json"',
+                '      provider_id: "memory-lite"',
+                '      prompt_file: "emotion_v1.md"',
+                "  stages:",
+                "    short_term_update:",
+                '      analyzers: ["emotion_v1"]',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    prompt_path = config.analysis.prompts_root / "emotion_v1.md"
+    prompt_path.write_text("Analyze text: {text}", encoding="utf-8")
+    manager = MemoryAnalyzerManager(config.analysis)
+    manager.bind_provider_manager(DummyProviderManager(DummyProvider()))
+
+    with pytest.raises(
+        MemoryAnalyzerConfigurationError,
+        match="has no model configured",
+    ):
+        await manager.dispatch_stage("short_term_update", payload={"text": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_memory_analyzer_manager_raises_when_provider_not_found(
+    temp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "astrbot-root"))
+    config_path = temp_dir / "memory-config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "analysis:",
+                "  enabled: true",
+                '  prompts_root: "custom/prompts"',
+                "  analyzers:",
+                "    emotion_v1:",
+                '      implementation: "prompt_json"',
+                '      provider_id: "memory-lite"',
+                '      model: "dummy-model"',
+                '      prompt_file: "emotion_v1.md"',
+                "  stages:",
+                "    short_term_update:",
+                '      analyzers: ["emotion_v1"]',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    prompt_path = config.analysis.prompts_root / "emotion_v1.md"
+    prompt_path.write_text("Analyze text: {text}", encoding="utf-8")
+    manager = MemoryAnalyzerManager(config.analysis)
+    manager.bind_provider_manager(DummyProviderManager(None))
+
+    with pytest.raises(MemoryAnalyzerProviderError, match="was not found"):
         await manager.dispatch_stage("short_term_update", payload={"text": "hello"})

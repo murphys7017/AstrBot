@@ -14,16 +14,25 @@ from astrbot.core.astr_main_agent_resources import (
     LLM_SAFETY_MODE_SYSTEM_PROMPT,
     SANDBOX_MODE_PROMPT,
 )
-from astrbot.core.memory.types import MemorySnapshot, ShortTermMemory, TopicState
+from astrbot.core.memory.types import (
+    Experience,
+    LongTermMemoryIndex,
+    MemorySnapshot,
+    PersonaState,
+    ShortTermMemory,
+    TopicState,
+)
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.collectors import (
     ConversationHistoryCollector,
     InputCollector,
+    KnowledgeCollector,
     MemoryCollector,
     PolicyCollector,
     SessionCollector,
     SkillsCollector,
     SubagentCollector,
+    SystemCollector,
     ToolsCollector,
 )
 from astrbot.core.prompt.context_collect import (
@@ -53,6 +62,7 @@ def _make_event():
     event.get_group_id.return_value = None
     event.get_sender_name.return_value = "Tester"
     event.plugins_name = None
+    event.platform_meta = MagicMock(support_proactive_message=False)
     event.trace = MagicMock()
 
     def _get_extra(key):
@@ -693,6 +703,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
     )
 
     assert pack.meta["collectors"] == [
+        "SystemCollector",
         "PersonaCollector",
         "InputCollector",
         "SessionCollector",
@@ -702,7 +713,10 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "SkillsCollector",
         "ToolsCollector",
         "SubagentCollector",
+        "KnowledgeCollector",
     ]
+    assert pack.get_slot("system.base") is None
+    assert pack.get_slot("system.tool_call_instruction") is not None
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
     assert pack.get_slot("policy.safety_prompt") is not None
@@ -710,6 +724,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
     assert pack.get_slot("capability.tools_schema") is None
     assert pack.get_slot("capability.subagent_handoff_tools") is None
     assert pack.get_slot("capability.subagent_router_prompt") is None
+    assert pack.get_slot("knowledge.snippets") is None
 
 
 @pytest.mark.asyncio
@@ -736,6 +751,123 @@ async def test_collect_context_pack_collects_policy_safety_prompt_when_enabled()
     assert safety_slot.value == LLM_SAFETY_MODE_SYSTEM_PROMPT
     assert safety_slot.meta["enabled_by_config"] is True
     assert safety_slot.meta["strategy"] == "system_prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_system_base_from_provider_request():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello", system_prompt="Base system prompt")
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[SystemCollector()],
+    )
+
+    base_slot = pack.get_slot("system.base")
+    assert base_slot is not None
+    assert base_slot.value == "Base system prompt"
+    assert base_slot.meta["source_field"] == "provider_request.system_prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_full_tool_call_instruction():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    context.get_llm_tool_manager.return_value.get_full_tool_set.return_value = ToolSet(
+        [_make_tool("search_docs", description="Search docs.")]
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            tool_schema_mode="full",
+            computer_use_runtime="none",
+            add_cron_tools=False,
+        ),
+        collectors=[SystemCollector()],
+    )
+
+    instruction_slot = pack.get_slot("system.tool_call_instruction")
+    assert instruction_slot is not None
+    assert instruction_slot.value == ama.TOOL_CALL_PROMPT
+    assert instruction_slot.meta["tool_schema_mode"] == "full"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_skills_like_tool_call_instruction():
+    event, _ = _make_event()
+    context = _make_context()
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            tool_schema_mode="skills-like",
+            computer_use_runtime="local",
+            add_cron_tools=False,
+        ),
+        collectors=[SystemCollector()],
+    )
+
+    instruction_slot = pack.get_slot("system.tool_call_instruction")
+    assert instruction_slot is not None
+    assert instruction_slot.value == ama.TOOL_CALL_PROMPT_SKILLS_LIKE_MODE
+    assert instruction_slot.meta["tool_schema_mode"] == "skills-like"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_tool_call_instruction_when_no_tools_available():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            kb_agentic_mode=False,
+            computer_use_runtime="none",
+            add_cron_tools=False,
+        ),
+        collectors=[SystemCollector()],
+    )
+
+    assert pack.get_slot("system.tool_call_instruction") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_tool_call_instruction_for_agentic_kb_mode():
+    event, _ = _make_event()
+    context = _make_context()
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            kb_agentic_mode=True,
+            computer_use_runtime="none",
+            add_cron_tools=False,
+        ),
+        collectors=[SystemCollector()],
+    )
+
+    instruction_slot = pack.get_slot("system.tool_call_instruction")
+    assert instruction_slot is not None
+    assert instruction_slot.value == ama.TOOL_CALL_PROMPT
 
 
 @pytest.mark.asyncio
@@ -834,6 +966,58 @@ async def test_collect_context_pack_collects_memory_slots_from_snapshot(
             active_focus="MemoryCollector v1",
             updated_at=datetime(2026, 4, 5, 12, 31, 0),
         ),
+        experiences=[
+            Experience(
+                experience_id="exp-1",
+                umo=event.unified_msg_origin,
+                conversation_id="conv-id",
+                platform_user_key="test:user-1",
+                canonical_user_id="canonical-user-1",
+                scope_type="user",
+                scope_id="canonical-user-1",
+                event_time=datetime(2026, 4, 5, 12, 20, 0),
+                category="project_progress",
+                summary="Implemented snapshot integration.",
+                detail_summary="The memory snapshot now returns more layers.",
+                importance=0.81,
+                confidence=0.9,
+                source_refs=["turn:1"],
+                updated_at=datetime(2026, 4, 5, 12, 32, 0),
+            )
+        ],
+        long_term_memories=[
+            LongTermMemoryIndex(
+                memory_id="ltm-1",
+                umo=event.unified_msg_origin,
+                canonical_user_id="canonical-user-1",
+                scope_type="user",
+                scope_id="canonical-user-1",
+                category="project_progress",
+                title="Snapshot roadmap",
+                summary="The project is exposing long-term memory through snapshot.",
+                status="active",
+                doc_path="ignored.md",
+                importance=0.88,
+                confidence=0.91,
+                tags=["snapshot", "memory"],
+                source_refs=["exp:1"],
+                first_event_at=datetime(2026, 4, 5, 12, 0, 0),
+                last_event_at=datetime(2026, 4, 5, 12, 20, 0),
+                updated_at=datetime(2026, 4, 5, 12, 33, 0),
+            )
+        ],
+        persona_state=PersonaState(
+            state_id="persona-state-1",
+            scope_type="user",
+            scope_id="canonical-user-1",
+            persona_id=None,
+            familiarity=0.6,
+            trust=0.72,
+            warmth=0.64,
+            formality_preference=0.35,
+            directness_preference=0.88,
+            updated_at=datetime(2026, 4, 5, 12, 34, 0),
+        ),
     )
     _patch_memory_service.get_snapshot.return_value = snapshot
 
@@ -874,6 +1058,72 @@ async def test_collect_context_pack_collects_memory_slots_from_snapshot(
     }
     assert short_term_slot.meta["snapshot_field"] == "short_term_memory"
 
+    experiences_slot = pack.get_slot("memory.experiences")
+    assert experiences_slot is not None
+    assert experiences_slot.value == {
+        "count": 1,
+        "items": [
+            {
+                "experience_id": "exp-1",
+                "umo": event.unified_msg_origin,
+                "conversation_id": "conv-id",
+                "scope_type": "user",
+                "scope_id": "canonical-user-1",
+                "category": "project_progress",
+                "summary": "Implemented snapshot integration.",
+                "detail_summary": "The memory snapshot now returns more layers.",
+                "importance": 0.81,
+                "confidence": 0.9,
+                "event_time": "2026-04-05T12:20:00",
+                "updated_at": "2026-04-05T12:32:00",
+                "source_refs": ["turn:1"],
+            }
+        ],
+    }
+    assert experiences_slot.meta["snapshot_field"] == "experiences"
+
+    long_term_slot = pack.get_slot("memory.long_term_memories")
+    assert long_term_slot is not None
+    assert long_term_slot.value == {
+        "count": 1,
+        "items": [
+            {
+                "memory_id": "ltm-1",
+                "umo": event.unified_msg_origin,
+                "scope_type": "user",
+                "scope_id": "canonical-user-1",
+                "category": "project_progress",
+                "title": "Snapshot roadmap",
+                "summary": "The project is exposing long-term memory through snapshot.",
+                "status": "active",
+                "importance": 0.88,
+                "confidence": 0.91,
+                "tags": ["snapshot", "memory"],
+                "source_refs": ["exp:1"],
+                "first_event_at": "2026-04-05T12:00:00",
+                "last_event_at": "2026-04-05T12:20:00",
+                "updated_at": "2026-04-05T12:33:00",
+            }
+        ],
+    }
+    assert long_term_slot.meta["snapshot_field"] == "long_term_memories"
+
+    persona_state_slot = pack.get_slot("memory.persona_state")
+    assert persona_state_slot is not None
+    assert persona_state_slot.value == {
+        "state_id": "persona-state-1",
+        "scope_type": "user",
+        "scope_id": "canonical-user-1",
+        "persona_id": None,
+        "familiarity": 0.6,
+        "trust": 0.72,
+        "warmth": 0.64,
+        "formality_preference": 0.35,
+        "directness_preference": 0.88,
+        "updated_at": "2026-04-05T12:34:00",
+    }
+    assert persona_state_slot.meta["snapshot_field"] == "persona_state"
+
 
 @pytest.mark.asyncio
 async def test_collect_context_pack_memory_skips_empty_snapshot(_patch_memory_service):
@@ -899,6 +1149,9 @@ async def test_collect_context_pack_memory_skips_empty_snapshot(_patch_memory_se
 
     assert pack.get_slot("memory.topic_state") is None
     assert pack.get_slot("memory.short_term") is None
+    assert pack.get_slot("memory.experiences") is None
+    assert pack.get_slot("memory.long_term_memories") is None
+    assert pack.get_slot("memory.persona_state") is None
 
 
 @pytest.mark.asyncio
@@ -949,6 +1202,9 @@ async def test_collect_context_pack_memory_fail_open_when_snapshot_request_raise
 
     assert pack.get_slot("memory.topic_state") is None
     assert pack.get_slot("memory.short_term") is None
+    assert pack.get_slot("memory.experiences") is None
+    assert pack.get_slot("memory.long_term_memories") is None
+    assert pack.get_slot("memory.persona_state") is None
 
 
 @pytest.mark.asyncio
@@ -1531,6 +1787,161 @@ async def test_collect_context_pack_skips_subagent_slots_when_orchestrator_missi
 
     assert pack.get_slot("capability.subagent_handoff_tools") is None
     assert pack.get_slot("capability.subagent_router_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_knowledge_snippets_for_non_agentic_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="test question")
+
+    with patch(
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        AsyncMock(return_value="KB result"),
+    ) as mock_retrieve:
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                kb_agentic_mode=False,
+            ),
+            provider_request=req,
+            collectors=[KnowledgeCollector()],
+        )
+
+    mock_retrieve.assert_awaited_once_with(
+        query="test question",
+        umo=event.unified_msg_origin,
+        context=context,
+    )
+    knowledge_slot = pack.get_slot("knowledge.snippets")
+    assert knowledge_slot is not None
+    assert knowledge_slot.value == {
+        "format": "kb_text_block_v1",
+        "query": "test question",
+        "text": "KB result",
+    }
+    assert knowledge_slot.meta["query_source"] == "provider_request.prompt"
+    assert knowledge_slot.meta["kb_agentic_mode"] is False
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_knowledge_uses_event_message_as_fallback_query():
+    event, _ = _make_event()
+    event.message_str = "fallback query"
+    context = _make_context()
+
+    with patch(
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        AsyncMock(return_value="KB fallback result"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                kb_agentic_mode=False,
+            ),
+            collectors=[KnowledgeCollector()],
+        )
+
+    knowledge_slot = pack.get_slot("knowledge.snippets")
+    assert knowledge_slot is not None
+    assert knowledge_slot.value["query"] == "fallback query"
+    assert knowledge_slot.meta["query_source"] == "event.message_str"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_knowledge_slot_when_query_missing():
+    event, _ = _make_event()
+    event.message_str = ""
+    context = _make_context()
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            kb_agentic_mode=False,
+        ),
+        collectors=[KnowledgeCollector()],
+    )
+
+    assert pack.get_slot("knowledge.snippets") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_knowledge_slot_when_no_result():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="test question")
+
+    with patch(
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        AsyncMock(return_value=None),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                kb_agentic_mode=False,
+            ),
+            provider_request=req,
+            collectors=[KnowledgeCollector()],
+        )
+
+    assert pack.get_slot("knowledge.snippets") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_knowledge_slot_for_agentic_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="test question")
+
+    with patch(
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        AsyncMock(return_value="KB result"),
+    ) as mock_retrieve:
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                kb_agentic_mode=True,
+            ),
+            provider_request=req,
+            collectors=[KnowledgeCollector()],
+        )
+
+    mock_retrieve.assert_not_called()
+    assert pack.get_slot("knowledge.snippets") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_knowledge_fail_open_when_retrieve_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="test question")
+
+    with patch(
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        AsyncMock(side_effect=RuntimeError("kb boom")),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                kb_agentic_mode=False,
+            ),
+            provider_request=req,
+            collectors=[KnowledgeCollector()],
+        )
+
+    assert pack.get_slot("knowledge.snippets") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):

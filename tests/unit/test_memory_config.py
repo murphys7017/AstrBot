@@ -26,6 +26,7 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "vector_index:" in content
     assert "analysis:" in content
     assert "prompts_root: data/memory/prompts" in content
+    assert "keyword_extraction:" in content
     assert "topic_v1:" in content
     assert "focus_v1:" in content
     assert "summary_v1:" in content
@@ -33,8 +34,8 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert "experience_extract_v1:" in content
     assert "long_term_promote_v1:" in content
     assert "long_term_compose_v1:" in content
-    assert f"provider_id: {DEFAULT_MEMORY_ANALYZER_PROVIDER_ID}" in content
-    assert f"model: {DEFAULT_MEMORY_ANALYZER_MODEL}" in content
+    assert "provider_id:" in content
+    assert "model:" in content
 
 
 def test_load_memory_config_creates_missing_file_and_uses_defaults(
@@ -66,9 +67,13 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
         temp_dir / "runtime-root" / "data/memory/prompts"
     )
     assert config.analysis.prompts_root.exists()
+    assert config.analysis.enabled is True
     for prompt_name in DEFAULT_MEMORY_ANALYZER_PROMPTS:
         assert (config.analysis.prompts_root / prompt_name).exists()
     assert config.vector_index.enabled is True
+    assert config.keyword_extraction.enabled is True
+    assert config.keyword_extraction.implementation == "jieba_tfidf"
+    assert config.keyword_extraction.top_k == 12
     assert (
         config.analysis.analyzers["topic_v1"].provider_id
         == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
@@ -98,6 +103,10 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
                 '  model: "embedding-model"',
                 '  root_dir: "custom/vector_index"',
                 "  experience_top_k: 9",
+                "keyword_extraction:",
+                "  enabled: false",
+                '  implementation: "jieba_tfidf"',
+                "  top_k: 5",
                 "analysis:",
                 "  enabled: true",
                 "  strict: true",
@@ -138,6 +147,9 @@ def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
         temp_dir / "astrbot-root" / "custom/vector_index"
     )
     assert config.vector_index.experience_top_k == 9
+    assert config.keyword_extraction.enabled is False
+    assert config.keyword_extraction.implementation == "jieba_tfidf"
+    assert config.keyword_extraction.top_k == 5
     assert config.analysis.enabled is True
     assert config.analysis.strict is True
     assert config.analysis.prompts_root == (
@@ -161,6 +173,7 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "consolidation",
         "long_term",
         "vector_index",
+        "keyword_extraction",
         "persona",
         "jobs",
         "analysis",
@@ -171,6 +184,9 @@ def test_build_default_memory_config_payload_contains_expected_sections():
     assert payload["storage"]["projections_root"] == "data/memory/projections"
     assert payload["identity"]["mappings_path"] == "data/memory/identity_mappings.yaml"
     assert payload["vector_index"]["root_dir"] == "data/memory/vector_index"
+    assert payload["keyword_extraction"]["enabled"] is True
+    assert payload["keyword_extraction"]["implementation"] == "jieba_tfidf"
+    assert payload["keyword_extraction"]["top_k"] == 12
     assert payload["analysis"]["prompts_root"] == "data/memory/prompts"
     assert (
         payload["short_term"]["recent_turns_window"]

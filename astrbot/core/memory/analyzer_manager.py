@@ -150,6 +150,10 @@ class MemoryAnalyzerManager:
             raise MemoryAnalyzerConfigurationError(
                 f"memory analyzer `{analyzer_name}` has no provider_id configured"
             )
+        if not analyzer_config.model:
+            raise MemoryAnalyzerConfigurationError(
+                f"memory analyzer `{analyzer_name}` has no model configured"
+            )
         if not analyzer_config.prompt_file:
             raise MemoryAnalyzerConfigurationError(
                 f"memory analyzer `{analyzer_name}` has no prompt_file configured"

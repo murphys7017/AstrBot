@@ -10,7 +10,10 @@ import pytest
 
 from astrbot.core.db.po import Conversation
 from astrbot.core.memory.analyzer import MemoryAnalyzerResult
-from astrbot.core.memory.analyzers.base import MemoryAnalyzerExecutionError
+from astrbot.core.memory.analyzers.base import (
+    MemoryAnalyzerConfigurationError,
+    MemoryAnalyzerExecutionError,
+)
 from astrbot.core.memory.config import (
     MemoryAnalysisConfig,
     MemoryConsolidationConfig,
@@ -365,7 +368,7 @@ async def test_short_term_memory_service_updates_from_history(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     history = _make_history()
     req = _memory_update_request(
         provider_request={"conversation_history": history},
@@ -384,11 +387,10 @@ async def test_short_term_memory_service_updates_from_history(temp_dir: Path):
     finally:
         await store.close()
 
-    assert topic_state.current_topic == "Then wire postprocess and snapshot."
-    assert topic_state.topic_summary is not None
-    assert short_term_memory.active_focus == "Then wire postprocess and snapshot."
-    assert short_term_memory.short_summary is not None
-    assert "minimal closed loop" in short_term_memory.short_summary
+    assert topic_state.current_topic == "Analyzer topic"
+    assert topic_state.topic_summary == "Analyzer topic summary"
+    assert short_term_memory.active_focus == "Analyzer focus"
+    assert short_term_memory.short_summary == "Analyzer short summary"
 
 
 class StubShortTermAnalyzerManager:
@@ -489,6 +491,20 @@ class InvalidShortTermAnalyzerManager:
                 model="dummy-model",
             ),
         }
+
+
+def _build_short_term_service(
+    store: MemoryStore,
+    history_source: RecentConversationSource | None = None,
+    *,
+    analyzer_manager=None,
+):
+    return ShortTermMemoryService(
+        store,
+        history_source or RecentConversationSource(store, recent_turns_window=8),
+        analyzer_manager=analyzer_manager or StubShortTermAnalyzerManager(),
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
+    )
 
 
 class StubConsolidationAnalyzerManager:
@@ -1144,7 +1160,7 @@ async def test_short_term_memory_service_uses_analyzer_when_enabled(temp_dir: Pa
         store,
         history_source,
         analyzer_manager=analyzer_manager,  # type: ignore[arg-type]
-        analysis_config=MemoryAnalysisConfig(enabled=True),
+        analysis_config=MemoryAnalysisConfig(enabled=True, strict=True),
     )
     turn_record_service = TurnRecordService(store)
     history = _make_history()
@@ -1208,11 +1224,42 @@ async def test_short_term_memory_service_raises_on_invalid_analyzer_payload(
 
 
 @pytest.mark.asyncio
+async def test_short_term_memory_service_requires_analysis_configuration(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+    history_source = RecentConversationSource(store, recent_turns_window=8)
+    short_term_service = ShortTermMemoryService(store, history_source)
+    turn_record_service = TurnRecordService(store)
+    history = _make_history()
+    req = _memory_update_request(
+        provider_request={"conversation_history": history},
+        user_message=history[-2],
+        assistant_message=history[-1],
+        message_timestamp=datetime.now(UTC),
+        source_refs=["conversation:conv-1"],
+    )
+
+    try:
+        turn = await turn_record_service.ingest_turn(req)
+        with pytest.raises(
+            MemoryAnalyzerConfigurationError,
+            match="is not enabled",
+        ):
+            await short_term_service.update_after_turn(
+                turn,
+                conversation_history=history,
+            )
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_memory_service_update_and_snapshot_form_closed_loop(temp_dir: Path):
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     snapshot_builder = MemorySnapshotBuilder(store)
     memory_service = MemoryService(
         store,
@@ -1257,7 +1304,7 @@ async def test_memory_service_snapshot_keeps_query_as_debug_meta(temp_dir: Path)
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, RecentConversationSource(store)),
+        _build_short_term_service(store, RecentConversationSource(store)),
         snapshot_builder,
     )
 
@@ -1288,7 +1335,7 @@ async def test_memory_service_snapshot_uses_query_search_for_long_term_memories(
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, RecentConversationSource(store)),
+        _build_short_term_service(store, RecentConversationSource(store)),
         snapshot_builder,
     )
     now = datetime.now(UTC)
@@ -1373,7 +1420,7 @@ async def test_memory_service_snapshot_uses_story_links_for_query_aware_experien
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, RecentConversationSource(store)),
+        _build_short_term_service(store, RecentConversationSource(store)),
         snapshot_builder,
     )
     now = datetime.now(UTC)
@@ -1663,7 +1710,7 @@ async def test_memory_service_update_skips_mid_long_when_canonical_user_missing(
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     consolidation_service = ConsolidationService(
         store,
         analyzer_manager=StubConsolidationAnalyzerManager(),  # type: ignore[arg-type]
@@ -1857,7 +1904,7 @@ async def test_memory_service_update_triggers_and_persists_consolidation(
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     analyzer_manager = StubConsolidationAnalyzerManager()
     consolidation_service = ConsolidationService(
         store,
@@ -1920,7 +1967,7 @@ async def test_memory_service_consolidation_allows_missing_platform_user_key(
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     analyzer_manager = StubConsolidationAnalyzerManager()
     consolidation_service = ConsolidationService(
         store,
@@ -1998,7 +2045,7 @@ async def test_memory_service_update_triggers_long_term_promotion_after_consolid
     store = MemoryStore(config=config)
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     consolidation_service = ConsolidationService(
         store,
         analyzer_manager=StubConsolidationAnalyzerManager(),  # type: ignore[arg-type]
@@ -2067,7 +2114,7 @@ async def test_memory_service_keeps_database_results_when_projection_refresh_fai
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     analyzer_manager = StubConsolidationAnalyzerManager()
     consolidation_service = ConsolidationService(
         store,
@@ -2133,7 +2180,7 @@ async def test_memory_service_snapshot_returns_persona_state_and_long_term_conte
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(store, history_source),
+        _build_short_term_service(store, history_source),
         MemorySnapshotBuilder(store),
     )
     now = datetime.now(UTC)
@@ -2249,7 +2296,7 @@ async def test_memory_service_keeps_short_term_when_consolidation_fails(temp_dir
     store = MemoryStore(db_path=temp_dir / "memory.db")
     history_source = RecentConversationSource(store, recent_turns_window=8)
     turn_record_service = TurnRecordService(store)
-    short_term_service = ShortTermMemoryService(store, history_source)
+    short_term_service = _build_short_term_service(store, history_source)
     consolidation_service = ConsolidationService(
         store,
         analyzer_manager=InvalidConsolidationAnalyzerManager(),  # type: ignore[arg-type]
@@ -3755,6 +3802,55 @@ def test_document_serializer_builds_structured_search_text_with_keywords():
     assert "exp-2" not in keyword_line
 
 
+def test_document_serializer_respects_keyword_extraction_top_k(temp_dir: Path):
+    config_path = temp_dir / "memory-config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "enabled: true",
+                "keyword_extraction:",
+                "  enabled: true",
+                '  implementation: "jieba_tfidf"',
+                "  top_k: 2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_memory_config(config_path)
+    serializer = DocumentSerializer(config=config)
+    now = datetime.now(UTC)
+
+    search_text = serializer.build_search_text(
+        _long_term_memory_index(
+            memory_id="ltm-top-k",
+            scope_type="user",
+            scope_id=TEST_CANONICAL_USER_ID,
+            category="project_progress",
+            title="Memory roadmap vector roadmap",
+            summary="Memory roadmap vector pipeline search search",
+            status="active",
+            doc_path="ignored.md",
+            importance=0.9,
+            confidence=0.95,
+            tags=["memory", "vector", "roadmap"],
+            source_refs=[],
+            first_event_at=now,
+            last_event_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+    keyword_line = next(
+        line for line in search_text.splitlines() if line.startswith("Keywords:")
+    )
+    keywords = [
+        item.strip() for item in keyword_line.removeprefix("Keywords:").split(",")
+    ]
+    keywords = [item for item in keywords if item]
+    assert len(keywords) <= 2
+
+
 @pytest.mark.asyncio
 async def test_memory_vector_index_upserts_and_searches_real_faiss(temp_dir: Path):
     config_path = temp_dir / "memory-config.yaml"
@@ -4529,7 +4625,7 @@ async def test_memory_service_import_long_term_memory_document_delegates_to_manu
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(
+        _build_short_term_service(
             store, RecentConversationSource(store, recent_turns_window=8)
         ),
         MemorySnapshotBuilder(store),
@@ -4569,7 +4665,7 @@ async def test_memory_service_refresh_long_term_vector_index_marks_ready(
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(
+        _build_short_term_service(
             store, RecentConversationSource(store, recent_turns_window=8)
         ),
         MemorySnapshotBuilder(store),
@@ -4636,7 +4732,7 @@ async def test_memory_service_refresh_dirty_long_term_vector_indexes_only_proces
     memory_service = MemoryService(
         store,
         TurnRecordService(store),
-        ShortTermMemoryService(
+        _build_short_term_service(
             store, RecentConversationSource(store, recent_turns_window=8)
         ),
         MemorySnapshotBuilder(store),

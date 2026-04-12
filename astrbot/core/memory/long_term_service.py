@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import jieba.analyse
-
 from astrbot.core import logger
 
 from .analyzer_manager import MemoryAnalyzerManager
@@ -17,6 +15,10 @@ from .analyzers.base import (
 )
 from .config import MemoryAnalysisConfig, MemoryLongTermConfig
 from .document_loader import DocumentLoader
+from .keyword_extractor import (
+    ConfiguredMemoryKeywordExtractor,
+    build_keyword_extractor,
+)
 from .store import MemoryStore
 from .types import (
     Experience,
@@ -48,6 +50,7 @@ class LongTermMemoryService:
         long_term_config: MemoryLongTermConfig | None = None,
         document_loader: DocumentLoader | None = None,
         vector_index: MemoryVectorIndex | None = None,
+        keyword_extractor: ConfiguredMemoryKeywordExtractor | None = None,
     ) -> None:
         self.store = store
         self.analyzer_manager = analyzer_manager
@@ -55,6 +58,9 @@ class LongTermMemoryService:
         self.long_term_config = long_term_config
         self.document_loader = document_loader or DocumentLoader(store.config)
         self.vector_index = vector_index
+        self.keyword_extractor = keyword_extractor or build_keyword_extractor(
+            store.config.keyword_extraction
+        )
 
     def bind_provider_manager(self, provider_manager) -> None:
         if self.vector_index is not None:
@@ -750,17 +756,7 @@ class LongTermMemoryService:
         return "\n".join(normalized_sections).strip()
 
     def _extract_keywords(self, text: str) -> list[str]:
-        if not text.strip():
-            return []
-        return [
-            keyword.strip()
-            for keyword in jieba.analyse.extract_tags(
-                text,
-                topK=12,
-                withWeight=False,
-            )
-            if keyword.strip()
-        ]
+        return self.keyword_extractor.extract(text)
 
     def _build_doc_path(
         self,

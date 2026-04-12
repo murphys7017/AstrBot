@@ -195,8 +195,9 @@ Supporting experiences JSON:
 """,
 }
 
-DEFAULT_MEMORY_ANALYZER_PROVIDER_ID = "ollama"
-DEFAULT_MEMORY_ANALYZER_MODEL = "qwen3:1.7b"
+DEFAULT_MEMORY_ANALYZER_PROVIDER_ID = ""
+DEFAULT_MEMORY_ANALYZER_MODEL = ""
+DEFAULT_MEMORY_KEYWORD_EXTRACTOR_IMPLEMENTATION = "jieba_tfidf"
 DEFAULT_MEMORY_ANALYZER_SPECS: dict[str, tuple[str, str]] = {
     "topic_v1": ("topic_v1.md", "TopicStateResult"),
     "focus_v1": ("focus_v1.md", "ShortTermFocusResult"),
@@ -267,6 +268,13 @@ class MemoryVectorIndexConfig:
 
 
 @dataclass(slots=True)
+class MemoryKeywordExtractionConfig:
+    enabled: bool = True
+    implementation: str = DEFAULT_MEMORY_KEYWORD_EXTRACTOR_IMPLEMENTATION
+    top_k: int = 12
+
+
+@dataclass(slots=True)
 class MemoryPersonaConfig:
     enabled: bool = False
     reflection_interval_hours: int = 24
@@ -298,7 +306,7 @@ class MemoryAnalysisStageConfig:
 
 @dataclass(slots=True)
 class MemoryAnalysisConfig:
-    enabled: bool = False
+    enabled: bool = True
     strict: bool = True
     prompts_root: Path = field(
         default_factory=lambda: resolve_memory_path("data/memory/prompts")
@@ -332,6 +340,9 @@ class MemoryConfig:
     long_term: MemoryLongTermConfig = field(default_factory=MemoryLongTermConfig)
     vector_index: MemoryVectorIndexConfig = field(
         default_factory=MemoryVectorIndexConfig
+    )
+    keyword_extraction: MemoryKeywordExtractionConfig = field(
+        default_factory=MemoryKeywordExtractionConfig
     )
     persona: MemoryPersonaConfig = field(default_factory=MemoryPersonaConfig)
     jobs: MemoryJobsConfig = field(default_factory=MemoryJobsConfig)
@@ -433,6 +444,11 @@ def build_default_memory_config_payload() -> dict:
             ),
             "experience_top_k": default_config.vector_index.experience_top_k,
             "long_term_top_k": default_config.vector_index.long_term_top_k,
+        },
+        "keyword_extraction": {
+            "enabled": default_config.keyword_extraction.enabled,
+            "implementation": default_config.keyword_extraction.implementation,
+            "top_k": default_config.keyword_extraction.top_k,
         },
         "persona": {
             "enabled": default_config.persona.enabled,
@@ -623,10 +639,19 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
     vector_index_payload = (
         payload.get("vector_index", {}) if isinstance(payload, dict) else {}
     )
+    keyword_extraction_payload = (
+        payload.get("keyword_extraction", {}) if isinstance(payload, dict) else {}
+    )
     persona_payload = payload.get("persona", {}) if isinstance(payload, dict) else {}
     jobs_payload = payload.get("jobs", {}) if isinstance(payload, dict) else {}
     analysis_payload = payload.get("analysis", {}) if isinstance(payload, dict) else {}
     identity_payload = payload.get("identity", {}) if isinstance(payload, dict) else {}
+    loaded_analyzers = _load_analyzer_configs(analysis_payload.get("analyzers"))
+    loaded_stages = _load_stage_configs(analysis_payload.get("stages"))
+    if not loaded_analyzers:
+        loaded_analyzers = _build_default_analysis_analyzers()
+    if not loaded_stages:
+        loaded_stages = _build_default_analysis_stages()
 
     config = MemoryConfig(
         enabled=_as_bool(payload.get("enabled"), True),
@@ -701,6 +726,14 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
                 5,
             ),
         ),
+        keyword_extraction=MemoryKeywordExtractionConfig(
+            enabled=_as_bool(keyword_extraction_payload.get("enabled"), True),
+            implementation=_as_str(
+                keyword_extraction_payload.get("implementation"),
+                DEFAULT_MEMORY_KEYWORD_EXTRACTOR_IMPLEMENTATION,
+            ),
+            top_k=_as_int(keyword_extraction_payload.get("top_k"), 12),
+        ),
         persona=MemoryPersonaConfig(
             enabled=_as_bool(persona_payload.get("enabled"), False),
             reflection_interval_hours=_as_int(
@@ -723,13 +756,13 @@ def load_memory_config(path: Path | None = None) -> MemoryConfig:
             ),
         ),
         analysis=MemoryAnalysisConfig(
-            enabled=_as_bool(analysis_payload.get("enabled"), False),
+            enabled=_as_bool(analysis_payload.get("enabled"), True),
             strict=_as_bool(analysis_payload.get("strict"), True),
             prompts_root=resolve_memory_path(
                 _as_str(analysis_payload.get("prompts_root"), "data/memory/prompts")
             ),
-            analyzers=_load_analyzer_configs(analysis_payload.get("analyzers")),
-            stages=_load_stage_configs(analysis_payload.get("stages")),
+            analyzers=loaded_analyzers,
+            stages=loaded_stages,
         ),
     )
     ensure_memory_runtime_dirs(config)

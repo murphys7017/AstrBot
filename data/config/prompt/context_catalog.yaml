@@ -94,6 +94,30 @@ contexts:
     lifecycle: rolling
     notes: "当前会话的短期记忆快照，包含 short_summary 和 active_focus"
 
+  - id: memory.experiences
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "当前快照中的经验列表，包含近期经验与 query 命中的关联经验"
+
+  - id: memory.long_term_memories
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "当前快照中的长期记忆列表，包含最近长期记忆或 query 命中的 stories"
+
+  - id: memory.persona_state
+    category: memory
+    slots: [history]
+    required: false
+    multiple: false
+    lifecycle: rolling
+    notes: "当前快照中的动态人格状态，不等于静态 persona prompt"
+
   # ========== Input 类 (ephemeral) ==========
   - id: input.text
     category: input

@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING
 
 from astrbot.core import logger
 from astrbot.core.memory.service import get_memory_service
-from astrbot.core.memory.types import MemorySnapshot
+from astrbot.core.memory.types import (
+    Experience,
+    LongTermMemoryIndex,
+    MemorySnapshot,
+)
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
@@ -66,6 +70,18 @@ class MemoryCollector(ContextCollectorInterface):
         if short_term_slot is not None:
             slots.append(short_term_slot)
 
+        experiences_slot = self._build_experiences_slot(snapshot)
+        if experiences_slot is not None:
+            slots.append(experiences_slot)
+
+        long_term_slot = self._build_long_term_memories_slot(snapshot)
+        if long_term_slot is not None:
+            slots.append(long_term_slot)
+
+        persona_state_slot = self._build_persona_state_slot(snapshot)
+        if persona_state_slot is not None:
+            slots.append(persona_state_slot)
+
         return slots
 
     def _build_topic_state_slot(
@@ -119,6 +135,124 @@ class MemoryCollector(ContextCollectorInterface):
             },
         )
 
+    def _build_experiences_slot(
+        self,
+        snapshot: MemorySnapshot,
+    ) -> ContextSlot | None:
+        if not snapshot.experiences:
+            return None
+
+        items = [self._serialize_experience(item) for item in snapshot.experiences]
+        return ContextSlot(
+            name="memory.experiences",
+            value={
+                "count": len(items),
+                "items": items,
+            },
+            category="memory",
+            source="memory_snapshot",
+            meta={
+                "snapshot_field": "experiences",
+                "has_value": True,
+                "count": len(items),
+            },
+        )
+
+    def _build_long_term_memories_slot(
+        self,
+        snapshot: MemorySnapshot,
+    ) -> ContextSlot | None:
+        if not snapshot.long_term_memories:
+            return None
+
+        items = [
+            self._serialize_long_term_memory(item)
+            for item in snapshot.long_term_memories
+        ]
+        return ContextSlot(
+            name="memory.long_term_memories",
+            value={
+                "count": len(items),
+                "items": items,
+            },
+            category="memory",
+            source="memory_snapshot",
+            meta={
+                "snapshot_field": "long_term_memories",
+                "has_value": True,
+                "count": len(items),
+            },
+        )
+
+    def _build_persona_state_slot(
+        self,
+        snapshot: MemorySnapshot,
+    ) -> ContextSlot | None:
+        persona_state = snapshot.persona_state
+        if persona_state is None:
+            return None
+
+        return ContextSlot(
+            name="memory.persona_state",
+            value={
+                "state_id": persona_state.state_id,
+                "scope_type": self._enum_value(persona_state.scope_type),
+                "scope_id": persona_state.scope_id,
+                "persona_id": persona_state.persona_id,
+                "familiarity": persona_state.familiarity,
+                "trust": persona_state.trust,
+                "warmth": persona_state.warmth,
+                "formality_preference": persona_state.formality_preference,
+                "directness_preference": persona_state.directness_preference,
+                "updated_at": self._serialize_datetime(persona_state.updated_at),
+            },
+            category="memory",
+            source="memory_snapshot",
+            meta={
+                "snapshot_field": "persona_state",
+                "has_value": True,
+            },
+        )
+
+    def _serialize_experience(self, experience: Experience) -> dict[str, object]:
+        return {
+            "experience_id": experience.experience_id,
+            "umo": experience.umo,
+            "conversation_id": experience.conversation_id,
+            "scope_type": self._enum_value(experience.scope_type),
+            "scope_id": experience.scope_id,
+            "category": self._enum_value(experience.category),
+            "summary": experience.summary,
+            "detail_summary": experience.detail_summary,
+            "importance": experience.importance,
+            "confidence": experience.confidence,
+            "event_time": self._serialize_datetime(experience.event_time),
+            "updated_at": self._serialize_datetime(experience.updated_at),
+            "source_refs": list(experience.source_refs),
+        }
+
+    def _serialize_long_term_memory(
+        self,
+        memory: LongTermMemoryIndex,
+    ) -> dict[str, object]:
+        return {
+            "memory_id": memory.memory_id,
+            "umo": memory.umo,
+            "scope_type": self._enum_value(memory.scope_type),
+            "scope_id": memory.scope_id,
+            "category": self._enum_value(memory.category),
+            "title": memory.title,
+            "summary": memory.summary,
+            "status": self._enum_value(memory.status),
+            "importance": memory.importance,
+            "confidence": memory.confidence,
+            "tags": list(memory.tags),
+            "source_refs": list(memory.source_refs),
+            "first_event_at": self._serialize_datetime(memory.first_event_at),
+            "last_event_at": self._serialize_datetime(memory.last_event_at),
+            "updated_at": self._serialize_datetime(memory.updated_at),
+        }
+
     def _resolve_conversation_id(
         self,
         provider_request: ProviderRequest | None,
@@ -153,3 +287,6 @@ class MemoryCollector(ContextCollectorInterface):
         if value is None:
             return None
         return value.isoformat(timespec="seconds")
+
+    def _enum_value(self, value: object) -> str:
+        return value.value if hasattr(value, "value") else str(value)
