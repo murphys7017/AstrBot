@@ -20,6 +20,7 @@ from .collectors.persona_collector import PersonaCollector
 from .collectors.policy_collector import PolicyCollector
 from .collectors.session_collector import SessionCollector
 from .collectors.skills_collector import SkillsCollector
+from .collectors.subagent_collector import SubagentCollector
 from .collectors.tools_collector import ToolsCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot
@@ -39,6 +40,7 @@ def _default_collectors() -> list[ContextCollectorInterface]:
         ConversationHistoryCollector(),
         SkillsCollector(),
         ToolsCollector(),
+        SubagentCollector(),
     ]
 
 

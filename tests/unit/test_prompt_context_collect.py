@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from astrbot.core import astr_main_agent as ama
+from astrbot.core.agent.agent import Agent
+from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
@@ -21,6 +23,7 @@ from astrbot.core.prompt.collectors import (
     PolicyCollector,
     SessionCollector,
     SkillsCollector,
+    SubagentCollector,
     ToolsCollector,
 )
 from astrbot.core.prompt.context_collect import (
@@ -105,6 +108,24 @@ def _make_tool(
         handler=None,
         active=active,
         handler_module_path=handler_module_path,
+    )
+
+
+def _make_handoff_tool(
+    agent_name: str,
+    *,
+    description: str = "",
+    parameters: dict | None = None,
+) -> HandoffTool:
+    agent = Agent(
+        name=agent_name,
+        instructions="internal subagent prompt",
+        tools=["tool_a"],
+    )
+    return HandoffTool(
+        agent=agent,
+        tool_description=description or None,
+        parameters=parameters,
     )
 
 
@@ -680,12 +701,15 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "ConversationHistoryCollector",
         "SkillsCollector",
         "ToolsCollector",
+        "SubagentCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
     assert pack.get_slot("policy.safety_prompt") is not None
     assert pack.get_slot("capability.skills_prompt") is None
     assert pack.get_slot("capability.tools_schema") is None
+    assert pack.get_slot("capability.subagent_handoff_tools") is None
+    assert pack.get_slot("capability.subagent_router_prompt") is None
 
 
 @pytest.mark.asyncio
@@ -1367,6 +1391,146 @@ async def test_collect_context_pack_tools_fail_open_when_tool_manager_raises():
     )
 
     assert pack.get_slot("capability.tools_schema") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_subagent_slots_when_main_enable_disabled():
+    event, _ = _make_event()
+    context = _make_context()
+    context.get_config.return_value = {
+        "subagent_orchestrator": {
+            "main_enable": False,
+            "remove_main_duplicate_tools": True,
+            "router_system_prompt": "route to planner",
+        }
+    }
+    context.subagent_orchestrator = MagicMock(
+        handoffs=[_make_handoff_tool("planner", description="planner")]
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SubagentCollector()],
+    )
+
+    assert pack.get_slot("capability.subagent_handoff_tools") is None
+    assert pack.get_slot("capability.subagent_router_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_subagent_handoff_tools_inventory():
+    event, _ = _make_event()
+    context = _make_context()
+    handoff = _make_handoff_tool(
+        "planner",
+        description="Delegate planning tasks.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Task input.",
+                }
+            },
+            "required": ["input"],
+        },
+    )
+    context.get_config.return_value = {
+        "subagent_orchestrator": {
+            "main_enable": True,
+            "remove_main_duplicate_tools": True,
+        }
+    }
+    context.subagent_orchestrator = MagicMock(handoffs=[handoff])
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SubagentCollector()],
+    )
+
+    handoff_slot = pack.get_slot("capability.subagent_handoff_tools")
+    assert handoff_slot is not None
+    assert handoff_slot.value == {
+        "format": "handoff_tools_v1",
+        "main_enable": True,
+        "remove_main_duplicate_tools": True,
+        "tool_count": 1,
+        "tools": [
+            {
+                "name": "transfer_to_planner",
+                "description": "Delegate planning tasks.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "input": {
+                            "type": "string",
+                            "description": "Task input.",
+                        }
+                    },
+                    "required": ["input"],
+                },
+            }
+        ],
+    }
+    assert handoff_slot.meta["format"] == "handoff_tools_v1"
+    assert handoff_slot.meta["tool_count"] == 1
+    assert "agent" not in handoff_slot.value["tools"][0]
+    assert "provider_id" not in handoff_slot.value["tools"][0]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_subagent_router_prompt():
+    event, _ = _make_event()
+    context = _make_context()
+    context.get_config.return_value = {
+        "subagent_orchestrator": {
+            "main_enable": True,
+            "remove_main_duplicate_tools": False,
+            "router_system_prompt": "Route work to the best subagent.",
+        }
+    }
+    context.subagent_orchestrator = MagicMock(handoffs=[])
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SubagentCollector()],
+    )
+
+    router_slot = pack.get_slot("capability.subagent_router_prompt")
+    assert router_slot is not None
+    assert router_slot.value == "Route work to the best subagent."
+    assert router_slot.meta["enabled_by_config"] is True
+    assert router_slot.meta["main_enable"] is True
+    assert router_slot.meta["source"] == "subagent_orchestrator.router_system_prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_subagent_slots_when_orchestrator_missing():
+    event, _ = _make_event()
+    context = _make_context()
+    context.get_config.return_value = {
+        "subagent_orchestrator": {
+            "main_enable": True,
+            "router_system_prompt": "Route work to the best subagent.",
+        }
+    }
+    context.subagent_orchestrator = None
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SubagentCollector()],
+    )
+
+    assert pack.get_slot("capability.subagent_handoff_tools") is None
+    assert pack.get_slot("capability.subagent_router_prompt") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):

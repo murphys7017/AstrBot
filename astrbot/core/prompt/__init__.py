@@ -16,6 +16,7 @@ from .collectors import (
     PolicyCollector,
     SessionCollector,
     SkillsCollector,
+    SubagentCollector,
     ToolsCollector,
 )
 from .context_catalog import (
@@ -76,6 +77,7 @@ __all__ = [
     "PolicyCollector",
     "SessionCollector",
     "SkillsCollector",
+    "SubagentCollector",
     "ToolsCollector",
     # Collection flow
     "PROMPT_CONTEXT_PACK_EXTRA_KEY",
