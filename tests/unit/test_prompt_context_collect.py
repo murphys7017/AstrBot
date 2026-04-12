@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from astrbot.core import astr_main_agent as ama
+from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
     LLM_SAFETY_MODE_SYSTEM_PROMPT,
@@ -20,6 +21,7 @@ from astrbot.core.prompt.collectors import (
     PolicyCollector,
     SessionCollector,
     SkillsCollector,
+    ToolsCollector,
 )
 from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
@@ -66,7 +68,10 @@ def _make_context():
     ctx.get_config.return_value = {}
     ctx.get_provider_by_id.return_value = None
     ctx.subagent_orchestrator = None
-    ctx.get_llm_tool_manager.return_value = MagicMock()
+    tool_manager = MagicMock()
+    tool_manager.get_full_tool_set.return_value = ToolSet()
+    tool_manager.get_func.return_value = None
+    ctx.get_llm_tool_manager.return_value = tool_manager
     ctx.persona_manager = MagicMock()
     ctx.persona_manager.get_persona_v3_by_id = MagicMock(return_value=None)
     ctx.conversation_manager = MagicMock()
@@ -79,6 +84,28 @@ def _make_conversation(persona_id=None):
     conversation.persona_id = persona_id
     conversation.history = "[]"
     return conversation
+
+
+def _make_tool(
+    name: str,
+    *,
+    description: str = "",
+    parameters: dict | None = None,
+    active: bool = True,
+    handler_module_path: str | None = "tests.prompt_tools",
+) -> FunctionTool:
+    return FunctionTool(
+        name=name,
+        description=description,
+        parameters=parameters
+        or {
+            "type": "object",
+            "properties": {},
+        },
+        handler=None,
+        active=active,
+        handler_module_path=handler_module_path,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -652,11 +679,13 @@ async def test_collect_context_pack_default_collectors_include_session_collector
         "MemoryCollector",
         "ConversationHistoryCollector",
         "SkillsCollector",
+        "ToolsCollector",
     ]
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
     assert pack.get_slot("policy.safety_prompt") is not None
     assert pack.get_slot("capability.skills_prompt") is None
+    assert pack.get_slot("capability.tools_schema") is None
 
 
 @pytest.mark.asyncio
@@ -1169,6 +1198,175 @@ async def test_collect_context_pack_skills_fail_open_when_skill_manager_raises()
         )
 
     assert pack.get_slot("capability.skills_prompt") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_tools_inventory_from_full_toolset():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    search_tool = _make_tool(
+        "search_docs",
+        description="Search project docs.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query.",
+                }
+            },
+            "required": ["query"],
+        },
+    )
+    inactive_tool = _make_tool(
+        "disabled_tool",
+        description="Disabled tool.",
+        active=False,
+    )
+    context.get_llm_tool_manager.return_value.get_full_tool_set.return_value = ToolSet(
+        [search_tool, inactive_tool]
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[ToolsCollector()],
+    )
+
+    context.get_llm_tool_manager.return_value.get_full_tool_set.assert_called_once_with()
+    tools_slot = pack.get_slot("capability.tools_schema")
+    assert tools_slot is not None
+    assert tools_slot.value == {
+        "format": "tool_inventory_v1",
+        "tool_count": 1,
+        "tools": [
+            {
+                "name": "search_docs",
+                "description": "Search project docs.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query.",
+                        }
+                    },
+                    "required": ["query"],
+                },
+                "active": True,
+                "handler_module_path": "tests.prompt_tools",
+                "schema": {
+                    "type": "function",
+                    "function": {
+                        "name": "search_docs",
+                        "description": "Search project docs.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Search query.",
+                                }
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                },
+            }
+        ],
+    }
+    assert tools_slot.meta["selection_mode"] == "all"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_tools_inventory_with_persona_whitelist():
+    event, _ = _make_event()
+    context = _make_context()
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation(persona_id="persona-a")
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(
+            "persona-a",
+            {
+                "prompt": "persona prompt",
+                "tools": ["search_docs"],
+            },
+            None,
+            False,
+        )
+    )
+    search_tool = _make_tool("search_docs", description="Search docs.")
+    other_tool = _make_tool("other_tool", description="Unused tool.")
+    context.get_llm_tool_manager.return_value.get_func.side_effect = lambda name: {
+        "search_docs": search_tool,
+        "other_tool": other_tool,
+    }.get(name)
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+        collectors=[ToolsCollector()],
+    )
+
+    tools_slot = pack.get_slot("capability.tools_schema")
+    assert tools_slot is not None
+    assert tools_slot.value["tool_count"] == 1
+    assert tools_slot.value["tools"][0]["name"] == "search_docs"
+    assert tools_slot.meta["persona_id"] == "persona-a"
+    assert tools_slot.meta["selection_mode"] == "whitelist"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_skips_tools_slot_when_persona_disables_tools():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(
+            "persona-a",
+            {
+                "prompt": "persona prompt",
+                "tools": [],
+            },
+            None,
+            False,
+        )
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[ToolsCollector()],
+    )
+
+    assert pack.get_slot("capability.tools_schema") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_tools_fail_open_when_tool_manager_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    context.get_llm_tool_manager.return_value.get_full_tool_set.side_effect = (
+        RuntimeError("tools boom")
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[ToolsCollector()],
+    )
+
+    assert pack.get_slot("capability.tools_schema") is None
 
 
 class _BrokenCollector(ContextCollectorInterface):

@@ -11,6 +11,7 @@ from .persona_collector import PersonaCollector
 from .policy_collector import PolicyCollector
 from .session_collector import SessionCollector
 from .skills_collector import SkillsCollector
+from .tools_collector import ToolsCollector
 
 __all__ = [
     "ConversationHistoryCollector",
@@ -20,4 +21,5 @@ __all__ = [
     "PersonaCollector",
     "SessionCollector",
     "SkillsCollector",
+    "ToolsCollector",
 ]
