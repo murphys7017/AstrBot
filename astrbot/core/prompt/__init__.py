@@ -11,12 +11,14 @@ AstrBot Prompt Engine - 上下文数据层（第一阶段）
 from .collectors import (
     ConversationHistoryCollector,
     InputCollector,
+    KnowledgeCollector,
     MemoryCollector,
     PersonaCollector,
     PolicyCollector,
     SessionCollector,
     SkillsCollector,
     SubagentCollector,
+    SystemCollector,
     ToolsCollector,
 )
 from .context_catalog import (
@@ -46,6 +48,17 @@ from .persona_segments import (
     normalize_section_name,
     parse_legacy_persona_prompt,
 )
+from .render import (
+    BasePromptRenderer,
+    PassthroughPromptSelector,
+    PromptBuilder,
+    PromptNode,
+    PromptRenderEngine,
+    PromptSelectorInterface,
+    RenderResult,
+    SerializedRenderValue,
+    select_context_pack,
+)
 
 __all__ = [
     # Types
@@ -69,16 +82,28 @@ __all__ = [
     "finalize_persona_segments",
     # Interfaces
     "ContextCollectorInterface",
+    "BasePromptRenderer",
+    "PromptBuilder",
+    "PromptRenderEngine",
+    "PromptNode",
+    "PromptSelectorInterface",
+    "RenderResult",
+    "SerializedRenderValue",
     # Collectors
     "ConversationHistoryCollector",
     "InputCollector",
+    "KnowledgeCollector",
     "MemoryCollector",
     "PersonaCollector",
     "PolicyCollector",
     "SessionCollector",
     "SkillsCollector",
     "SubagentCollector",
+    "SystemCollector",
     "ToolsCollector",
+    # Selector
+    "PassthroughPromptSelector",
+    "select_context_pack",
     # Collection flow
     "PROMPT_CONTEXT_PACK_EXTRA_KEY",
     "collect_context_pack",

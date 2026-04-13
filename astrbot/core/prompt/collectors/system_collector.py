@@ -1,0 +1,169 @@
+"""
+System context collector for prompt context packing.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from astrbot.core import logger
+from astrbot.core.astr_main_agent_resources import (
+    TOOL_CALL_PROMPT,
+    TOOL_CALL_PROMPT_SKILLS_LIKE_MODE,
+)
+from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.star.context import Context
+
+from ..context_types import ContextSlot
+from ..interfaces.context_collector_inferface import ContextCollectorInterface
+from .tools_collector import ToolsCollector
+
+if TYPE_CHECKING:
+    from astrbot.core.astr_main_agent import MainAgentBuildConfig
+
+
+class SystemCollector(ContextCollectorInterface):
+    """Collect base system prompt and tool-call instruction metadata."""
+
+    async def collect(
+        self,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+        provider_request: ProviderRequest | None = None,
+    ) -> list[ContextSlot]:
+        slots: list[ContextSlot] = []
+
+        try:
+            base_slot = self._build_system_base_slot(provider_request)
+            if base_slot is not None:
+                slots.append(base_slot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to collect system base prompt: %s", exc, exc_info=True
+            )
+
+        try:
+            instruction_slot = await self._build_tool_call_instruction_slot(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider_request=provider_request,
+            )
+            if instruction_slot is not None:
+                slots.append(instruction_slot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to collect tool-call instruction prompt: %s",
+                exc,
+                exc_info=True,
+            )
+
+        return slots
+
+    def _build_system_base_slot(
+        self,
+        provider_request: ProviderRequest | None,
+    ) -> ContextSlot | None:
+        if provider_request is None or not isinstance(
+            provider_request.system_prompt, str
+        ):
+            return None
+
+        system_prompt = provider_request.system_prompt.strip()
+        if not system_prompt:
+            return None
+
+        return ContextSlot(
+            name="system.base",
+            value=system_prompt,
+            category="system",
+            source="provider_request",
+            meta={
+                "source_field": "provider_request.system_prompt",
+            },
+        )
+
+    async def _build_tool_call_instruction_slot(
+        self,
+        *,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+        provider_request: ProviderRequest | None,
+    ) -> ContextSlot | None:
+        has_tools = await self._has_tool_capability(
+            event=event,
+            plugin_context=plugin_context,
+            config=config,
+            provider_request=provider_request,
+        )
+        if not has_tools:
+            return None
+
+        tool_prompt = (
+            TOOL_CALL_PROMPT
+            if config.tool_schema_mode == "full"
+            else TOOL_CALL_PROMPT_SKILLS_LIKE_MODE
+        )
+        return ContextSlot(
+            name="system.tool_call_instruction",
+            value=tool_prompt,
+            category="system",
+            source="main_agent_policy",
+            meta={
+                "tool_schema_mode": config.tool_schema_mode,
+                "requires_tools": True,
+            },
+        )
+
+    async def _has_tool_capability(
+        self,
+        *,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+        provider_request: ProviderRequest | None,
+    ) -> bool:
+        if (
+            provider_request
+            and provider_request.func_tool
+            and provider_request.func_tool.tools
+        ):
+            return True
+
+        if config.kb_agentic_mode:
+            return True
+
+        if config.computer_use_runtime in {"sandbox", "local"}:
+            return True
+
+        if config.add_cron_tools:
+            return True
+
+        platform_meta = getattr(event, "platform_meta", None)
+        if getattr(platform_meta, "support_proactive_message", None) is True:
+            return True
+
+        orchestrator_config = plugin_context.get_config().get(
+            "subagent_orchestrator", {}
+        )
+        orchestrator = getattr(plugin_context, "subagent_orchestrator", None)
+        if (
+            isinstance(orchestrator_config, dict)
+            and orchestrator_config.get("main_enable", False)
+            and orchestrator is not None
+            and bool(getattr(orchestrator, "handoffs", []))
+        ):
+            return True
+
+        tools_collector = ToolsCollector()
+        _, persona = await tools_collector._resolve_persona(
+            event,
+            plugin_context,
+            config,
+            provider_request,
+        )
+        toolset, _ = tools_collector._build_persona_toolset(plugin_context, persona)
+        return not toolset.empty()

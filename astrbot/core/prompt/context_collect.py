@@ -15,12 +15,14 @@ from astrbot.core.star.context import Context
 
 from .collectors.conversation_history_collector import ConversationHistoryCollector
 from .collectors.input_collector import InputCollector
+from .collectors.knowledge_collector import KnowledgeCollector
 from .collectors.memory_collector import MemoryCollector
 from .collectors.persona_collector import PersonaCollector
 from .collectors.policy_collector import PolicyCollector
 from .collectors.session_collector import SessionCollector
 from .collectors.skills_collector import SkillsCollector
 from .collectors.subagent_collector import SubagentCollector
+from .collectors.system_collector import SystemCollector
 from .collectors.tools_collector import ToolsCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot
@@ -32,6 +34,7 @@ PROMPT_CONTEXT_PACK_EXTRA_KEY = "prompt_context_pack"
 def _default_collectors() -> list[ContextCollectorInterface]:
     """Return the collectors enabled for the current phase."""
     return [
+        SystemCollector(),
         PersonaCollector(),
         InputCollector(),
         SessionCollector(),
@@ -41,6 +44,7 @@ def _default_collectors() -> list[ContextCollectorInterface]:
         SkillsCollector(),
         ToolsCollector(),
         SubagentCollector(),
+        KnowledgeCollector(),
     ]
 
 

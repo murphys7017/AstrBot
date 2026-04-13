@@ -36,6 +36,7 @@
 - `astrbot/core/astr_agent_tool_exec.py`
 - `astrbot/core/astr_agent_hooks.py`
 - `astrbot/core/agent/*`
+- `astrbot/core/prompt/*`
 
 职责：
 
@@ -45,12 +46,14 @@
 - 运行 tool loop
 - 处理 sandbox/local runtime
 - 处理主 Agent 输出
+- 新的 prompt collect 层开始承担结构化上下文收集
 
 问题：
 
 - `astr_main_agent.py` 职责过载
 - Agent 层直接感知 plugin context、persona、knowledge base、skills、cron、sandbox
 - Agent 内核和 AstrBot 业务实现没有明确隔离
+- 新的 `prompt` 模块已经完成 collect 收口，并落地了 selector/render 基础骨架，但还没有真正接管 request delivery
 
 ### 3. 插件与工具整合层
 
