@@ -18,7 +18,7 @@
 - 手动长期记忆导入 / 更新入口已完成
 - 向量检索主链路已完成真实测试覆盖
 - consolidation 当前按“回合后阈值触发”执行，不走独立 scheduler
-- 长期记忆当前处于“第一版已实现，并完成首轮稳定性修复”的阶段，详见 `long-term-fix-plan.md`
+- 长期记忆当前处于“第一版已实现，并完成首轮稳定性修复”的阶段，详见 `../history/memory/long-term-fix-plan.md`
 
 当前仍未进入：
 
@@ -156,7 +156,7 @@
 
 - 已完成第一版数据类型设定
 
-### 2.8 `mvp-plan.md`
+### 2.8 `../history/memory/mvp-plan.md`
 
 内容：
 
@@ -168,7 +168,7 @@
 当前状态：
 
 - 已完成第一版最小实现规划
-- 需要按当前代码状态继续维护阶段完成度说明
+- 当前已转入 `../history/memory/` 作为历史计划参考
 
 ### 2.9 `document-search.md`
 
@@ -183,7 +183,7 @@
 
 - 已完成第一版设计收口
 
-### 2.10 `long-term-fix-plan.md`
+### 2.10 `../history/memory/long-term-fix-plan.md`
 
 内容：
 
@@ -195,7 +195,7 @@
 当前状态：
 
 - 已完成第一版修复计划收口
-- 其中关键修复已落地，需要继续维护“已修复 / 后续待做”状态
+- 其中关键修复已落地
 - 当前 snapshot query 读取链路已开始消费文档搜索结果
 
 ## 3. 建议补充文档
@@ -247,15 +247,15 @@
 5. `config.md`
 6. `data-model.md`
 7. `document-search.md`
-8. `mvp-plan.md`
-9. `long-term-fix-plan.md`
+8. `../history/memory/mvp-plan.md`
+9. `../history/memory/long-term-fix-plan.md`
 
 如果是先看当前代码已做到哪里，建议先读：
 
 1. `progress.md`
 2. `index.md`
 3. `document-search.md`
-4. `mvp-plan.md`
+4. `../history/memory/mvp-plan.md`
 5. `architecture.md`
 6. `lifecycle.md`
 
@@ -302,7 +302,8 @@
 
 - 已落地 `TurnRecord -> TopicState -> ShortTermMemory -> MemorySnapshot`
 - 已落地 `SessionInsight -> Experience` 的 memory 内部闭环
-- `MemorySnapshot` 当前仍只开放短期层，长期层与 `Experience` 均未正式接入
+- `MemorySnapshot` 已开放 `experiences / long_term_memories / persona_state`
+- prompt collect 已可通过 `MemoryCollector` 读取这些字段
 
 下一步应继续补：
 

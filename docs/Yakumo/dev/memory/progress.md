@@ -179,7 +179,8 @@
 - `importance / confidence / topic_confidence` 已收紧到 `0..1`
 - 已接入 `MemorySnapshot.long_term_memories`
 - 已接入 query-aware 的 snapshot 长期读取链路
-- 仍未接入 prompt collector / renderer 消费链路
+- 已接入 prompt collector 读取链路
+- render / 主链路消费仍未完整接管
 
 ## 3. 已完成模块
 
@@ -247,7 +248,7 @@
 当前能力边界：
 
 - memory 已负责短期写入、中期 consolidation、长期文档与索引第一版
-- prompt system 只消费 snapshot
+- prompt system 当前通过 `MemoryCollector` 消费 snapshot
 - memory 还不负责 prompt render
 - memory 还不负责 selector / router / chat state
 - snapshot 的 query-aware `experiences` 当前仍基于命中 story 的 links 回查，不是独立 experience 向量检索
@@ -275,14 +276,16 @@
 当前最大的限制不是写入，而是读取范围还刻意收窄：
 
 - `SessionInsight` 已写入，但不进入 snapshot
-- `LongTermMemory` 尚未进入 snapshot
 - 还没有统一 query 驱动的 retrieval
 - 向量索引已可服务长期记忆文档搜索，但仍未进入统一 retrieval
 
-所以当前对外稳定开放的 memory 结果现在是：
+所以当前对外稳定开放的 memory snapshot 结果现在包括：
 
 - `TopicState`
 - `ShortTermMemory`
+- `Experience`
+- `LongTermMemory`
+- `PersonaState`
 
 ## 7. 下一步建议顺序
 
@@ -307,8 +310,8 @@
 
 `Post Process -> TurnRecord -> ShortTermMemory -> Consolidation -> SessionInsight / Experience -> LongTermPromotion -> Snapshot`
 
-当前这个链路里，对外稳定开放的仍然是短期层。
-当前这个链路里，长期层仍主要停留在 memory 内部服务能力。
+当前这个链路里，snapshot 已经能稳定暴露短期层 + 中长期只读结果。
+当前这个链路里，真正还没有完整接管的是 render 与主请求拼装。
 
 所以当前最准确的判断是：
 
@@ -316,4 +319,5 @@
 - 中期抽象已落地到 store
 - 长期层基础服务与文档搜索第一版已落地，并完成第一轮一致性修复
 - `Experience` 已完成 projection，可供内部审阅
-- 系统整体正处于“短期完成，中期可读，长期第一版已落地但尚未完整接入”的阶段
+- prompt collector 已能读取 snapshot
+- 系统整体正处于“短期完成，中期可读，长期第一版已落地，collect 已接入但 render 尚未完整接管”的阶段

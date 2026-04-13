@@ -1,5 +1,11 @@
 # Persona Memory System Design
 
+说明：
+
+- 本文件主要记录 persona/memory 结合方向的设计思考
+- 涉及 `MemoryOS`、TiMEM、`mk1` 的内容应视为参考来源，而不是当前代码已经按该路线完整落地
+- 当前代码现状应以 `astrbot/core/memory/*`、`astrbot/core/prompt/*` 和相关进度文档为准
+
 本文件用于统一 AstrBot 当前 memory 方向的顶层认知。
 
 目标不是直接讨论某个实现细节，而是明确：

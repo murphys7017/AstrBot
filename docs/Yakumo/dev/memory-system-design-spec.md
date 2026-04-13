@@ -2,9 +2,15 @@
 
 本文件是 AstrBot memory 模块的实现导向设计书。
 
+说明：
+
+- 本文件包含一部分较早期的方案讨论
+- 涉及 `MemoryOS` 的内容应视为设计参考，而不是当前代码已经采用的唯一落地路线
+- 当前代码现状应以 `astrbot/core/memory/*`、`docs/Yakumo/dev/memory/progress.md` 和 `docs/Yakumo/dev/memory/index.md` 为准
+
 它建立在以下文档之上：
 
-- `docs/Yakumo/dev/prompt-progress-memory-reference.md`
+- `docs/Yakumo/dev/history/prompt-progress-memory-reference.md`
 - `docs/Yakumo/dev/persona-memory-system-design.md`
 
 前者解决“当前 prompt/context 路线走到哪里”，后者解决“memory 最终服务什么目标”，本文件进一步回答：

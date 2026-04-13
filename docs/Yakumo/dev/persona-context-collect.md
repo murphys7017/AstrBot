@@ -342,7 +342,7 @@ collect 失败不能影响主链路。
 
 原因：
 
-- 当前还没有 selector / renderer
+- 当前虽然已经有 selector / render 基础骨架，但还没有开始用它们接管 persona 的真实渲染
 - 现在回写只会让新旧链路混杂得更重
 - 当前最重要的是先确认“收到了什么”
 
@@ -440,8 +440,8 @@ collect 成功后，当前会产生两类日志。
 
 也尚未完成：
 
-- selector
-- renderer
+- 用 selector 决定 persona 是否进入最终请求
+- 用 renderer 接管 persona 的真实渲染输出
 - PromptIR
 - provider compile 抽象
 
@@ -454,7 +454,7 @@ collect 成功后，当前会产生两类日志。
 3. 接 `skills/tools` collect
 4. 让日志覆盖全部 collect 结果
 5. 在确认 collect 数据稳定后，再开始做 persona render
-6. 最后再考虑 selector 和结构化中间表示
+6. 再逐步把 persona 接到 selector / renderer 的真实消费路径
 
 ## 当前结论
 
