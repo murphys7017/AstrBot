@@ -13,7 +13,11 @@ import runtime_bootstrap  # noqa: E402
 
 runtime_bootstrap.initialize_runtime_bootstrap()
 
-from astrbot.core.memory import get_memory_config, get_memory_service, shutdown_memory_service  # noqa: E402
+from astrbot.core.memory import (
+    get_memory_config,
+    get_memory_service,
+    shutdown_memory_service,
+)  # noqa: E402
 from astrbot.core.memory.identity import MemoryIdentityMappingService  # noqa: E402
 from astrbot.core.memory.store import MemoryStore  # noqa: E402
 
@@ -63,11 +67,7 @@ async def run(args: argparse.Namespace) -> int:
             for binding in bindings:
                 print(
                     f"- {binding.platform_user_key} -> {binding.canonical_user_id}"
-                    + (
-                        f" ({binding.nickname_hint})"
-                        if binding.nickname_hint
-                        else ""
-                    )
+                    + (f" ({binding.nickname_hint})" if binding.nickname_hint else "")
                 )
             return 0
 
@@ -88,7 +88,9 @@ async def run(args: argparse.Namespace) -> int:
             print("[identity-mappings] binding written to YAML")
             print(f"platform_user_key: {binding.platform_user_key}")
             print(f"canonical_user_id: {binding.canonical_user_id}")
-            print("reload required: run `python scripts/manage_identity_mappings.py reload`")
+            print(
+                "reload required: run `python scripts/manage_identity_mappings.py reload`"
+            )
             return 0
 
         if args.command == "unbind":
@@ -99,7 +101,9 @@ async def run(args: argparse.Namespace) -> int:
                 print("[identity-mappings] binding not found", file=sys.stderr)
                 return 1
             print("[identity-mappings] binding removed from YAML")
-            print("reload required: run `python scripts/manage_identity_mappings.py reload`")
+            print(
+                "reload required: run `python scripts/manage_identity_mappings.py reload`"
+            )
             return 0
 
         if args.command == "reload":
