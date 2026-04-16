@@ -93,6 +93,10 @@ class BasePromptRenderer:
         """Return whether session nodes remain in compiled system prompt."""
         return False
 
+    def escape_render_text(self, text: str) -> str:
+        """Escape raw text before inserting it into renderer-owned markup."""
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     def get_node_structure(self) -> dict[str, str]:
         """Return the default physical node path for each logical group."""
         return {
@@ -1005,6 +1009,7 @@ class BasePromptRenderer:
                 child,
                 lines,
                 base_depth=base_depth,
+                escape_text=True,
             )
         lines.append(f"{indent}</{system_node.meta.get('tag', 'system')}>")
 
@@ -1044,6 +1049,7 @@ class BasePromptRenderer:
         lines: list[str],
         *,
         base_depth: int,
+        escape_text: bool = False,
     ) -> None:
         if not node.enabled:
             return
@@ -1057,9 +1063,12 @@ class BasePromptRenderer:
             indent_depth = max(parent_depth - base_depth, 0)
 
         indent = " " * (indent_depth * prompt_tree.indent_size)
+        text = node.text
+        if text and escape_text and kind not in {"tag_start", "tag_end"}:
+            text = self.escape_render_text(text)
 
-        if node.text:
-            for line in node.text.splitlines():
+        if text:
+            for line in text.splitlines():
                 lines.append(indent + line)
         elif not is_container:
             lines.append("")
@@ -1070,6 +1079,7 @@ class BasePromptRenderer:
                 child,
                 lines,
                 base_depth=base_depth,
+                escape_text=escape_text,
             )
 
     def _compile_turn_messages(
@@ -1248,7 +1258,7 @@ class BasePromptRenderer:
         for key in ("text", "iso", "timezone", "source"):
             value = self._clean_text(values.get(key))
             if value:
-                lines.append(f"      <{key}>{value}</{key}>")
+                lines.append(f"      <{key}>{self.escape_render_text(value)}</{key}>")
         lines.append("    </datetime>")
         return lines
 
@@ -1296,7 +1306,7 @@ class BasePromptRenderer:
         ):
             value = self._clean_text(values.get(key))
             if value:
-                lines.append(f"      <{key}>{value}</{key}>")
+                lines.append(f"      <{key}>{self.escape_render_text(value)}</{key}>")
         lines.append("    </user_info>")
         return lines
 
@@ -1313,9 +1323,13 @@ class BasePromptRenderer:
 
         lines = ["<user_input>"]
         if normalized_current:
-            lines.append(f"  <text>{normalized_current}</text>")
+            lines.append(
+                f"  <text>{self.escape_render_text(normalized_current)}</text>"
+            )
         if normalized_quoted:
-            lines.append(f"  <quoted_text>{normalized_quoted}</quoted_text>")
+            lines.append(
+                f"  <quoted_text>{self.escape_render_text(normalized_quoted)}</quoted_text>"
+            )
         lines.append("</user_input>")
         return "\n".join(lines)
 

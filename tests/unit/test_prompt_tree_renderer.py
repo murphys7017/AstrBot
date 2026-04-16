@@ -476,7 +476,7 @@ def test_render_engine_keeps_text_only_user_input_as_plain_string_message():
         slots={
             "input.text": ContextSlot(
                 name="input.text",
-                value="Hello there",
+                value="Hello <there> & everyone",
                 category="input",
                 source="test",
             )
@@ -486,7 +486,86 @@ def test_render_engine_keeps_text_only_user_input_as_plain_string_message():
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
     result = engine.render(pack)
 
-    assert result.messages == [{"role": "user", "content": "Hello there"}]
+    assert result.messages == [{"role": "user", "content": "Hello <there> & everyone"}]
+
+
+def test_render_engine_escapes_markup_text_in_system_and_structured_input():
+    pack = ContextPack(
+        slots={
+            "persona.prompt": ContextSlot(
+                name="persona.prompt",
+                value="You are <Alice> & Bob > Carol",
+                category="persona",
+                source="test",
+            ),
+            "session.user_info": ContextSlot(
+                name="session.user_info",
+                value={
+                    "user_id": "u1",
+                    "nickname": "Alice <Admin> & Co",
+                    "platform_name": "qq",
+                    "umo": "qq:group:1",
+                    "group_id": "1",
+                    "group_name": "Dev > Test",
+                    "is_group": True,
+                },
+                category="session",
+                source="test",
+            ),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Need <help> & support",
+                category="input",
+                source="test",
+            ),
+            "input.quoted_text": ContextSlot(
+                name="input.quoted_text",
+                value="Quoted > raw & text",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
+    result = engine.render(pack)
+
+    assert result.system_prompt is not None
+    assert "You are &lt;Alice&gt; &amp; Bob &gt; Carol" in result.system_prompt
+    assert result.messages == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "<request_context>\n"
+                        "  <session>\n"
+                        "    <user_info>\n"
+                        "      <user_id>u1</user_id>\n"
+                        "      <nickname>Alice &lt;Admin&gt; &amp; Co</nickname>\n"
+                        "      <platform_name>qq</platform_name>\n"
+                        "      <umo>qq:group:1</umo>\n"
+                        "      <group_id>1</group_id>\n"
+                        "      <group_name>Dev &gt; Test</group_name>\n"
+                        "      <is_group>true</is_group>\n"
+                        "    </user_info>\n"
+                        "  </session>\n"
+                        "</request_context>"
+                    ),
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "<user_input>\n"
+                        "  <text>Need &lt;help&gt; &amp; support</text>\n"
+                        "  <quoted_text>Quoted &gt; raw &amp; text</quoted_text>\n"
+                        "</user_input>"
+                    ),
+                },
+            ],
+        }
+    ]
 
 
 def test_render_engine_includes_session_context_in_current_user_message():
@@ -706,3 +785,26 @@ def test_custom_renderer_can_override_group_renderer():
     assert "user=Alice" in result.system_prompt
     assert "<compact>" in result.system_prompt
     assert "<nickname>" not in result.system_prompt
+
+
+def test_custom_renderer_can_override_render_text_escape():
+    class CustomEscapeRenderer(BasePromptRenderer):
+        def escape_render_text(self, text: str) -> str:
+            return text.replace("&", "[amp]").replace("<", "[lt]").replace(">", "[gt]")
+
+    pack = ContextPack(
+        slots={
+            "persona.prompt": ContextSlot(
+                name="persona.prompt",
+                value="You are <Alice> & Bob",
+                category="persona",
+                source="test",
+            )
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=CustomEscapeRenderer())
+    result = engine.render(pack)
+
+    assert result.system_prompt is not None
+    assert "You are [lt]Alice[gt] [amp] Bob" in result.system_prompt
