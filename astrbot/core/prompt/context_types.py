@@ -10,8 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional
-
+from typing import Any, Literal
 
 # ========== 枚举类型 ==========
 
@@ -87,7 +86,7 @@ class ContextSlot:
     priority: int = 50
 
     # 扩展元数据
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -99,13 +98,13 @@ class ContextPack:
     """
 
     # 核心：按唯一名称索引的 slots
-    slots: Dict[str, ContextSlot] = field(default_factory=dict)
+    slots: dict[str, ContextSlot] = field(default_factory=dict)
 
     # 可选：对原始 ProviderRequest 的引用（用于兼容）
-    provider_request_ref: Optional[Any] = None
+    provider_request_ref: Any | None = None
 
     # 扩展元数据
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
     # ========== 便捷方法 ==========
 
@@ -113,7 +112,7 @@ class ContextPack:
         """添加一个 slot 到 pack。"""
         self.slots[slot.name] = slot
 
-    def get_slot(self, name: str) -> Optional[ContextSlot]:
+    def get_slot(self, name: str) -> ContextSlot | None:
         """按名称获取 slot。"""
         return self.slots.get(name)
 
@@ -121,10 +120,10 @@ class ContextPack:
         """检查 slot 是否存在。"""
         return name in self.slots
 
-    def list_by_category(self, category: CategoryType) -> List[ContextSlot]:
+    def list_by_category(self, category: CategoryType) -> list[ContextSlot]:
         """列出某个类别中的所有 slots。"""
         return [s for s in self.slots.values() if s.category == category]
 
-    def list_llm_allowed(self) -> List[ContextSlot]:
+    def list_llm_allowed(self) -> list[ContextSlot]:
         """列出所有允许显示给 LLM 的 slots。"""
         return [s for s in self.slots.values() if s.llm_exposure != "never"]

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import yaml
 from loguru import logger
@@ -20,12 +20,8 @@ from loguru import logger
 from .context_types import (
     CategoryType,
     LifecycleType,
-    PlacementType,
-    RenderModeType,
-    LLMExposureType,
     SlotName,
 )
-
 
 # ========== Catalog 数据模型 ==========
 
@@ -40,14 +36,14 @@ class CatalogItem:
 
     id: str  # 唯一标识（如 "persona.prompt"）
     category: CategoryType  # 语义类别
-    slots: List[SlotName]  # 可以填充哪些布局槽
+    slots: list[SlotName]  # 可以填充哪些布局槽
     required: bool  # 此上下文是否必需
     multiple: bool  # 是否允许多个实例
     lifecycle: LifecycleType  # 生命周期类型
 
     # 可选字段
     notes: str = ""
-    meta: Dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -57,13 +53,13 @@ class ContextCatalog:
     """
 
     version: str
-    contexts: List[CatalogItem] = field(default_factory=list)
+    contexts: list[CatalogItem] = field(default_factory=list)
 
     # 用于快速查找的索引
-    _id_index: Dict[str, CatalogItem] = field(
+    _id_index: dict[str, CatalogItem] = field(
         default_factory=dict, init=False, repr=False
     )
-    _category_index: Dict[str, List[CatalogItem]] = field(
+    _category_index: dict[str, list[CatalogItem]] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -78,7 +74,7 @@ class ContextCatalog:
                 self._category_index[item.category] = []
             self._category_index[item.category].append(item)
 
-    def get(self, item_id: str) -> Optional[CatalogItem]:
+    def get(self, item_id: str) -> CatalogItem | None:
         """按 ID 获取 item。"""
         return self._id_index.get(item_id)
 
@@ -86,15 +82,15 @@ class ContextCatalog:
         """检查 item 是否存在。"""
         return item_id in self._id_index
 
-    def list_by_category(self, category: CategoryType) -> List[CatalogItem]:
+    def list_by_category(self, category: CategoryType) -> list[CatalogItem]:
         """列出某个类别中的所有 items。"""
         return self._category_index.get(category, [])
 
-    def list_required(self) -> List[CatalogItem]:
+    def list_required(self) -> list[CatalogItem]:
         """列出所有必需的 items。"""
         return [item for item in self.contexts if item.required]
 
-    def list_allows_multiple(self) -> List[CatalogItem]:
+    def list_allows_multiple(self) -> list[CatalogItem]:
         """列出所有允许多个实例的 items。"""
         return [item for item in self.contexts if item.multiple]
 
@@ -108,7 +104,7 @@ class ContextCatalogLoader:
     """
 
     # 合法的枚举值
-    VALID_CATEGORIES: Set[str] = {
+    VALID_CATEGORIES: set[str] = {
         "system",
         "persona",
         "memory",
@@ -118,7 +114,7 @@ class ContextCatalogLoader:
         "session",
     }
 
-    VALID_LIFECYCLES: Set[str] = {
+    VALID_LIFECYCLES: set[str] = {
         "static",
         "session",
         "rolling",
@@ -126,7 +122,7 @@ class ContextCatalogLoader:
         "dynamic",
     }
 
-    VALID_SLOTS: Set[str] = {
+    VALID_SLOTS: set[str] = {
         "system",
         "persona",
         "history",
@@ -151,10 +147,9 @@ class ContextCatalogLoader:
             return ContextCatalog(version="0.1", contexts=[])
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.error(f"Failed to load catalog yaml: {e}, using empty catalog")
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            logger.error(f"Failed to load catalog yaml: {exc}, using empty catalog")
             return ContextCatalog(version="0.1", contexts=[])
 
         if not isinstance(data, dict):
@@ -168,13 +163,13 @@ class ContextCatalogLoader:
             logger.warning("Catalog 'contexts' must be a list, using empty catalog")
             return ContextCatalog(version=version, contexts=[])
 
-        contexts: List[CatalogItem] = []
+        contexts: list[CatalogItem] = []
         for idx, item_data in enumerate(contexts_raw):
             try:
                 item = cls._parse_item(item_data)
                 contexts.append(item)
-            except Exception as e:
-                logger.warning(f"Failed to parse catalog item {idx}: {e}, skipping")
+            except Exception as exc:
+                logger.warning(f"Failed to parse catalog item {idx}: {exc}, skipping")
 
         catalog = ContextCatalog(version=version, contexts=contexts)
         cls._validate(catalog)
@@ -183,7 +178,7 @@ class ContextCatalogLoader:
         return catalog
 
     @classmethod
-    def _parse_item(cls, data: Dict[str, Any]) -> CatalogItem:
+    def _parse_item(cls, data: dict[str, Any]) -> CatalogItem:
         """从 dict 解析单个 catalog item。"""
         # 必需字段
         item_id = data.get("id")
@@ -233,7 +228,7 @@ class ContextCatalogLoader:
         验证 catalog（仅打警告日志，不失败）。
         """
         # 检查 ID 唯一性
-        id_set: Set[str] = set()
+        id_set: set[str] = set()
         for item in catalog.contexts:
             if item.id in id_set:
                 logger.warning(f"Duplicate catalog item ID: {item.id}")
@@ -247,7 +242,7 @@ class ContextCatalogLoader:
 
 # ========== 全局单例 ==========
 
-_catalog: Optional[ContextCatalog] = None
+_catalog: ContextCatalog | None = None
 
 
 def get_catalog(
