@@ -7,10 +7,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from astrbot.core import logger
-from astrbot.core.astr_main_agent_resources import retrieve_knowledge_base
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
+from astrbot.core.tools.knowledge_base_tools import retrieve_knowledge_base
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
