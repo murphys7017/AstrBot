@@ -1,5 +1,7 @@
 """Tests for prompt tree building and base renderer routing."""
 
+from unittest.mock import patch
+
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.render import (
     BasePromptRenderer,
@@ -7,6 +9,7 @@ from astrbot.core.prompt.render import (
     PromptRenderEngine,
     SerializedRenderValue,
 )
+from astrbot.core.prompt.render.engine import logger as render_logger
 
 
 def test_prompt_builder_builds_nested_tag_tree():
@@ -437,23 +440,15 @@ def test_render_engine_compiles_user_input_and_merged_tool_schema():
     assert result.messages[-1]["content"] == [
         {
             "type": "text",
-            "text": "Look at this",
-            "section": "input_text",
+            "text": "<user_input>\n  <text>Look at this</text>\n</user_input>",
         },
         {
             "type": "image_url",
             "image_url": {"url": "file:///tmp/demo.png"},
-            "section": "attachment_image",
-            "transport": "file",
-            "source": "current",
         },
         {
-            "type": "file_ref",
-            "file_ref": {"name": "spec.txt", "ref": "/tmp/spec.txt"},
-            "section": "attachment_file",
-            "source": "current",
-            "file": "/tmp/spec.txt",
-            "url": "",
+            "type": "text",
+            "text": "[File Attachment: name spec.txt, path /tmp/spec.txt]",
         },
     ]
     assert result.tool_schema == [
@@ -494,6 +489,84 @@ def test_render_engine_keeps_text_only_user_input_as_plain_string_message():
     assert result.messages == [{"role": "user", "content": "Hello there"}]
 
 
+def test_render_engine_includes_session_context_in_current_user_message():
+    pack = ContextPack(
+        slots={
+            "session.datetime": ContextSlot(
+                name="session.datetime",
+                value={
+                    "text": "2026-04-17 20:30 (CST)",
+                    "iso": "2026-04-17T20:30:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "source": "config.timezone",
+                },
+                category="session",
+                source="test",
+            ),
+            "session.user_info": ContextSlot(
+                name="session.user_info",
+                value={
+                    "user_id": "u1",
+                    "nickname": "Alice",
+                    "platform_name": "qq",
+                    "umo": "qq:group:1",
+                    "group_id": "1",
+                    "group_name": "AstrBot Dev",
+                    "is_group": True,
+                },
+                category="session",
+                source="test",
+            ),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Hello there",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
+    result = engine.render(pack)
+
+    assert result.messages == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "<request_context>\n"
+                        "  <session>\n"
+                        "    <datetime>\n"
+                        "      <text>2026-04-17 20:30 (CST)</text>\n"
+                        "      <iso>2026-04-17T20:30:00+08:00</iso>\n"
+                        "      <timezone>Asia/Shanghai</timezone>\n"
+                        "      <source>config.timezone</source>\n"
+                        "    </datetime>\n"
+                        "    <user_info>\n"
+                        "      <user_id>u1</user_id>\n"
+                        "      <nickname>Alice</nickname>\n"
+                        "      <platform_name>qq</platform_name>\n"
+                        "      <umo>qq:group:1</umo>\n"
+                        "      <group_id>1</group_id>\n"
+                        "      <group_name>AstrBot Dev</group_name>\n"
+                        "      <is_group>true</is_group>\n"
+                        "    </user_info>\n"
+                        "  </session>\n"
+                        "</request_context>"
+                    ),
+                },
+                {
+                    "type": "text",
+                    "text": "<user_input>\n  <text>Hello there</text>\n</user_input>",
+                },
+            ],
+        }
+    ]
+    assert result.system_prompt is None or "<session>" not in result.system_prompt
+
+
 def test_render_engine_returns_prompt_tree_and_system_prompt():
     pack = ContextPack(
         slots={
@@ -522,6 +595,39 @@ def test_render_engine_returns_prompt_tree_and_system_prompt():
     assert result.metadata["rendered_slots"] == ["persona.prompt"]
     assert result.metadata["compiled_message_count"] == 0
     assert result.metadata["compiled_tool_count"] == 0
+
+
+def test_render_engine_emits_debug_log_for_render_result():
+    pack = ContextPack(
+        slots={
+            "persona.prompt": ContextSlot(
+                name="persona.prompt",
+                value="You are Alice.",
+                category="persona",
+                source="test",
+            ),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Hello there",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine()
+    with (
+        patch.object(render_logger, "isEnabledFor", return_value=True),
+        patch.object(render_logger, "debug") as debug_mock,
+    ):
+        engine.render(pack)
+
+    debug_mock.assert_called_once()
+    message_template, payload = debug_mock.call_args.args
+    assert message_template == "Prompt render result: %s"
+    assert '"renderer": "base"' in payload
+    assert '"system_prompt": "<system>' in payload
+    assert '"content": "Hello there"' in payload
 
 
 def test_render_engine_respects_renderer_disabled_groups():
@@ -556,6 +662,9 @@ def test_render_engine_respects_renderer_disabled_groups():
 
 def test_custom_renderer_can_override_group_renderer():
     class CompactSessionRenderer(BasePromptRenderer):
+        def include_session_in_system_prompt(self) -> bool:
+            return True
+
         def render_session_context(
             self,
             target,

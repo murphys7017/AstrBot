@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
+
+from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
@@ -63,11 +67,19 @@ class PromptRenderEngine:
             config=config,
             provider_request=provider_request,
         )
-        return self._attach_engine_metadata(
+        result = self._attach_engine_metadata(
             result,
             selected_pack=selected_pack,
             renderer=renderer,
         )
+        self._log_render_result(
+            result,
+            selected_pack=selected_pack,
+            renderer=renderer,
+            event=event,
+            provider_request=provider_request,
+        )
+        return result
 
     def _select_context_pack(
         self,
@@ -240,3 +252,35 @@ class PromptRenderEngine:
             }
         )
         return result
+
+    def _log_render_result(
+        self,
+        result: RenderResult,
+        *,
+        selected_pack: ContextPack,
+        renderer: BasePromptRenderer,
+        event: AstrMessageEvent | None = None,
+        provider_request: ProviderRequest | None = None,
+    ) -> None:
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+
+        payload = {
+            "umo": getattr(event, "unified_msg_origin", None) if event else None,
+            "session_id": (
+                getattr(provider_request, "session_id", None)
+                if provider_request is not None
+                else None
+            ),
+            "renderer": renderer.get_name(),
+            "slot_count": len(selected_pack.slots),
+            "selected_slot_names": sorted(selected_pack.slots),
+            "system_prompt": result.system_prompt,
+            "messages": result.messages,
+            "tool_schema": result.tool_schema,
+            "metadata": result.metadata,
+        }
+        logger.debug(
+            "Prompt render result: %s",
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        )

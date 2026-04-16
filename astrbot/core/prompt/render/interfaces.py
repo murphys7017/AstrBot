@@ -89,6 +89,10 @@ class BasePromptRenderer:
         """Return enabled logical data groups for this renderer."""
         return self.ALL_SLOT_GROUPS
 
+    def include_session_in_system_prompt(self) -> bool:
+        """Return whether session nodes remain in compiled system prompt."""
+        return False
+
     def get_node_structure(self) -> dict[str, str]:
         """Return the default physical node path for each logical group."""
         return {
@@ -655,11 +659,9 @@ class BasePromptRenderer:
         if system_node is None:
             return None
 
-        if not self._render_subtree_text(prompt_tree, system_node, include_root=False):
+        if not self._system_prompt_has_visible_content(prompt_tree, system_node):
             return None
-        rendered = self._render_subtree_text(
-            prompt_tree, system_node, include_root=True
-        )
+        rendered = self._render_system_prompt_text(prompt_tree, system_node)
         return rendered or None
 
     def _compile_messages(self, prompt_tree: PromptBuilder) -> list[dict[str, Any]]:
@@ -693,14 +695,6 @@ class BasePromptRenderer:
             if text_node is not None
             else None
         )
-        if current_text:
-            content_parts.append(
-                {
-                    "type": "text",
-                    "text": current_text,
-                    "section": "input_text",
-                }
-            )
 
         quoted_node = self._find_tag_path(prompt_tree, "user_input/quoted")
         quoted_text = (
@@ -708,48 +702,64 @@ class BasePromptRenderer:
             if quoted_node is not None
             else None
         )
-        if quoted_text:
-            content_parts.append(
-                {
-                    "type": "text",
-                    "text": quoted_text,
-                    "section": "quoted_text",
-                }
-            )
 
-        quoted_images_node = self._find_tag_path(prompt_tree, "user_input/quoted/images")
-        if quoted_images_node is not None:
-            content_parts.extend(
-                self._compile_image_content_parts(
-                    prompt_tree,
-                    quoted_images_node,
-                    section="quoted_image",
-                )
-            )
-
+        quoted_images_node = self._find_tag_path(
+            prompt_tree, "user_input/quoted/images"
+        )
         attachment_images_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/images"
         )
-        if attachment_images_node is not None:
-            content_parts.extend(
-                self._compile_image_content_parts(
-                    prompt_tree,
-                    attachment_images_node,
-                    section="attachment_image",
-                )
-            )
-
         attachment_files_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/files"
         )
-        if attachment_files_node is not None:
-            content_parts.extend(
-                self._compile_file_content_parts(
-                    prompt_tree,
-                    attachment_files_node,
-                    section="attachment_file",
-                )
+
+        request_context_text = self._compile_request_context_text(prompt_tree)
+        user_input_text = self._compile_user_input_text(
+            current_text=current_text,
+            quoted_text=quoted_text,
+        )
+        quoted_image_parts = (
+            self._compile_image_content_parts(
+                prompt_tree,
+                quoted_images_node,
             )
+            if quoted_images_node is not None
+            else []
+        )
+        attachment_image_parts = (
+            self._compile_image_content_parts(
+                prompt_tree,
+                attachment_images_node,
+            )
+            if attachment_images_node is not None
+            else []
+        )
+        file_text_parts = (
+            self._compile_file_text_parts(
+                prompt_tree,
+                attachment_files_node,
+            )
+            if attachment_files_node is not None
+            else []
+        )
+
+        if (
+            current_text
+            and not request_context_text
+            and not quoted_text
+            and not quoted_image_parts
+            and not attachment_image_parts
+            and not file_text_parts
+        ):
+            return {"role": "user", "content": current_text}
+
+        if request_context_text:
+            content_parts.append(self._build_text_content_part(request_context_text))
+        if user_input_text:
+            content_parts.append(self._build_text_content_part(user_input_text))
+        content_parts.extend(quoted_image_parts)
+        content_parts.extend(attachment_image_parts)
+        content_parts.extend(file_text_parts)
 
         if not content_parts:
             fallback_content = self._render_subtree_text(
@@ -760,13 +770,6 @@ class BasePromptRenderer:
             if not fallback_content:
                 return None
             return {"role": "user", "content": fallback_content}
-
-        if (
-            len(content_parts) == 1
-            and content_parts[0].get("type") == "text"
-            and content_parts[0].get("section") == "input_text"
-        ):
-            return {"role": "user", "content": content_parts[0]["text"]}
 
         return {"role": "user", "content": content_parts}
 
@@ -979,6 +982,61 @@ class BasePromptRenderer:
             return None
         return prompt_tree.newline.join(lines)
 
+    def _render_system_prompt_text(
+        self,
+        prompt_tree: PromptBuilder,
+        system_node,
+    ) -> str | None:
+        lines: list[str] = []
+        base_depth = system_node.depth
+        indent = " " * (0 * prompt_tree.indent_size)
+        include_session = self.include_session_in_system_prompt()
+
+        lines.append(f"{indent}<{system_node.meta.get('tag', 'system')}>")
+        for child in self._iter_structured_children(prompt_tree, system_node):
+            if (
+                not include_session
+                and child.meta.get("kind") == "tag_start"
+                and child.meta.get("tag") == "session"
+            ):
+                continue
+            self._render_node_relative(
+                prompt_tree,
+                child,
+                lines,
+                base_depth=base_depth,
+            )
+        lines.append(f"{indent}</{system_node.meta.get('tag', 'system')}>")
+
+        while lines and lines[-1] == "":
+            lines.pop()
+
+        if len(lines) <= 2:
+            return None
+        return prompt_tree.newline.join(lines)
+
+    def _system_prompt_has_visible_content(
+        self,
+        prompt_tree: PromptBuilder,
+        system_node,
+    ) -> bool:
+        include_session = self.include_session_in_system_prompt()
+        for child in self._iter_structured_children(prompt_tree, system_node):
+            if (
+                not include_session
+                and child.meta.get("kind") == "tag_start"
+                and child.meta.get("tag") == "session"
+            ):
+                continue
+            rendered = self._render_subtree_text(
+                prompt_tree,
+                child,
+                include_root=True,
+            )
+            if rendered:
+                return True
+        return False
+
     def _render_node_relative(
         self,
         prompt_tree: PromptBuilder,
@@ -1087,58 +1145,186 @@ class BasePromptRenderer:
         self,
         prompt_tree: PromptBuilder,
         parent_node,
-        *,
-        section: str,
     ) -> list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
-        for image_node in self._iter_descendant_tags(prompt_tree, parent_node, tag="image"):
+        for image_node in self._iter_descendant_tags(
+            prompt_tree, parent_node, tag="image"
+        ):
             ref = self._render_subtree_text(prompt_tree, image_node, include_root=False)
             if not ref:
                 continue
 
-            image_part: dict[str, Any] = {
-                "type": "image_url",
-                "image_url": {"url": ref},
-                "section": section,
-            }
-            for key in ("transport", "resolution", "reply_id", "source"):
-                value = image_node.meta.get(key)
-                if value is not None:
-                    image_part[key] = value
-            parts.append(image_part)
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": ref},
+                }
+            )
         return parts
 
-    def _compile_file_content_parts(
+    def _compile_file_text_parts(
         self,
         prompt_tree: PromptBuilder,
         parent_node,
-        *,
-        section: str,
     ) -> list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
-        for file_node in self._iter_descendant_tags(prompt_tree, parent_node, tag="file"):
+        for file_node in self._iter_descendant_tags(
+            prompt_tree, parent_node, tag="file"
+        ):
             name = self._extract_child_tag_text(prompt_tree, file_node, "name")
             ref = self._extract_child_tag_text(prompt_tree, file_node, "ref")
             if not name and not ref:
                 continue
 
-            file_ref: dict[str, Any] = {}
-            if name:
-                file_ref["name"] = name
-            if ref:
-                file_ref["ref"] = ref
+            source = file_node.meta.get("source")
+            if source == "quoted":
+                prefix = "[File Attachment in quoted message:"
+            else:
+                prefix = "[File Attachment:"
 
-            file_part: dict[str, Any] = {
-                "type": "file_ref",
-                "file_ref": file_ref,
-                "section": section,
-            }
-            for key in ("source", "reply_id", "file", "url"):
-                value = file_node.meta.get(key)
-                if value is not None:
-                    file_part[key] = value
-            parts.append(file_part)
+            details: list[str] = []
+            if name:
+                details.append(f"name {name}")
+            if ref:
+                details.append(f"path {ref}")
+
+            file_text = prefix
+            if details:
+                file_text += f" {', '.join(details)}"
+            file_text += "]"
+            parts.append(self._build_text_content_part(file_text))
         return parts
+
+    def _compile_request_context_text(
+        self,
+        prompt_tree: PromptBuilder,
+    ) -> str | None:
+        session_node = self._find_tag_path(prompt_tree, "system/session")
+        if session_node is None:
+            return None
+
+        datetime_node = self._find_direct_child_tag(
+            session_node,
+            "datetime",
+            prompt_tree=prompt_tree,
+        )
+        user_info_node = self._find_direct_child_tag(
+            session_node,
+            "user_info",
+            prompt_tree=prompt_tree,
+        )
+
+        datetime_lines = self._compile_datetime_lines(prompt_tree, datetime_node)
+        user_info_lines = self._compile_user_info_lines(prompt_tree, user_info_node)
+        if not datetime_lines and not user_info_lines:
+            return None
+
+        lines = ["<request_context>", "  <session>"]
+        lines.extend(datetime_lines)
+        lines.extend(user_info_lines)
+        lines.append("  </session>")
+        lines.append("</request_context>")
+        return "\n".join(lines)
+
+    def _compile_datetime_lines(
+        self,
+        prompt_tree: PromptBuilder,
+        datetime_node,
+    ) -> list[str]:
+        if datetime_node is None:
+            return []
+
+        text = self._render_subtree_text(prompt_tree, datetime_node, include_root=False)
+        values = {
+            "text": text,
+            "iso": datetime_node.meta.get("iso"),
+            "timezone": datetime_node.meta.get("timezone"),
+            "source": datetime_node.meta.get("source"),
+        }
+        if not any(values.values()):
+            return []
+
+        lines = ["    <datetime>"]
+        for key in ("text", "iso", "timezone", "source"):
+            value = self._clean_text(values.get(key))
+            if value:
+                lines.append(f"      <{key}>{value}</{key}>")
+        lines.append("    </datetime>")
+        return lines
+
+    def _compile_user_info_lines(
+        self,
+        prompt_tree: PromptBuilder,
+        user_info_node,
+    ) -> list[str]:
+        if user_info_node is None:
+            return []
+
+        values = {
+            "user_id": user_info_node.meta.get("user_id"),
+            "nickname": self._extract_child_tag_text(
+                prompt_tree, user_info_node, "nickname"
+            ),
+            "platform_name": self._extract_child_tag_text(
+                prompt_tree,
+                user_info_node,
+                "platform_name",
+            ),
+            "umo": user_info_node.meta.get("umo"),
+            "group_id": user_info_node.meta.get("group_id"),
+            "group_name": self._extract_child_tag_text(
+                prompt_tree,
+                user_info_node,
+                "group_name",
+            ),
+            "is_group": self._extract_child_tag_text(
+                prompt_tree, user_info_node, "is_group"
+            ),
+        }
+        if not any(values.values()):
+            return []
+
+        lines = ["    <user_info>"]
+        for key in (
+            "user_id",
+            "nickname",
+            "platform_name",
+            "umo",
+            "group_id",
+            "group_name",
+            "is_group",
+        ):
+            value = self._clean_text(values.get(key))
+            if value:
+                lines.append(f"      <{key}>{value}</{key}>")
+        lines.append("    </user_info>")
+        return lines
+
+    def _compile_user_input_text(
+        self,
+        *,
+        current_text: str | None,
+        quoted_text: str | None,
+    ) -> str | None:
+        normalized_current = self._clean_text(current_text)
+        normalized_quoted = self._clean_text(quoted_text)
+        if not normalized_current and not normalized_quoted:
+            return None
+
+        lines = ["<user_input>"]
+        if normalized_current:
+            lines.append(f"  <text>{normalized_current}</text>")
+        if normalized_quoted:
+            lines.append(f"  <quoted_text>{normalized_quoted}</quoted_text>")
+        lines.append("</user_input>")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_text_content_part(text: str) -> dict[str, Any]:
+        return {
+            "type": "text",
+            "text": text,
+        }
 
     def _extract_child_tag_text(
         self,
