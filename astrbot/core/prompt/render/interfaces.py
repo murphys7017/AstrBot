@@ -29,7 +29,7 @@ class RenderResult:
     prompt_tree: PromptBuilder | None = None
     system_prompt: str | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
-    tool_schema: Any = None
+    tool_schema: list[dict[str, Any]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -95,7 +95,13 @@ class BasePromptRenderer:
 
     def escape_render_text(self, text: str) -> str:
         """Escape raw text before inserting it into renderer-owned markup."""
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
 
     def get_node_structure(self) -> dict[str, str]:
         """Return the default physical node path for each logical group."""
@@ -171,6 +177,15 @@ class BasePromptRenderer:
                 meta=self._slot_meta(slot),
             ):
                 rendered_slot_names.append(slot.name)
+
+        workspace_prompt_slot = self._find_slot(slots, "system.workspace_extra_prompt")
+        if self._render_mapping_slot(
+            target,
+            "workspace_extra_prompt",
+            workspace_prompt_slot,
+            body_keys=("path", "text"),
+        ):
+            rendered_slot_names.append("system.workspace_extra_prompt")
         return rendered_slot_names
 
     def render_persona_context(
@@ -235,6 +250,7 @@ class BasePromptRenderer:
         for slot_name, child_tag in (
             ("policy.safety_prompt", "safety"),
             ("policy.sandbox_prompt", "sandbox"),
+            ("policy.local_env_prompt", "local_env"),
         ):
             slot = self._find_slot(slots, slot_name)
             if slot is None:
@@ -289,6 +305,17 @@ class BasePromptRenderer:
         ):
             rendered_slot_names.append(quoted_images_slot.name)
 
+        quoted_image_captions_slot = self._find_slot(
+            slots, "input.quoted_image_captions"
+        )
+        if quoted_image_captions_slot is not None and self._render_record_items(
+            resolve_node("user_input/quoted_image_captions"),
+            quoted_image_captions_slot,
+            item_tag="image_caption",
+            body_keys=("ref", "caption"),
+        ):
+            rendered_slot_names.append(quoted_image_captions_slot.name)
+
         images_slot = self._find_slot(slots, "input.images")
         if images_slot is not None and self._render_image_records(
             resolve_node("user_input/attachments/images"),
@@ -296,12 +323,30 @@ class BasePromptRenderer:
         ):
             rendered_slot_names.append(images_slot.name)
 
+        image_captions_slot = self._find_slot(slots, "input.image_captions")
+        if image_captions_slot is not None and self._render_record_items(
+            resolve_node("user_input/attachments/image_captions"),
+            image_captions_slot,
+            item_tag="image_caption",
+            body_keys=("ref", "caption"),
+        ):
+            rendered_slot_names.append(image_captions_slot.name)
+
         files_slot = self._find_slot(slots, "input.files")
         if files_slot is not None and self._render_file_records(
             resolve_node("user_input/attachments/files"),
             files_slot,
         ):
             rendered_slot_names.append(files_slot.name)
+
+        file_extracts_slot = self._find_slot(slots, "input.file_extracts")
+        if file_extracts_slot is not None and self._render_record_items(
+            resolve_node("user_input/attachments/file_extracts"),
+            file_extracts_slot,
+            item_tag="file_extract",
+            body_keys=("name", "content"),
+        ):
+            rendered_slot_names.append(file_extracts_slot.name)
 
         return rendered_slot_names
 
@@ -710,17 +755,56 @@ class BasePromptRenderer:
         quoted_images_node = self._find_tag_path(
             prompt_tree, "user_input/quoted/images"
         )
+        quoted_image_captions_node = self._find_tag_path(
+            prompt_tree, "user_input/quoted_image_captions"
+        )
         attachment_images_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/images"
         )
+        attachment_image_captions_node = self._find_tag_path(
+            prompt_tree, "user_input/attachments/image_captions"
+        )
         attachment_files_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/files"
+        )
+        file_extracts_node = self._find_tag_path(
+            prompt_tree, "user_input/attachments/file_extracts"
         )
 
         request_context_text = self._compile_request_context_text(prompt_tree)
         user_input_text = self._compile_user_input_text(
             current_text=current_text,
             quoted_text=quoted_text,
+        )
+        quoted_image_captions_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                quoted_image_captions_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if quoted_image_captions_node is not None
+            else None
+        )
+        attachment_image_captions_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                attachment_image_captions_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if attachment_image_captions_node is not None
+            else None
+        )
+        file_extracts_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                file_extracts_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if file_extracts_node is not None
+            else None
         )
         quoted_image_parts = (
             self._compile_image_content_parts(
@@ -751,6 +835,9 @@ class BasePromptRenderer:
             current_text
             and not request_context_text
             and not quoted_text
+            and not quoted_image_captions_text
+            and not attachment_image_captions_text
+            and not file_extracts_text
             and not quoted_image_parts
             and not attachment_image_parts
             and not file_text_parts
@@ -761,6 +848,16 @@ class BasePromptRenderer:
             content_parts.append(self._build_text_content_part(request_context_text))
         if user_input_text:
             content_parts.append(self._build_text_content_part(user_input_text))
+        if quoted_image_captions_text:
+            content_parts.append(
+                self._build_text_content_part(quoted_image_captions_text)
+            )
+        if attachment_image_captions_text:
+            content_parts.append(
+                self._build_text_content_part(attachment_image_captions_text)
+            )
+        if file_extracts_text:
+            content_parts.append(self._build_text_content_part(file_extracts_text))
         content_parts.extend(quoted_image_parts)
         content_parts.extend(attachment_image_parts)
         content_parts.extend(file_text_parts)
@@ -964,12 +1061,19 @@ class BasePromptRenderer:
         node,
         *,
         include_root: bool,
+        escape_text: bool = False,
     ) -> str | None:
         lines: list[str] = []
         base_depth = node.depth if include_root else node.depth + 1
 
         if include_root:
-            self._render_node_relative(prompt_tree, node, lines, base_depth=base_depth)
+            self._render_node_relative(
+                prompt_tree,
+                node,
+                lines,
+                base_depth=base_depth,
+                escape_text=escape_text,
+            )
         else:
             for child in self._iter_structured_children(prompt_tree, node):
                 self._render_node_relative(
@@ -977,6 +1081,7 @@ class BasePromptRenderer:
                     child,
                     lines,
                     base_depth=base_depth,
+                    escape_text=escape_text,
                 )
 
         while lines and lines[-1] == "":
@@ -1554,6 +1659,35 @@ class BasePromptRenderer:
             if ref:
                 file_ref.tag("ref").add(ref)
             rendered_any = True
+        return rendered_any
+
+    def _render_record_items(
+        self,
+        target: NodeRef,
+        slot: ContextSlot,
+        *,
+        item_tag: str,
+        body_keys: tuple[str, ...],
+    ) -> bool:
+        records = self._coerce_list(slot.value)
+        if not records:
+            return False
+
+        container = target.container(meta=self._slot_meta(slot))
+        rendered_any = False
+        for record in records:
+            item_meta = {
+                key: value for key, value in record.items() if key not in body_keys
+            }
+            item_ref = container.tag(item_tag, meta=self._clean_meta(item_meta))
+            item_rendered = False
+            for key in body_keys:
+                item_rendered |= self._render_generic_value(
+                    item_ref, key, record.get(key)
+                )
+            for key, value in item_meta.items():
+                item_rendered |= self._render_generic_value(item_ref, key, value)
+            rendered_any |= item_rendered
         return rendered_any
 
     def _render_mapping_slot(

@@ -1,6 +1,7 @@
 """Tests for prompt context collection."""
 
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,6 +43,12 @@ from astrbot.core.prompt.context_collect import (
 )
 from astrbot.core.prompt.context_types import ContextSlot
 from astrbot.core.prompt.interfaces import ContextCollectorInterface
+from astrbot.core.prompt.render import (
+    PROMPT_RENDER_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_DIFF_EXTRA_KEY,
+    PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY,
+)
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.skills.skill_manager import SkillInfo
 
@@ -276,6 +283,79 @@ async def test_build_main_agent_stores_prompt_context_pack_in_event_extra():
 
 
 @pytest.mark.asyncio
+async def test_build_main_agent_runs_prompt_pipeline_in_shadow_mode():
+    event, extras = _make_event()
+    context = _make_context()
+    provider = MagicMock()
+    provider.provider_config = {"id": "test-provider", "modalities": ["tool_use"]}
+    provider.get_model.return_value = "gpt-4"
+    context.get_using_provider.return_value = provider
+
+    conversation = _make_conversation(persona_id="persona-a")
+    context.conversation_manager.get_curr_conversation_id = AsyncMock(return_value=None)
+    context.conversation_manager.new_conversation = AsyncMock(return_value="conv-id")
+    context.conversation_manager.get_conversation = AsyncMock(return_value=conversation)
+
+    persona = {
+        "name": "persona-a",
+        "prompt": "You are a helpful assistant.",
+        "_begin_dialogs_processed": [],
+        "tools": None,
+        "skills": None,
+    }
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=("persona-a", persona, None, False)
+    )
+
+    with (
+        patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+        patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+    ):
+        mock_runner = MagicMock()
+        mock_runner.reset = AsyncMock()
+        mock_runner_cls.return_value = mock_runner
+
+        result = await ama.build_main_agent(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                prompt_pipeline_shadow_mode=True,
+            ),
+        )
+
+    assert result is not None
+    assert PROMPT_CONTEXT_PACK_EXTRA_KEY in extras
+    assert PROMPT_RENDER_RESULT_EXTRA_KEY in extras
+    assert PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY in extras
+    assert PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY in extras
+    assert PROMPT_SHADOW_DIFF_EXTRA_KEY in extras
+
+    render_result = extras[PROMPT_RENDER_RESULT_EXTRA_KEY]
+    shadow_request = extras[PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY]
+    apply_result = extras[PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY]
+    shadow_diff = extras[PROMPT_SHADOW_DIFF_EXTRA_KEY]
+
+    assert render_result.messages
+    assert apply_result.used_user_message is True
+    assert apply_result.history_message_count == 0
+    assert shadow_request is not result.provider_request
+    assert shadow_request.prompt is not None
+    assert shadow_request.prompt.startswith("<request_context>")
+    assert shadow_request.extra_user_content_parts
+    assert result.provider_request.prompt == "hello"
+    assert shadow_diff["changed"] is True
+    assert "prompt" in shadow_diff["changed_fields"]
+    assert "system_prompt" in shadow_diff["changed_fields"]
+    assert shadow_diff["diff"]["prompt"]["live"] == "hello"
+    assert (
+        shadow_diff["diff"]["system_prompt"]["live"]
+        == result.provider_request.system_prompt
+    )
+    assert isinstance(shadow_diff["diff"]["prompt"]["shadow"], str)
+
+
+@pytest.mark.asyncio
 async def test_log_context_pack_outputs_full_persona_payload():
     event, extras = _make_event()
     context = _make_context()
@@ -433,6 +513,36 @@ async def test_collect_context_pack_prefers_provider_request_prompt_for_input_te
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_applies_prompt_prefix_to_input_text():
+    event, _ = _make_event()
+    event.message_str = "/ask raw message"
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+    req = ProviderRequest(prompt="effective prompt")
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_wake_prefix="/ask ",
+            provider_settings={"prompt_prefix": "Please answer: {{prompt}}"},
+        ),
+        provider_request=req,
+        collectors=[InputCollector()],
+    )
+
+    text_slot = pack.get_slot("input.text")
+    assert text_slot is not None
+    assert text_slot.value == "Please answer: effective prompt"
+    assert text_slot.meta["raw_text"] == "effective prompt"
+    assert text_slot.meta["prompt_prefix"] == "Please answer: {{prompt}}"
+    assert text_slot.meta["prefix_applied"] is True
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_collects_quoted_input_payloads():
     event, _ = _make_event()
     event.message_obj.message = [
@@ -498,6 +608,87 @@ async def test_collect_context_pack_collects_quoted_input_payloads():
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_collects_current_image_captions():
+    event, _ = _make_event()
+    event.message_obj.message = [Image(file="https://example.com/image.png")]
+    context = _make_context()
+    req = ProviderRequest(prompt="describe this")
+    req.conversation = _make_conversation()
+    caption_provider = MagicMock()
+    caption_provider.text_chat = AsyncMock(
+        return_value=MagicMock(completion_text="A scenic test image.")
+    )
+    context.get_provider_by_id.return_value = caption_provider
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_settings={
+                "default_image_caption_provider_id": "caption-provider",
+                "image_caption_prompt": "Please describe the image.",
+            },
+        ),
+        provider_request=req,
+        collectors=[InputCollector()],
+    )
+
+    captions_slot = pack.get_slot("input.image_captions")
+    assert captions_slot is not None
+    assert captions_slot.value == [
+        {
+            "ref": "https://example.com/image.png",
+            "caption": "A scenic test image.",
+            "provider_id": "caption-provider",
+            "source": "current",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_quoted_image_captions_from_current_provider():
+    event, _ = _make_event()
+    event.message_obj.message = [
+        Reply(
+            id="reply-1",
+            message_str="quoted image",
+            chain=[Image(file="https://example.com/quoted.png")],
+        )
+    ]
+    context = _make_context()
+    caption_provider = MagicMock()
+    caption_provider.provider_config = {"id": "active-provider"}
+    caption_provider.text_chat = AsyncMock(
+        return_value=MagicMock(completion_text="Quoted image caption.")
+    )
+    context.get_using_provider.return_value = caption_provider
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+        new=AsyncMock(return_value="quoted image"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[InputCollector()],
+        )
+
+    captions_slot = pack.get_slot("input.quoted_image_captions")
+    assert captions_slot is not None
+    assert captions_slot.value == [
+        {
+            "ref": "https://example.com/quoted.png",
+            "caption": "Quoted image caption.",
+            "provider_id": "active-provider",
+            "source": "quoted",
+            "reply_id": "reply-1",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_collects_fallback_quoted_images_with_limit():
     event, _ = _make_event()
     event.message_obj.message = [Reply(id="reply-1", message_str="[Image]")]
@@ -542,6 +733,62 @@ async def test_collect_context_pack_collects_fallback_quoted_images_with_limit()
             "resolution": "fallback",
             "reply_id": "reply-1",
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_file_extracts(tmp_path):
+    current_file = tmp_path / "current.txt"
+    current_file.write_text("current", encoding="utf-8")
+    quoted_file = tmp_path / "quoted.txt"
+    quoted_file.write_text("quoted", encoding="utf-8")
+
+    event, _ = _make_event()
+    event.message_obj.message = [
+        File(name="current.txt", file=str(current_file)),
+        Reply(
+            id="reply-1",
+            message_str="quoted file",
+            chain=[File(name="quoted.txt", file=str(quoted_file))],
+        ),
+    ]
+    context = _make_context()
+
+    async def _extract(path: str, api_key: str) -> str:
+        return f"{Path(path).name}:{api_key}"
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_file_moonshotai",
+        new=AsyncMock(side_effect=_extract),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                file_extract_enabled=True,
+                file_extract_prov="moonshotai",
+                file_extract_msh_api_key="secret-key",
+            ),
+            collectors=[InputCollector()],
+        )
+
+    extract_slot = pack.get_slot("input.file_extracts")
+    assert extract_slot is not None
+    assert extract_slot.value == [
+        {
+            "name": "current.txt",
+            "content": "current.txt:secret-key",
+            "provider": "moonshotai",
+            "source": "current",
+        },
+        {
+            "name": "quoted.txt",
+            "content": "quoted.txt:secret-key",
+            "provider": "moonshotai",
+            "source": "quoted",
+            "reply_id": "reply-1",
+        },
     ]
 
 
@@ -717,6 +964,7 @@ async def test_collect_context_pack_default_collectors_include_session_collector
     ]
     assert pack.get_slot("system.base") is None
     assert pack.get_slot("system.tool_call_instruction") is not None
+    assert pack.get_slot("policy.local_env_prompt") is not None
     assert pack.get_slot("session.datetime") is not None
     assert pack.get_slot("session.user_info") is not None
     assert pack.get_slot("policy.safety_prompt") is not None
@@ -771,6 +1019,41 @@ async def test_collect_context_pack_collects_system_base_from_provider_request()
     assert base_slot is not None
     assert base_slot.value == "Base system prompt"
     assert base_slot.meta["source_field"] == "provider_request.system_prompt"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_workspace_extra_prompt(tmp_path):
+    event, _ = _make_event()
+    context = _make_context()
+    workspace_dir = tmp_path / "normalized-umo"
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    extra_prompt_path = workspace_dir / "EXTRA_PROMPT.md"
+    extra_prompt_path.write_text("Workspace-specific instruction.", encoding="utf-8")
+
+    with (
+        patch(
+            "astrbot.core.prompt.collectors.system_collector.get_astrbot_workspaces_path",
+            return_value=str(tmp_path),
+        ),
+        patch(
+            "astrbot.core.prompt.collectors.system_collector.normalize_umo_for_workspace",
+            return_value="normalized-umo",
+        ),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[SystemCollector()],
+        )
+
+    workspace_slot = pack.get_slot("system.workspace_extra_prompt")
+    assert workspace_slot is not None
+    assert workspace_slot.value == {
+        "path": str(extra_prompt_path),
+        "text": "Workspace-specific instruction.",
+    }
+    assert workspace_slot.meta["source_field"] == "workspace/EXTRA_PROMPT.md"
 
 
 @pytest.mark.asyncio
@@ -917,6 +1200,31 @@ async def test_collect_context_pack_collects_policy_sandbox_prompt_for_sandbox_r
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_collects_policy_local_env_prompt_for_local_runtime():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            computer_use_runtime="local",
+        ),
+        collectors=[PolicyCollector()],
+    )
+
+    local_env_slot = pack.get_slot("policy.local_env_prompt")
+    assert local_env_slot is not None
+    assert "host local environment" in local_env_slot.value
+    assert local_env_slot.meta["enabled_by_config"] is True
+    assert local_env_slot.meta["runtime"] == "local"
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_skips_policy_sandbox_prompt_for_local_runtime():
     event, _ = _make_event()
     context = _make_context()
@@ -935,6 +1243,7 @@ async def test_collect_context_pack_skips_policy_sandbox_prompt_for_local_runtim
     )
 
     assert pack.get_slot("policy.sandbox_prompt") is None
+    assert pack.get_slot("policy.local_env_prompt") is not None
 
 
 @pytest.mark.asyncio
@@ -1796,7 +2105,7 @@ async def test_collect_context_pack_collects_knowledge_snippets_for_non_agentic_
     req = ProviderRequest(prompt="test question")
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         AsyncMock(return_value="KB result"),
     ) as mock_retrieve:
         pack = await collect_context_pack(
@@ -1814,6 +2123,7 @@ async def test_collect_context_pack_collects_knowledge_snippets_for_non_agentic_
         query="test question",
         umo=event.unified_msg_origin,
         context=context,
+        event=event,
     )
     knowledge_slot = pack.get_slot("knowledge.snippets")
     assert knowledge_slot is not None
@@ -1833,7 +2143,7 @@ async def test_collect_context_pack_knowledge_uses_event_message_as_fallback_que
     context = _make_context()
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         AsyncMock(return_value="KB fallback result"),
     ):
         pack = await collect_context_pack(
@@ -1878,7 +2188,7 @@ async def test_collect_context_pack_skips_knowledge_slot_when_no_result():
     req = ProviderRequest(prompt="test question")
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         AsyncMock(return_value=None),
     ):
         pack = await collect_context_pack(
@@ -1902,7 +2212,7 @@ async def test_collect_context_pack_skips_knowledge_slot_for_agentic_mode():
     req = ProviderRequest(prompt="test question")
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         AsyncMock(return_value="KB result"),
     ) as mock_retrieve:
         pack = await collect_context_pack(
@@ -1927,7 +2237,7 @@ async def test_collect_context_pack_knowledge_fail_open_when_retrieve_raises():
     req = ProviderRequest(prompt="test question")
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         AsyncMock(side_effect=RuntimeError("kb boom")),
     ):
         pack = await collect_context_pack(

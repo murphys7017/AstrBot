@@ -4,22 +4,46 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if PROJECT_ROOT.as_posix() not in sys.path:
     sys.path.insert(0, PROJECT_ROOT.as_posix())
 
-import runtime_bootstrap  # noqa: E402
+if TYPE_CHECKING:
+    from astrbot.core.memory import MemoryConfig, MemoryService
+    from astrbot.core.memory.identity import MemoryIdentityMappingService
+    from astrbot.core.memory.store import MemoryStore
 
-runtime_bootstrap.initialize_runtime_bootstrap()
 
-from astrbot.core.memory import (
-    get_memory_config,
-    get_memory_service,
-    shutdown_memory_service,
-)  # noqa: E402
-from astrbot.core.memory.identity import MemoryIdentityMappingService  # noqa: E402
-from astrbot.core.memory.store import MemoryStore  # noqa: E402
+def _bootstrap_memory_runtime() -> tuple[
+    MemoryConfig,
+    MemoryStore,
+    MemoryIdentityMappingService,
+    MemoryService,
+]:
+    import runtime_bootstrap
+
+    runtime_bootstrap.initialize_runtime_bootstrap()
+
+    from astrbot.core.memory import (
+        get_memory_config,
+        get_memory_service,
+    )
+    from astrbot.core.memory.identity import MemoryIdentityMappingService
+    from astrbot.core.memory.store import MemoryStore
+
+    config = get_memory_config()
+    store = MemoryStore(config=config)
+    mapping_service = MemoryIdentityMappingService(store, config=config)
+    memory_service = get_memory_service()
+    return config, store, mapping_service, memory_service
+
+
+async def _shutdown_memory_runtime() -> None:
+    from astrbot.core.memory import shutdown_memory_service
+
+    await shutdown_memory_service()
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,9 +79,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> int:
-    config = get_memory_config()
-    store = MemoryStore(config=config)
-    mapping_service = MemoryIdentityMappingService(store, config=config)
+    _config, store, mapping_service, memory_service = _bootstrap_memory_runtime()
 
     try:
         if args.command == "list":
@@ -107,8 +129,7 @@ async def run(args: argparse.Namespace) -> int:
             return 0
 
         if args.command == "reload":
-            service = get_memory_service()
-            count = await service.reload_identity_mappings()
+            count = await memory_service.reload_identity_mappings()
             print(f"[identity-mappings] reloaded: {count} binding(s)")
             return 0
     except Exception as exc:  # noqa: BLE001
@@ -116,7 +137,7 @@ async def run(args: argparse.Namespace) -> int:
         return 1
     finally:
         await store.close()
-        await shutdown_memory_service()
+        await _shutdown_memory_runtime()
 
     return 1
 

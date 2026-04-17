@@ -4,6 +4,7 @@ System context collector for prompt context packing.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from astrbot.core import logger
@@ -14,6 +15,8 @@ from astrbot.core.astr_main_agent_resources import (
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
+from astrbot.core.tools.computer_tools import normalize_umo_for_workspace
+from astrbot.core.utils.astrbot_path import get_astrbot_workspaces_path
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
@@ -60,6 +63,17 @@ class SystemCollector(ContextCollectorInterface):
                 exc_info=True,
             )
 
+        try:
+            workspace_prompt_slot = self._build_workspace_extra_prompt_slot(event)
+            if workspace_prompt_slot is not None:
+                slots.append(workspace_prompt_slot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to collect workspace extra prompt: %s",
+                exc,
+                exc_info=True,
+            )
+
         return slots
 
     def _build_system_base_slot(
@@ -84,6 +98,47 @@ class SystemCollector(ContextCollectorInterface):
                 "source_field": "provider_request.system_prompt",
             },
         )
+
+    def _build_workspace_extra_prompt_slot(
+        self,
+        event: AstrMessageEvent,
+    ) -> ContextSlot | None:
+        extra_prompt_path = self._get_workspace_extra_prompt_path(
+            event.unified_msg_origin
+        )
+        if not extra_prompt_path.is_file():
+            return None
+
+        try:
+            extra_prompt = extra_prompt_path.read_text(encoding="utf-8").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to read workspace extra prompt for umo=%s from %s: %s",
+                event.unified_msg_origin,
+                extra_prompt_path,
+                exc,
+            )
+            return None
+
+        if not extra_prompt:
+            return None
+
+        return ContextSlot(
+            name="system.workspace_extra_prompt",
+            value={
+                "path": str(extra_prompt_path),
+                "text": extra_prompt,
+            },
+            category="system",
+            source="workspace",
+            meta={
+                "source_field": "workspace/EXTRA_PROMPT.md",
+            },
+        )
+
+    def _get_workspace_extra_prompt_path(self, umo: str) -> Path:
+        normalized_umo = normalize_umo_for_workspace(umo)
+        return Path(get_astrbot_workspaces_path()) / normalized_umo / "EXTRA_PROMPT.md"
 
     async def _build_tool_call_instruction_slot(
         self,

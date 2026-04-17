@@ -6,12 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from astrbot.core import astr_main_agent as ama
+from astrbot.core.agent.message import AudioURLPart, ImageURLPart, TextPart
 from astrbot.core.agent.mcp_client import MCPTool
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.conversation_mgr import Conversation
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import PlatformMetadata
+from astrbot.core.prompt.collectors import InputCollector, KnowledgeCollector
+from astrbot.core.prompt.context_collect import collect_context_pack
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import ProviderRequest
 
@@ -308,7 +311,7 @@ class TestApplyKb:
         )
 
         with patch(
-            "astrbot.core.astr_main_agent.retrieve_knowledge_base",
+            "astrbot.core.astr_main_agent.retrieve_knowledge_base_with_cache",
             AsyncMock(return_value="KB result"),
         ):
             await module._apply_kb(mock_event, req, mock_context, config)
@@ -350,7 +353,7 @@ class TestApplyKb:
         )
 
         with patch(
-            "astrbot.core.astr_main_agent.retrieve_knowledge_base",
+            "astrbot.core.astr_main_agent.retrieve_knowledge_base_with_cache",
             AsyncMock(return_value=None),
         ):
             await module._apply_kb(mock_event, req, mock_context, config)
@@ -368,6 +371,42 @@ class TestApplyKb:
         await module._apply_kb(mock_event, req, mock_context, config)
 
         assert req.func_tool is not None
+
+    @pytest.mark.asyncio
+    async def test_collect_and_apply_kb_reuse_single_cached_query(
+        self, mock_event, mock_context
+    ):
+        """Collect and apply stages should reuse the same KB retrieval per event."""
+        module = ama
+        extras: dict[str, object] = {}
+        mock_event.get_extra.side_effect = lambda key: extras.get(key)
+        mock_event.set_extra.side_effect = lambda key, value: extras.__setitem__(
+            key, value
+        )
+
+        req = ProviderRequest(prompt="test question", system_prompt="System prompt")
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            kb_agentic_mode=False,
+        )
+
+        with patch(
+            "astrbot.core.tools.knowledge_base_tools.retrieve_knowledge_base",
+            AsyncMock(return_value="KB result"),
+        ) as retrieve_mock:
+            pack = await collect_context_pack(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=config,
+                provider_request=req,
+                collectors=[KnowledgeCollector()],
+            )
+            await module._apply_kb(mock_event, req, mock_context, config)
+
+        assert pack.get_slot("knowledge.snippets") is not None
+        assert "[Related Knowledge Base Results]:" in req.system_prompt
+        assert "KB result" in req.system_prompt
+        retrieve_mock.assert_awaited_once()
 
 
 class TestBuiltinToolInjection:
@@ -512,6 +551,76 @@ class TestApplyFileExtract:
         await module._apply_file_extract(mock_event, req, config)
 
         assert len(req.contexts) == 0
+
+    @pytest.mark.asyncio
+    async def test_file_extract_reuses_event_cache(self, mock_event, sample_config):
+        """Test file extraction reuses per-event cache across prompt stages."""
+        module = ama
+        extras: dict[str, object] = {}
+        mock_event.get_extra.side_effect = lambda key: extras.get(key)
+        mock_event.set_extra.side_effect = lambda key, value: extras.__setitem__(
+            key, value
+        )
+
+        mock_file = MagicMock(spec=File)
+        mock_file.name = "test.pdf"
+        mock_file.get_file = AsyncMock(return_value="/path/to/test.pdf")
+        mock_event.message_obj.message = [mock_file]
+
+        with patch(
+            "astrbot.core.astr_main_agent.extract_file_moonshotai",
+            AsyncMock(return_value="File content"),
+        ) as mock_extract:
+            first_req = ProviderRequest(prompt="Summarize")
+            second_req = ProviderRequest(prompt="Summarize again")
+
+            await module._apply_file_extract(mock_event, first_req, sample_config)
+            await module._apply_file_extract(mock_event, second_req, sample_config)
+
+        mock_extract.assert_awaited_once()
+        assert len(first_req.contexts) == 1
+        assert len(second_req.contexts) == 1
+
+    @pytest.mark.asyncio
+    async def test_file_extract_reuses_collect_stage_cache(
+        self, mock_event, mock_context, sample_config
+    ):
+        """Test live file extraction reuses prompt-collect extract results."""
+        module = ama
+        extras: dict[str, object] = {}
+        mock_event.get_extra.side_effect = lambda key: extras.get(key)
+        mock_event.set_extra.side_effect = lambda key, value: extras.__setitem__(
+            key, value
+        )
+
+        mock_file = MagicMock(spec=File)
+        mock_file.name = "test.pdf"
+        mock_file.get_file = AsyncMock(return_value="/path/to/test.pdf")
+        mock_event.message_obj.message = [mock_file]
+
+        with (
+            patch(
+                "astrbot.core.prompt.collectors.input_collector.extract_file_moonshotai",
+                AsyncMock(return_value="File content"),
+            ) as collect_extract,
+            patch(
+                "astrbot.core.astr_main_agent.extract_file_moonshotai",
+                AsyncMock(return_value="File content"),
+            ) as apply_extract,
+        ):
+            pack = await collect_context_pack(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=sample_config,
+                collectors=[InputCollector()],
+            )
+            req = ProviderRequest(prompt="Summarize")
+            await module._apply_file_extract(mock_event, req, sample_config)
+
+        assert pack.get_slot("input.file_extracts") is not None
+        collect_extract.assert_awaited_once()
+        apply_extract.assert_not_awaited()
+        assert len(req.contexts) == 1
 
 
 class TestEnsurePersonaAndSkills:
@@ -712,6 +821,64 @@ class TestDecorateLlmRequest:
 
         assert req.prompt == "Hello"
 
+    @pytest.mark.asyncio
+    async def test_current_image_caption_reuses_collect_cache(
+        self, mock_event, mock_context
+    ):
+        """Test live image caption path reuses prompt-collect caption cache."""
+        module = ama
+        extras: dict[str, object] = {}
+        mock_event.get_extra.side_effect = lambda key: extras.get(key)
+        mock_event.set_extra.side_effect = lambda key, value: extras.__setitem__(
+            key, value
+        )
+        mock_event.message_obj.message = [Image(file="https://example.com/image.png")]
+
+        caption_provider = MagicMock(spec=Provider)
+        caption_provider.provider_config = {"id": "caption-provider"}
+        caption_provider.text_chat = AsyncMock(
+            return_value=MagicMock(completion_text="A scenic test image.")
+        )
+        mock_context.get_provider_by_id.return_value = caption_provider
+
+        collect_req = ProviderRequest(prompt="describe this")
+        collect_req.conversation = MagicMock()
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            provider_settings={
+                "default_image_caption_provider_id": "caption-provider",
+                "image_caption_prompt": "Please describe the image.",
+                "image_compress_enabled": False,
+            },
+        )
+
+        pack = await collect_context_pack(
+            event=mock_event,
+            plugin_context=mock_context,
+            config=config,
+            provider_request=collect_req,
+            collectors=[InputCollector()],
+        )
+        assert pack.get_slot("input.image_captions") is not None
+
+        live_req = ProviderRequest(
+            prompt="describe this",
+            image_urls=["https://example.com/image.png"],
+        )
+        await module._ensure_img_caption(
+            mock_event,
+            live_req,
+            config.provider_settings,
+            mock_context,
+            "caption-provider",
+        )
+
+        caption_provider.text_chat.assert_awaited_once()
+        assert live_req.image_urls == []
+        assert live_req.extra_user_content_parts == [
+            TextPart(text="<image_caption>A scenic test image.</image_caption>")
+        ]
+
 
 class TestModalitiesFix:
     """Tests for _modalities_fix function."""
@@ -744,6 +911,30 @@ class TestModalitiesFix:
         module._modalities_fix(mock_provider, req)
 
         assert req.func_tool is None
+
+    def test_modalities_fix_removes_multimodal_extra_parts(self, mock_provider):
+        """Test modality fix also downgrades rendered multimodal content parts."""
+        module = ama
+        mock_provider.provider_config = {"modalities": ["text"]}
+        req = ProviderRequest(
+            prompt="Hello",
+            extra_user_content_parts=[
+                TextPart(text="<request_context>ctx</request_context>"),
+                ImageURLPart(
+                    image_url=ImageURLPart.ImageURL(url="file:///tmp/test.png")
+                ),
+                AudioURLPart(
+                    audio_url=AudioURLPart.AudioURL(url="file:///tmp/test.mp3")
+                ),
+            ],
+        )
+
+        module._modalities_fix(mock_provider, req)
+
+        assert req.prompt == "[Image] [Audio] Hello"
+        assert req.extra_user_content_parts == [
+            TextPart(text="<request_context>ctx</request_context>")
+        ]
 
 
 class TestProviderRequestAssembleContext:
@@ -809,6 +1000,54 @@ class TestProviderRequestAssembleContext:
         assert req.prompt == "Hello"
         assert len(req.image_urls) == 1
         assert req.func_tool is not None
+
+
+class TestPromptShadowMode:
+    def test_shadow_mode_normalizes_rendered_multimodal_parts(self, mock_provider):
+        """Test shadow request also applies modality downgrade logic."""
+        module = ama
+        extras: dict[str, object] = {}
+        event = MagicMock(spec=AstrMessageEvent)
+        event.set_extra.side_effect = lambda key, value: extras.__setitem__(key, value)
+        plugin_context = MagicMock()
+        config = module.MainAgentBuildConfig(tool_call_timeout=60)
+        live_request = ProviderRequest(prompt="hello")
+        render_result = MagicMock(
+            system_prompt="<system>sys</system>",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hello"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "file:///tmp/demo.png"},
+                        },
+                    ],
+                }
+            ],
+            tool_schema=[],
+        )
+
+        mock_provider.provider_config = {"id": "text-only", "modalities": ["text"]}
+
+        with patch.object(
+            module.PromptRenderEngine,
+            "render",
+            return_value=render_result,
+        ):
+            module._run_prompt_pipeline_shadow_mode(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider=mock_provider,
+                provider_request=live_request,
+                prompt_context_pack=MagicMock(),
+            )
+
+        shadow_request = extras[module.PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY]
+        assert shadow_request.prompt == "[Image] hello"
+        assert shadow_request.extra_user_content_parts == []
 
 
 class TestSanitizeContextByModalities:

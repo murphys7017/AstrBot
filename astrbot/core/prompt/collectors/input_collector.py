@@ -4,7 +4,9 @@ Input context collector for prompt context packing.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core import logger
@@ -12,6 +14,12 @@ from astrbot.core.message.components import File, Image, Reply
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
+from astrbot.core.utils.file_extract import extract_file_moonshotai
+from astrbot.core.utils.media_utils import (
+    IMAGE_COMPRESS_DEFAULT_MAX_SIZE,
+    IMAGE_COMPRESS_DEFAULT_QUALITY,
+    compress_image,
+)
 from astrbot.core.utils.quoted_message.settings import (
     SETTINGS as DEFAULT_QUOTED_MESSAGE_SETTINGS,
 )
@@ -23,6 +31,12 @@ from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
+from ..runtime_cache import (
+    get_cached_file_extract,
+    get_cached_image_caption,
+    set_cached_file_extract,
+    set_cached_image_caption,
+)
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -50,10 +64,17 @@ class InputCollector(ContextCollectorInterface):
         slots: list[ContextSlot] = []
 
         try:
-            effective_text, text_source = self._resolve_effective_text(
+            provider_settings = self._resolve_provider_settings(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+            )
+
+            effective_text, text_source, text_meta = self._resolve_effective_text(
                 event=event,
                 config=config,
                 provider_request=provider_request,
+                provider_settings=provider_settings,
             )
             if effective_text:
                 slots.append(
@@ -62,7 +83,7 @@ class InputCollector(ContextCollectorInterface):
                         value=effective_text,
                         category="input",
                         source="event_input",
-                        meta={"source_field": text_source},
+                        meta={"source_field": text_source, **text_meta},
                     )
                 )
 
@@ -83,6 +104,24 @@ class InputCollector(ContextCollectorInterface):
                 source="current",
             )
             reply_payload = await self._collect_reply_payloads(event, config)
+
+            current_image_captions = await self._collect_current_image_captions(
+                event=event,
+                plugin_context=plugin_context,
+                provider_request=provider_request,
+                provider_settings=provider_settings,
+                current_images=current_images,
+            )
+            if current_image_captions:
+                slots.append(
+                    ContextSlot(
+                        name="input.image_captions",
+                        value=current_image_captions,
+                        category="input",
+                        source="image_caption_provider",
+                        meta={"count": len(current_image_captions)},
+                    )
+                )
 
             if reply_payload.texts:
                 slots.append(
@@ -109,6 +148,23 @@ class InputCollector(ContextCollectorInterface):
                     )
                 )
 
+            quoted_image_captions = await self._collect_quoted_image_captions(
+                event=event,
+                plugin_context=plugin_context,
+                provider_settings=provider_settings,
+                quoted_images=reply_payload.images,
+            )
+            if quoted_image_captions:
+                slots.append(
+                    ContextSlot(
+                        name="input.quoted_image_captions",
+                        value=quoted_image_captions,
+                        category="input",
+                        source="image_caption_provider",
+                        meta={"count": len(quoted_image_captions)},
+                    )
+                )
+
             all_files = [*current_files, *reply_payload.files]
             if all_files:
                 slots.append(
@@ -120,10 +176,45 @@ class InputCollector(ContextCollectorInterface):
                         meta={"count": len(all_files)},
                     )
                 )
+
+            file_extracts = await self._collect_file_extracts(event, config)
+            if file_extracts:
+                slots.append(
+                    ContextSlot(
+                        name="input.file_extracts",
+                        value=file_extracts,
+                        category="input",
+                        source="file_extract_provider",
+                        meta={"count": len(file_extracts)},
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to collect input context: %s", exc, exc_info=True)
 
         return slots
+
+    def _resolve_provider_settings(
+        self,
+        *,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+    ) -> dict[str, Any]:
+        if isinstance(config.provider_settings, dict) and config.provider_settings:
+            return config.provider_settings
+
+        try:
+            cfg = plugin_context.get_config(umo=event.unified_msg_origin)
+        except TypeError:
+            cfg = plugin_context.get_config()
+        except Exception:  # noqa: BLE001
+            return {}
+
+        if isinstance(cfg, dict):
+            provider_settings = cfg.get("provider_settings")
+            if isinstance(provider_settings, dict):
+                return provider_settings
+        return {}
 
     def _resolve_effective_text(
         self,
@@ -131,15 +222,35 @@ class InputCollector(ContextCollectorInterface):
         event: AstrMessageEvent,
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None,
-    ) -> tuple[str, str]:
+        provider_settings: dict[str, Any],
+    ) -> tuple[str, str, dict[str, Any]]:
         if provider_request and isinstance(provider_request.prompt, str):
-            return provider_request.prompt, "provider_request.prompt"
+            raw_text = provider_request.prompt
+            source_field = "provider_request.prompt"
+        else:
+            message_text = event.message_str or ""
+            wake_prefix = config.provider_wake_prefix or ""
+            if wake_prefix and message_text.startswith(wake_prefix):
+                raw_text = message_text[len(wake_prefix) :]
+            else:
+                raw_text = message_text
+            source_field = "event.message_str"
 
-        message_text = event.message_str or ""
-        wake_prefix = config.provider_wake_prefix or ""
-        if wake_prefix and message_text.startswith(wake_prefix):
-            return message_text[len(wake_prefix) :], "event.message_str"
-        return message_text, "event.message_str"
+        prompt_prefix = provider_settings.get("prompt_prefix")
+        effective_text = self._apply_prompt_prefix(raw_text, prompt_prefix)
+        meta = {
+            "raw_text": raw_text,
+            "prompt_prefix": prompt_prefix if isinstance(prompt_prefix, str) else None,
+            "prefix_applied": bool(prompt_prefix),
+        }
+        return effective_text, source_field, meta
+
+    def _apply_prompt_prefix(self, text: str, prompt_prefix: object) -> str:
+        if not isinstance(prompt_prefix, str) or not prompt_prefix:
+            return text
+        if "{{prompt}}" in prompt_prefix:
+            return prompt_prefix.replace("{{prompt}}", text)
+        return f"{prompt_prefix}{text}"
 
     async def _collect_current_images(
         self,
@@ -410,6 +521,389 @@ class InputCollector(ContextCollectorInterface):
             return DEFAULT_QUOTED_MESSAGE_SETTINGS
 
         return DEFAULT_QUOTED_MESSAGE_SETTINGS.with_overrides(overrides)
+
+    async def _collect_current_image_captions(
+        self,
+        *,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        provider_request: ProviderRequest | None,
+        provider_settings: dict[str, Any],
+        current_images: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        provider_id = provider_settings.get("default_image_caption_provider_id")
+        if not current_images or not isinstance(provider_id, str) or not provider_id:
+            return []
+        if (
+            provider_request is None
+            or getattr(provider_request, "conversation", None) is None
+        ):
+            return []
+
+        provider = self._resolve_provider_by_id(plugin_context, provider_id)
+        if provider is None:
+            logger.warning(
+                "Skip current image caption collection because provider `%s` is unavailable",
+                provider_id,
+            )
+            return []
+
+        records: list[dict[str, Any]] = []
+        for image in current_images:
+            caption = await self._request_image_caption(
+                event=event,
+                provider=provider,
+                provider_id=provider_id,
+                image_ref=str(image.get("ref", "")),
+                provider_settings=provider_settings,
+            )
+            if not caption:
+                continue
+            records.append(
+                {
+                    "ref": image.get("ref"),
+                    "caption": caption,
+                    "provider_id": provider_id,
+                    "source": "current",
+                }
+            )
+        return records
+
+    async def _collect_quoted_image_captions(
+        self,
+        *,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        provider_settings: dict[str, Any],
+        quoted_images: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not quoted_images:
+            return []
+
+        provider_id = provider_settings.get("default_image_caption_provider_id")
+        provider = self._resolve_provider_by_id(
+            plugin_context,
+            provider_id if isinstance(provider_id, str) else None,
+        )
+        resolved_provider_id = provider_id if isinstance(provider_id, str) else None
+
+        if provider is None:
+            provider = self._resolve_current_provider(event, plugin_context)
+            if provider is None:
+                return []
+            resolved_provider_id = (
+                resolved_provider_id or self._resolve_provider_config_id(provider)
+            )
+
+        records: list[dict[str, Any]] = []
+        for image in quoted_images:
+            caption = await self._request_image_caption(
+                event=event,
+                provider=provider,
+                provider_id=resolved_provider_id,
+                image_ref=str(image.get("ref", "")),
+                provider_settings=provider_settings,
+                prompt_override="Please describe the image content.",
+            )
+            if not caption:
+                continue
+            record = {
+                "ref": image.get("ref"),
+                "caption": caption,
+                "provider_id": resolved_provider_id,
+                "source": "quoted",
+            }
+            if image.get("reply_id") is not None:
+                record["reply_id"] = image.get("reply_id")
+            records.append(record)
+        return records
+
+    def _resolve_provider_by_id(
+        self,
+        plugin_context: Context,
+        provider_id: str | None,
+    ) -> Any | None:
+        if not provider_id:
+            return None
+        try:
+            provider = plugin_context.get_provider_by_id(provider_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to resolve image caption provider `%s`: %s",
+                provider_id,
+                exc,
+                exc_info=True,
+            )
+            return None
+        return provider if callable(getattr(provider, "text_chat", None)) else None
+
+    def _resolve_current_provider(
+        self,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+    ) -> Any | None:
+        try:
+            provider = plugin_context.get_using_provider(event.unified_msg_origin)
+        except TypeError:
+            provider = plugin_context.get_using_provider(umo=event.unified_msg_origin)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to resolve current provider for image captioning: %s",
+                exc,
+                exc_info=True,
+            )
+            return None
+        return provider if callable(getattr(provider, "text_chat", None)) else None
+
+    def _resolve_provider_config_id(self, provider: Any) -> str | None:
+        provider_config = getattr(provider, "provider_config", None)
+        if not isinstance(provider_config, dict):
+            return None
+        provider_id = provider_config.get("id")
+        return provider_id if isinstance(provider_id, str) and provider_id else None
+
+    async def _request_image_caption(
+        self,
+        *,
+        event: AstrMessageEvent,
+        provider: Any,
+        provider_id: str | None,
+        image_ref: str,
+        provider_settings: dict[str, Any],
+        prompt_override: str | None = None,
+    ) -> str | None:
+        if not image_ref:
+            return None
+
+        prompt = prompt_override or provider_settings.get(
+            "image_caption_prompt",
+            "Please describe the image.",
+        )
+        cache_hit, cached_caption = get_cached_image_caption(
+            event,
+            provider_id=provider_id,
+            prompt=prompt,
+            image_refs=[image_ref],
+        )
+        if cache_hit:
+            return cached_caption
+
+        prepared_ref = await self._prepare_image_ref_for_caption(
+            event=event,
+            image_ref=image_ref,
+            provider_settings=provider_settings,
+        )
+
+        try:
+            response = await provider.text_chat(
+                prompt=prompt,
+                image_urls=[prepared_ref],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to request image caption: provider=%s ref=%s error=%s",
+                provider_id,
+                image_ref,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+        caption = getattr(response, "completion_text", None)
+        if not isinstance(caption, str):
+            return None
+        caption = caption.strip()
+        caption = caption or None
+        set_cached_image_caption(
+            event,
+            provider_id=provider_id,
+            prompt=prompt,
+            image_refs=[image_ref],
+            result=caption,
+        )
+        return caption
+
+    async def _prepare_image_ref_for_caption(
+        self,
+        *,
+        event: AstrMessageEvent,
+        image_ref: str,
+        provider_settings: dict[str, Any],
+    ) -> str:
+        try:
+            compressed_ref = await self._compress_image_for_provider(
+                image_ref,
+                provider_settings,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to prepare image ref for captioning: ref=%s error=%s",
+                image_ref,
+                exc,
+                exc_info=True,
+            )
+            return image_ref
+
+        if self._is_generated_compressed_image_path(image_ref, compressed_ref):
+            try:
+                event.track_temporary_local_file(compressed_ref)
+            except Exception:
+                pass
+        return compressed_ref
+
+    def _get_image_compress_args(
+        self,
+        provider_settings: dict[str, Any],
+    ) -> tuple[bool, int, int]:
+        enabled = provider_settings.get("image_compress_enabled", True)
+        if not isinstance(enabled, bool):
+            enabled = True
+
+        raw_options = provider_settings.get("image_compress_options", {})
+        options = raw_options if isinstance(raw_options, dict) else {}
+
+        max_size = options.get("max_size", IMAGE_COMPRESS_DEFAULT_MAX_SIZE)
+        if not isinstance(max_size, int):
+            max_size = IMAGE_COMPRESS_DEFAULT_MAX_SIZE
+        max_size = max(max_size, 1)
+
+        quality = options.get("quality", IMAGE_COMPRESS_DEFAULT_QUALITY)
+        if not isinstance(quality, int):
+            quality = IMAGE_COMPRESS_DEFAULT_QUALITY
+        quality = min(max(quality, 1), 100)
+
+        return enabled, max_size, quality
+
+    async def _compress_image_for_provider(
+        self,
+        image_ref: str,
+        provider_settings: dict[str, Any],
+    ) -> str:
+        enabled, max_size, quality = self._get_image_compress_args(provider_settings)
+        if not enabled:
+            return image_ref
+        return await compress_image(image_ref, max_size=max_size, quality=quality)
+
+    def _is_generated_compressed_image_path(
+        self,
+        original_path: str,
+        compressed_path: str | None,
+    ) -> bool:
+        if not compressed_path or compressed_path == original_path:
+            return False
+        if compressed_path.startswith("http") or compressed_path.startswith(
+            "data:image"
+        ):
+            return False
+        return Path(compressed_path).exists()
+
+    async def _collect_file_extracts(
+        self,
+        event: AstrMessageEvent,
+        config: MainAgentBuildConfig,
+    ) -> list[dict[str, Any]]:
+        if not config.file_extract_enabled:
+            return []
+        if config.file_extract_prov != "moonshotai":
+            logger.warning(
+                "Skip file extract collection because provider `%s` is unsupported",
+                config.file_extract_prov,
+            )
+            return []
+        if not config.file_extract_msh_api_key:
+            logger.warning(
+                "Skip file extract collection because Moonshot API key is missing"
+            )
+            return []
+
+        file_components = self._collect_file_components(event)
+        if not file_components:
+            return []
+
+        tasks = [
+            self._extract_single_file_record(
+                event=event,
+                file_component=file_component,
+                source=source,
+                reply_id=reply_id,
+                provider=config.file_extract_prov,
+                api_key=config.file_extract_msh_api_key,
+            )
+            for file_component, source, reply_id in file_components
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        extracts: list[dict[str, Any]] = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(
+                    "Failed to collect file extract: %s",
+                    result,
+                    exc_info=True,
+                )
+                continue
+            if result is not None:
+                extracts.append(result)
+        return extracts
+
+    def _collect_file_components(
+        self,
+        event: AstrMessageEvent,
+    ) -> list[tuple[File, str, str | int | None]]:
+        components: list[tuple[File, str, str | int | None]] = []
+
+        for comp in event.message_obj.message:
+            if isinstance(comp, File):
+                components.append((comp, "current", None))
+            elif isinstance(comp, Reply) and comp.chain:
+                reply_id = getattr(comp, "id", None)
+                for reply_comp in comp.chain:
+                    if isinstance(reply_comp, File):
+                        components.append((reply_comp, "quoted", reply_id))
+
+        return components
+
+    async def _extract_single_file_record(
+        self,
+        *,
+        event: AstrMessageEvent,
+        file_component: File,
+        source: str,
+        reply_id: str | int | None,
+        provider: str,
+        api_key: str,
+    ) -> dict[str, Any] | None:
+        file_path = await file_component.get_file()
+        if not file_path:
+            return None
+
+        cache_hit, cached_content = get_cached_file_extract(
+            event,
+            provider=provider,
+            file_path=file_path,
+        )
+        if cache_hit:
+            content = cached_content
+        else:
+            content = await extract_file_moonshotai(file_path, api_key)
+            set_cached_file_extract(
+                event,
+                provider=provider,
+                file_path=file_path,
+                result=content,
+            )
+        if not content:
+            return None
+
+        record: dict[str, Any] = {
+            "name": file_component.name or Path(file_path).name,
+            "content": content,
+            "provider": provider,
+            "source": source,
+        }
+        if reply_id is not None:
+            record["reply_id"] = reply_id
+        return record
 
     def _infer_transport(self, image_ref: str) -> str:
         if image_ref.startswith("http://") or image_ref.startswith("https://"):

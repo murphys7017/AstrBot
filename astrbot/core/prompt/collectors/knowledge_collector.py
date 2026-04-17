@@ -10,7 +10,7 @@ from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
-from astrbot.core.tools.knowledge_base_tools import retrieve_knowledge_base
+from astrbot.core.tools.knowledge_base_tools import retrieve_knowledge_base_with_cache
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
@@ -37,10 +37,11 @@ class KnowledgeCollector(ContextCollectorInterface):
             return []
 
         try:
-            kb_text = await retrieve_knowledge_base(
+            kb_text = await retrieve_knowledge_base_with_cache(
                 query=query,
                 umo=event.unified_msg_origin,
                 context=plugin_context,
+                event=event,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(

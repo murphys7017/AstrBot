@@ -28,6 +28,14 @@ contexts:
     lifecycle: static
     notes: "工具调用规则说明"
 
+  - id: system.workspace_extra_prompt
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "当前 workspace 的 EXTRA_PROMPT.md 内容"
+
   # ========== Persona 类 (session) ==========
   - id: persona.prompt
     category: persona
@@ -135,6 +143,14 @@ contexts:
     lifecycle: ephemeral
     notes: "当前输入的图片列表；slot.value 为 list 结构"
 
+  - id: input.image_captions
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "当前输入图片的描述结果；slot.value 为 list 结构"
+
   - id: input.quoted_text
     category: input
     slots: [user_input]
@@ -151,6 +167,14 @@ contexts:
     lifecycle: ephemeral
     notes: "引用消息的图片；slot.value 为 list 结构"
 
+  - id: input.quoted_image_captions
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "引用消息图片的描述结果；slot.value 为 list 结构"
+
   - id: input.files
     category: input
     slots: [user_input]
@@ -158,6 +182,14 @@ contexts:
     multiple: true
     lifecycle: ephemeral
     notes: "上传的文件；slot.value 为 list 结构"
+
+  - id: input.file_extracts
+    category: input
+    slots: [user_input]
+    required: false
+    multiple: true
+    lifecycle: ephemeral
+    notes: "文件提取结果；slot.value 为 list 结构"
 
   # ========== RAG 类 (ephemeral) ==========
   - id: knowledge.snippets
@@ -217,6 +249,14 @@ contexts:
     multiple: false
     lifecycle: static
     notes: "沙箱运行时 prompt"
+
+  - id: policy.local_env_prompt
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "本地运行时 prompt"
 
   # ========== Session 类 (ephemeral) ==========
   - id: session.datetime

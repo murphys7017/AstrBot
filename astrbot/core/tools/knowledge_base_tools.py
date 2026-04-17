@@ -12,6 +12,7 @@ from astrbot.core.tools.registry import builtin_tool
 _KNOWLEDGE_BASE_TOOL_CONFIG = {
     "kb_agentic_mode": True,
 }
+_KNOWLEDGE_BASE_RETRIEVAL_CACHE_EXTRA_KEY = "knowledge_base_retrieval_cache"
 
 
 def check_all_kb(kb_list: list[KBHelper | None]) -> bool:
@@ -87,6 +88,61 @@ async def retrieve_knowledge_base(
     return None
 
 
+def _get_knowledge_base_cache(event: object | None) -> dict[str, str | None] | None:
+    """Return the per-event KB retrieval cache when extras are available."""
+    if event is None:
+        return None
+
+    getter = getattr(event, "get_extra", None)
+    if not callable(getter):
+        return None
+
+    try:
+        cache = getter(_KNOWLEDGE_BASE_RETRIEVAL_CACHE_EXTRA_KEY)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if isinstance(cache, dict):
+        return cache
+
+    setter = getattr(event, "set_extra", None)
+    if not callable(setter):
+        return None
+
+    cache = {}
+    try:
+        setter(_KNOWLEDGE_BASE_RETRIEVAL_CACHE_EXTRA_KEY, cache)
+    except Exception:  # noqa: BLE001
+        return None
+    return cache
+
+
+async def retrieve_knowledge_base_with_cache(
+    query: str,
+    umo: str,
+    context: Context,
+    *,
+    event: object | None = None,
+) -> str | None:
+    """Retrieve KB text once per event and reuse it across prompt stages."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return None
+
+    cache = _get_knowledge_base_cache(event)
+    if cache is not None and normalized_query in cache:
+        return cache[normalized_query]
+
+    result = await retrieve_knowledge_base(
+        query=normalized_query,
+        umo=umo,
+        context=context,
+    )
+    if cache is not None:
+        cache[normalized_query] = result
+    return result
+
+
 @builtin_tool(config=_KNOWLEDGE_BASE_TOOL_CONFIG)
 @dataclass
 class KnowledgeBaseQueryTool(FunctionTool[AstrAgentContext]):
@@ -130,4 +186,5 @@ __all__ = [
     "KnowledgeBaseQueryTool",
     "check_all_kb",
     "retrieve_knowledge_base",
+    "retrieve_knowledge_base_with_cache",
 ]

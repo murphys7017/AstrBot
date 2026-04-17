@@ -4,6 +4,7 @@ Policy context collector for prompt context packing.
 
 from __future__ import annotations
 
+import platform
 from typing import TYPE_CHECKING
 
 from astrbot.core import logger
@@ -54,6 +55,17 @@ class PolicyCollector(ContextCollectorInterface):
                 "Failed to collect policy sandbox prompt: %s", exc, exc_info=True
             )
 
+        try:
+            local_env_slot = self._build_local_env_prompt_slot(config)
+            if local_env_slot is not None:
+                slots.append(local_env_slot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to collect policy local-env prompt: %s",
+                exc,
+                exc_info=True,
+            )
+
         return slots
 
     def _build_safety_prompt_slot(
@@ -92,4 +104,38 @@ class PolicyCollector(ContextCollectorInterface):
                 "enabled_by_config": True,
                 "runtime": config.computer_use_runtime,
             },
+        )
+
+    def _build_local_env_prompt_slot(
+        self,
+        config: MainAgentBuildConfig,
+    ) -> ContextSlot | None:
+        if config.computer_use_runtime != "local":
+            return None
+
+        return ContextSlot(
+            name="policy.local_env_prompt",
+            value=self._build_local_mode_prompt(),
+            category="system",
+            source="main_agent_policy",
+            meta={
+                "enabled_by_config": True,
+                "runtime": config.computer_use_runtime,
+            },
+        )
+
+    def _build_local_mode_prompt(self) -> str:
+        system_name = platform.system() or "Unknown"
+        shell_hint = (
+            "The runtime shell is Windows Command Prompt (cmd.exe). "
+            "Use cmd-compatible commands and do not assume Unix commands like "
+            "cat/ls/grep are available."
+            if system_name.lower() == "windows"
+            else "The runtime shell is Unix-like. Use POSIX-compatible shell commands."
+        )
+        return (
+            "You have access to the host local environment and can execute shell "
+            "commands and Python code. "
+            f"Current operating system: {system_name}. "
+            f"{shell_hint}"
         )

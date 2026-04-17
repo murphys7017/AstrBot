@@ -49,14 +49,21 @@ from .persona_segments import (
     parse_legacy_persona_prompt,
 )
 from .render import (
+    PROMPT_RENDER_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_DIFF_EXTRA_KEY,
+    PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY,
     BasePromptRenderer,
     PassthroughPromptSelector,
+    PromptApplyResult,
     PromptBuilder,
     PromptNode,
     PromptRenderEngine,
     PromptSelectorInterface,
+    ProviderRequestAdapter,
     RenderResult,
     SerializedRenderValue,
+    apply_render_result_to_request,
     select_context_pack,
 )
 
@@ -83,12 +90,19 @@ __all__ = [
     # Interfaces
     "ContextCollectorInterface",
     "BasePromptRenderer",
+    "PROMPT_RENDER_RESULT_EXTRA_KEY",
+    "PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY",
+    "PROMPT_SHADOW_DIFF_EXTRA_KEY",
+    "PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY",
+    "PromptApplyResult",
     "PromptBuilder",
     "PromptRenderEngine",
     "PromptNode",
     "PromptSelectorInterface",
+    "ProviderRequestAdapter",
     "RenderResult",
     "SerializedRenderValue",
+    "apply_render_result_to_request",
     # Collectors
     "ConversationHistoryCollector",
     "InputCollector",

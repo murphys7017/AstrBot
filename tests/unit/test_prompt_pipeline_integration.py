@@ -317,7 +317,7 @@ async def test_collect_and_render_pipeline_builds_base_prompt_contract(
     extras["provider_request"] = req
 
     with patch(
-        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base",
+        "astrbot.core.prompt.collectors.knowledge_collector.retrieve_knowledge_base_with_cache",
         new=AsyncMock(return_value="Knowledge <snippet> & facts."),
     ):
         pack = await collect_context_pack(

@@ -14,7 +14,7 @@ from pathlib import Path
 from astrbot.core import logger
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.mcp_client import MCPTool
-from astrbot.core.agent.message import TextPart
+from astrbot.core.agent.message import AudioURLPart, ImageURLPart, TextPart
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.astr_agent_context import AgentContextWrapper, AstrAgentContext
 from astrbot.core.astr_agent_hooks import MAIN_AGENT_HOOKS
@@ -39,6 +39,20 @@ from astrbot.core.prompt.context_collect import (
     PROMPT_CONTEXT_PACK_EXTRA_KEY,
     collect_context_pack,
     log_context_pack,
+)
+from astrbot.core.prompt.render import (
+    PROMPT_RENDER_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
+    PROMPT_SHADOW_DIFF_EXTRA_KEY,
+    PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY,
+    PromptRenderEngine,
+    apply_render_result_to_request,
+)
+from astrbot.core.prompt.runtime_cache import (
+    get_cached_file_extract,
+    get_cached_image_caption,
+    set_cached_file_extract,
+    set_cached_image_caption,
 )
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import ProviderRequest
@@ -75,7 +89,7 @@ from astrbot.core.tools.computer_tools import (
 from astrbot.core.tools.cron_tools import FutureTaskTool
 from astrbot.core.tools.knowledge_base_tools import (
     KnowledgeBaseQueryTool,
-    retrieve_knowledge_base,
+    retrieve_knowledge_base_with_cache,
 )
 from astrbot.core.tools.message_tools import SendMessageToUserTool
 from astrbot.core.tools.web_search_tools import (
@@ -166,6 +180,8 @@ class MainAgentBuildConfig:
     timezone: str | None = None
     max_quoted_fallback_images: int = 20
     """Maximum number of images injected from quoted-message fallback extraction."""
+    prompt_pipeline_shadow_mode: bool = False
+    """Whether to run the prompt collect->render->apply pipeline in shadow mode for debug."""
 
 
 @dataclass(slots=True)
@@ -215,6 +231,109 @@ async def _get_session_conv(
     return conversation
 
 
+def _clone_provider_request_for_prompt_shadow(req: ProviderRequest) -> ProviderRequest:
+    """Clone the request fields that the prompt adapter may rewrite."""
+    return ProviderRequest(
+        prompt=req.prompt,
+        session_id=req.session_id,
+        image_urls=list(req.image_urls or []),
+        audio_urls=list(req.audio_urls or []),
+        extra_user_content_parts=copy.deepcopy(req.extra_user_content_parts or []),
+        func_tool=req.func_tool,
+        contexts=copy.deepcopy(req.contexts or []),
+        system_prompt=req.system_prompt,
+        conversation=req.conversation,
+        tool_calls_result=copy.deepcopy(req.tool_calls_result),
+        model=req.model,
+    )
+
+
+def _serialize_provider_request_for_prompt_shadow(
+    req: ProviderRequest,
+) -> dict[str, object]:
+    """Serialize prompt-facing request fields into a debug-friendly payload."""
+    return {
+        "prompt": req.prompt,
+        "system_prompt": req.system_prompt,
+        "contexts": copy.deepcopy(req.contexts or []),
+        "extra_user_content_parts": [
+            part.model_dump() if hasattr(part, "model_dump") else str(part)
+            for part in (req.extra_user_content_parts or [])
+        ],
+        "image_urls": list(req.image_urls or []),
+        "audio_urls": list(req.audio_urls or []),
+        "func_tool_names": req.func_tool.names() if req.func_tool else [],
+        "model": req.model,
+        "session_id": req.session_id,
+    }
+
+
+def _build_prompt_shadow_diff(
+    live_request: ProviderRequest,
+    shadow_request: ProviderRequest,
+) -> dict[str, object]:
+    """Build a compact structured diff between the live and shadow requests."""
+    live_payload = _serialize_provider_request_for_prompt_shadow(live_request)
+    shadow_payload = _serialize_provider_request_for_prompt_shadow(shadow_request)
+    changed_fields: list[str] = []
+    field_diffs: dict[str, dict[str, object]] = {}
+
+    for field_name in live_payload:
+        live_value = live_payload[field_name]
+        shadow_value = shadow_payload[field_name]
+        if live_value == shadow_value:
+            continue
+        changed_fields.append(field_name)
+        field_diffs[field_name] = {
+            "live": live_value,
+            "shadow": shadow_value,
+        }
+
+    return {
+        "changed": bool(changed_fields),
+        "changed_fields": changed_fields,
+        "field_count": len(changed_fields),
+        "diff": field_diffs,
+    }
+
+
+def _run_prompt_pipeline_shadow_mode(
+    *,
+    event: AstrMessageEvent,
+    plugin_context: Context,
+    config: MainAgentBuildConfig,
+    provider: Provider,
+    provider_request: ProviderRequest,
+    prompt_context_pack,
+) -> None:
+    """Execute the prompt pipeline in shadow mode without mutating the live request."""
+    render_engine = PromptRenderEngine()
+    render_result = render_engine.render(
+        prompt_context_pack,
+        event=event,
+        plugin_context=plugin_context,
+        config=config,
+        provider_request=provider_request,
+    )
+    shadow_request = _clone_provider_request_for_prompt_shadow(provider_request)
+    apply_result = apply_render_result_to_request(render_result, shadow_request)
+    _modalities_fix(provider, shadow_request)
+    _sanitize_context_by_modalities(config, provider, shadow_request)
+    shadow_diff = _build_prompt_shadow_diff(provider_request, shadow_request)
+
+    event.set_extra(PROMPT_RENDER_RESULT_EXTRA_KEY, render_result)
+    event.set_extra(PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY, shadow_request)
+    event.set_extra(PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY, apply_result)
+    event.set_extra(PROMPT_SHADOW_DIFF_EXTRA_KEY, shadow_diff)
+
+    logger.debug("Prompt shadow apply result: %s", apply_result)
+    logger.debug("Prompt shadow provider request: %s", shadow_request)
+    logger.debug(
+        "Prompt shadow request diff: %s",
+        json.dumps(shadow_diff, ensure_ascii=False, indent=2, default=str),
+    )
+
+
 async def _apply_kb(
     event: AstrMessageEvent,
     req: ProviderRequest,
@@ -225,10 +344,11 @@ async def _apply_kb(
         if req.prompt is None:
             return
         try:
-            kb_result = await retrieve_knowledge_base(
+            kb_result = await retrieve_knowledge_base_with_cache(
                 query=req.prompt,
                 umo=event.unified_msg_origin,
                 context=plugin_context,
+                event=event,
             )
             if not kb_result:
                 return
@@ -272,20 +392,34 @@ async def _apply_file_extract(
         if not config.file_extract_msh_api_key:
             logger.error("Moonshot AI API key for file extract is not set")
             return
-        file_contents = await asyncio.gather(
-            *[
-                extract_file_moonshotai(
-                    file_path,
-                    config.file_extract_msh_api_key,
-                )
-                for file_path in file_paths
-            ]
-        )
+        file_contents: list[str | None] = []
+        for file_path in file_paths:
+            cache_hit, cached_content = get_cached_file_extract(
+                event,
+                provider=config.file_extract_prov,
+                file_path=file_path,
+            )
+            if cache_hit:
+                file_contents.append(cached_content)
+                continue
+            file_content = await extract_file_moonshotai(
+                file_path,
+                config.file_extract_msh_api_key,
+            )
+            set_cached_file_extract(
+                event,
+                provider=config.file_extract_prov,
+                file_path=file_path,
+                result=file_content,
+            )
+            file_contents.append(file_content)
     else:
         logger.error("Unsupported file extract provider: %s", config.file_extract_prov)
         return
 
     for file_content, file_name in zip(file_contents, file_names):
+        if not file_content:
+            continue
         req.contexts.append(
             {
                 "role": "system",
@@ -520,10 +654,14 @@ async def _ensure_persona_and_skills(
 
 
 async def _request_img_caption(
+    event: AstrMessageEvent,
     provider_id: str,
     cfg: dict,
     image_urls: list[str],
     plugin_context: Context,
+    *,
+    cache_refs: list[str] | None = None,
+    prompt_override: str | None = None,
 ) -> str:
     prov = plugin_context.get_provider_by_id(provider_id)
     if prov is None:
@@ -535,16 +673,33 @@ async def _request_img_caption(
             f"Cannot get image caption because provider `{provider_id}` is not a valid Provider, it is {type(prov)}.",
         )
 
-    img_cap_prompt = cfg.get(
+    img_cap_prompt = prompt_override or cfg.get(
         "image_caption_prompt",
         "Please describe the image.",
     )
+    image_cache_refs = list(cache_refs or image_urls)
+    cache_hit, cached_caption = get_cached_image_caption(
+        event,
+        provider_id=provider_id,
+        prompt=img_cap_prompt,
+        image_refs=image_cache_refs,
+    )
+    if cache_hit:
+        return cached_caption or ""
     logger.debug("Processing image caption with provider: %s", provider_id)
     llm_resp = await prov.text_chat(
         prompt=img_cap_prompt,
         image_urls=image_urls,
     )
-    return llm_resp.completion_text
+    caption = llm_resp.completion_text
+    set_cached_image_caption(
+        event,
+        provider_id=provider_id,
+        prompt=img_cap_prompt,
+        image_refs=image_cache_refs,
+        result=caption,
+    )
+    return caption
 
 
 async def _ensure_img_caption(
@@ -555,17 +710,25 @@ async def _ensure_img_caption(
     image_caption_provider: str,
 ) -> None:
     try:
+        original_image_refs: list[str] = []
+        for comp in event.message_obj.message:
+            if isinstance(comp, Image):
+                original_image_refs.append(await _resolve_image_component_ref(comp))
+        if len(original_image_refs) != len(req.image_urls):
+            original_image_refs = list(req.image_urls)
         compressed_urls = []
-        for url in req.image_urls:
+        for url in original_image_refs:
             compressed_url = await _compress_image_for_provider(url, cfg)
             compressed_urls.append(compressed_url)
             if _is_generated_compressed_image_path(url, compressed_url):
                 event.track_temporary_local_file(compressed_url)
         caption = await _request_img_caption(
+            event,
             image_caption_provider,
             cfg,
             compressed_urls,
             plugin_context,
+            cache_refs=original_image_refs,
         )
         if caption:
             req.extra_user_content_parts.append(
@@ -722,6 +885,7 @@ async def _process_quote_message(
                 prov = plugin_context.get_using_provider(event.unified_msg_origin)
 
             if prov and isinstance(prov, Provider):
+                cache_ref = await _resolve_image_component_ref(image_seg)
                 path = await image_seg.convert_to_file_path()
                 compress_path = await _compress_image_for_provider(
                     path,
@@ -729,13 +893,31 @@ async def _process_quote_message(
                 )
                 if path and _is_generated_compressed_image_path(path, compress_path):
                     event.track_temporary_local_file(compress_path)
-                llm_resp = await prov.text_chat(
-                    prompt="Please describe the image content.",
-                    image_urls=[compress_path],
-                )
-                if llm_resp.completion_text:
+                provider_config = getattr(prov, "provider_config", {})
+                resolved_provider_id = (
+                    provider_config.get("id")
+                    if isinstance(provider_config, dict)
+                    else None
+                ) or img_cap_prov_id
+                if resolved_provider_id:
+                    completion_text = await _request_img_caption(
+                        event,
+                        resolved_provider_id,
+                        config.provider_settings if config else {},
+                        [compress_path],
+                        plugin_context,
+                        cache_refs=[cache_ref or path],
+                        prompt_override="Please describe the image content.",
+                    )
+                else:
+                    llm_resp = await prov.text_chat(
+                        prompt="Please describe the image content.",
+                        image_urls=[compress_path],
+                    )
+                    completion_text = llm_resp.completion_text
+                if completion_text:
                     content_parts.append(
-                        f"[Image Caption in quoted message]: {llm_resp.completion_text}"
+                        f"[Image Caption in quoted message]: {completion_text}"
                     )
             else:
                 logger.warning("No provider found for image captioning in quote.")
@@ -844,12 +1026,29 @@ async def _decorate_llm_request(
     _apply_workspace_extra_prompt(event, req)
 
 
+def _get_user_content_part_type(part: object) -> str | None:
+    if isinstance(part, ImageURLPart):
+        return "image_url"
+    if isinstance(part, AudioURLPart):
+        return "audio_url"
+    if isinstance(part, dict):
+        part_type = part.get("type")
+        return part_type if isinstance(part_type, str) else None
+    return getattr(part, "type", None)
+
+
 def _modalities_fix(provider: Provider, req: ProviderRequest) -> None:
     modalities = provider.provider_config.get("modalities")
     modalities_unknown = not isinstance(modalities, list) or len(modalities) == 0
+    supports_image = modalities_unknown or "image" in modalities
+    supports_audio = modalities_unknown or "audio" in modalities
+    supports_tool_use = modalities_unknown or "tool_use" in modalities
+
+    image_placeholder_count = 0
+    audio_placeholder_count = 0
 
     if req.image_urls:
-        if not modalities_unknown and "image" not in modalities:
+        if not supports_image:
             provider_id = provider.provider_config.get("id", "<unknown>")
             provider_model = provider.get_model()
             image_count = len(req.image_urls)
@@ -866,28 +1065,53 @@ def _modalities_fix(provider: Provider, req: ProviderRequest) -> None:
             logger.debug(
                 "Provider %s does not support image, using placeholder.", provider
             )
-            image_count = len(req.image_urls)
-            placeholder = " ".join(["[Image]"] * image_count)
-            if req.prompt:
-                req.prompt = f"{placeholder} {req.prompt}"
-            else:
-                req.prompt = placeholder
+            image_placeholder_count += len(req.image_urls)
             req.image_urls = []
     if req.audio_urls:
-        provider_cfg = provider.provider_config.get("modalities", ["audio"])
-        if "audio" not in provider_cfg:
+        if not supports_audio:
             logger.debug(
                 "Provider %s does not support audio, using placeholder.", provider
             )
-            audio_count = len(req.audio_urls)
-            placeholder = " ".join(["[Audio]"] * audio_count)
-            if req.prompt:
-                req.prompt = f"{placeholder} {req.prompt}"
-            else:
-                req.prompt = placeholder
+            audio_placeholder_count += len(req.audio_urls)
             req.audio_urls = []
+
+    if req.extra_user_content_parts and (not supports_image or not supports_audio):
+        kept_parts = []
+        removed_image_parts = 0
+        removed_audio_parts = 0
+        for part in req.extra_user_content_parts:
+            part_type = _get_user_content_part_type(part)
+            if part_type == "image_url" and not supports_image:
+                removed_image_parts += 1
+                continue
+            if part_type == "audio_url" and not supports_audio:
+                removed_audio_parts += 1
+                continue
+            kept_parts.append(part)
+
+        if removed_image_parts or removed_audio_parts:
+            logger.debug(
+                "Removed unsupported user content parts: image_parts=%d audio_parts=%d",
+                removed_image_parts,
+                removed_audio_parts,
+            )
+        image_placeholder_count += removed_image_parts
+        audio_placeholder_count += removed_audio_parts
+        req.extra_user_content_parts = kept_parts
+
+    placeholder_parts: list[str] = []
+    if image_placeholder_count:
+        placeholder_parts.extend(["[Image]"] * image_placeholder_count)
+    if audio_placeholder_count:
+        placeholder_parts.extend(["[Audio]"] * audio_placeholder_count)
+    if placeholder_parts:
+        placeholder = " ".join(placeholder_parts)
+        if req.prompt:
+            req.prompt = f"{placeholder} {req.prompt}"
+        else:
+            req.prompt = placeholder
     if req.func_tool:
-        if not modalities_unknown and "tool_use" not in modalities:
+        if not supports_tool_use:
             logger.debug(
                 "Provider %s does not support tool_use, clearing tools.", provider
             )
@@ -1314,7 +1538,9 @@ async def build_main_agent(
                     )
                     if uses_compressed_ref:
                         event.track_temporary_local_file(resolved_image_ref)
-                    image_path = resolved_image_ref if uses_compressed_ref else image_ref
+                    image_path = (
+                        resolved_image_ref if uses_compressed_ref else image_ref
+                    )
                     req.image_urls.append(image_path)
                     req.extra_user_content_parts.append(
                         TextPart(text=f"[Image Attachment: url {image_path}]")
@@ -1447,6 +1673,7 @@ async def build_main_agent(
         log_context_pack(prompt_context_pack, event=event)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to collect prompt context pack: %s", exc, exc_info=True)
+        prompt_context_pack = None
 
     if config.file_extract_enabled:
         try:
@@ -1528,6 +1755,23 @@ async def build_main_agent(
     action_type = event.get_extra("action_type")
     if action_type == "live":
         req.system_prompt += f"\n{LIVE_MODE_SYSTEM_PROMPT}\n"
+
+    if config.prompt_pipeline_shadow_mode and prompt_context_pack is not None:
+        try:
+            _run_prompt_pipeline_shadow_mode(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider=provider,
+                provider_request=req,
+                prompt_context_pack=prompt_context_pack,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to run prompt pipeline in shadow mode: %s",
+                exc,
+                exc_info=True,
+            )
 
     reset_coro = agent_runner.reset(
         provider=provider,

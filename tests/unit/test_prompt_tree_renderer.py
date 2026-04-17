@@ -471,6 +471,170 @@ def test_render_engine_compiles_user_input_and_merged_tool_schema():
     ]
 
 
+def test_render_engine_renders_workspace_and_local_env_prompts_in_system_prompt():
+    pack = ContextPack(
+        slots={
+            "system.workspace_extra_prompt": ContextSlot(
+                name="system.workspace_extra_prompt",
+                value={
+                    "path": "C:/workspace/EXTRA_PROMPT.md",
+                    "text": "Use <workspace> rules & keep notes.",
+                },
+                category="system",
+                source="test",
+            ),
+            "policy.local_env_prompt": ContextSlot(
+                name="policy.local_env_prompt",
+                value="You can use the local shell & inspect files.",
+                category="system",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
+    result = engine.render(pack)
+
+    assert result.system_prompt is not None
+    assert "<workspace_extra_prompt>" in result.system_prompt
+    assert "C:/workspace/EXTRA_PROMPT.md" in result.system_prompt
+    assert "Use &lt;workspace&gt; rules &amp; keep notes." in result.system_prompt
+    assert "<local_env>" in result.system_prompt
+    assert "local shell &amp; inspect files." in result.system_prompt
+
+
+def test_render_engine_compiles_caption_and_file_extract_blocks_in_user_message():
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Look at this",
+                category="input",
+                source="test",
+            ),
+            "input.quoted_images": ContextSlot(
+                name="input.quoted_images",
+                value=[
+                    {
+                        "ref": "https://example.com/quoted.png",
+                        "transport": "url",
+                        "source": "quoted",
+                        "reply_id": "reply-1",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.quoted_image_captions": ContextSlot(
+                name="input.quoted_image_captions",
+                value=[
+                    {
+                        "ref": "https://example.com/quoted.png",
+                        "caption": "Quoted <caption> & context",
+                        "provider_id": "caption-provider",
+                        "source": "quoted",
+                        "reply_id": "reply-1",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.images": ContextSlot(
+                name="input.images",
+                value=[
+                    {
+                        "ref": "file:///tmp/demo.png",
+                        "transport": "file",
+                        "source": "current",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.image_captions": ContextSlot(
+                name="input.image_captions",
+                value=[
+                    {
+                        "ref": "file:///tmp/demo.png",
+                        "caption": "Current <caption> & detail",
+                        "provider_id": "caption-provider",
+                        "source": "current",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.files": ContextSlot(
+                name="input.files",
+                value=[
+                    {
+                        "name": "spec.txt",
+                        "file": "/tmp/spec.txt",
+                        "url": "",
+                        "source": "current",
+                        "reply_id": None,
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.file_extracts": ContextSlot(
+                name="input.file_extracts",
+                value=[
+                    {
+                        "name": "spec.txt",
+                        "content": "File summary <raw> & detail",
+                        "provider": "moonshotai",
+                        "source": "current",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
+    result = engine.render(pack)
+
+    assert result.messages[-1]["role"] == "user"
+    assert isinstance(result.messages[-1]["content"], list)
+
+    text_parts = [
+        part["text"]
+        for part in result.messages[-1]["content"]
+        if part.get("type") == "text"
+    ]
+    image_parts = [
+        part
+        for part in result.messages[-1]["content"]
+        if part.get("type") == "image_url"
+    ]
+
+    assert "<user_input>\n  <text>Look at this</text>\n</user_input>" in text_parts
+    assert any(
+        "<quoted_image_captions>" in text
+        and "Quoted &lt;caption&gt; &amp; context" in text
+        and "reply-1" in text
+        for text in text_parts
+    )
+    assert any(
+        "<image_captions>" in text and "Current &lt;caption&gt; &amp; detail" in text
+        for text in text_parts
+    )
+    assert any(
+        "<file_extracts>" in text
+        and "File summary &lt;raw&gt; &amp; detail" in text
+        and "moonshotai" in text
+        for text in text_parts
+    )
+    assert "[File Attachment: name spec.txt, path /tmp/spec.txt]" in text_parts
+    assert image_parts == [
+        {"type": "image_url", "image_url": {"url": "https://example.com/quoted.png"}},
+        {"type": "image_url", "image_url": {"url": "file:///tmp/demo.png"}},
+    ]
+
+
 def test_render_engine_keeps_text_only_user_input_as_plain_string_message():
     pack = ContextPack(
         slots={
@@ -494,7 +658,7 @@ def test_render_engine_escapes_markup_text_in_system_and_structured_input():
         slots={
             "persona.prompt": ContextSlot(
                 name="persona.prompt",
-                value="You are <Alice> & Bob > Carol",
+                value="You are <Alice> & Bob > Carol \"quotes\" 'apostrophe'",
                 category="persona",
                 source="test",
             ),
@@ -502,11 +666,11 @@ def test_render_engine_escapes_markup_text_in_system_and_structured_input():
                 name="session.user_info",
                 value={
                     "user_id": "u1",
-                    "nickname": "Alice <Admin> & Co",
+                    "nickname": 'Alice <Admin> & Co "Lead"',
                     "platform_name": "qq",
                     "umo": "qq:group:1",
                     "group_id": "1",
-                    "group_name": "Dev > Test",
+                    "group_name": "Dev > Test's",
                     "is_group": True,
                 },
                 category="session",
@@ -531,7 +695,10 @@ def test_render_engine_escapes_markup_text_in_system_and_structured_input():
     result = engine.render(pack)
 
     assert result.system_prompt is not None
-    assert "You are &lt;Alice&gt; &amp; Bob &gt; Carol" in result.system_prompt
+    assert (
+        "You are &lt;Alice&gt; &amp; Bob &gt; Carol &quot;quotes&quot; &apos;apostrophe&apos;"
+        in result.system_prompt
+    )
     assert result.messages == [
         {
             "role": "user",
@@ -543,11 +710,11 @@ def test_render_engine_escapes_markup_text_in_system_and_structured_input():
                         "  <session>\n"
                         "    <user_info>\n"
                         "      <user_id>u1</user_id>\n"
-                        "      <nickname>Alice &lt;Admin&gt; &amp; Co</nickname>\n"
+                        "      <nickname>Alice &lt;Admin&gt; &amp; Co &quot;Lead&quot;</nickname>\n"
                         "      <platform_name>qq</platform_name>\n"
                         "      <umo>qq:group:1</umo>\n"
                         "      <group_id>1</group_id>\n"
-                        "      <group_name>Dev &gt; Test</group_name>\n"
+                        "      <group_name>Dev &gt; Test&apos;s</group_name>\n"
                         "      <is_group>true</is_group>\n"
                         "    </user_info>\n"
                         "  </session>\n"
