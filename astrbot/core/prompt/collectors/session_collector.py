@@ -15,6 +15,7 @@ from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
+from ..strict_mode import handle_prompt_pipeline_failure, is_prompt_pipeline_strict
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -53,7 +54,16 @@ class SessionCollector(ContextCollectorInterface):
                     )
                 )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to collect session datetime: %s", exc, exc_info=True)
+            handle_prompt_pipeline_failure(
+                strict=is_prompt_pipeline_strict(config),
+                message=f"Failed to collect session datetime: {exc}",
+                exc=exc,
+                log_failure=lambda exc=exc: logger.warning(
+                    "Failed to collect session datetime: %s",
+                    exc,
+                    exc_info=True,
+                ),
+            )
 
         try:
             user_info_payload = self._build_user_info_payload(event=event)
@@ -90,10 +100,17 @@ class SessionCollector(ContextCollectorInterface):
                 now = datetime.datetime.now(zoneinfo.ZoneInfo(timezone_name))
                 resolved_timezone = timezone_name
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Failed to use configured timezone %s: %s. Falling back to local timezone.",
-                    timezone_name,
-                    exc,
+                handle_prompt_pipeline_failure(
+                    strict=is_prompt_pipeline_strict(config),
+                    message=(
+                        f"Failed to use configured timezone {timezone_name}: {exc}"
+                    ),
+                    exc=exc,
+                    log_failure=lambda exc=exc: logger.warning(
+                        "Failed to use configured timezone %s: %s. Falling back to local timezone.",
+                        timezone_name,
+                        exc,
+                    ),
                 )
                 now = datetime.datetime.now().astimezone()
                 resolved_timezone = self._local_timezone_name(now)

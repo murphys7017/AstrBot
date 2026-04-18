@@ -49,6 +49,7 @@ from .persona_segments import (
     parse_legacy_persona_prompt,
 )
 from .render import (
+    PROMPT_APPLY_RESULT_EXTRA_KEY,
     PROMPT_RENDER_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_DIFF_EXTRA_KEY,
@@ -90,6 +91,7 @@ __all__ = [
     # Interfaces
     "ContextCollectorInterface",
     "BasePromptRenderer",
+    "PROMPT_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_RENDER_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_DIFF_EXTRA_KEY",

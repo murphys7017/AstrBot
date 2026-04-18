@@ -41,6 +41,7 @@ from astrbot.core.prompt.context_collect import (
     log_context_pack,
 )
 from astrbot.core.prompt.render import (
+    PROMPT_APPLY_RESULT_EXTRA_KEY,
     PROMPT_RENDER_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_DIFF_EXTRA_KEY,
@@ -53,6 +54,10 @@ from astrbot.core.prompt.runtime_cache import (
     get_cached_image_caption,
     set_cached_file_extract,
     set_cached_image_caption,
+)
+from astrbot.core.prompt.strict_mode import (
+    handle_prompt_pipeline_failure,
+    is_prompt_pipeline_strict,
 )
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import ProviderRequest
@@ -182,6 +187,10 @@ class MainAgentBuildConfig:
     """Maximum number of images injected from quoted-message fallback extraction."""
     prompt_pipeline_shadow_mode: bool = False
     """Whether to run the prompt collect->render->apply pipeline in shadow mode for debug."""
+    prompt_pipeline_mode: str = "legacy"
+    """Prompt pipeline mode: legacy, shadow, or apply_visible."""
+    prompt_pipeline_strict_mode: bool = False
+    """Whether to fail loudly when prompt-pipeline stages encounter errors."""
 
 
 @dataclass(slots=True)
@@ -332,6 +341,43 @@ def _run_prompt_pipeline_shadow_mode(
         "Prompt shadow request diff: %s",
         json.dumps(shadow_diff, ensure_ascii=False, indent=2, default=str),
     )
+
+
+def _resolve_prompt_pipeline_mode(config: MainAgentBuildConfig) -> str:
+    mode = (getattr(config, "prompt_pipeline_mode", "") or "").strip().lower()
+    if mode in {"shadow", "apply_visible", "legacy"}:
+        return mode
+    if not mode:
+        if config.prompt_pipeline_shadow_mode:
+            return "shadow"
+        return "legacy"
+    if is_prompt_pipeline_strict(config):
+        raise ValueError(f"Unsupported prompt_pipeline_mode: {mode}")
+    return "legacy"
+
+
+def _apply_prompt_pipeline_visible_mode(
+    *,
+    event: AstrMessageEvent,
+    plugin_context: Context,
+    config: MainAgentBuildConfig,
+    provider_request: ProviderRequest,
+    prompt_context_pack,
+) -> None:
+    """Render collected prompt context and overwrite only model-visible request fields."""
+    render_engine = PromptRenderEngine()
+    render_result = render_engine.render(
+        prompt_context_pack,
+        event=event,
+        plugin_context=plugin_context,
+        config=config,
+        provider_request=provider_request,
+    )
+    apply_result = apply_render_result_to_request(render_result, provider_request)
+    event.set_extra(PROMPT_RENDER_RESULT_EXTRA_KEY, render_result)
+    event.set_extra(PROMPT_APPLY_RESULT_EXTRA_KEY, apply_result)
+    logger.debug("Prompt apply-visible result: %s", apply_result)
+    logger.debug("Prompt apply-visible provider request: %s", provider_request)
 
 
 async def _apply_kb(
@@ -1672,7 +1718,16 @@ async def build_main_agent(
         event.set_extra(PROMPT_CONTEXT_PACK_EXTRA_KEY, prompt_context_pack)
         log_context_pack(prompt_context_pack, event=event)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to collect prompt context pack: %s", exc, exc_info=True)
+        handle_prompt_pipeline_failure(
+            strict=is_prompt_pipeline_strict(config),
+            message=f"Failed to collect prompt context pack: {exc}",
+            exc=exc,
+            log_failure=lambda exc=exc: logger.warning(
+                "Failed to collect prompt context pack: %s",
+                exc,
+                exc_info=True,
+            ),
+        )
         prompt_context_pack = None
 
     if config.file_extract_enabled:
@@ -1756,7 +1811,9 @@ async def build_main_agent(
     if action_type == "live":
         req.system_prompt += f"\n{LIVE_MODE_SYSTEM_PROMPT}\n"
 
-    if config.prompt_pipeline_shadow_mode and prompt_context_pack is not None:
+    prompt_pipeline_mode = _resolve_prompt_pipeline_mode(config)
+
+    if prompt_pipeline_mode == "shadow" and prompt_context_pack is not None:
         try:
             _run_prompt_pipeline_shadow_mode(
                 event=event,
@@ -1767,10 +1824,37 @@ async def build_main_agent(
                 prompt_context_pack=prompt_context_pack,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to run prompt pipeline in shadow mode: %s",
-                exc,
-                exc_info=True,
+            handle_prompt_pipeline_failure(
+                strict=is_prompt_pipeline_strict(config),
+                message=f"Failed to run prompt pipeline in shadow mode: {exc}",
+                exc=exc,
+                log_failure=lambda exc=exc: logger.warning(
+                    "Failed to run prompt pipeline in shadow mode: %s",
+                    exc,
+                    exc_info=True,
+                ),
+            )
+    elif prompt_pipeline_mode == "apply_visible" and prompt_context_pack is not None:
+        try:
+            _apply_prompt_pipeline_visible_mode(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider_request=req,
+                prompt_context_pack=prompt_context_pack,
+            )
+            _modalities_fix(provider, req)
+            _sanitize_context_by_modalities(config, provider, req)
+        except Exception as exc:  # noqa: BLE001
+            handle_prompt_pipeline_failure(
+                strict=is_prompt_pipeline_strict(config),
+                message=f"Failed to apply prompt pipeline visible mode: {exc}",
+                exc=exc,
+                log_failure=lambda exc=exc: logger.warning(
+                    "Failed to apply prompt pipeline visible mode: %s",
+                    exc,
+                    exc_info=True,
+                ),
             )
 
     reset_coro = agent_runner.reset(

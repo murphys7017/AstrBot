@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from astrbot.core import astr_main_agent as ama
-from astrbot.core.agent.message import AudioURLPart, ImageURLPart, TextPart
 from astrbot.core.agent.mcp_client import MCPTool
+from astrbot.core.agent.message import AudioURLPart, ImageURLPart, TextPart
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.conversation_mgr import Conversation
 from astrbot.core.message.components import File, Image, Plain, Reply
@@ -134,6 +134,7 @@ class TestMainAgentBuildConfig:
         assert config.kb_agentic_mode is False
         assert config.file_extract_enabled is False
         assert config.llm_safety_mode is True
+        assert config.prompt_pipeline_strict_mode is False
 
     def test_config_with_custom_values(self):
         """Test MainAgentBuildConfig with custom values."""
@@ -1046,8 +1047,243 @@ class TestPromptShadowMode:
             )
 
         shadow_request = extras[module.PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY]
+        assert extras[module.PROMPT_RENDER_RESULT_EXTRA_KEY] is render_result
+        assert extras[module.PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY].used_user_message
+        assert extras[module.PROMPT_SHADOW_DIFF_EXTRA_KEY]["diff"]["prompt"] == {
+            "live": "hello",
+            "shadow": "[Image] hello",
+        }
         assert shadow_request.prompt == "[Image] hello"
         assert shadow_request.extra_user_content_parts == []
+
+    @pytest.mark.asyncio
+    async def test_shadow_mode_raises_in_strict_mode_when_pipeline_step_fails(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        mock_context.get_using_provider.return_value = mock_provider
+        _setup_conversation_for_build(mock_context.conversation_manager)
+
+        with (
+            patch(
+                "astrbot.core.astr_main_agent._run_prompt_pipeline_shadow_mode",
+                side_effect=RuntimeError("shadow boom"),
+            ),
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            with pytest.raises(
+                RuntimeError,
+                match="Failed to run prompt pipeline in shadow mode",
+            ):
+                await module.build_main_agent(
+                    event=mock_event,
+                    plugin_context=mock_context,
+                    config=module.MainAgentBuildConfig(
+                        tool_call_timeout=60,
+                        prompt_pipeline_mode="shadow",
+                        prompt_pipeline_strict_mode=True,
+                    ),
+                )
+
+
+class TestPromptApplyVisibleMode:
+    @pytest.mark.asyncio
+    async def test_build_main_agent_applies_prompt_pipeline_visible_mode(
+        self, mock_event, mock_context
+    ):
+        """Test apply-visible mode overwrites model-visible request fields only."""
+        module = ama
+        extras: dict[str, object] = {}
+        mock_event.get_extra.side_effect = lambda key: extras.get(key)
+        mock_event.set_extra.side_effect = lambda key, value: extras.__setitem__(
+            key, value
+        )
+        extras["action_type"] = "live"
+
+        provider = MagicMock(spec=Provider)
+        provider.provider_config = {"id": "test-provider", "modalities": ["tool_use"]}
+        provider.get_model.return_value = "gpt-4"
+        mock_context.get_using_provider.return_value = provider
+        mock_context.get_llm_tool_manager.return_value.get_full_tool_set.return_value = ToolSet()
+
+        conversation = _setup_conversation_for_build(mock_context.conversation_manager)
+        persona = {
+            "name": "persona-a",
+            "prompt": "You are a helpful assistant.",
+            "_begin_dialogs_processed": [],
+            "tools": None,
+            "skills": None,
+        }
+        mock_context.persona_manager.resolve_selected_persona = AsyncMock(
+            return_value=("persona-a", persona, None, False)
+        )
+
+        with (
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+            patch(
+                "astrbot.core.prompt.collectors.system_collector.get_astrbot_workspaces_path",
+                return_value="C:/AstrBot/workspaces",
+            ),
+            patch(
+                "astrbot.core.prompt.collectors.system_collector.normalize_umo_for_workspace",
+                return_value="normalized-umo",
+            ),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            result = await module.build_main_agent(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=module.MainAgentBuildConfig(
+                    tool_call_timeout=60,
+                    computer_use_runtime="local",
+                    prompt_pipeline_mode="apply_visible",
+                ),
+            )
+
+        assert result is not None
+        assert extras[module.PROMPT_RENDER_RESULT_EXTRA_KEY] is not None
+        assert extras[module.PROMPT_APPLY_RESULT_EXTRA_KEY].used_user_message is True
+        assert result.provider_request.prompt is not None
+        assert result.provider_request.prompt.startswith("<request_context>")
+        assert result.provider_request.system_prompt is not None
+        assert "<live_mode>" in result.provider_request.system_prompt
+        assert "Current workspace you can use" in result.provider_request.system_prompt
+        assert "normalized-umo" in result.provider_request.system_prompt
+        assert result.provider_request.func_tool is not None
+        assert "astrbot_execute_shell" in result.provider_request.func_tool.names()
+        assert result.provider_request.extra_user_content_parts
+        assert result.provider_request.conversation is conversation
+
+    @pytest.mark.asyncio
+    async def test_apply_visible_mode_raises_in_strict_mode_when_pipeline_step_fails(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        mock_context.get_using_provider.return_value = mock_provider
+        _setup_conversation_for_build(mock_context.conversation_manager)
+
+        with (
+            patch(
+                "astrbot.core.astr_main_agent._apply_prompt_pipeline_visible_mode",
+                side_effect=RuntimeError("apply boom"),
+            ),
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            with pytest.raises(
+                RuntimeError,
+                match="Failed to apply prompt pipeline visible mode",
+            ):
+                await module.build_main_agent(
+                    event=mock_event,
+                    plugin_context=mock_context,
+                    config=module.MainAgentBuildConfig(
+                        tool_call_timeout=60,
+                        prompt_pipeline_mode="apply_visible",
+                        prompt_pipeline_strict_mode=True,
+                    ),
+                )
+
+
+class TestPromptPipelineStrictMode:
+    def test_resolve_prompt_pipeline_mode_prefers_explicit_mode_over_shadow_flag(self):
+        module = ama
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_mode="apply_visible",
+            prompt_pipeline_shadow_mode=True,
+        )
+
+        assert module._resolve_prompt_pipeline_mode(config) == "apply_visible"
+
+    def test_resolve_prompt_pipeline_mode_uses_shadow_flag_when_mode_is_empty(self):
+        module = ama
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_mode="",
+            prompt_pipeline_shadow_mode=True,
+        )
+
+        assert module._resolve_prompt_pipeline_mode(config) == "shadow"
+
+    def test_resolve_prompt_pipeline_mode_raises_on_invalid_mode_in_strict_mode(self):
+        module = ama
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_mode="invalid-mode",
+            prompt_pipeline_strict_mode=True,
+            prompt_pipeline_shadow_mode=True,
+        )
+
+        with pytest.raises(ValueError, match="Unsupported prompt_pipeline_mode"):
+            module._resolve_prompt_pipeline_mode(config)
+
+    @pytest.mark.asyncio
+    async def test_build_main_agent_raises_when_collect_context_pack_fails_in_strict_mode(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        mock_context.get_using_provider.return_value = mock_provider
+        _setup_conversation_for_build(mock_context.conversation_manager)
+
+        with patch(
+            "astrbot.core.astr_main_agent.collect_context_pack",
+            side_effect=RuntimeError("collect boom"),
+        ):
+            with pytest.raises(
+                RuntimeError,
+                match="Failed to collect prompt context pack",
+            ):
+                await module.build_main_agent(
+                    event=mock_event,
+                    plugin_context=mock_context,
+                    config=module.MainAgentBuildConfig(
+                        tool_call_timeout=60,
+                        prompt_pipeline_strict_mode=True,
+                    ),
+                )
+
+    @pytest.mark.asyncio
+    async def test_build_main_agent_warns_and_continues_when_collect_context_pack_fails_in_non_strict_mode(
+        self, mock_event, mock_context, mock_provider
+    ):
+        module = ama
+        mock_context.get_using_provider.return_value = mock_provider
+        conversation = _setup_conversation_for_build(mock_context.conversation_manager)
+
+        with (
+            patch(
+                "astrbot.core.astr_main_agent.collect_context_pack",
+                side_effect=RuntimeError("collect boom"),
+            ),
+            patch("astrbot.core.astr_main_agent.AgentRunner") as mock_runner_cls,
+            patch("astrbot.core.astr_main_agent.AstrAgentContext"),
+        ):
+            mock_runner = MagicMock()
+            mock_runner.reset = AsyncMock()
+            mock_runner_cls.return_value = mock_runner
+
+            result = await module.build_main_agent(
+                event=mock_event,
+                plugin_context=mock_context,
+                config=module.MainAgentBuildConfig(tool_call_timeout=60),
+            )
+
+        assert result is not None
+        assert result.provider_request.conversation is conversation
 
 
 class TestSanitizeContextByModalities:

@@ -36,6 +36,14 @@ contexts:
     lifecycle: static
     notes: "当前 workspace 的 EXTRA_PROMPT.md 内容"
 
+  - id: system.live_mode_prompt
+    category: system
+    slots: [system]
+    required: false
+    multiple: false
+    lifecycle: static
+    notes: "直播/实时模式提示"
+
   # ========== Persona 类 (session) ==========
   - id: persona.prompt
     category: persona

@@ -12,6 +12,7 @@ from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_main_agent_resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
+    LIVE_MODE_SYSTEM_PROMPT,
     LLM_SAFETY_MODE_SYSTEM_PROMPT,
     SANDBOX_MODE_PROMPT,
 )
@@ -881,6 +882,75 @@ async def test_collect_context_pack_session_timezone_falls_back_to_global_config
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_session_invalid_timezone_falls_back_in_non_strict_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            timezone="Not/A_Timezone",
+        ),
+        collectors=[SessionCollector()],
+    )
+
+    datetime_slot = pack.get_slot("session.datetime")
+    assert datetime_slot is not None
+    assert datetime_slot.value["source"] == "local_timezone"
+    assert datetime_slot.meta["from_config"] is False
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_session_invalid_timezone_raises_in_strict_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to collect session datetime"):
+        await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                timezone="Not/A_Timezone",
+                prompt_pipeline_strict_mode=True,
+            ),
+            collectors=[SessionCollector()],
+        )
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_session_uses_local_timezone_when_unconfigured_in_strict_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    context.get_config.return_value = {}
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_strict_mode=True,
+        ),
+        collectors=[SessionCollector()],
+    )
+
+    datetime_slot = pack.get_slot("session.datetime")
+    assert datetime_slot is not None
+    assert datetime_slot.value["source"] == "local_timezone"
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_session_handles_missing_group_object():
     event, _ = _make_event()
     event.message_obj.group_id = "group-1"
@@ -1090,22 +1160,34 @@ async def test_collect_context_pack_collects_skills_like_tool_call_instruction()
     event, _ = _make_event()
     context = _make_context()
 
-    pack = await collect_context_pack(
-        event=event,
-        plugin_context=context,
-        config=ama.MainAgentBuildConfig(
-            tool_call_timeout=60,
-            tool_schema_mode="skills-like",
-            computer_use_runtime="local",
-            add_cron_tools=False,
+    with (
+        patch(
+            "astrbot.core.prompt.collectors.system_collector.get_astrbot_workspaces_path",
+            return_value="C:/AstrBot/workspaces",
         ),
-        collectors=[SystemCollector()],
-    )
+        patch(
+            "astrbot.core.prompt.collectors.system_collector.normalize_umo_for_workspace",
+            return_value="normalized-umo",
+        ),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                tool_schema_mode="skills-like",
+                computer_use_runtime="local",
+                add_cron_tools=False,
+            ),
+            collectors=[SystemCollector()],
+        )
 
     instruction_slot = pack.get_slot("system.tool_call_instruction")
     assert instruction_slot is not None
-    assert instruction_slot.value == ama.TOOL_CALL_PROMPT_SKILLS_LIKE_MODE
+    assert instruction_slot.value.startswith(ama.TOOL_CALL_PROMPT_SKILLS_LIKE_MODE)
+    assert "normalized-umo" in instruction_slot.value
     assert instruction_slot.meta["tool_schema_mode"] == "skills-like"
+    assert instruction_slot.meta["runtime"] == "local"
 
 
 @pytest.mark.asyncio
@@ -1194,9 +1276,12 @@ async def test_collect_context_pack_collects_policy_sandbox_prompt_for_sandbox_r
 
     sandbox_slot = pack.get_slot("policy.sandbox_prompt")
     assert sandbox_slot is not None
-    assert sandbox_slot.value == SANDBOX_MODE_PROMPT
+    assert sandbox_slot.value.startswith(SANDBOX_MODE_PROMPT)
+    assert "[Shipyard Neo File Path Rule]" in sandbox_slot.value
+    assert "[Neo Skill Lifecycle Workflow]" in sandbox_slot.value
     assert sandbox_slot.meta["enabled_by_config"] is True
     assert sandbox_slot.meta["runtime"] == "sandbox"
+    assert sandbox_slot.meta["booter"] == "shipyard_neo"
 
 
 @pytest.mark.asyncio
@@ -1244,6 +1329,25 @@ async def test_collect_context_pack_skips_policy_sandbox_prompt_for_local_runtim
 
     assert pack.get_slot("policy.sandbox_prompt") is None
     assert pack.get_slot("policy.local_env_prompt") is not None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_live_mode_prompt():
+    event, extras = _make_event()
+    extras["action_type"] = "live"
+    context = _make_context()
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[SystemCollector()],
+    )
+
+    live_slot = pack.get_slot("system.live_mode_prompt")
+    assert live_slot is not None
+    assert live_slot.value == LIVE_MODE_SYSTEM_PROMPT
+    assert live_slot.meta["action_type"] == "live"
 
 
 @pytest.mark.asyncio
@@ -2289,3 +2393,23 @@ async def test_collect_context_pack_fail_open_when_a_collector_raises():
     text_slot = pack.get_slot("input.text")
     assert text_slot is not None
     assert text_slot.value == "hello"
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_raises_when_collector_fails_in_strict_mode():
+    event, _ = _make_event()
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with pytest.raises(RuntimeError, match="Prompt context collector failed"):
+        await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                prompt_pipeline_strict_mode=True,
+            ),
+            collectors=[_BrokenCollector(), _StaticCollector()],
+        )

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from astrbot.core import logger
 from astrbot.core.astr_main_agent_resources import (
+    LIVE_MODE_SYSTEM_PROMPT,
     TOOL_CALL_PROMPT,
     TOOL_CALL_PROMPT_SKILLS_LIKE_MODE,
 )
@@ -70,6 +71,17 @@ class SystemCollector(ContextCollectorInterface):
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to collect workspace extra prompt: %s",
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            live_mode_slot = self._build_live_mode_prompt_slot(event)
+            if live_mode_slot is not None:
+                slots.append(live_mode_slot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to collect live-mode prompt: %s",
                 exc,
                 exc_info=True,
             )
@@ -162,6 +174,13 @@ class SystemCollector(ContextCollectorInterface):
             if config.tool_schema_mode == "full"
             else TOOL_CALL_PROMPT_SKILLS_LIKE_MODE
         )
+        if config.computer_use_runtime == "local":
+            tool_prompt += (
+                f"\nCurrent workspace you can use: "
+                f"`{self._get_workspace_extra_prompt_path(event.unified_msg_origin).parent}`\n"
+                "Unless the user explicitly specifies a different directory, "
+                "perform all file-related operations in this workspace.\n"
+            )
         return ContextSlot(
             name="system.tool_call_instruction",
             value=tool_prompt,
@@ -170,6 +189,23 @@ class SystemCollector(ContextCollectorInterface):
             meta={
                 "tool_schema_mode": config.tool_schema_mode,
                 "requires_tools": True,
+                "runtime": config.computer_use_runtime,
+            },
+        )
+
+    def _build_live_mode_prompt_slot(
+        self,
+        event: AstrMessageEvent,
+    ) -> ContextSlot | None:
+        if event.get_extra("action_type") != "live":
+            return None
+        return ContextSlot(
+            name="system.live_mode_prompt",
+            value=LIVE_MODE_SYSTEM_PROMPT,
+            category="system",
+            source="main_agent_policy",
+            meta={
+                "action_type": "live",
             },
         )
 

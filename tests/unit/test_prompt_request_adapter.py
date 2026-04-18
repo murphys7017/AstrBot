@@ -128,6 +128,35 @@ def test_request_adapter_keeps_all_messages_as_history_when_no_final_user_exists
     assert apply_result.history_message_count == 2
 
 
+def test_request_adapter_preserves_runtime_only_fields_when_applying_visible_prompt():
+    tool_set = ToolSet()
+    conversation = object()
+    tool_calls_result = ["tool-result"]
+    request = ProviderRequest(
+        prompt="old prompt",
+        session_id="session-1",
+        model="gpt-test",
+        func_tool=tool_set,
+        conversation=conversation,
+        tool_calls_result=tool_calls_result,
+    )
+    result = RenderResult(
+        system_prompt="<system>new system</system>",
+        messages=[{"role": "user", "content": "new prompt"}],
+    )
+
+    apply_result = apply_render_result_to_request(result, request)
+
+    assert request.prompt == "new prompt"
+    assert request.system_prompt == "<system>new system</system>"
+    assert request.session_id == "session-1"
+    assert request.model == "gpt-test"
+    assert request.func_tool is tool_set
+    assert request.conversation is conversation
+    assert request.tool_calls_result == tool_calls_result
+    assert apply_result.used_user_message is True
+
+
 def test_request_adapter_skips_invalid_user_parts_without_touching_tool_runtime():
     tool_set = ToolSet()
     request = ProviderRequest(func_tool=tool_set)

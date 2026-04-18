@@ -166,6 +166,7 @@ class BasePromptRenderer:
         for slot_name, child_tag in (
             ("system.base", "base"),
             ("system.tool_call_instruction", "tool_call_instruction"),
+            ("system.live_mode_prompt", "live_mode"),
         ):
             slot = self._find_slot(slots, slot_name)
             if slot is None:

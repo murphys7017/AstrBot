@@ -489,6 +489,12 @@ def test_render_engine_renders_workspace_and_local_env_prompts_in_system_prompt(
                 category="system",
                 source="test",
             ),
+            "system.live_mode_prompt": ContextSlot(
+                name="system.live_mode_prompt",
+                value="Respond in live mode.",
+                category="system",
+                source="test",
+            ),
         }
     )
 
@@ -501,6 +507,8 @@ def test_render_engine_renders_workspace_and_local_env_prompts_in_system_prompt(
     assert "Use &lt;workspace&gt; rules &amp; keep notes." in result.system_prompt
     assert "<local_env>" in result.system_prompt
     assert "local shell &amp; inspect files." in result.system_prompt
+    assert "<live_mode>" in result.system_prompt
+    assert "Respond in live mode." in result.system_prompt
 
 
 def test_render_engine_compiles_caption_and_file_extract_blocks_in_user_message():

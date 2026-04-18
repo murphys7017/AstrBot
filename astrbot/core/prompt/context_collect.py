@@ -27,6 +27,7 @@ from .collectors.tools_collector import ToolsCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot
 from .interfaces.context_collector_inferface import ContextCollectorInterface
+from .strict_mode import handle_prompt_pipeline_failure, is_prompt_pipeline_strict
 
 PROMPT_CONTEXT_PACK_EXTRA_KEY = "prompt_context_pack"
 
@@ -117,7 +118,8 @@ async def collect_context_pack(
 
     This stage is intentionally fail-open and does not mutate ProviderRequest.
     """
-    catalog = get_catalog()
+    strict = is_prompt_pipeline_strict(config)
+    catalog = get_catalog(strict=strict)
     collector_list = (
         list(collectors) if collectors is not None else _default_collectors()
     )
@@ -142,11 +144,19 @@ async def collect_context_pack(
                 provider_request=provider_request,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Prompt context collector failed: collector=%s error=%s",
-                collector_name,
-                exc,
-                exc_info=True,
+            handle_prompt_pipeline_failure(
+                strict=strict,
+                message=(
+                    "Prompt context collector failed: "
+                    f"collector={collector_name} error={exc}"
+                ),
+                exc=exc,
+                log_failure=lambda exc=exc: logger.warning(
+                    "Prompt context collector failed: collector=%s error=%s",
+                    collector_name,
+                    exc,
+                    exc_info=True,
+                ),
             )
             continue
 

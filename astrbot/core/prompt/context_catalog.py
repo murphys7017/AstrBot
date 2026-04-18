@@ -133,7 +133,10 @@ class ContextCatalogLoader:
 
     @classmethod
     def load(
-        cls, path: str | Path = "data/config/prompt/context_catalog.yaml"
+        cls,
+        path: str | Path = "data/config/prompt/context_catalog.yaml",
+        *,
+        strict: bool = False,
     ) -> ContextCatalog:
         """
         从 YAML 文件加载 catalog。
@@ -143,16 +146,22 @@ class ContextCatalogLoader:
         path = Path(path)
 
         if not path.exists():
+            if strict:
+                raise FileNotFoundError(f"Context catalog not found at {path}")
             logger.warning(f"Context catalog not found at {path}, using empty catalog")
             return ContextCatalog(version="0.1", contexts=[])
 
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except Exception as exc:
+            if strict:
+                raise RuntimeError(f"Failed to load catalog yaml from {path}") from exc
             logger.error(f"Failed to load catalog yaml: {exc}, using empty catalog")
             return ContextCatalog(version="0.1", contexts=[])
 
         if not isinstance(data, dict):
+            if strict:
+                raise RuntimeError("Catalog root must be a dict")
             logger.warning("Catalog root must be a dict, using empty catalog")
             return ContextCatalog(version="0.1", contexts=[])
 
@@ -160,6 +169,8 @@ class ContextCatalogLoader:
         contexts_raw = data.get("contexts", [])
 
         if not isinstance(contexts_raw, list):
+            if strict:
+                raise RuntimeError("Catalog 'contexts' must be a list")
             logger.warning("Catalog 'contexts' must be a list, using empty catalog")
             return ContextCatalog(version=version, contexts=[])
 
@@ -169,6 +180,10 @@ class ContextCatalogLoader:
                 item = cls._parse_item(item_data)
                 contexts.append(item)
             except Exception as exc:
+                if strict:
+                    raise RuntimeError(
+                        f"Failed to parse catalog item {idx}: {exc}"
+                    ) from exc
                 logger.warning(f"Failed to parse catalog item {idx}: {exc}, skipping")
 
         catalog = ContextCatalog(version=version, contexts=contexts)
@@ -242,11 +257,14 @@ class ContextCatalogLoader:
 
 # ========== 全局单例 ==========
 
-_catalog: ContextCatalog | None = None
+_catalog_cache: dict[tuple[str, bool], ContextCatalog] = {}
 
 
 def get_catalog(
-    path: str | Path | None = None, force_reload: bool = False
+    path: str | Path | None = None,
+    force_reload: bool = False,
+    *,
+    strict: bool = False,
 ) -> ContextCatalog:
     """
     获取全局 ContextCatalog 单例。
@@ -255,12 +273,17 @@ def get_catalog(
         path: 可选的加载路径（仅在第一次加载或 force_reload 时使用）
         force_reload: 强制从磁盘重新加载
     """
-    global _catalog
+    global _catalog_cache
 
-    if _catalog is None or force_reload:
-        if path is not None:
-            _catalog = ContextCatalogLoader.load(path)
-        else:
-            _catalog = ContextCatalogLoader.load()
+    resolved_path = str(
+        Path(path or "data/config/prompt/context_catalog.yaml").resolve()
+    )
+    cache_key = (resolved_path, strict)
 
-    return _catalog
+    if force_reload or cache_key not in _catalog_cache:
+        _catalog_cache[cache_key] = ContextCatalogLoader.load(
+            resolved_path,
+            strict=strict,
+        )
+
+    return _catalog_cache[cache_key]

@@ -5,6 +5,7 @@ from .engine import PromptRenderEngine
 from .interfaces import PromptSelectorInterface, RenderResult, SerializedRenderValue
 from .prompt_tree import NodeRef, PromptBuilder, PromptNode
 from .request_adapter import (
+    PROMPT_APPLY_RESULT_EXTRA_KEY,
     PROMPT_RENDER_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_DIFF_EXTRA_KEY,
@@ -18,6 +19,7 @@ from .selector import PassthroughPromptSelector, select_context_pack
 __all__ = [
     "BasePromptRenderer",
     "NodeRef",
+    "PROMPT_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_RENDER_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_DIFF_EXTRA_KEY",

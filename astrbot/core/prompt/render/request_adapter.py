@@ -12,6 +12,7 @@ from astrbot.core.provider.entities import ProviderRequest
 from .interfaces import RenderResult
 
 PROMPT_RENDER_RESULT_EXTRA_KEY = "prompt_render_result"
+PROMPT_APPLY_RESULT_EXTRA_KEY = "prompt_apply_result"
 PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY = "prompt_shadow_provider_request"
 PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY = "prompt_shadow_apply_result"
 PROMPT_SHADOW_DIFF_EXTRA_KEY = "prompt_shadow_diff"
@@ -213,6 +214,7 @@ def apply_render_result_to_request(
 
 
 __all__ = [
+    "PROMPT_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_RENDER_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_SHADOW_DIFF_EXTRA_KEY",

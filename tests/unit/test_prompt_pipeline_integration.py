@@ -22,7 +22,11 @@ from astrbot.core.memory.types import (
 )
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.context_collect import collect_context_pack
-from astrbot.core.prompt.render import BasePromptRenderer, PromptRenderEngine
+from astrbot.core.prompt.render import (
+    BasePromptRenderer,
+    PromptRenderEngine,
+    apply_render_result_to_request,
+)
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.skills.skill_manager import SkillInfo
 
@@ -445,4 +449,104 @@ async def test_collect_and_render_pipeline_preserves_multimodal_input_parts(
     assert result.messages[-1]["content"][5] == {
         "type": "text",
         "text": "[File Attachment in quoted message: name quoted.txt, path C:/tmp/quoted.txt]",
+    }
+
+
+@pytest.mark.asyncio
+async def test_collect_render_apply_roundtrip_builds_provider_request_message_contract(
+    memory_service_mock,
+    skills_list_mock,
+):
+    del memory_service_mock, skills_list_mock
+
+    event, extras = _make_event()
+    event.message_str = "Look <here> & now"
+    event.message_obj.message = [
+        Reply(
+            id="reply-1",
+            message_str="quoted message",
+            chain=[
+                Image(file="file:///C:/tmp/quoted.png"),
+                File(name="quoted.txt", file="C:/tmp/quoted.txt"),
+            ],
+        ),
+        Plain(text="Look <here> & now"),
+        Image(file="https://example.com/current.png"),
+        File(name="current.txt", file="C:/tmp/current.txt"),
+    ]
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    render_source_request = ProviderRequest(prompt="Look <here> & now")
+    extras["provider_request"] = render_source_request
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+        new=AsyncMock(return_value="Quoted <text> & file"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(
+                tool_call_timeout=60,
+                timezone="Asia/Shanghai",
+            ),
+            provider_request=render_source_request,
+        )
+
+    result = PromptRenderEngine(default_renderer=BasePromptRenderer()).render(pack)
+
+    target_request = ProviderRequest(
+        session_id="session-1",
+        model="gpt-test",
+        func_tool=ToolSet(),
+        conversation=_make_conversation(),
+        tool_calls_result=["keep-tool-result"],
+    )
+    apply_render_result_to_request(result, target_request)
+    assembled = await target_request.assemble_context()
+
+    assert target_request.session_id == "session-1"
+    assert target_request.model == "gpt-test"
+    assert target_request.tool_calls_result == ["keep-tool-result"]
+    assert target_request.conversation is not None
+    assert assembled["role"] == "user"
+    assert isinstance(assembled["content"], list)
+
+    request_context_part = assembled["content"][0]
+    assert request_context_part["type"] == "text"
+    assert "<request_context>" in request_context_part["text"]
+    assert "<datetime>" in request_context_part["text"]
+    assert "<platform_name>test_platform</platform_name>" in request_context_part["text"]
+    assert "<umo>test_platform:private:test-session</umo>" in request_context_part["text"]
+
+    assert assembled["content"][1] == {
+        "type": "text",
+        "text": (
+            "<user_input>\n"
+            "  <text>Look &lt;here&gt; &amp; now</text>\n"
+            "  <quoted_text>Quoted &lt;text&gt; &amp; file</quoted_text>\n"
+            "</user_input>"
+        ),
+    }
+    assert assembled["content"][2] == {
+        "type": "image_url",
+        "image_url": {"url": "file:///C:/tmp/quoted.png", "id": None},
+    }
+    assert assembled["content"][3] == {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/current.png", "id": None},
+    }
+    assert assembled["content"][4] == {
+        "type": "text",
+        "text": "[File Attachment: name current.txt, path C:/tmp/current.txt]",
+    }
+    assert assembled["content"][5] == {
+        "type": "text",
+        "text": (
+            "[File Attachment in quoted message: name quoted.txt, "
+            "path C:/tmp/quoted.txt]"
+        ),
     }
