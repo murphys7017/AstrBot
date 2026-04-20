@@ -19,6 +19,81 @@ AstrBot 接收消息平台下发的消息，并将其封装为 `AstrMessageEvent
 
 `AstrMessageEvent` 是 AstrBot 的消息事件对象，其中存储了消息发送者、消息内容等信息。
 
+### 事件附加信息（Extras）
+
+`AstrMessageEvent` 提供了一个事件级的临时存储区，可通过 `set_extra()` / `get_extra()` / `clear_extra()` 读写。
+
+```py
+event.set_extra("my_key", {"source": "plugin"})
+value = event.get_extra("my_key")
+all_values = event.get_extra()
+```
+
+- `extra` 只在当前事件生命周期内有效，不会自动持久化到会话历史。
+- 适合保存平台适配器或插件提前归一化好的结构化数据。
+- 读取时请始终容忍 key 不存在，并提供 fallback。
+
+#### Prompt 输入语义 sidecar
+
+AstrBot 的 Prompt 输入收集链路会读取一个可选的 sidecar：`event.get_extra("prompt_input_item_annotations")`。
+
+这个 sidecar 用于描述“用户输入项本身的语义”，例如：
+
+- 一张图片其实是用户当前桌面截图；
+- 一个文件其实是运行日志；
+- 一段文本其实是引用说明，而不是用户的新输入；
+- 某个附件只是辅助上下文，不是主问题本身。
+
+支持的 key：
+
+- `input.text`
+- `input.quoted_text`
+- `message[0]`
+- `message[1]`
+- `message[2].reply.chain[0]`
+
+其中：
+
+- `message[i]` 对应 `event.message_obj.message[i]`
+- `message[i].reply.chain[j]` 对应 `event.message_obj.message[i]` 中 `Reply` 组件的 `chain[j]`
+
+支持的字段：
+
+- `semantic_type`: 输入项语义类型，推荐使用稳定的 snake_case
+- `explanation`: 提供给模型的简短说明
+- `explanation_source`: 说明来源，平台适配器通常使用 `platform`
+- `context_role`: 输入项在当前请求中的角色，如 `primary` / `supporting` / `reference`
+
+示例：
+
+```py
+annotations = {
+    "input.text": {
+        "semantic_type": "user_text",
+        "explanation": "This text is the user's current request.",
+        "explanation_source": "platform",
+        "context_role": "primary",
+    },
+    "message[1]": {
+        "semantic_type": "desktop_screenshot",
+        "explanation": "This image is the user's current desktop screenshot.",
+        "explanation_source": "platform",
+        "context_role": "supporting",
+    },
+}
+
+event.set_extra("prompt_input_item_annotations", annotations)
+```
+
+如果你是插件开发者，可以直接读取这份 sidecar：
+
+```py
+annotations = event.get_extra("prompt_input_item_annotations", {})
+text_meta = annotations.get("input.text", {})
+```
+
+如果你是平台适配器开发者，请不要把这些说明硬编码进 `message_str` 或 `Plain` 文本中；应保留原始用户输入，并把语义说明放进 sidecar。
+
 ### 消息对象
 
 `AstrBotMessage` 是 AstrBot 的消息对象，其中存储了消息平台下发的消息具体内容，`AstrMessageEvent` 对象中包含一个 `message_obj` 属性用于获取该消息对象。

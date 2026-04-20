@@ -19,6 +19,81 @@ AstrBot receives messages delivered by messaging platforms and encapsulates them
 
 `AstrMessageEvent` is AstrBot's message event object, which stores information about the message sender, message content, etc.
 
+### Event Extra Metadata (Extras)
+
+`AstrMessageEvent` provides an event-scoped temporary storage area through `set_extra()` / `get_extra()` / `clear_extra()`.
+
+```py
+event.set_extra("my_key", {"source": "plugin"})
+value = event.get_extra("my_key")
+all_values = event.get_extra()
+```
+
+- `extra` only lives for the current event and is not automatically persisted into conversation history.
+- It is suitable for structured data normalized by a platform adapter or plugin.
+- Always tolerate missing keys when reading and provide a fallback.
+
+#### Prompt Input Semantics Sidecar
+
+AstrBot's prompt-input collection pipeline can optionally read `event.get_extra("prompt_input_item_annotations")`.
+
+This sidecar describes the semantics of the input items themselves, for example:
+
+- an image is actually the user's current desktop screenshot;
+- a file is a runtime log;
+- a text block is quoted context instead of new user input;
+- an attachment is supporting context rather than the primary request.
+
+Supported keys:
+
+- `input.text`
+- `input.quoted_text`
+- `message[0]`
+- `message[1]`
+- `message[2].reply.chain[0]`
+
+Where:
+
+- `message[i]` maps to `event.message_obj.message[i]`
+- `message[i].reply.chain[j]` maps to `chain[j]` inside a `Reply` component at `event.message_obj.message[i]`
+
+Supported fields:
+
+- `semantic_type`: stable snake_case semantic label
+- `explanation`: short model-visible explanation
+- `explanation_source`: source of the explanation; adapters typically use `platform`
+- `context_role`: role in the current request, such as `primary` / `supporting` / `reference`
+
+Example:
+
+```py
+annotations = {
+    "input.text": {
+        "semantic_type": "user_text",
+        "explanation": "This text is the user's current request.",
+        "explanation_source": "platform",
+        "context_role": "primary",
+    },
+    "message[1]": {
+        "semantic_type": "desktop_screenshot",
+        "explanation": "This image is the user's current desktop screenshot.",
+        "explanation_source": "platform",
+        "context_role": "supporting",
+    },
+}
+
+event.set_extra("prompt_input_item_annotations", annotations)
+```
+
+Plugin authors can read the same sidecar directly:
+
+```py
+annotations = event.get_extra("prompt_input_item_annotations", {})
+text_meta = annotations.get("input.text", {})
+```
+
+If you are building a platform adapter, do not inject these explanations into `message_str` or `Plain` text. Keep the original user input unchanged and attach semantics through the sidecar.
+
 ### Message Object
 
 `AstrBotMessage` is AstrBot's message object, which stores the specific content of messages delivered by the messaging platform. The `AstrMessageEvent` object contains a `message_obj` attribute to retrieve this message object.

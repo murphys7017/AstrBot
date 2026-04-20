@@ -15,6 +15,7 @@ from astrbot.core.skills.skill_manager import SkillInfo, build_skills_prompt
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextPack, ContextSlot
+from ..input_annotations import SUPPORTED_INPUT_ANNOTATION_FIELDS
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -282,29 +283,51 @@ class BasePromptRenderer:
         rendered_slot_names: list[str] = []
 
         text_slot = self._find_slot(slots, "input.text")
-        if text_slot is not None and self._add_text_tag(
-            resolve_node("user_input/text"),
-            "content",
-            self._stringify_slot_value(text_slot),
-            meta=self._slot_meta(text_slot),
-        ):
-            rendered_slot_names.append(text_slot.name)
+        if text_slot is not None:
+            text_target = resolve_node("user_input/text")
+            text_rendered = self._add_text_tag(
+                text_target,
+                "content",
+                self._stringify_slot_value(text_slot),
+                meta=self._slot_meta(text_slot),
+            )
+            annotation_rendered = self._render_annotation_mapping(
+                text_target,
+                self._extract_input_annotation_fields(text_slot.meta),
+            )
+            if text_rendered or annotation_rendered:
+                rendered_slot_names.append(text_slot.name)
 
         quoted_text_slot = self._find_slot(slots, "input.quoted_text")
-        if quoted_text_slot is not None and self._add_text_tag(
-            resolve_node("user_input/quoted"),
-            "text",
-            self._stringify_slot_value(quoted_text_slot),
-            meta=self._slot_meta(quoted_text_slot),
-        ):
-            rendered_slot_names.append(quoted_text_slot.name)
+        if quoted_text_slot is not None:
+            quoted_target = resolve_node("user_input/quoted")
+            text_rendered = self._add_text_tag(
+                quoted_target,
+                "text",
+                self._stringify_slot_value(quoted_text_slot),
+                meta=self._slot_meta(quoted_text_slot),
+            )
+            annotation_rendered = self._render_annotation_mapping(
+                quoted_target,
+                self._extract_input_annotation_fields(quoted_text_slot.meta),
+            )
+            if text_rendered or annotation_rendered:
+                rendered_slot_names.append(quoted_text_slot.name)
 
         quoted_images_slot = self._find_slot(slots, "input.quoted_images")
-        if quoted_images_slot is not None and self._render_image_records(
-            resolve_node("user_input/quoted/images"),
-            quoted_images_slot,
-        ):
-            rendered_slot_names.append(quoted_images_slot.name)
+        if quoted_images_slot is not None:
+            images_rendered = self._render_image_records(
+                resolve_node("user_input/quoted/images"),
+                quoted_images_slot,
+            )
+            annotations_rendered = self._render_input_annotation_records(
+                resolve_node("user_input/quoted/image_annotations"),
+                records=self._coerce_list(quoted_images_slot.value),
+                item_tag="image_annotation",
+                body_keys=("ref",),
+            )
+            if images_rendered or annotations_rendered:
+                rendered_slot_names.append(quoted_images_slot.name)
 
         quoted_image_captions_slot = self._find_slot(
             slots, "input.quoted_image_captions"
@@ -318,11 +341,19 @@ class BasePromptRenderer:
             rendered_slot_names.append(quoted_image_captions_slot.name)
 
         images_slot = self._find_slot(slots, "input.images")
-        if images_slot is not None and self._render_image_records(
-            resolve_node("user_input/attachments/images"),
-            images_slot,
-        ):
-            rendered_slot_names.append(images_slot.name)
+        if images_slot is not None:
+            images_rendered = self._render_image_records(
+                resolve_node("user_input/attachments/images"),
+                images_slot,
+            )
+            annotations_rendered = self._render_input_annotation_records(
+                resolve_node("user_input/attachments/image_annotations"),
+                records=self._coerce_list(images_slot.value),
+                item_tag="image_annotation",
+                body_keys=("ref",),
+            )
+            if images_rendered or annotations_rendered:
+                rendered_slot_names.append(images_slot.name)
 
         image_captions_slot = self._find_slot(slots, "input.image_captions")
         if image_captions_slot is not None and self._render_record_items(
@@ -334,11 +365,20 @@ class BasePromptRenderer:
             rendered_slot_names.append(image_captions_slot.name)
 
         files_slot = self._find_slot(slots, "input.files")
-        if files_slot is not None and self._render_file_records(
-            resolve_node("user_input/attachments/files"),
-            files_slot,
-        ):
-            rendered_slot_names.append(files_slot.name)
+        if files_slot is not None:
+            files_rendered = self._render_file_records(
+                resolve_node("user_input/attachments/files"),
+                files_slot,
+            )
+            annotations_rendered = self._render_input_annotation_records(
+                resolve_node("user_input/attachments/file_annotations"),
+                records=self._coerce_list(files_slot.value),
+                item_tag="file_annotation",
+                body_keys=("name", "ref"),
+                ref_resolver=self._resolve_file_ref,
+            )
+            if files_rendered or annotations_rendered:
+                rendered_slot_names.append(files_slot.name)
 
         file_extracts_slot = self._find_slot(slots, "input.file_extracts")
         if file_extracts_slot is not None and self._render_record_items(
@@ -745,6 +785,11 @@ class BasePromptRenderer:
             if text_node is not None
             else None
         )
+        current_text_annotation = (
+            self._extract_annotation_from_node(prompt_tree, text_node)
+            if text_node is not None
+            else {}
+        )
 
         quoted_node = self._find_tag_path(prompt_tree, "user_input/quoted")
         quoted_text = (
@@ -752,9 +797,17 @@ class BasePromptRenderer:
             if quoted_node is not None
             else None
         )
+        quoted_text_annotation = (
+            self._extract_annotation_from_node(prompt_tree, quoted_node)
+            if quoted_node is not None
+            else {}
+        )
 
         quoted_images_node = self._find_tag_path(
             prompt_tree, "user_input/quoted/images"
+        )
+        quoted_image_annotations_node = self._find_tag_path(
+            prompt_tree, "user_input/quoted/image_annotations"
         )
         quoted_image_captions_node = self._find_tag_path(
             prompt_tree, "user_input/quoted_image_captions"
@@ -762,11 +815,17 @@ class BasePromptRenderer:
         attachment_images_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/images"
         )
+        attachment_image_annotations_node = self._find_tag_path(
+            prompt_tree, "user_input/attachments/image_annotations"
+        )
         attachment_image_captions_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/image_captions"
         )
         attachment_files_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/files"
+        )
+        file_annotations_node = self._find_tag_path(
+            prompt_tree, "user_input/attachments/file_annotations"
         )
         file_extracts_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/file_extracts"
@@ -776,6 +835,18 @@ class BasePromptRenderer:
         user_input_text = self._compile_user_input_text(
             current_text=current_text,
             quoted_text=quoted_text,
+            current_text_annotation=current_text_annotation,
+            quoted_text_annotation=quoted_text_annotation,
+        )
+        quoted_image_annotations_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                quoted_image_annotations_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if quoted_image_annotations_node is not None
+            else None
         )
         quoted_image_captions_text = (
             self._render_subtree_text(
@@ -787,6 +858,16 @@ class BasePromptRenderer:
             if quoted_image_captions_node is not None
             else None
         )
+        attachment_image_annotations_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                attachment_image_annotations_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if attachment_image_annotations_node is not None
+            else None
+        )
         attachment_image_captions_text = (
             self._render_subtree_text(
                 prompt_tree,
@@ -795,6 +876,16 @@ class BasePromptRenderer:
                 escape_text=True,
             )
             if attachment_image_captions_node is not None
+            else None
+        )
+        file_annotations_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                file_annotations_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if file_annotations_node is not None
             else None
         )
         file_extracts_text = (
@@ -836,8 +927,13 @@ class BasePromptRenderer:
             current_text
             and not request_context_text
             and not quoted_text
+            and not current_text_annotation
+            and not quoted_text_annotation
+            and not quoted_image_annotations_text
             and not quoted_image_captions_text
+            and not attachment_image_annotations_text
             and not attachment_image_captions_text
+            and not file_annotations_text
             and not file_extracts_text
             and not quoted_image_parts
             and not attachment_image_parts
@@ -849,14 +945,24 @@ class BasePromptRenderer:
             content_parts.append(self._build_text_content_part(request_context_text))
         if user_input_text:
             content_parts.append(self._build_text_content_part(user_input_text))
+        if quoted_image_annotations_text:
+            content_parts.append(
+                self._build_text_content_part(quoted_image_annotations_text)
+            )
         if quoted_image_captions_text:
             content_parts.append(
                 self._build_text_content_part(quoted_image_captions_text)
+            )
+        if attachment_image_annotations_text:
+            content_parts.append(
+                self._build_text_content_part(attachment_image_annotations_text)
             )
         if attachment_image_captions_text:
             content_parts.append(
                 self._build_text_content_part(attachment_image_captions_text)
             )
+        if file_annotations_text:
+            content_parts.append(self._build_text_content_part(file_annotations_text))
         if file_extracts_text:
             content_parts.append(self._build_text_content_part(file_extracts_text))
         content_parts.extend(quoted_image_parts)
@@ -1421,10 +1527,19 @@ class BasePromptRenderer:
         *,
         current_text: str | None,
         quoted_text: str | None,
+        current_text_annotation: dict[str, str] | None = None,
+        quoted_text_annotation: dict[str, str] | None = None,
     ) -> str | None:
         normalized_current = self._clean_text(current_text)
         normalized_quoted = self._clean_text(quoted_text)
-        if not normalized_current and not normalized_quoted:
+        current_annotation = self._clean_annotation_mapping(current_text_annotation)
+        quoted_annotation = self._clean_annotation_mapping(quoted_text_annotation)
+        if (
+            not normalized_current
+            and not normalized_quoted
+            and not current_annotation
+            and not quoted_annotation
+        ):
             return None
 
         lines = ["<user_input>"]
@@ -1432,10 +1547,24 @@ class BasePromptRenderer:
             lines.append(
                 f"  <text>{self.escape_render_text(normalized_current)}</text>"
             )
+        lines.extend(
+            self._compile_annotation_lines(
+                tag="text_annotation",
+                annotation=current_annotation,
+                indent="  ",
+            )
+        )
         if normalized_quoted:
             lines.append(
                 f"  <quoted_text>{self.escape_render_text(normalized_quoted)}</quoted_text>"
             )
+        lines.extend(
+            self._compile_annotation_lines(
+                tag="quoted_text_annotation",
+                annotation=quoted_annotation,
+                indent="  ",
+            )
+        )
         lines.append("</user_input>")
         return "\n".join(lines)
 
@@ -1628,6 +1757,61 @@ class BasePromptRenderer:
                 },
             ).add(ref)
             rendered_any = True
+        return rendered_any
+
+    def _render_input_annotation_records(
+        self,
+        target: NodeRef,
+        *,
+        records: list[dict[str, Any]],
+        item_tag: str,
+        body_keys: tuple[str, ...],
+        ref_resolver: Callable[[dict[str, Any]], str | None] | None = None,
+    ) -> bool:
+        annotated_records: list[dict[str, Any]] = []
+        for record in records:
+            annotation = self._extract_input_annotation_fields(record)
+            if not annotation:
+                continue
+
+            normalized_record = dict(annotation)
+            for key in body_keys:
+                if key == "ref" and callable(ref_resolver):
+                    value = ref_resolver(record)
+                else:
+                    value = record.get(key)
+                if value:
+                    normalized_record[key] = value
+
+            for meta_key in ("source", "reply_id", "resolution", "transport"):
+                value = record.get(meta_key)
+                if value is not None:
+                    normalized_record[meta_key] = value
+            annotated_records.append(normalized_record)
+
+        if not annotated_records:
+            return False
+
+        container = target.container()
+        rendered_any = False
+        for record in annotated_records:
+            item_ref = container.tag(item_tag)
+            item_rendered = False
+            for key in body_keys:
+                item_rendered |= self._render_generic_value(
+                    item_ref, key, record.get(key)
+                )
+            for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS:
+                item_rendered |= self._render_generic_value(
+                    item_ref,
+                    annotation_key,
+                    record.get(annotation_key),
+                )
+            for meta_key in ("source", "reply_id", "resolution", "transport"):
+                item_rendered |= self._render_generic_value(
+                    item_ref, meta_key, record.get(meta_key)
+                )
+            rendered_any |= item_rendered
         return rendered_any
 
     def _render_file_records(
@@ -1974,6 +2158,100 @@ class BasePromptRenderer:
         if value is None:
             return None
         return str(value)
+
+    def _render_annotation_mapping(
+        self,
+        target: NodeRef,
+        annotation: dict[str, str],
+    ) -> bool:
+        clean_annotation = self._clean_annotation_mapping(annotation)
+        if not clean_annotation:
+            return False
+
+        annotation_ref = target.tag("annotation")
+        rendered_any = False
+        for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS:
+            rendered_any |= self._render_generic_value(
+                annotation_ref,
+                annotation_key,
+                clean_annotation.get(annotation_key),
+            )
+        return rendered_any
+
+    def _extract_annotation_from_node(
+        self,
+        prompt_tree: PromptBuilder,
+        node,
+    ) -> dict[str, str]:
+        if node is None:
+            return {}
+
+        annotation_node = self._find_direct_child_tag(
+            node,
+            "annotation",
+            prompt_tree=prompt_tree,
+        )
+        if annotation_node is None:
+            return {}
+
+        return self._clean_annotation_mapping(
+            {
+                annotation_key: self._extract_child_tag_text(
+                    prompt_tree,
+                    annotation_node,
+                    annotation_key,
+                )
+                for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS
+            }
+        )
+
+    def _extract_input_annotation_fields(
+        self,
+        payload: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        if not isinstance(payload, dict):
+            return {}
+
+        return self._clean_annotation_mapping(
+            {
+                annotation_key: payload.get(annotation_key)
+                for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS
+            }
+        )
+
+    def _clean_annotation_mapping(
+        self,
+        annotation: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        if not annotation:
+            return {}
+
+        clean_annotation: dict[str, str] = {}
+        for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS:
+            value = self._clean_text(annotation.get(annotation_key))
+            if value:
+                clean_annotation[annotation_key] = value
+        return clean_annotation
+
+    def _compile_annotation_lines(
+        self,
+        *,
+        tag: str,
+        annotation: dict[str, str],
+        indent: str,
+    ) -> list[str]:
+        if not annotation:
+            return []
+
+        lines = [f"{indent}<{tag}>"]
+        for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS:
+            value = self._clean_text(annotation.get(annotation_key))
+            if value:
+                lines.append(
+                    f"{indent}  <{annotation_key}>{self.escape_render_text(value)}</{annotation_key}>"
+                )
+        lines.append(f"{indent}</{tag}>")
+        return lines
 
     def _build_render_metadata(
         self,

@@ -117,6 +117,15 @@ AstrBot 采用在运行时注入插件的机制。因此，在调试插件时，
 
 > `requirements.txt` 的完整格式可以参考 [pip 官方文档](https://pip.pypa.io/en/stable/reference/requirements-file-format/)。
 
+## 消息事件与输入语义
+
+- 处理消息事件、消息链、事件钩子：[`处理消息事件`](guides/listen-message-event.md)
+- 发送文本、图片、文件等富媒体消息：[`发送消息`](guides/send-message.md)
+- 开发平台适配器并为 Prompt 输入补充结构化语义：[`开发一个平台适配器`](/dev/plugin-platform-adapter)
+
+如果平台会附带额外的输入含义，例如“这张图片是用户当前桌面截图”、“这个文件是运行日志”、“这段文字是引用说明而不是用户新输入”，请不要把这些说明直接拼进 `message_str`。  
+应由平台适配器通过事件 `extra` 提供结构化 sidecar，具体协议见 [`处理消息事件`](guides/listen-message-event.md) 和 [`开发一个平台适配器`](/dev/plugin-platform-adapter)。
+
 ## 开发原则
 
 感谢您为 AstrBot 生态做出贡献，开发插件请遵守以下原则，这也是良好的编程习惯。

@@ -43,6 +43,13 @@ from astrbot.core.prompt.context_collect import (
     log_context_pack,
 )
 from astrbot.core.prompt.context_types import ContextSlot
+from astrbot.core.prompt.input_annotations import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_QUOTED_TEXT_ANNOTATION_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+    build_reply_chain_annotation_key,
+)
 from astrbot.core.prompt.interfaces import ContextCollectorInterface
 from astrbot.core.prompt.render import (
     PROMPT_RENDER_RESULT_EXTRA_KEY,
@@ -544,6 +551,84 @@ async def test_collect_context_pack_applies_prompt_prefix_to_input_text():
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_collects_input_sidecar_annotations():
+    event, extras = _make_event()
+    event.message_str = "describe this"
+    event.message_obj.message = [
+        Plain(text="describe this"),
+        Image(file="https://example.com/screen.png"),
+        File(name="debug.log", file="C:/tmp/debug.log"),
+    ]
+    extras[INPUT_ITEM_ANNOTATIONS_EXTRA_KEY] = {
+        INPUT_TEXT_ANNOTATION_KEY: {
+            "semantic_type": "user_text",
+            "explanation": "This text is the user's current request.",
+            "explanation_source": "platform",
+            "context_role": "primary",
+        },
+        build_message_annotation_key(1): {
+            "semantic_type": "desktop_screenshot",
+            "explanation": "This image is the user's current desktop screenshot.",
+            "explanation_source": "platform",
+            "context_role": "supporting",
+        },
+        build_message_annotation_key(2): {
+            "semantic_type": "runtime_log",
+            "explanation": "This file is a runtime log the user wants analyzed.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+    }
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[InputCollector()],
+    )
+
+    text_slot = pack.get_slot("input.text")
+    assert text_slot is not None
+    assert text_slot.meta["semantic_type"] == "user_text"
+    assert text_slot.meta["explanation_source"] == "platform"
+    assert text_slot.meta["context_role"] == "primary"
+
+    images_slot = pack.get_slot("input.images")
+    assert images_slot is not None
+    assert images_slot.value == [
+        {
+            "ref": "https://example.com/screen.png",
+            "transport": "url",
+            "source": "current",
+            "semantic_type": "desktop_screenshot",
+            "explanation": "This image is the user's current desktop screenshot.",
+            "explanation_source": "platform",
+            "context_role": "supporting",
+        }
+    ]
+
+    files_slot = pack.get_slot("input.files")
+    assert files_slot is not None
+    assert files_slot.value == [
+        {
+            "name": "debug.log",
+            "file": "C:/tmp/debug.log",
+            "url": "",
+            "source": "current",
+            "reply_id": None,
+            "semantic_type": "runtime_log",
+            "explanation": "This file is a runtime log the user wants analyzed.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_collects_quoted_input_payloads():
     event, _ = _make_event()
     event.message_obj.message = [
@@ -609,9 +694,104 @@ async def test_collect_context_pack_collects_quoted_input_payloads():
 
 
 @pytest.mark.asyncio
+async def test_collect_context_pack_collects_reply_chain_sidecar_annotations():
+    event, extras = _make_event()
+    event.message_obj.message = [
+        Reply(
+            id="reply-1",
+            message_str="quoted message",
+            chain=[
+                Image(file="file:///C:/tmp/quoted.png"),
+                File(name="quoted.txt", file="C:/tmp/quoted.txt"),
+            ],
+        )
+    ]
+    extras[INPUT_ITEM_ANNOTATIONS_EXTRA_KEY] = {
+        INPUT_QUOTED_TEXT_ANNOTATION_KEY: {
+            "semantic_type": "quoted_reference",
+            "explanation": "This quoted text is reference material from an earlier message.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+        build_reply_chain_annotation_key(0, 0): {
+            "semantic_type": "quoted_screenshot",
+            "explanation": "This quoted image is the screenshot referenced in the reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+        build_reply_chain_annotation_key(0, 1): {
+            "semantic_type": "quoted_log",
+            "explanation": "This quoted file is the log attached in the replied message.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+    }
+    context = _make_context()
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    with patch(
+        "astrbot.core.prompt.collectors.input_collector.extract_quoted_message_text",
+        new=AsyncMock(return_value="quoted message"),
+    ):
+        pack = await collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[InputCollector()],
+        )
+
+    quoted_text_slot = pack.get_slot("input.quoted_text")
+    assert quoted_text_slot is not None
+    assert quoted_text_slot.meta["semantic_type"] == "quoted_reference"
+    assert quoted_text_slot.meta["context_role"] == "reference"
+
+    quoted_images_slot = pack.get_slot("input.quoted_images")
+    assert quoted_images_slot is not None
+    assert quoted_images_slot.value == [
+        {
+            "ref": "file:///C:/tmp/quoted.png",
+            "transport": "file",
+            "source": "quoted",
+            "resolution": "embedded",
+            "reply_id": "reply-1",
+            "semantic_type": "quoted_screenshot",
+            "explanation": "This quoted image is the screenshot referenced in the reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        }
+    ]
+
+    files_slot = pack.get_slot("input.files")
+    assert files_slot is not None
+    assert files_slot.value == [
+        {
+            "name": "quoted.txt",
+            "file": "C:/tmp/quoted.txt",
+            "url": "",
+            "source": "quoted",
+            "reply_id": "reply-1",
+            "semantic_type": "quoted_log",
+            "explanation": "This quoted file is the log attached in the replied message.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_collects_current_image_captions():
-    event, _ = _make_event()
+    event, extras = _make_event()
     event.message_obj.message = [Image(file="https://example.com/image.png")]
+    extras[INPUT_ITEM_ANNOTATIONS_EXTRA_KEY] = {
+        build_message_annotation_key(0): {
+            "semantic_type": "desktop_screenshot",
+            "explanation": "This image is the user's current desktop screenshot.",
+            "explanation_source": "platform",
+            "context_role": "supporting",
+        }
+    }
     context = _make_context()
     req = ProviderRequest(prompt="describe this")
     req.conversation = _make_conversation()
@@ -643,13 +823,17 @@ async def test_collect_context_pack_collects_current_image_captions():
             "caption": "A scenic test image.",
             "provider_id": "caption-provider",
             "source": "current",
+            "semantic_type": "desktop_screenshot",
+            "explanation": "This image is the user's current desktop screenshot.",
+            "explanation_source": "platform",
+            "context_role": "supporting",
         }
     ]
 
 
 @pytest.mark.asyncio
 async def test_collect_context_pack_collects_quoted_image_captions_from_current_provider():
-    event, _ = _make_event()
+    event, extras = _make_event()
     event.message_obj.message = [
         Reply(
             id="reply-1",
@@ -657,6 +841,14 @@ async def test_collect_context_pack_collects_quoted_image_captions_from_current_
             chain=[Image(file="https://example.com/quoted.png")],
         )
     ]
+    extras[INPUT_ITEM_ANNOTATIONS_EXTRA_KEY] = {
+        build_reply_chain_annotation_key(0, 0): {
+            "semantic_type": "quoted_screenshot",
+            "explanation": "This quoted image is the screenshot referenced in the reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        }
+    }
     context = _make_context()
     caption_provider = MagicMock()
     caption_provider.provider_config = {"id": "active-provider"}
@@ -685,6 +877,10 @@ async def test_collect_context_pack_collects_quoted_image_captions_from_current_
             "provider_id": "active-provider",
             "source": "quoted",
             "reply_id": "reply-1",
+            "semantic_type": "quoted_screenshot",
+            "explanation": "This quoted image is the screenshot referenced in the reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
         }
     ]
 
@@ -744,7 +940,7 @@ async def test_collect_context_pack_collects_file_extracts(tmp_path):
     quoted_file = tmp_path / "quoted.txt"
     quoted_file.write_text("quoted", encoding="utf-8")
 
-    event, _ = _make_event()
+    event, extras = _make_event()
     event.message_obj.message = [
         File(name="current.txt", file=str(current_file)),
         Reply(
@@ -753,6 +949,20 @@ async def test_collect_context_pack_collects_file_extracts(tmp_path):
             chain=[File(name="quoted.txt", file=str(quoted_file))],
         ),
     ]
+    extras[INPUT_ITEM_ANNOTATIONS_EXTRA_KEY] = {
+        build_message_annotation_key(0): {
+            "semantic_type": "current_note",
+            "explanation": "This file is the user's newly uploaded note.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+        build_reply_chain_annotation_key(1, 0): {
+            "semantic_type": "quoted_log",
+            "explanation": "This file comes from the quoted reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
+        },
+    }
     context = _make_context()
 
     async def _extract(path: str, api_key: str) -> str:
@@ -782,6 +992,10 @@ async def test_collect_context_pack_collects_file_extracts(tmp_path):
             "content": "current.txt:secret-key",
             "provider": "moonshotai",
             "source": "current",
+            "semantic_type": "current_note",
+            "explanation": "This file is the user's newly uploaded note.",
+            "explanation_source": "platform",
+            "context_role": "reference",
         },
         {
             "name": "quoted.txt",
@@ -789,6 +1003,10 @@ async def test_collect_context_pack_collects_file_extracts(tmp_path):
             "provider": "moonshotai",
             "source": "quoted",
             "reply_id": "reply-1",
+            "semantic_type": "quoted_log",
+            "explanation": "This file comes from the quoted reply.",
+            "explanation_source": "platform",
+            "context_role": "reference",
         },
     ]
 

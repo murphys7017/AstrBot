@@ -42,6 +42,17 @@ from .context_types import (
     RenderModeType,
     SlotName,
 )
+from .input_annotations import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_QUOTED_TEXT_ANNOTATION_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    SUPPORTED_INPUT_ANNOTATION_FIELDS,
+    build_message_annotation_key,
+    build_reply_chain_annotation_key,
+    copy_input_annotation_fields,
+    extract_input_annotation_fields,
+    normalize_input_annotations,
+)
 from .interfaces import ContextCollectorInterface
 from .persona_segments import (
     finalize_persona_segments,
@@ -76,6 +87,16 @@ __all__ = [
     "RenderModeType",
     "LLMExposureType",
     "SlotName",
+    # Input annotation helpers
+    "INPUT_ITEM_ANNOTATIONS_EXTRA_KEY",
+    "INPUT_QUOTED_TEXT_ANNOTATION_KEY",
+    "INPUT_TEXT_ANNOTATION_KEY",
+    "SUPPORTED_INPUT_ANNOTATION_FIELDS",
+    "build_message_annotation_key",
+    "build_reply_chain_annotation_key",
+    "copy_input_annotation_fields",
+    "extract_input_annotation_fields",
+    "normalize_input_annotations",
     # Data models
     "ContextSlot",
     "ContextPack",

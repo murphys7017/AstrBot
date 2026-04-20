@@ -122,6 +122,96 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # 提交事件到事件队列。不要忘记！
 ```
 
+## 为 Prompt 输入附加语义说明（可选）
+
+有些平台会额外提供“输入项的解释信息”，但这些解释不属于用户原始输入本身，例如：
+
+- 一张图片是用户当前桌面截图；
+- 一个文件是运行日志；
+- 一段文本是引用说明，而不是用户本轮新输入；
+- 某个附件只是辅助上下文，不是主问题。
+
+这类信息不要直接拼进 `message_str` 或 `Plain` 文本中，否则会污染原始输入。应通过事件 `extra` 提供结构化 sidecar。
+
+推荐使用 `astrbot.core.prompt` 导出的常量和辅助函数：
+
+```py
+from astrbot.core.prompt import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+    build_reply_chain_annotation_key,
+)
+```
+
+支持的 key：
+
+- `input.text`
+- `input.quoted_text`
+- `message[i]`
+- `message[i].reply.chain[j]`
+
+其中：
+
+- `message[i]` 对应 `AstrBotMessage.message[i]`
+- `message[i].reply.chain[j]` 对应某个 `Reply` 组件内部的 `chain[j]`
+
+支持的字段：
+
+- `semantic_type`
+- `explanation`
+- `explanation_source`
+- `context_role`
+
+推荐约定：
+
+- `semantic_type` 使用稳定的 snake_case，如 `desktop_screenshot`
+- `explanation_source` 对平台适配器固定写 `platform`
+- `context_role` 可使用 `primary` / `supporting` / `reference`
+
+示例：
+
+```py
+from astrbot.api.message_components import Image
+from astrbot.core.prompt import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+)
+
+async def handle_msg(self, message: AstrBotMessage):
+    message_event = FakePlatformEvent(
+        message_str=message.message_str,
+        message_obj=message,
+        platform_meta=self.meta(),
+        session_id=message.session_id,
+        client=self.client,
+    )
+
+    annotations = {
+        INPUT_TEXT_ANNOTATION_KEY: {
+            "semantic_type": "user_text",
+            "explanation": "This text is the user's current request.",
+            "explanation_source": "platform",
+            "context_role": "primary",
+        }
+    }
+
+    for index, component in enumerate(message.message):
+        if isinstance(component, Image):
+            annotations[build_message_annotation_key(index)] = {
+                "semantic_type": "desktop_screenshot",
+                "explanation": "This image is the user's current desktop screenshot.",
+                "explanation_source": "platform",
+                "context_role": "supporting",
+            }
+
+    message_event.set_extra(INPUT_ITEM_ANNOTATIONS_EXTRA_KEY, annotations)
+    self.commit_event(message_event)
+```
+
+如果你的平台没有这类额外语义，直接不设置这个 extra 即可，现有插件链路保持兼容。
+
 
 `fake_platform_event.py`：
 

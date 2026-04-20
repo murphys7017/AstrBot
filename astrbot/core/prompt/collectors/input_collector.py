@@ -30,6 +30,15 @@ from astrbot.core.utils.quoted_message_parser import (
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
 
 from ..context_types import ContextSlot
+from ..input_annotations import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_QUOTED_TEXT_ANNOTATION_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+    build_reply_chain_annotation_key,
+    copy_input_annotation_fields,
+    normalize_input_annotations,
+)
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
 from ..runtime_cache import (
     get_cached_file_extract,
@@ -64,6 +73,7 @@ class InputCollector(ContextCollectorInterface):
         slots: list[ContextSlot] = []
 
         try:
+            input_annotations = self._load_input_annotations(event)
             provider_settings = self._resolve_provider_settings(
                 event=event,
                 plugin_context=plugin_context,
@@ -75,6 +85,7 @@ class InputCollector(ContextCollectorInterface):
                 config=config,
                 provider_request=provider_request,
                 provider_settings=provider_settings,
+                annotation=input_annotations.get(INPUT_TEXT_ANNOTATION_KEY),
             )
             if effective_text:
                 slots.append(
@@ -87,7 +98,10 @@ class InputCollector(ContextCollectorInterface):
                     )
                 )
 
-            current_images = await self._collect_current_images(event)
+            current_images = await self._collect_current_images(
+                event,
+                annotations=input_annotations,
+            )
             if current_images:
                 slots.append(
                     ContextSlot(
@@ -102,8 +116,14 @@ class InputCollector(ContextCollectorInterface):
             current_files = self._collect_files_from_components(
                 event.message_obj.message,
                 source="current",
+                annotations=input_annotations,
+                annotation_key_builder=build_message_annotation_key,
             )
-            reply_payload = await self._collect_reply_payloads(event, config)
+            reply_payload = await self._collect_reply_payloads(
+                event,
+                config,
+                annotations=input_annotations,
+            )
 
             current_image_captions = await self._collect_current_image_captions(
                 event=event,
@@ -130,7 +150,12 @@ class InputCollector(ContextCollectorInterface):
                         value="\n\n".join(reply_payload.texts),
                         category="input",
                         source="quoted_message",
-                        meta={"reply_count": len(reply_payload.texts)},
+                        meta={
+                            "reply_count": len(reply_payload.texts),
+                            **copy_input_annotation_fields(
+                                input_annotations.get(INPUT_QUOTED_TEXT_ANNOTATION_KEY)
+                            ),
+                        },
                     )
                 )
 
@@ -193,6 +218,16 @@ class InputCollector(ContextCollectorInterface):
 
         return slots
 
+    def _load_input_annotations(
+        self,
+        event: AstrMessageEvent,
+    ) -> dict[str, dict[str, str]]:
+        try:
+            raw_annotations = event.get_extra(INPUT_ITEM_ANNOTATIONS_EXTRA_KEY)
+        except Exception:  # noqa: BLE001
+            return {}
+        return normalize_input_annotations(raw_annotations)
+
     def _resolve_provider_settings(
         self,
         *,
@@ -223,6 +258,7 @@ class InputCollector(ContextCollectorInterface):
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None,
         provider_settings: dict[str, Any],
+        annotation: dict[str, str] | None = None,
     ) -> tuple[str, str, dict[str, Any]]:
         if provider_request and isinstance(provider_request.prompt, str):
             raw_text = provider_request.prompt
@@ -243,6 +279,7 @@ class InputCollector(ContextCollectorInterface):
             "prompt_prefix": prompt_prefix if isinstance(prompt_prefix, str) else None,
             "prefix_applied": bool(prompt_prefix),
         }
+        meta.update(copy_input_annotation_fields(annotation))
         return effective_text, source_field, meta
 
     def _apply_prompt_prefix(self, text: str, prompt_prefix: object) -> str:
@@ -255,14 +292,23 @@ class InputCollector(ContextCollectorInterface):
     async def _collect_current_images(
         self,
         event: AstrMessageEvent,
+        *,
+        annotations: dict[str, dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         images: list[dict[str, Any]] = []
         seen_refs: set[str] = set()
 
-        for comp in event.message_obj.message:
+        for index, comp in enumerate(event.message_obj.message):
             if not isinstance(comp, Image):
                 continue
-            image_record = await self._build_image_record(comp, source="current")
+            image_record = await self._build_image_record(
+                comp,
+                source="current",
+                annotation=self._resolve_annotation(
+                    annotations,
+                    build_message_annotation_key(index),
+                ),
+            )
             if not image_record:
                 continue
             ref = image_record["ref"]
@@ -279,16 +325,22 @@ class InputCollector(ContextCollectorInterface):
         *,
         source: str,
         reply_id: str | int | None = None,
+        annotations: dict[str, dict[str, str]] | None = None,
+        annotation_key_builder: Any | None = None,
     ) -> list[dict[str, Any]]:
         files: list[dict[str, Any]] = []
 
-        for comp in components:
+        for index, comp in enumerate(components):
             if not isinstance(comp, File):
                 continue
+            annotation_key = None
+            if callable(annotation_key_builder):
+                annotation_key = annotation_key_builder(index)
             file_record = self._build_file_record(
                 comp,
                 source=source,
                 reply_id=reply_id,
+                annotation=self._resolve_annotation(annotations, annotation_key),
             )
             if file_record is not None:
                 files.append(file_record)
@@ -299,10 +351,14 @@ class InputCollector(ContextCollectorInterface):
         self,
         event: AstrMessageEvent,
         config: MainAgentBuildConfig,
+        *,
+        annotations: dict[str, dict[str, str]] | None = None,
     ) -> _ReplyPayload:
         payload = _ReplyPayload()
         reply_components = [
-            comp for comp in event.message_obj.message if isinstance(comp, Reply)
+            (index, comp)
+            for index, comp in enumerate(event.message_obj.message)
+            if isinstance(comp, Reply)
         ]
         if not reply_components:
             return payload
@@ -311,7 +367,7 @@ class InputCollector(ContextCollectorInterface):
         seen_texts: set[str] = set()
         seen_image_refs: set[str] = set()
 
-        for reply_component in reply_components:
+        for message_index, reply_component in reply_components:
             reply_id = getattr(reply_component, "id", None)
 
             try:
@@ -338,7 +394,11 @@ class InputCollector(ContextCollectorInterface):
 
             has_embedded_image = False
             if reply_component.chain:
-                for reply_item in reply_component.chain:
+                for chain_index, reply_item in enumerate(reply_component.chain):
+                    annotation = self._resolve_annotation(
+                        annotations,
+                        build_reply_chain_annotation_key(message_index, chain_index),
+                    )
                     if isinstance(reply_item, Image):
                         has_embedded_image = True
                         image_record = await self._build_image_record(
@@ -346,6 +406,7 @@ class InputCollector(ContextCollectorInterface):
                             source="quoted",
                             resolution="embedded",
                             reply_id=reply_id,
+                            annotation=annotation,
                         )
                         if not image_record:
                             continue
@@ -360,6 +421,10 @@ class InputCollector(ContextCollectorInterface):
                         reply_component.chain,
                         source="quoted",
                         reply_id=reply_id,
+                        annotations=annotations,
+                        annotation_key_builder=lambda chain_index, *, message_index=message_index: (
+                            build_reply_chain_annotation_key(message_index, chain_index)
+                        ),
                     )
                 )
 
@@ -430,6 +495,7 @@ class InputCollector(ContextCollectorInterface):
         source: str,
         resolution: str | None = None,
         reply_id: str | int | None = None,
+        annotation: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         image_ref = (getattr(image_component, "url", "") or "").strip()
         transport = "url"
@@ -463,6 +529,7 @@ class InputCollector(ContextCollectorInterface):
             resolution=resolution,
             reply_id=reply_id,
             transport=transport,
+            annotation=annotation,
         )
 
     def _build_image_record_from_ref(
@@ -473,6 +540,7 @@ class InputCollector(ContextCollectorInterface):
         resolution: str | None = None,
         reply_id: str | int | None = None,
         transport: str | None = None,
+        annotation: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         record: dict[str, Any] = {
             "ref": image_ref,
@@ -483,6 +551,7 @@ class InputCollector(ContextCollectorInterface):
             record["resolution"] = resolution
         if reply_id is not None:
             record["reply_id"] = reply_id
+        record.update(copy_input_annotation_fields(annotation))
         return record
 
     def _build_file_record(
@@ -491,6 +560,7 @@ class InputCollector(ContextCollectorInterface):
         *,
         source: str,
         reply_id: str | int | None = None,
+        annotation: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         file_path = getattr(file_component, "file_", "") or ""
         file_url = getattr(file_component, "url", "") or ""
@@ -506,6 +576,7 @@ class InputCollector(ContextCollectorInterface):
             "source": source,
             "reply_id": reply_id,
         }
+        record.update(copy_input_annotation_fields(annotation))
         return record
 
     def _get_quoted_message_parser_settings(
@@ -565,6 +636,7 @@ class InputCollector(ContextCollectorInterface):
                     "caption": caption,
                     "provider_id": provider_id,
                     "source": "current",
+                    **self._extract_annotation_fields_from_record(image),
                 }
             )
         return records
@@ -612,6 +684,7 @@ class InputCollector(ContextCollectorInterface):
                 "caption": caption,
                 "provider_id": resolved_provider_id,
                 "source": "quoted",
+                **self._extract_annotation_fields_from_record(image),
             }
             if image.get("reply_id") is not None:
                 record["reply_id"] = image.get("reply_id")
@@ -826,10 +899,11 @@ class InputCollector(ContextCollectorInterface):
                 file_component=file_component,
                 source=source,
                 reply_id=reply_id,
+                annotation=annotation,
                 provider=config.file_extract_prov,
                 api_key=config.file_extract_msh_api_key,
             )
-            for file_component, source, reply_id in file_components
+            for file_component, source, reply_id, annotation in file_components
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -849,17 +923,41 @@ class InputCollector(ContextCollectorInterface):
     def _collect_file_components(
         self,
         event: AstrMessageEvent,
-    ) -> list[tuple[File, str, str | int | None]]:
-        components: list[tuple[File, str, str | int | None]] = []
+    ) -> list[tuple[File, str, str | int | None, dict[str, str]]]:
+        annotations = self._load_input_annotations(event)
+        components: list[tuple[File, str, str | int | None, dict[str, str]]] = []
 
-        for comp in event.message_obj.message:
+        for message_index, comp in enumerate(event.message_obj.message):
             if isinstance(comp, File):
-                components.append((comp, "current", None))
+                components.append(
+                    (
+                        comp,
+                        "current",
+                        None,
+                        self._resolve_annotation(
+                            annotations,
+                            build_message_annotation_key(message_index),
+                        ),
+                    )
+                )
             elif isinstance(comp, Reply) and comp.chain:
                 reply_id = getattr(comp, "id", None)
-                for reply_comp in comp.chain:
+                for chain_index, reply_comp in enumerate(comp.chain):
                     if isinstance(reply_comp, File):
-                        components.append((reply_comp, "quoted", reply_id))
+                        components.append(
+                            (
+                                reply_comp,
+                                "quoted",
+                                reply_id,
+                                self._resolve_annotation(
+                                    annotations,
+                                    build_reply_chain_annotation_key(
+                                        message_index,
+                                        chain_index,
+                                    ),
+                                ),
+                            )
+                        )
 
         return components
 
@@ -870,6 +968,7 @@ class InputCollector(ContextCollectorInterface):
         file_component: File,
         source: str,
         reply_id: str | int | None,
+        annotation: dict[str, str],
         provider: str,
         api_key: str,
     ) -> dict[str, Any] | None:
@@ -900,10 +999,30 @@ class InputCollector(ContextCollectorInterface):
             "content": content,
             "provider": provider,
             "source": source,
+            **copy_input_annotation_fields(annotation),
         }
         if reply_id is not None:
             record["reply_id"] = reply_id
         return record
+
+    def _resolve_annotation(
+        self,
+        annotations: dict[str, dict[str, str]] | None,
+        key: str | None,
+    ) -> dict[str, str]:
+        if not annotations or not key:
+            return {}
+        return copy_input_annotation_fields(annotations.get(key))
+
+    def _extract_annotation_fields_from_record(
+        self,
+        record: dict[str, Any],
+    ) -> dict[str, str]:
+        return {
+            field: value
+            for field, value in copy_input_annotation_fields(record).items()
+            if isinstance(value, str) and value
+        }
 
     def _infer_transport(self, image_ref: str) -> str:
         if image_ref.startswith("http://") or image_ref.startswith("https://"):

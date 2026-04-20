@@ -115,6 +115,15 @@ Currently, AstrBot manages plugin dependencies using pip's built-in `requirement
 
 > For the complete format of `requirements.txt`, please refer to the [pip official documentation](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
 
+## Message Events and Input Semantics
+
+- Handle message events, message chains, and hooks: [`Handling Message Events`](guides/listen-message-event.md)
+- Send text, images, files, and other rich media: [`Send Messages`](guides/send-message.md)
+- Build platform adapters and attach structured prompt-input semantics: [`Developing a Platform Adapter`](/en/dev/plugin-platform-adapter)
+
+If a platform provides extra meaning for an input item, such as “this image is the user's current desktop screenshot”, “this file is a runtime log”, or “this text is quoted context instead of new user input”, do not inject that explanation into `message_str`.  
+The adapter should provide a structured sidecar through event `extra`. See [`Handling Message Events`](guides/listen-message-event.md) and [`Developing a Platform Adapter`](/en/dev/plugin-platform-adapter) for the protocol.
+
 ## Development Principles
 
 Thank you for contributing to the AstrBot ecosystem. Please follow these principles when developing plugins, which are also good programming practices:

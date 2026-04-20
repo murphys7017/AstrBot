@@ -661,6 +661,114 @@ def test_render_engine_keeps_text_only_user_input_as_plain_string_message():
     assert result.messages == [{"role": "user", "content": "Hello <there> & everyone"}]
 
 
+def test_render_engine_includes_input_annotations_in_user_message():
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Please inspect this",
+                category="input",
+                source="test",
+                meta={
+                    "semantic_type": "user_text",
+                    "explanation": "This text is the user's explicit request.",
+                    "explanation_source": "platform",
+                    "context_role": "primary",
+                },
+            ),
+            "input.quoted_text": ContextSlot(
+                name="input.quoted_text",
+                value="Earlier screenshot context",
+                category="input",
+                source="test",
+                meta={
+                    "semantic_type": "quoted_reference",
+                    "explanation": "This quoted text comes from the message being referenced.",
+                    "explanation_source": "platform",
+                    "context_role": "reference",
+                },
+            ),
+            "input.images": ContextSlot(
+                name="input.images",
+                value=[
+                    {
+                        "ref": "file:///tmp/desktop.png",
+                        "transport": "file",
+                        "source": "current",
+                        "semantic_type": "desktop_screenshot",
+                        "explanation": "This image is the user's current desktop screenshot.",
+                        "explanation_source": "platform",
+                        "context_role": "supporting",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+            "input.files": ContextSlot(
+                name="input.files",
+                value=[
+                    {
+                        "name": "debug.log",
+                        "file": "/tmp/debug.log",
+                        "url": "",
+                        "source": "current",
+                        "reply_id": None,
+                        "semantic_type": "runtime_log",
+                        "explanation": "This file is the runtime log collected for debugging.",
+                        "explanation_source": "platform",
+                        "context_role": "reference",
+                    }
+                ],
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
+    result = engine.render(pack)
+
+    assert result.messages[-1]["role"] == "user"
+    assert isinstance(result.messages[-1]["content"], list)
+
+    text_parts = [
+        part["text"]
+        for part in result.messages[-1]["content"]
+        if part.get("type") == "text"
+    ]
+    image_parts = [
+        part
+        for part in result.messages[-1]["content"]
+        if part.get("type") == "image_url"
+    ]
+
+    assert any(
+        "<text_annotation>" in text
+        and "This text is the user&apos;s explicit request." in text
+        and "<quoted_text_annotation>" in text
+        and "Earlier screenshot context" in text
+        for text in text_parts
+    )
+    assert any(
+        "<image_annotations>" in text
+        and "desktop_screenshot" in text
+        and "current desktop screenshot" in text
+        for text in text_parts
+    )
+    assert any(
+        "<file_annotations>" in text and "runtime_log" in text and "debug.log" in text
+        for text in text_parts
+    )
+    assert image_parts == [
+        {"type": "image_url", "image_url": {"url": "file:///tmp/desktop.png"}}
+    ]
+    assert any(
+        part.get("type") == "text"
+        and part.get("text") == "[File Attachment: name debug.log, path /tmp/debug.log]"
+        for part in result.messages[-1]["content"]
+    )
+
+
 def test_render_engine_escapes_markup_text_in_system_and_structured_input():
     pack = ContextPack(
         slots={

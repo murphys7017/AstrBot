@@ -122,6 +122,96 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # 提交事件到事件队列。不要忘记！
 ```
 
+## Attach Prompt Input Semantics (Optional)
+
+Some platforms can provide extra meaning for input items, but that meaning is not part of the user's raw input itself, for example:
+
+- an image is the user's current desktop screenshot;
+- a file is a runtime log;
+- a text block is quoted context instead of new user input;
+- an attachment is supporting context rather than the primary request.
+
+Do not inject these explanations into `message_str` or `Plain` text, otherwise the original user input is polluted. Use event `extra` as a structured sidecar instead.
+
+Recommended imports from `astrbot.core.prompt`:
+
+```py
+from astrbot.core.prompt import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+    build_reply_chain_annotation_key,
+)
+```
+
+Supported keys:
+
+- `input.text`
+- `input.quoted_text`
+- `message[i]`
+- `message[i].reply.chain[j]`
+
+Where:
+
+- `message[i]` maps to `AstrBotMessage.message[i]`
+- `message[i].reply.chain[j]` maps to `chain[j]` inside a `Reply` component
+
+Supported fields:
+
+- `semantic_type`
+- `explanation`
+- `explanation_source`
+- `context_role`
+
+Recommended conventions:
+
+- use stable snake_case for `semantic_type`, such as `desktop_screenshot`
+- set `explanation_source` to `platform` for adapter-generated annotations
+- use values like `primary` / `supporting` / `reference` for `context_role`
+
+Example:
+
+```py
+from astrbot.api.message_components import Image
+from astrbot.core.prompt import (
+    INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
+    INPUT_TEXT_ANNOTATION_KEY,
+    build_message_annotation_key,
+)
+
+async def handle_msg(self, message: AstrBotMessage):
+    message_event = FakePlatformEvent(
+        message_str=message.message_str,
+        message_obj=message,
+        platform_meta=self.meta(),
+        session_id=message.session_id,
+        client=self.client,
+    )
+
+    annotations = {
+        INPUT_TEXT_ANNOTATION_KEY: {
+            "semantic_type": "user_text",
+            "explanation": "This text is the user's current request.",
+            "explanation_source": "platform",
+            "context_role": "primary",
+        }
+    }
+
+    for index, component in enumerate(message.message):
+        if isinstance(component, Image):
+            annotations[build_message_annotation_key(index)] = {
+                "semantic_type": "desktop_screenshot",
+                "explanation": "This image is the user's current desktop screenshot.",
+                "explanation_source": "platform",
+                "context_role": "supporting",
+            }
+
+    message_event.set_extra(INPUT_ITEM_ANNOTATIONS_EXTRA_KEY, annotations)
+    self.commit_event(message_event)
+```
+
+If your platform does not have this extra semantic layer, simply omit this extra and the existing plugin pipeline remains compatible.
+
 
 `fake_platform_event.py`：
 
