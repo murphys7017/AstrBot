@@ -91,6 +91,10 @@ class InternalAgentSubStage(Stage):
             self.max_step = 30
         self.show_tool_use: bool = settings.get("show_tool_use_status", True)
         self.show_tool_call_result: bool = settings.get("show_tool_call_result", False)
+        self.buffer_intermediate_messages: bool = settings.get(
+            "buffer_intermediate_messages",
+            False,
+        )
         self.show_reasoning = settings.get("display_reasoning_text", False)
         self.sanitize_context_by_modalities: bool = settings.get(
             "sanitize_context_by_modalities",
@@ -324,6 +328,7 @@ class InternalAgentSubStage(Stage):
                                     self.show_tool_use,
                                     self.show_tool_call_result,
                                     show_reasoning=self.show_reasoning,
+                                    buffer_intermediate_messages=self.buffer_intermediate_messages,
                                 ),
                             ),
                         )
@@ -354,6 +359,7 @@ class InternalAgentSubStage(Stage):
                                     self.show_tool_use,
                                     self.show_tool_call_result,
                                     show_reasoning=self.show_reasoning,
+                                    buffer_intermediate_messages=self.buffer_intermediate_messages,
                                 ),
                             ),
                         )
@@ -384,6 +390,7 @@ class InternalAgentSubStage(Stage):
                             self.show_tool_call_result,
                             stream_to_general,
                             show_reasoning=self.show_reasoning,
+                            buffer_intermediate_messages=self.buffer_intermediate_messages,
                         ):
                             yield
 
