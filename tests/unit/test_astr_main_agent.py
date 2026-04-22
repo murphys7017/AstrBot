@@ -1394,7 +1394,6 @@ class TestSanitizeContextByModalities:
         assert len(req.contexts[0]["content"]) == 1
         assert req.contexts[0]["content"][0]["type"] == "text"
 
-
 class TestPluginToolFix:
     """Tests for _plugin_tool_fix function."""
 

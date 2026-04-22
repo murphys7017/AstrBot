@@ -1372,7 +1372,6 @@ def _sanitize_context_by_modalities(
         )
     req.contexts = sanitized_contexts
 
-
 def _plugin_tool_fix(event: AstrMessageEvent, req: ProviderRequest) -> None:
     """根据事件中的插件设置，过滤请求中的工具列表。
 
@@ -1868,10 +1867,8 @@ async def build_main_agent(
     if not req.session_id:
         req.session_id = event.unified_msg_origin
 
-    _modalities_fix(provider, req)
     _plugin_tool_fix(event, req)
     await _apply_web_search_tools(event, req, plugin_context)
-    _sanitize_context_by_modalities(config, provider, req)
 
     if config.llm_safety_mode:
         _apply_llm_safety_mode(config, req)
