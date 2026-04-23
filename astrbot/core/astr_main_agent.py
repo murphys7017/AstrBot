@@ -187,8 +187,8 @@ class MainAgentBuildConfig:
     """Maximum number of images injected from quoted-message fallback extraction."""
     prompt_pipeline_shadow_mode: bool = False
     """Whether to run the prompt collect->render->apply pipeline in shadow mode for debug."""
-    prompt_pipeline_mode: str = "legacy"
-    """Prompt pipeline mode: legacy, shadow, or apply_visible."""
+    prompt_pipeline_mode: str = "apply_visible"
+    """Prompt pipeline mode: apply_visible, legacy, or shadow."""
     prompt_pipeline_strict_mode: bool = False
     """Whether to fail loudly when prompt-pipeline stages encounter errors."""
 
@@ -347,13 +347,19 @@ def _resolve_prompt_pipeline_mode(config: MainAgentBuildConfig) -> str:
     mode = (getattr(config, "prompt_pipeline_mode", "") or "").strip().lower()
     if mode in {"shadow", "apply_visible"}:
         return mode
-    if mode not in {"", "legacy"}:
-        if is_prompt_pipeline_strict(config):
-            raise ValueError(f"Unsupported prompt_pipeline_mode: {mode}")
+    if mode == "legacy":
+        if config.prompt_pipeline_shadow_mode:
+            return "shadow"
         return "legacy"
+    if mode == "":
+        if config.prompt_pipeline_shadow_mode:
+            return "shadow"
+        return "apply_visible"
+    if is_prompt_pipeline_strict(config):
+        raise ValueError(f"Unsupported prompt_pipeline_mode: {mode}")
     if config.prompt_pipeline_shadow_mode:
         return "shadow"
-    return "legacy"
+    return "apply_visible"
 
 
 def _apply_prompt_pipeline_visible_mode(

@@ -309,11 +309,14 @@ async def test_build_main_agent_stores_prompt_context_pack_in_event_extra():
 
     assert result is not None
     assert PROMPT_CONTEXT_PACK_EXTRA_KEY in extras
+    assert PROMPT_RENDER_RESULT_EXTRA_KEY in extras
     pack = extras[PROMPT_CONTEXT_PACK_EXTRA_KEY]
     slot = pack.get_slot("persona.prompt")
     assert slot is not None
     assert slot.value == "You are a helpful assistant."
     assert pack.get_slot("persona.segments") is not None
+    assert result.provider_request.prompt is not None
+    assert result.provider_request.prompt.startswith("<request_context>")
 
 
 @pytest.mark.asyncio
@@ -354,6 +357,7 @@ async def test_build_main_agent_runs_prompt_pipeline_in_shadow_mode():
             plugin_context=context,
             config=ama.MainAgentBuildConfig(
                 tool_call_timeout=60,
+                prompt_pipeline_mode="",
                 prompt_pipeline_shadow_mode=True,
             ),
         )

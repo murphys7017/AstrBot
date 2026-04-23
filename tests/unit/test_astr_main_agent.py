@@ -1229,7 +1229,15 @@ class TestPromptPipelineStrictMode:
 
         assert module._resolve_prompt_pipeline_mode(config) == "shadow"
 
-    def test_resolve_prompt_pipeline_mode_falls_back_to_legacy_in_non_strict_mode(self):
+    def test_resolve_prompt_pipeline_mode_defaults_to_apply_visible(self):
+        module = ama
+        config = module.MainAgentBuildConfig(tool_call_timeout=60)
+
+        assert module._resolve_prompt_pipeline_mode(config) == "apply_visible"
+
+    def test_resolve_prompt_pipeline_mode_falls_back_to_apply_visible_in_non_strict_mode(
+        self,
+    ):
         module = ama
         config = module.MainAgentBuildConfig(
             tool_call_timeout=60,
@@ -1237,7 +1245,7 @@ class TestPromptPipelineStrictMode:
             prompt_pipeline_shadow_mode=False,
         )
 
-        assert module._resolve_prompt_pipeline_mode(config) == "legacy"
+        assert module._resolve_prompt_pipeline_mode(config) == "apply_visible"
 
     def test_resolve_prompt_pipeline_mode_raises_on_invalid_mode_in_strict_mode(self):
         module = ama
@@ -1605,7 +1613,14 @@ class TestBuildMainAgent:
             )
 
         assert result is not None
-        assert result.provider_request.image_urls == ["file:///path/to/image.jpg"]
+        assert result.provider_request.image_urls == []
+        assert result.provider_request.prompt is not None
+        assert result.provider_request.prompt.startswith("<request_context>")
+        assert any(
+            isinstance(part, ImageURLPart)
+            and part.image_url.url == "file:///path/to/image.jpg"
+            for part in (result.provider_request.extra_user_content_parts or [])
+        )
 
     @pytest.mark.asyncio
     async def test_build_main_agent_no_prompt_no_images(
