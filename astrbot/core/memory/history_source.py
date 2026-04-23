@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -27,7 +28,7 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
 
     content = message.get("content")
     if isinstance(content, str):
-        return _clean_text(content)
+        return _clean_text(_strip_system_reminder(content))
 
     if isinstance(content, list):
         parts: list[str] = []
@@ -42,7 +43,7 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
                 parts.append(str(item.get("text", "") or ""))
             elif item_type == "image_url":
                 parts.append("[image]")
-        return _clean_text(" ".join(part for part in parts if part))
+        return _clean_text(_strip_system_reminder(" ".join(part for part in parts if part)))
 
     if content is None and message.get("tool_calls"):
         return "[tool_call]"
@@ -165,6 +166,10 @@ class RecentConversationSource:
             "user_message": normalize_message_payload(record.user_message),
             "assistant_message": normalize_message_payload(record.assistant_message),
         }
+
+
+def _strip_system_reminder(text: str) -> str:
+    return re.sub(r"<system_reminder>.*?</system_reminder>", "", text, flags=re.DOTALL)
 
 
 def _clean_text(text: str) -> str:

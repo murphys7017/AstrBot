@@ -20,6 +20,7 @@ class PromptJsonMemoryAnalyzer(BaseMemoryAnalyzer):
             prompt=prompt,
             model=request.model,
             temperature=request.temperature,
+            extra_body=request.extra_body,
         )
         raw_text = (llm_response.completion_text or "").strip()
         if not raw_text:

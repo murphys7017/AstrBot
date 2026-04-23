@@ -1219,6 +1219,26 @@ class TestPromptPipelineStrictMode:
 
         assert module._resolve_prompt_pipeline_mode(config) == "shadow"
 
+    def test_resolve_prompt_pipeline_mode_keeps_shadow_compat_when_mode_is_legacy(self):
+        module = ama
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_mode="legacy",
+            prompt_pipeline_shadow_mode=True,
+        )
+
+        assert module._resolve_prompt_pipeline_mode(config) == "shadow"
+
+    def test_resolve_prompt_pipeline_mode_falls_back_to_legacy_in_non_strict_mode(self):
+        module = ama
+        config = module.MainAgentBuildConfig(
+            tool_call_timeout=60,
+            prompt_pipeline_mode="invalid-mode",
+            prompt_pipeline_shadow_mode=False,
+        )
+
+        assert module._resolve_prompt_pipeline_mode(config) == "legacy"
+
     def test_resolve_prompt_pipeline_mode_raises_on_invalid_mode_in_strict_mode(self):
         module = ama
         config = module.MainAgentBuildConfig(

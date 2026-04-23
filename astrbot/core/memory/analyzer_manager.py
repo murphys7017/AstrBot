@@ -112,6 +112,7 @@ class MemoryAnalyzerManager:
             output_schema=analyzer_config.output_schema,
             timeout_seconds=analyzer_config.timeout_seconds,
             temperature=analyzer_config.temperature,
+            extra_body=analyzer_config.extra_body,
             umo=umo,
             conversation_id=conversation_id,
         )

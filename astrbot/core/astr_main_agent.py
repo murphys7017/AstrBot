@@ -345,14 +345,14 @@ def _run_prompt_pipeline_shadow_mode(
 
 def _resolve_prompt_pipeline_mode(config: MainAgentBuildConfig) -> str:
     mode = (getattr(config, "prompt_pipeline_mode", "") or "").strip().lower()
-    if mode in {"shadow", "apply_visible", "legacy"}:
+    if mode in {"shadow", "apply_visible"}:
         return mode
-    if not mode:
-        if config.prompt_pipeline_shadow_mode:
-            return "shadow"
+    if mode not in {"", "legacy"}:
+        if is_prompt_pipeline_strict(config):
+            raise ValueError(f"Unsupported prompt_pipeline_mode: {mode}")
         return "legacy"
-    if is_prompt_pipeline_strict(config):
-        raise ValueError(f"Unsupported prompt_pipeline_mode: {mode}")
+    if config.prompt_pipeline_shadow_mode:
+        return "shadow"
     return "legacy"
 
 

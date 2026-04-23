@@ -41,6 +41,7 @@ class MemoryAnalyzerRequest:
     output_schema: str
     timeout_seconds: int
     temperature: float
+    extra_body: dict | None = None
     umo: str | None = None
     conversation_id: str | None = None
 

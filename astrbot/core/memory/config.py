@@ -14,7 +14,7 @@ Task:
 - Read the latest conversation window.
 - Identify the current main topic.
 - Summarize that topic briefly.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - current_topic: short label or title
@@ -35,7 +35,7 @@ Latest assistant:
 Task:
 - Read the recent dialogue.
 - Identify what should remain active for the next turn.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - active_focus: the main unresolved focus, request, or task point
@@ -51,7 +51,7 @@ Latest user:
 Task:
 - Compress the recent conversation into a short-term memory summary.
 - Keep only information that is useful for the next turn.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - short_summary: concise multi-turn summary
@@ -64,7 +64,7 @@ Recent turns JSON:
 Task:
 - Read the recent batch of turns and the short-term state.
 - Produce a session-level insight.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - topic_summary: concise topic-level summary
@@ -91,7 +91,7 @@ Recent dialogue:
 Task:
 - Read the session insight and supporting turns.
 - Extract timeline experiences worth keeping.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - experiences: list of objects
@@ -127,7 +127,7 @@ Recent dialogue:
 Task:
 - Read the pending experiences and existing long-term memories for the same scope.
 - Decide which pending experiences should create a new long-term memory, update an existing one, or be ignored.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - actions: list of objects
@@ -162,7 +162,7 @@ Existing long-term memories JSON:
 Task:
 - Read the selected action, the supporting experiences, and the current long-term memory state if one exists.
 - Produce the final long-term memory content.
-- Return JSON only.
+- Return raw JSON only. Do NOT use markdown code blocks. Do NOT wrap the response in triple backticks.
 
 Requirements:
 - title
@@ -297,6 +297,7 @@ class MemoryAnalyzerConfig:
     output_schema: str = ""
     timeout_seconds: int = 20
     temperature: float = 0.0
+    extra_body: dict | None = None
 
 
 @dataclass(slots=True)
@@ -475,6 +476,7 @@ def build_default_memory_config_payload() -> dict:
                     "output_schema": analyzer_config.output_schema,
                     "timeout_seconds": analyzer_config.timeout_seconds,
                     "temperature": analyzer_config.temperature,
+                    "extra_body": analyzer_config.extra_body,
                 }
                 for analyzer_name, analyzer_config in default_config.analysis.analyzers.items()
             },
@@ -578,6 +580,11 @@ def _load_analyzer_configs(payload: object) -> dict[str, MemoryAnalyzerConfig]:
             continue
 
         config_payload = _as_dict(raw_config)
+        extra_body_raw = config_payload.get("extra_body")
+        extra_body: dict | None = None
+        if isinstance(extra_body_raw, dict):
+            extra_body = extra_body_raw
+
         analyzers[analyzer_name] = MemoryAnalyzerConfig(
             enabled=_as_bool(config_payload.get("enabled"), True),
             implementation=_as_str(
@@ -596,6 +603,7 @@ def _load_analyzer_configs(payload: object) -> dict[str, MemoryAnalyzerConfig]:
             output_schema=_as_str(config_payload.get("output_schema"), ""),
             timeout_seconds=_as_int(config_payload.get("timeout_seconds"), 20),
             temperature=_as_float(config_payload.get("temperature"), 0.0),
+            extra_body=extra_body,
         )
     return analyzers
 
