@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from asyncio import Queue
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from deprecated import deprecated
@@ -48,6 +49,17 @@ logger = logging.getLogger("astrbot")
 
 if TYPE_CHECKING:
     from astrbot.core.cron.manager import CronJobManager
+
+
+@dataclass(slots=True)
+class _PromptExtensionCollectorRegistration:
+    """Internal registration record for prompt extension collectors."""
+
+    collector: Any
+    plugin_id: str
+    definition_module_path: str
+    owner_module_path: str | None
+    seq: int
 
 
 class PlatformManagerProtocol(Protocol):
@@ -101,6 +113,10 @@ class Context:
         self.cron_manager = cron_manager
         """Cron job manager, initialized by core lifecycle."""
         self.subagent_orchestrator = subagent_orchestrator
+        self._prompt_extension_collectors: list[
+            _PromptExtensionCollectorRegistration
+        ] = []
+        self._prompt_extension_collector_seq = 0
 
     async def llm_generate(
         self,
@@ -510,6 +526,133 @@ class Context:
                 logger.warning("替换已存在的 LLM 工具: " + tool.name)
                 self.provider_manager.llm_tools.remove_func(tool.name)
             self.provider_manager.llm_tools.func_list.append(tool)
+
+    def register_prompt_extension_collector(self, collector: Any) -> None:
+        """Register a plugin-owned prompt extension collector."""
+        plugin_id = getattr(collector, "plugin_id", None)
+        if not isinstance(plugin_id, str) or not plugin_id.strip():
+            raise ValueError(
+                "Prompt extension collector must define a non-empty plugin_id"
+            )
+
+        definition_module_path = getattr(type(collector), "__module__", "") or getattr(
+            collector, "__module__", ""
+        )
+        owner_module_path = self._normalize_plugin_owner_module(definition_module_path)
+
+        self._prompt_extension_collector_seq += 1
+        self._prompt_extension_collectors = [
+            registration
+            for registration in self._prompt_extension_collectors
+            if registration.collector is not collector
+        ]
+        self._prompt_extension_collectors.append(
+            _PromptExtensionCollectorRegistration(
+                collector=collector,
+                plugin_id=plugin_id.strip(),
+                definition_module_path=str(definition_module_path),
+                owner_module_path=owner_module_path,
+                seq=self._prompt_extension_collector_seq,
+            )
+        )
+        logger.info(
+            "plugin(module_path %s) added prompt extension collector: %s",
+            owner_module_path or definition_module_path or "<unknown>",
+            plugin_id,
+        )
+
+    def list_prompt_extension_collectors(self) -> list[Any]:
+        """List active prompt extension collectors ordered by priority."""
+        active_registrations = [
+            registration
+            for registration in self._prompt_extension_collectors
+            if self._is_prompt_extension_collector_active(registration)
+        ]
+        active_registrations.sort(
+            key=lambda registration: (
+                self._coerce_prompt_extension_priority(registration.collector),
+                registration.seq,
+            )
+        )
+        return [registration.collector for registration in active_registrations]
+
+    def remove_prompt_extension_collectors_by_module_prefix(
+        self, module_prefix: str
+    ) -> int:
+        """Remove prompt extension collectors that belong to a plugin module tree."""
+        clean_prefix = module_prefix.strip()
+        if not clean_prefix:
+            return 0
+
+        kept: list[_PromptExtensionCollectorRegistration] = []
+        removed = 0
+        for registration in self._prompt_extension_collectors:
+            if self._matches_prompt_extension_module_prefix(
+                registration,
+                clean_prefix,
+            ):
+                removed += 1
+                continue
+            kept.append(registration)
+
+        self._prompt_extension_collectors = kept
+        if removed:
+            logger.info(
+                "removed %s prompt extension collector(s) for module prefix %s",
+                removed,
+                clean_prefix,
+            )
+        return removed
+
+    @staticmethod
+    def _normalize_plugin_owner_module(module_path: str | None) -> str | None:
+        if not isinstance(module_path, str) or not module_path:
+            return None
+
+        parts = module_path.split(".")
+        for index, part in enumerate(parts):
+            if part in {"builtin_stars", "plugins"} and index + 1 < len(parts):
+                return ".".join(parts[: index + 2] + ["main"])
+        return module_path
+
+    @staticmethod
+    def _coerce_prompt_extension_priority(collector: Any) -> int:
+        priority = getattr(collector, "priority", 100)
+        try:
+            return int(priority)
+        except (TypeError, ValueError):
+            return 100
+
+    def _is_prompt_extension_collector_active(
+        self,
+        registration: _PromptExtensionCollectorRegistration,
+    ) -> bool:
+        for candidate in (
+            registration.owner_module_path,
+            registration.definition_module_path,
+        ):
+            if not candidate:
+                continue
+            plugin = star_map.get(candidate)
+            if plugin is not None:
+                return bool(plugin.activated)
+        return True
+
+    @staticmethod
+    def _matches_prompt_extension_module_prefix(
+        registration: _PromptExtensionCollectorRegistration,
+        module_prefix: str,
+    ) -> bool:
+        candidates = (
+            registration.definition_module_path,
+            registration.owner_module_path,
+        )
+        for candidate in candidates:
+            if not candidate:
+                continue
+            if candidate == module_prefix or candidate.startswith(f"{module_prefix}."):
+                return True
+        return False
 
     def register_web_api(
         self,

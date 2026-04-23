@@ -189,8 +189,74 @@ engine 当前按 slot name 前缀分组：
 - `knowledge.* -> knowledge`
 - `capability.* -> capability`
 - `memory.* -> memory`
+- `extension.* -> extension`
 
 `BasePromptRenderer` 默认启用全部这些 group。
+
+## 插件 Prompt Extension V1
+
+本轮新增了一条插件向 prompt 主流程贡献结构化上下文的通路，用来替代直接树补丁或任意 `on_llm_request` 拼接文案的方式。
+
+### 目标
+
+- 插件只负责“提供什么内容”
+- collect 层负责“收集并结构化聚合”
+- renderer 负责“挂到哪一类节点、怎么渲染”
+- 不允许插件指定任意 prompt tree 内部 path
+
+### 插件接口
+
+插件通过 `Context.register_prompt_extension_collector(...)` 显式注册 collector。
+
+collector 需要实现：
+
+- `PromptExtensionCollectorInterface`
+- `plugin_id`
+- `priority`
+- `collect(...) -> list[PromptExtension]`
+
+`PromptExtension` 当前固定字段：
+
+- `plugin_id`
+- `mount`
+- `title`
+- `value`
+- `value_kind`
+- `order`
+- `meta`
+
+### Collect 聚合规则
+
+collect 阶段不会为每条扩展生成动态 slot，而是固定聚合为 5 个 slot：
+
+- `extension.system`
+- `extension.input`
+- `extension.conversation`
+- `extension.memory`
+- `extension.capability`
+
+每个 slot 的 `value` 结构固定为：
+
+- `format: "prompt_extensions_v1"`
+- `mount`
+- `items`
+
+### Render 挂载规则
+
+`BasePromptRenderer.render_extension_context()` 当前固定把各 mount 挂到这些节点：
+
+- `system -> system/extensions`
+- `input -> user_input/extensions`
+- `conversation -> system/conversation_extensions`
+- `memory -> system/memory/extensions`
+- `capability -> system/capability/extensions`
+
+其中：
+
+- `conversation` 在 V1 先走 system 侧说明，不生成 synthetic 历史消息
+- `input` 会在 `_compile_user_input_message()` 中被单独编译成一个 text content part
+- 同一 mount 下按 `plugin_id` 聚合成“一个插件一个节点”
+- 原始 `plugin_id` 会作为可见子节点保留，便于插件认领自身输出
 
 ## 当前默认序列化规则
 

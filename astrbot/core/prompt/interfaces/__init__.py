@@ -3,7 +3,9 @@
 """
 
 from .context_collector_inferface import ContextCollectorInterface
+from .prompt_extension_collector_interface import PromptExtensionCollectorInterface
 
 __all__ = [
     "ContextCollectorInterface",
+    "PromptExtensionCollectorInterface",
 ]

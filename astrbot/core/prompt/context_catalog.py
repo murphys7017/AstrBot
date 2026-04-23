@@ -112,6 +112,7 @@ class ContextCatalogLoader:
         "rag",
         "tools",
         "session",
+        "extension",
     }
 
     VALID_LIFECYCLES: set[str] = {

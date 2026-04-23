@@ -61,6 +61,7 @@ def test_base_prompt_renderer_enables_all_slot_groups():
         "knowledge",
         "capability",
         "memory",
+        "extension",
     )
 
 
@@ -76,6 +77,7 @@ def test_base_prompt_renderer_returns_nested_node_structure():
     assert structure["knowledge"] == "system/knowledge"
     assert structure["capability"] == "system/capability"
     assert structure["memory"] == "system/memory"
+    assert structure["extension"] == "system/extensions"
 
 
 def test_base_prompt_renderer_serializes_dict_slot_to_structured_object():
@@ -1091,3 +1093,93 @@ def test_custom_renderer_can_override_render_text_escape():
 
     assert result.system_prompt is not None
     assert "You are [lt]Alice[gt] [amp] Bob" in result.system_prompt
+
+
+def test_render_engine_renders_extension_slots_to_system_and_input_targets():
+    pack = ContextPack(
+        slots={
+            "extension.system": ContextSlot(
+                name="extension.system",
+                value={
+                    "format": "prompt_extensions_v1",
+                    "mount": "system",
+                    "items": [
+                        {
+                            "plugin_id": "desktop.sidecar",
+                            "title": "Desktop Mode",
+                            "value_kind": "mapping",
+                            "value": {"mode": "assistant"},
+                            "order": 100,
+                            "meta": {},
+                        }
+                    ],
+                },
+                category="extension",
+                source="test",
+            ),
+            "extension.input": ContextSlot(
+                name="extension.input",
+                value={
+                    "format": "prompt_extensions_v1",
+                    "mount": "input",
+                    "items": [
+                        {
+                            "plugin_id": "desktop.sidecar",
+                            "title": "Desktop Snapshot",
+                            "value_kind": "mapping",
+                            "value": {"summary": "Visible desktop"},
+                            "order": 100,
+                            "meta": {},
+                        }
+                    ],
+                },
+                category="extension",
+                source="test",
+            ),
+            "extension.conversation": ContextSlot(
+                name="extension.conversation",
+                value={
+                    "format": "prompt_extensions_v1",
+                    "mount": "conversation",
+                    "items": [
+                        {
+                            "plugin_id": "desktop.sidecar",
+                            "title": None,
+                            "value_kind": "mapping",
+                            "value": {"topic": "desktop help"},
+                            "order": 100,
+                            "meta": {},
+                        }
+                    ],
+                },
+                category="extension",
+                source="test",
+            ),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Hello",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    result = PromptRenderEngine(default_renderer=BasePromptRenderer()).render(pack)
+
+    assert result.system_prompt is not None
+    assert "<extensions>" in result.system_prompt
+    assert "<desktop_sidecar>" in result.system_prompt
+    assert "<plugin_id>" in result.system_prompt
+    assert "desktop.sidecar" in result.system_prompt
+    assert "<conversation_extensions>" in result.system_prompt
+    assert "desktop help" in result.system_prompt
+    assert len(result.messages) == 1
+    assert result.messages[0]["role"] == "user"
+    assert len(result.messages[0]["content"]) == 2
+    assert result.messages[0]["content"][0]["type"] == "text"
+    assert "<extensions>" in result.messages[0]["content"][0]["text"]
+    assert "desktop.sidecar" in result.messages[0]["content"][0]["text"]
+    assert result.messages[0]["content"][1] == {
+        "type": "text",
+        "text": "<user_input>\n  <text>Hello</text>\n</user_input>",
+    }

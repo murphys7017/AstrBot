@@ -42,6 +42,13 @@ from .context_types import (
     RenderModeType,
     SlotName,
 )
+from .extensions import (
+    PROMPT_EXTENSION_MOUNTS,
+    PROMPT_EXTENSION_VALUE_KINDS,
+    PromptExtension,
+    PromptExtensionMount,
+    PromptExtensionValueKind,
+)
 from .input_annotations import (
     INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
     INPUT_QUOTED_TEXT_ANNOTATION_KEY,
@@ -53,7 +60,7 @@ from .input_annotations import (
     extract_input_annotation_fields,
     normalize_input_annotations,
 )
-from .interfaces import ContextCollectorInterface
+from .interfaces import ContextCollectorInterface, PromptExtensionCollectorInterface
 from .persona_segments import (
     finalize_persona_segments,
     normalize_section_name,
@@ -97,6 +104,12 @@ __all__ = [
     "copy_input_annotation_fields",
     "extract_input_annotation_fields",
     "normalize_input_annotations",
+    # Prompt extensions
+    "PROMPT_EXTENSION_MOUNTS",
+    "PROMPT_EXTENSION_VALUE_KINDS",
+    "PromptExtension",
+    "PromptExtensionMount",
+    "PromptExtensionValueKind",
     # Data models
     "ContextSlot",
     "ContextPack",
@@ -111,6 +124,7 @@ __all__ = [
     "finalize_persona_segments",
     # Interfaces
     "ContextCollectorInterface",
+    "PromptExtensionCollectorInterface",
     "BasePromptRenderer",
     "PROMPT_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_RENDER_RESULT_EXTRA_KEY",

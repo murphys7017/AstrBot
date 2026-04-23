@@ -1584,6 +1584,9 @@ class PluginManager:
                 logger.info(
                     f"移除了插件 {plugin_name} 的平台适配器 {adapter_name}",
                 )
+            self.context.remove_prompt_extension_collectors_by_module_prefix(
+                module_prefix
+            )
 
         if plugin is None:
             return

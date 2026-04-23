@@ -22,6 +22,8 @@ from astrbot.core.memory.types import (
 )
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.context_collect import collect_context_pack
+from astrbot.core.prompt.extensions import PromptExtension
+from astrbot.core.prompt.interfaces import PromptExtensionCollectorInterface
 from astrbot.core.prompt.render import (
     BasePromptRenderer,
     PromptRenderEngine,
@@ -66,6 +68,7 @@ def _make_context():
     ctx.get_config.return_value = {}
     ctx.get_provider_by_id.return_value = None
     ctx.subagent_orchestrator = None
+    ctx.list_prompt_extension_collectors.return_value = []
     tool_manager = MagicMock()
     tool_manager.get_full_tool_set.return_value = ToolSet()
     tool_manager.get_func.return_value = None
@@ -122,6 +125,36 @@ def _make_handoff_tool(
         tool_description=description or None,
         parameters=parameters,
     )
+
+
+class _IntegrationExtensionCollector(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "desktop.sidecar"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            PromptExtension(
+                plugin_id="desktop.sidecar",
+                mount="system",
+                title="Desktop Mode",
+                value={"mode": "assistant"},
+            ),
+            PromptExtension(
+                plugin_id="desktop.sidecar",
+                mount="input",
+                title="Desktop Snapshot",
+                value={
+                    "kind": "desktop_screenshot",
+                    "summary": "Current desktop screenshot from platform sidecar",
+                },
+            ),
+            PromptExtension(
+                plugin_id="desktop.sidecar",
+                mount="conversation",
+                value={"topic": "live desktop assistance"},
+            ),
+        ]
 
 
 @pytest.fixture
@@ -519,8 +552,12 @@ async def test_collect_render_apply_roundtrip_builds_provider_request_message_co
     assert request_context_part["type"] == "text"
     assert "<request_context>" in request_context_part["text"]
     assert "<datetime>" in request_context_part["text"]
-    assert "<platform_name>test_platform</platform_name>" in request_context_part["text"]
-    assert "<umo>test_platform:private:test-session</umo>" in request_context_part["text"]
+    assert (
+        "<platform_name>test_platform</platform_name>" in request_context_part["text"]
+    )
+    assert (
+        "<umo>test_platform:private:test-session</umo>" in request_context_part["text"]
+    )
 
     assert assembled["content"][1] == {
         "type": "text",
@@ -550,3 +587,47 @@ async def test_collect_render_apply_roundtrip_builds_provider_request_message_co
             "path C:/tmp/quoted.txt]"
         ),
     }
+
+
+@pytest.mark.asyncio
+async def test_collect_and_render_pipeline_includes_prompt_extensions(
+    memory_service_mock,
+    skills_list_mock,
+):
+    event, _ = _make_event()
+    context = _make_context()
+    context.list_prompt_extension_collectors.return_value = [
+        _IntegrationExtensionCollector()
+    ]
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=(None, None, None, False)
+    )
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=ProviderRequest(prompt="hello"),
+    )
+
+    result = PromptRenderEngine(default_renderer=BasePromptRenderer()).render(pack)
+
+    assert result.system_prompt is not None
+    assert "<extensions>" in result.system_prompt
+    assert "<desktop_sidecar>" in result.system_prompt
+    assert "<plugin_id>" in result.system_prompt
+    assert "desktop.sidecar" in result.system_prompt
+    assert "<conversation_extensions>" in result.system_prompt
+    assert "live desktop assistance" in result.system_prompt
+
+    assert result.messages
+    user_message = result.messages[-1]
+    assert user_message["role"] == "user"
+    assert isinstance(user_message["content"], list)
+    extension_text_parts = [
+        part["text"]
+        for part in user_message["content"]
+        if part.get("type") == "text" and "<extensions>" in part.get("text", "")
+    ]
+    assert extension_text_parts
+    assert "desktop.sidecar" in extension_text_parts[0]

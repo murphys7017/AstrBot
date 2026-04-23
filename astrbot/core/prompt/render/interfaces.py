@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from hashlib import sha1
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -76,6 +78,7 @@ class BasePromptRenderer:
         "knowledge",
         "capability",
         "memory",
+        "extension",
     )
 
     def get_name(self) -> str:
@@ -116,6 +119,7 @@ class BasePromptRenderer:
             "knowledge": "system/knowledge",
             "capability": "system/capability",
             "memory": "system/memory",
+            "extension": "system/extensions",
         }
 
     def render_prompt_tree(
@@ -744,6 +748,38 @@ class BasePromptRenderer:
 
         return rendered_slot_names
 
+    def render_extension_context(
+        self,
+        target: NodeRef,
+        slots: list[ContextSlot],
+        *,
+        pack: ContextPack,
+        resolve_node: Callable[[str], NodeRef],
+        event: AstrMessageEvent | None = None,
+        plugin_context: Context | None = None,
+        config: MainAgentBuildConfig | None = None,
+        provider_request: ProviderRequest | None = None,
+    ) -> list[str]:
+        del target, pack, event, plugin_context, config, provider_request
+
+        rendered_slot_names: list[str] = []
+        mount_targets = {
+            "system": "system/extensions",
+            "input": "user_input/extensions",
+            "conversation": "system/conversation_extensions",
+            "memory": "system/memory/extensions",
+            "capability": "system/capability/extensions",
+        }
+
+        for mount, node_path in mount_targets.items():
+            slot = self._find_slot(slots, f"extension.{mount}")
+            if slot is None:
+                continue
+            if self._render_prompt_extensions(resolve_node(node_path), slot):
+                rendered_slot_names.append(slot.name)
+
+        return rendered_slot_names
+
     def _compile_system_prompt(self, prompt_tree: PromptBuilder) -> str | None:
         system_node = self._find_tag_path(prompt_tree, "system")
         if system_node is None:
@@ -898,6 +934,7 @@ class BasePromptRenderer:
             if file_extracts_node is not None
             else None
         )
+        input_extensions_text = self._compile_input_extensions_text(prompt_tree)
         quoted_image_parts = (
             self._compile_image_content_parts(
                 prompt_tree,
@@ -926,6 +963,7 @@ class BasePromptRenderer:
         if (
             current_text
             and not request_context_text
+            and not input_extensions_text
             and not quoted_text
             and not current_text_annotation
             and not quoted_text_annotation
@@ -943,6 +981,8 @@ class BasePromptRenderer:
 
         if request_context_text:
             content_parts.append(self._build_text_content_part(request_context_text))
+        if input_extensions_text:
+            content_parts.append(self._build_text_content_part(input_extensions_text))
         if user_input_text:
             content_parts.append(self._build_text_content_part(user_input_text))
         if quoted_image_annotations_text:
@@ -1448,6 +1488,22 @@ class BasePromptRenderer:
         lines.append("</request_context>")
         return "\n".join(lines)
 
+    def _compile_input_extensions_text(
+        self,
+        prompt_tree: PromptBuilder,
+    ) -> str | None:
+        extensions_node = self._find_tag_path(prompt_tree, "user_input/extensions")
+        if extensions_node is None:
+            return None
+
+        rendered = self._render_subtree_text(
+            prompt_tree,
+            extensions_node,
+            include_root=True,
+            escape_text=True,
+        )
+        return rendered or None
+
     def _compile_datetime_lines(
         self,
         prompt_tree: PromptBuilder,
@@ -1928,6 +1984,86 @@ class BasePromptRenderer:
             rendered_any |= item_rendered
         return rendered_any
 
+    def _render_prompt_extensions(
+        self,
+        target: NodeRef,
+        slot: ContextSlot,
+    ) -> bool:
+        if not isinstance(slot.value, dict):
+            return False
+
+        items = self._coerce_list(slot.value.get("items"))
+        if not items:
+            return False
+
+        container = target.container(
+            meta=self._slot_meta(
+                slot,
+                {
+                    "format": slot.value.get("format"),
+                    "mount": slot.value.get("mount"),
+                    "item_count": len(items),
+                },
+            )
+        )
+        grouped_items: dict[str, list[dict[str, Any]]] = {}
+        plugin_order: list[str] = []
+        for item in items:
+            plugin_id = self._clean_text(item.get("plugin_id"))
+            if not plugin_id:
+                continue
+            if plugin_id not in grouped_items:
+                grouped_items[plugin_id] = []
+                plugin_order.append(plugin_id)
+            grouped_items[plugin_id].append(item)
+
+        if not grouped_items:
+            return False
+
+        rendered_any = False
+        used_tags: dict[str, str] = {}
+        for plugin_id in plugin_order:
+            plugin_tag = self._normalize_extension_plugin_tag(plugin_id)
+            existing_owner = used_tags.get(plugin_tag)
+            if existing_owner is not None and existing_owner != plugin_id:
+                plugin_tag = (
+                    f"{plugin_tag}_{sha1(plugin_id.encode('utf-8')).hexdigest()[:8]}"
+                )
+            used_tags[plugin_tag] = plugin_id
+
+            plugin_ref = container.tag(plugin_tag, meta={"plugin_id": plugin_id})
+            plugin_ref.tag("plugin_id").add(plugin_id)
+            rendered_plugin = True
+            for item in sorted(
+                grouped_items[plugin_id],
+                key=lambda payload: self._coerce_extension_order(payload.get("order")),
+            ):
+                entry_ref = plugin_ref.tag(
+                    "entry",
+                    meta=self._clean_meta(
+                        {
+                            "value_kind": self._clean_text(item.get("value_kind")),
+                            "order": self._coerce_extension_order(item.get("order")),
+                            "meta": item.get("meta"),
+                        }
+                    ),
+                )
+                entry_rendered = False
+                entry_rendered |= self._add_text_tag(
+                    entry_ref,
+                    "title",
+                    self._clean_text(item.get("title")),
+                )
+                entry_rendered |= self._render_generic_value(
+                    entry_ref,
+                    "value",
+                    item.get("value"),
+                )
+                rendered_plugin |= entry_rendered
+            rendered_any |= rendered_plugin
+
+        return rendered_any
+
     def _render_tool_inventory(
         self,
         target: NodeRef,
@@ -2137,6 +2273,23 @@ class BasePromptRenderer:
     @staticmethod
     def _normalize_tag(tag: str) -> str:
         return tag.replace(".", "_").replace(" ", "_")
+
+    @staticmethod
+    def _normalize_extension_plugin_tag(plugin_id: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", plugin_id).strip("._-")
+        normalized = normalized.replace(".", "_").replace("-", "_")
+        if not normalized:
+            normalized = "plugin"
+        if normalized[0].isdigit():
+            normalized = f"plugin_{normalized}"
+        return normalized
+
+    @staticmethod
+    def _coerce_extension_order(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 100
 
     @staticmethod
     def _slot_to_child_tag(slot_name: str, group: str) -> str:

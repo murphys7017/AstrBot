@@ -347,6 +347,63 @@ async def my_custom_hook_1(self, event: AstrMessageEvent, req: ProviderRequest):
 
 > You cannot use yield to send messages here. If you need to send, please use the `event.send()` method directly.
 
+#### Structured Prompt Extensions (recommended for prompt injection)
+
+If a plugin only needs to contribute structured prompt context to the main pipeline, prefer a Prompt Extension Collector instead of mutating `ProviderRequest` directly.
+
+This approach means:
+
+- the plugin contributes structured data only
+- the collect/select/render pipeline decides where it is mounted
+- the plugin does not need to know internal prompt tree paths
+- it is more stable than concatenating raw prompt strings inside `on_llm_request`
+
+Minimal example:
+
+```python
+from astrbot.core.prompt import (
+    PromptExtension,
+    PromptExtensionCollectorInterface,
+)
+
+
+class DesktopContextCollector(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "desktop_context"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            PromptExtension(
+                plugin_id="desktop_context",
+                mount="input",
+                title="Desktop Snapshot",
+                value={
+                    "kind": "desktop_screenshot",
+                    "summary": "Current desktop screenshot from platform sidecar",
+                },
+            )
+        ]
+
+
+class Main(star.Star):
+    def __init__(self, context: star.Context) -> None:
+        self.context = context
+        self.context.register_prompt_extension_collector(
+            DesktopContextCollector()
+        )
+```
+
+Current `mount` meanings:
+
+- `system`
+- `input`
+- `conversation` (rendered on the system side in V1)
+- `memory`
+- `capability`
+
+Use `on_llm_request` only when you truly need direct low-level `ProviderRequest` mutation.
+
 #### On LLM Response Complete
 
 After the LLM request completes, the `on_llm_response` hook is triggered.

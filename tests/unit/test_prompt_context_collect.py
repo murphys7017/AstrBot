@@ -1,5 +1,6 @@
 """Tests for prompt context collection."""
 
+from asyncio import Queue
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -43,6 +44,7 @@ from astrbot.core.prompt.context_collect import (
     log_context_pack,
 )
 from astrbot.core.prompt.context_types import ContextSlot
+from astrbot.core.prompt.extensions import PromptExtension
 from astrbot.core.prompt.input_annotations import (
     INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
     INPUT_QUOTED_TEXT_ANNOTATION_KEY,
@@ -50,7 +52,10 @@ from astrbot.core.prompt.input_annotations import (
     build_message_annotation_key,
     build_reply_chain_annotation_key,
 )
-from astrbot.core.prompt.interfaces import ContextCollectorInterface
+from astrbot.core.prompt.interfaces import (
+    ContextCollectorInterface,
+    PromptExtensionCollectorInterface,
+)
 from astrbot.core.prompt.render import (
     PROMPT_RENDER_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
@@ -59,6 +64,7 @@ from astrbot.core.prompt.render import (
 )
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.skills.skill_manager import SkillInfo
+from astrbot.core.star.context import Context
 
 
 def _make_event():
@@ -96,6 +102,7 @@ def _make_context():
     ctx.get_config.return_value = {}
     ctx.get_provider_by_id.return_value = None
     ctx.subagent_orchestrator = None
+    ctx.list_prompt_extension_collectors.return_value = []
     tool_manager = MagicMock()
     tool_manager.get_full_tool_set.return_value = ToolSet()
     tool_manager.get_func.return_value = None
@@ -104,6 +111,25 @@ def _make_context():
     ctx.persona_manager.get_persona_v3_by_id = MagicMock(return_value=None)
     ctx.conversation_manager = MagicMock()
     return ctx
+
+
+def _make_real_context() -> Context:
+    provider_manager = MagicMock()
+    provider_manager.provider_insts = []
+    provider_manager.llm_tools = MagicMock(func_list=[])
+    return Context(
+        event_queue=Queue(),
+        config=MagicMock(),
+        db=MagicMock(),
+        provider_manager=provider_manager,
+        platform_manager=MagicMock(platform_insts=[]),
+        conversation_manager=MagicMock(),
+        message_history_manager=MagicMock(),
+        persona_manager=MagicMock(),
+        astrbot_config_mgr=MagicMock(),
+        knowledge_base_manager=MagicMock(),
+        cron_manager=MagicMock(),
+    )
 
 
 def _make_conversation(persona_id=None):
@@ -2631,3 +2657,161 @@ async def test_collect_context_pack_raises_when_collector_fails_in_strict_mode()
             ),
             collectors=[_BrokenCollector(), _StaticCollector()],
         )
+
+
+class _ExtensionCollectorAlpha(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "alpha.plugin"
+
+    @property
+    def priority(self) -> int:
+        return 20
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            PromptExtension(
+                plugin_id="alpha.plugin",
+                mount="system",
+                title="Second",
+                value={"value": "second"},
+                order=20,
+            ),
+            PromptExtension(
+                plugin_id="alpha.plugin",
+                mount="system",
+                title="First",
+                value={"value": "first"},
+                order=10,
+            ),
+            PromptExtension(
+                plugin_id="alpha.plugin",
+                mount="input",
+                value="Input sidecar",
+                value_kind="text",
+            ),
+            PromptExtension(
+                plugin_id="",
+                mount="memory",
+                value={"skip": True},
+            ),
+        ]
+
+
+class _ExtensionCollectorBeta(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "beta.plugin"
+
+    @property
+    def priority(self) -> int:
+        return 50
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            PromptExtension(
+                plugin_id="beta.plugin",
+                mount="system",
+                title="Beta",
+                value={"value": "beta"},
+                order=5,
+            ),
+            PromptExtension(
+                plugin_id="beta.plugin",
+                mount="conversation",
+                value={"topic": "route notes"},
+            ),
+        ]
+
+
+class _BrokenExtensionCollector(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "broken.plugin"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        raise RuntimeError("extension boom")
+
+
+@pytest.mark.asyncio
+async def test_context_prompt_extension_collector_registry_orders_and_cleans_up():
+    context = _make_real_context()
+
+    first = _ExtensionCollectorBeta()
+    second = _ExtensionCollectorAlpha()
+    context.register_prompt_extension_collector(first)
+    context.register_prompt_extension_collector(second)
+
+    ordered = context.list_prompt_extension_collectors()
+    assert ordered == [second, first]
+
+    removed = context.remove_prompt_extension_collectors_by_module_prefix(
+        __name__,
+    )
+    assert removed == 2
+    assert context.list_prompt_extension_collectors() == []
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_collects_prompt_extensions_into_extension_slots():
+    event, _ = _make_event()
+    context = _make_context()
+    context.list_prompt_extension_collectors.return_value = [
+        _ExtensionCollectorBeta(),
+        _ExtensionCollectorAlpha(),
+    ]
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[],
+    )
+
+    system_slot = pack.get_slot("extension.system")
+    assert system_slot is not None
+    assert system_slot.category == "extension"
+    assert system_slot.value["format"] == "prompt_extensions_v1"
+    assert system_slot.value["mount"] == "system"
+    assert [item["title"] for item in system_slot.value["items"]] == [
+        "First",
+        "Second",
+        "Beta",
+    ]
+    assert [item["plugin_id"] for item in system_slot.value["items"]] == [
+        "alpha.plugin",
+        "alpha.plugin",
+        "beta.plugin",
+    ]
+    assert system_slot.meta["plugin_count"] == 2
+    assert system_slot.meta["item_count"] == 3
+
+    input_slot = pack.get_slot("extension.input")
+    assert input_slot is not None
+    assert input_slot.value["items"][0]["value"] == "Input sidecar"
+
+    conversation_slot = pack.get_slot("extension.conversation")
+    assert conversation_slot is not None
+    assert conversation_slot.value["items"][0]["plugin_id"] == "beta.plugin"
+
+    assert pack.get_slot("extension.memory") is None
+
+
+@pytest.mark.asyncio
+async def test_collect_context_pack_fail_open_when_prompt_extension_collector_raises():
+    event, _ = _make_event()
+    context = _make_context()
+    context.list_prompt_extension_collectors.return_value = [
+        _BrokenExtensionCollector(),
+        _ExtensionCollectorAlpha(),
+    ]
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[],
+    )
+
+    assert pack.get_slot("extension.system") is not None
+    assert pack.get_slot("extension.input") is not None

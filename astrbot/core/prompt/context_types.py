@@ -22,6 +22,7 @@ CategoryType = Literal[
     "rag",  # 知识库检索
     "tools",  # 工具
     "session",  # 会话
+    "extension",  # 插件扩展
 ]
 
 LifecycleType = Literal[

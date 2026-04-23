@@ -363,6 +363,63 @@ async def my_custom_hook_1(self, event: AstrMessageEvent, req: ProviderRequest):
 
 > 这里不能使用 yield 来发送消息。如需发送，请直接使用 `event.send()` 方法。
 
+#### 结构化 Prompt 扩展（推荐用于 prompt 注入）
+
+如果插件的目标只是向主流程 prompt 贡献结构化上下文，而不是直接修改 `ProviderRequest`，更推荐使用 Prompt Extension Collector。
+
+这种方式的特点是：
+
+- 插件只提供结构化数据
+- collect/select/render 主链路统一接管挂载与渲染
+- 不需要插件自己决定 system tree 的内部路径
+- 比直接在 `on_llm_request` 里拼接字符串更稳定
+
+最小示例：
+
+```python
+from astrbot.core.prompt import (
+    PromptExtension,
+    PromptExtensionCollectorInterface,
+)
+
+
+class DesktopContextCollector(PromptExtensionCollectorInterface):
+    @property
+    def plugin_id(self) -> str:
+        return "desktop_context"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return [
+            PromptExtension(
+                plugin_id="desktop_context",
+                mount="input",
+                title="Desktop Snapshot",
+                value={
+                    "kind": "desktop_screenshot",
+                    "summary": "Current desktop screenshot from platform sidecar",
+                },
+            )
+        ]
+
+
+class Main(star.Star):
+    def __init__(self, context: star.Context) -> None:
+        self.context = context
+        self.context.register_prompt_extension_collector(
+            DesktopContextCollector()
+        )
+```
+
+当前 `mount` 语义：
+
+- `system`: 系统侧扩展说明
+- `input`: 当前输入相关扩展
+- `conversation`: 会话相关扩展（V1 渲染到 system 侧）
+- `memory`: 记忆相关扩展
+- `capability`: 能力相关扩展
+
+如果你确实需要直接修改 `ProviderRequest` 的底层字段，仍然可以继续使用 `on_llm_request`。
+
 #### LLM 请求完成时
 
 在 LLM 请求完成后，会触发 `on_llm_response` 钩子。
