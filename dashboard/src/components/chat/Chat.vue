@@ -388,6 +388,8 @@
                       :initial-expanded="false"
                       :is-streaming="isMessageStreaming(msg, msgIndex)"
                       :has-non-reasoning-content="hasNonReasoningContent(msg)"
+                      open-in-sidebar
+                      @open="openReasoningPanel({ message: msg, blockIndex: 0 })"
                     />
 
                     <template
@@ -610,6 +612,11 @@
       </template>
     </main>
 
+    <ReasoningSidebar
+      v-model="reasoningPanelOpen"
+      :parts="activeReasoningParts"
+      :is-dark="isDark"
+    />
     <ProviderConfigDialog v-model="providerDialog" />
     <ProjectDialog
       v-model="projectDialogOpen"
@@ -688,6 +695,7 @@ import ProjectDialog, {
 import ProjectList, { type Project } from "@/components/chat/ProjectList.vue";
 import ProjectView from "@/components/chat/ProjectView.vue";
 import ChatInput from "@/components/chat/ChatInput.vue";
+import ReasoningSidebar from "@/components/chat/ReasoningSidebar.vue";
 import ReasoningBlock from "@/components/chat/message_list_comps/ReasoningBlock.vue";
 import ToolCallCard from "@/components/chat/message_list_comps/ToolCallCard.vue";
 import ToolCallItem from "@/components/chat/message_list_comps/ToolCallItem.vue";
@@ -699,6 +707,7 @@ import MarkdownMessagePart from "@/components/chat/message_list_comps/MarkdownMe
 import ThemeAwareMarkdownCodeBlock from "@/components/shared/ThemeAwareMarkdownCodeBlock.vue";
 import { useSessions, type Session } from "@/composables/useSessions";
 import {
+  messageBlocks as buildMessageBlocks,
   useMessages,
   type ChatRecord,
   type MessagePart,
@@ -785,6 +794,11 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 const shouldStickToBottom = ref(true);
 const replyTarget = ref<ChatRecord | null>(null);
+const reasoningPanelOpen = ref(false);
+const activeReasoningTarget = ref<{
+  message: ChatRecord;
+  blockIndex: number;
+} | null>(null);
 const imagePreview = reactive({ visible: false, url: "" });
 const refsSidebarOpen = ref(false);
 const selectedRefs = ref<Record<string, unknown> | null>(null);
@@ -802,6 +816,20 @@ const chatSidebarDrawer = computed({
 const isSidebarCollapsed = computed(() =>
   lgAndUp.value ? sidebarCollapsed.value : !customizer.chatSidebarOpen,
 );
+const activeReasoningParts = computed<MessagePart[]>(() => {
+  if (!activeReasoningTarget.value) return [];
+  const blocks = buildMessageBlocks(
+    activeReasoningTarget.value.message.content || { type: "bot", message: [] },
+  );
+  const block = blocks[activeReasoningTarget.value.blockIndex];
+  return block?.kind === "thinking" ? block.parts : [];
+});
+
+watch(reasoningPanelOpen, (open) => {
+  if (!open) {
+    activeReasoningTarget.value = null;
+  }
+});
 
 const {
   loadingMessages,
@@ -1275,9 +1303,21 @@ function normalizeRefItems(items: unknown[]) {
 }
 
 function openRefsSidebar(refs: unknown) {
+  reasoningPanelOpen.value = false;
+  activeReasoningTarget.value = null;
   selectedRefs.value =
     refs && typeof refs === "object" ? (refs as Record<string, unknown>) : null;
   refsSidebarOpen.value = true;
+}
+
+function openReasoningPanel(payload: {
+  message: ChatRecord;
+  blockIndex: number;
+}) {
+  refsSidebarOpen.value = false;
+  selectedRefs.value = null;
+  activeReasoningTarget.value = payload;
+  reasoningPanelOpen.value = true;
 }
 
 function normalizeToolCall(tool: Record<string, unknown>) {
