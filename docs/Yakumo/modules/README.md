@@ -1,6 +1,12 @@
 # Yakumo Module Notes
 
-`docs/Yakumo/modules` 用于记录当前 AstrBot 核心模块的代码职责、调用关系和重构关注点。
+`docs/Yakumo/modules` 用于记录当前这个分支里 AstrBot 核心模块的代码职责、调用关系和重构关注点。
+
+在阅读这里之前，建议先看 `docs/Yakumo/README.md`。那里会先说明：
+
+- 这些文档描述的是当前分支，不是官方主线原样说明
+- 哪些内容是现状，哪些内容是目标态或开发方案
+- 当前分支相对官方重点推进了哪些能力
 
 ## 文档列表
 
