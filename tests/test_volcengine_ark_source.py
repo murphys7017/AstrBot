@@ -329,3 +329,41 @@ async def test_volcengine_ark_normalizes_existing_input_image_file_uri(
         ]
     finally:
         await provider.terminate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific file URI handling")
+async def test_volcengine_ark_prepare_payload_normalizes_raw_input_image_file_uri(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_fake_sdk(monkeypatch)
+    provider = ProviderVolcengineArk(_make_provider_config(), {})
+
+    try:
+        payload = await provider._prepare_payload(
+            prompt=None,
+            contexts=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "image_url": "file:///C:/Users/Administrator/test.jpg",
+                        }
+                    ],
+                }
+            ],
+        )
+        assert payload["input"] == [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_image",
+                        "image_url": "file://C:/Users/Administrator/test.jpg",
+                    }
+                ],
+            }
+        ]
+    finally:
+        await provider.terminate()

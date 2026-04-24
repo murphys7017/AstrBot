@@ -233,6 +233,25 @@ class ProviderVolcengineArk(Provider):
             summary["tool_count"],
         )
 
+    def _normalize_payload_input_image_file_uris(
+        self, input_items: list[dict[str, Any]]
+    ) -> None:
+        for item in input_items:
+            content_items = self._obj_get(item, "content")
+            if not isinstance(content_items, list):
+                continue
+            for content_item in content_items:
+                if self._obj_get(content_item, "type") != "input_image":
+                    continue
+                image_url = self._obj_get(content_item, "image_url")
+                if not isinstance(image_url, str) or not image_url.strip():
+                    continue
+                normalized = self._normalize_file_uri_for_ark(image_url.strip())
+                if isinstance(content_item, dict):
+                    content_item["image_url"] = normalized
+                else:
+                    setattr(content_item, "image_url", normalized)
+
     def _apply_request_overrides(
         self,
         payload: dict[str, Any],
@@ -581,6 +600,7 @@ class ProviderVolcengineArk(Provider):
         input_items: list[dict[str, Any]] = []
         for message in context_query:
             input_items.extend(await self._convert_message_to_input(message))
+        self._normalize_payload_input_image_file_uris(input_items)
 
         payload: dict[str, Any] = {
             "model": model or self.get_model(),
