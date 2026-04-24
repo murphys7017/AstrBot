@@ -316,6 +316,7 @@ import type {
   MessagePart,
 } from "@/composables/useMessages";
 import { useModuleI18n } from "@/i18n/composables";
+import { copyToClipboard } from "@/utils/clipboard";
 
 const props = withDefaults(
   defineProps<{
@@ -548,7 +549,7 @@ function parseJsonSafe(value: unknown) {
 async function copyMessage(message: ChatRecord) {
   const text = plainTextFromMessage(message);
   if (!text) return;
-  await navigator.clipboard?.writeText(text);
+  await copyToClipboard(text, { container: messageListRoot.value });
 }
 
 async function downloadPart(part: MessagePart) {

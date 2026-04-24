@@ -721,6 +721,7 @@ import {
   useLanguageSwitcher,
   useModuleI18n,
 } from "@/i18n/composables";
+import { copyToClipboard } from "@/utils/clipboard";
 import type { Locale } from "@/i18n/types";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
 
@@ -1352,7 +1353,7 @@ function parseJsonSafe(value: unknown) {
 async function copyMessage(message: ChatRecord) {
   const text = plainTextFromMessage(message);
   if (!text) return;
-  await navigator.clipboard?.writeText(text);
+  await copyToClipboard(text, { container: messagesContainer.value });
 }
 
 async function downloadPart(part: MessagePart) {
