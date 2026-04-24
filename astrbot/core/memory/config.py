@@ -99,8 +99,8 @@ Requirements:
   - category
   - summary
   - detail_summary
-  - importance
-  - confidence
+  - importance: float between 0 and 1
+  - confidence: float between 0 and 1
 
 Allowed categories:
 - user_fact
@@ -169,8 +169,8 @@ Requirements:
 - summary
 - detail_summary
 - tags
-- importance
-- confidence
+- importance: float between 0 and 1
+- confidence: float between 0 and 1
 - status
 
 Allowed status values:

@@ -81,6 +81,16 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.analysis.analyzers["topic_v1"].model == DEFAULT_MEMORY_ANALYZER_MODEL
 
 
+def test_default_memory_analyzer_prompts_include_score_ranges():
+    experience_prompt = DEFAULT_MEMORY_ANALYZER_PROMPTS["experience_extract_v1.md"]
+    compose_prompt = DEFAULT_MEMORY_ANALYZER_PROMPTS["long_term_compose_v1.md"]
+
+    assert "- importance: float between 0 and 1" in experience_prompt
+    assert "- confidence: float between 0 and 1" in experience_prompt
+    assert "- importance: float between 0 and 1" in compose_prompt
+    assert "- confidence: float between 0 and 1" in compose_prompt
+
+
 def test_load_memory_config_reads_explicit_values(temp_dir: Path, monkeypatch):
     monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "astrbot-root"))
     config_path = temp_dir / "memory-config.yaml"
