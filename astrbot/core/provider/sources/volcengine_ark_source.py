@@ -448,9 +448,7 @@ class ProviderVolcengineArk(Provider):
             elif part_type == "input_image":
                 image_url = self._obj_get(part, "image_url", "")
                 if isinstance(image_url, str) and image_url.strip():
-                    items.append(
-                        {"type": "input_image", "image_url": image_url.strip()}
-                    )
+                    items.append(await self._resolve_image_part(image_url.strip()))
             elif part_type == "image_url":
                 image_payload = self._obj_get(part, "image_url")
                 image_url = self._obj_get(image_payload, "url", image_payload)

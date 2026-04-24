@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 from importlib import import_module as _real_import_module
@@ -25,55 +26,59 @@ def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> type:
         def __init__(self, owner) -> None:
             self.owner = owner
 
-        def create(self, **kwargs):
+        async def create(self, **kwargs):
             self.owner.last_kwargs = kwargs
             if kwargs.get("stream"):
-                return [
-                    types.SimpleNamespace(
-                        type="response.output_text.delta",
-                        delta="Hel",
-                        response_id="resp_stream",
-                    ),
-                    types.SimpleNamespace(
-                        type="response.reasoning.delta",
-                        delta="Think",
-                        response_id="resp_stream",
-                    ),
-                    types.SimpleNamespace(
-                        type="response.completed",
-                        response=types.SimpleNamespace(
-                            id="resp_stream",
-                            output=[
-                                types.SimpleNamespace(
-                                    type="reasoning",
-                                    summary=[
-                                        types.SimpleNamespace(
-                                            type="summary_text",
-                                            text="Think",
-                                        )
-                                    ],
-                                ),
-                                types.SimpleNamespace(
-                                    type="message",
-                                    role="assistant",
-                                    content=[
-                                        types.SimpleNamespace(
-                                            type="output_text",
-                                            text="Hello",
-                                        )
-                                    ],
-                                ),
-                            ],
-                            usage=types.SimpleNamespace(
-                                input_tokens=12,
-                                output_tokens=4,
-                                input_tokens_details=types.SimpleNamespace(
-                                    cached_tokens=3
+                async def _stream():
+                    for item in [
+                        types.SimpleNamespace(
+                            type="response.output_text.delta",
+                            delta="Hel",
+                            response_id="resp_stream",
+                        ),
+                        types.SimpleNamespace(
+                            type="response.reasoning.delta",
+                            delta="Think",
+                            response_id="resp_stream",
+                        ),
+                        types.SimpleNamespace(
+                            type="response.completed",
+                            response=types.SimpleNamespace(
+                                id="resp_stream",
+                                output=[
+                                    types.SimpleNamespace(
+                                        type="reasoning",
+                                        summary=[
+                                            types.SimpleNamespace(
+                                                type="summary_text",
+                                                text="Think",
+                                            )
+                                        ],
+                                    ),
+                                    types.SimpleNamespace(
+                                        type="message",
+                                        role="assistant",
+                                        content=[
+                                            types.SimpleNamespace(
+                                                type="output_text",
+                                                text="Hello",
+                                            )
+                                        ],
+                                    ),
+                                ],
+                                usage=types.SimpleNamespace(
+                                    input_tokens=12,
+                                    output_tokens=4,
+                                    input_tokens_details=types.SimpleNamespace(
+                                        cached_tokens=3
+                                    ),
                                 ),
                             ),
                         ),
-                    ),
-                ]
+                    ]:
+                        yield item
+
+                return _stream()
             return types.SimpleNamespace(
                 id="resp_sync",
                 output=[
@@ -129,6 +134,7 @@ def _install_fake_sdk(monkeypatch: pytest.MonkeyPatch) -> type:
 
     fake_module = types.ModuleType("volcenginesdkarkruntime")
     fake_module.Ark = FakeArk
+    fake_module.AsyncArk = FakeArk
     monkeypatch.setitem(sys.modules, "volcenginesdkarkruntime", fake_module)
     return FakeArk
 
@@ -294,5 +300,32 @@ async def test_volcengine_ark_data_url_is_materialized_to_local_file(
         part = await provider._resolve_image_part("data:image/png;base64,aGVsbG8=")
         assert part["type"] == "input_image"
         assert part["image_url"].startswith("file://")
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific file URI handling")
+async def test_volcengine_ark_normalizes_existing_input_image_file_uri(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_fake_sdk(monkeypatch)
+    provider = ProviderVolcengineArk(_make_provider_config(), {})
+
+    try:
+        items = await provider._normalize_content_items(
+            [
+                {
+                    "type": "input_image",
+                    "image_url": "file:///C:/Users/Administrator/test.jpg",
+                }
+            ]
+        )
+        assert items == [
+            {
+                "type": "input_image",
+                "image_url": "file://C:/Users/Administrator/test.jpg",
+            }
+        ]
     finally:
         await provider.terminate()
