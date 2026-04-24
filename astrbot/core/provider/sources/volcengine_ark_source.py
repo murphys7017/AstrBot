@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -436,8 +436,18 @@ class ProviderVolcengineArk(Provider):
         # Windows its current path join logic works with `file://C:/path` rather
         # than the standard `file:///C:/path`. Normalize here to avoid SDK-side
         # invalid paths like `\\C:\\...`.
-        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", parsed.path):
-            return f"file://{parsed.path.lstrip('/')}"
+        if os.name == "nt":
+            candidates = [
+                f"{parsed.netloc}{parsed.path}",
+                file_uri.replace("file://", "", 1),
+            ]
+            for candidate in candidates:
+                normalized_path = unquote(candidate).replace("\\", "/").lstrip("/")
+                if re.match(r"^[A-Za-z]:/", normalized_path):
+                    drive = normalized_path[:2]
+                    rest = re.sub(r"/+", "/", normalized_path[2:])
+                    normalized_path = f"{drive}{rest}"
+                    return f"file://{normalized_path}"
 
         return file_uri
 

@@ -333,6 +333,39 @@ async def test_volcengine_ark_normalizes_existing_input_image_file_uri(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific file URI handling")
+@pytest.mark.parametrize(
+    ("raw_uri", "expected_uri"),
+    [
+        (
+            "file:///C:/Users/Administrator/test.jpg",
+            "file://C:/Users/Administrator/test.jpg",
+        ),
+        (
+            r"file:///C:\\Users\\Administrator\\test.jpg",
+            "file://C:/Users/Administrator/test.jpg",
+        ),
+        (
+            r"file://C:\\Users\\Administrator\\test.jpg",
+            "file://C:/Users/Administrator/test.jpg",
+        ),
+    ],
+)
+async def test_volcengine_ark_normalize_file_uri_for_ark_handles_windows_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_uri: str,
+    expected_uri: str,
+):
+    _install_fake_sdk(monkeypatch)
+    provider = ProviderVolcengineArk(_make_provider_config(), {})
+
+    try:
+        assert provider._normalize_file_uri_for_ark(raw_uri) == expected_uri
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="Windows-specific file URI handling")
 async def test_volcengine_ark_prepare_payload_normalizes_raw_input_image_file_uri(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -348,7 +381,7 @@ async def test_volcengine_ark_prepare_payload_normalizes_raw_input_image_file_ur
                     "content": [
                         {
                             "type": "input_image",
-                            "image_url": "file:///C:/Users/Administrator/test.jpg",
+                            "image_url": r"file:///C:\\Users\\Administrator\\test.jpg",
                         }
                     ],
                 }
