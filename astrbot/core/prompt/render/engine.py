@@ -275,12 +275,76 @@ class PromptRenderEngine:
             "renderer": renderer.get_name(),
             "slot_count": len(selected_pack.slots),
             "selected_slot_names": sorted(selected_pack.slots),
-            "system_prompt": result.system_prompt,
-            "messages": result.messages,
-            "tool_schema": result.tool_schema,
+            "system_prompt_preview": self._preview_text(result.system_prompt),
+            "message_count": len(result.messages),
+            "message_previews": self._preview_messages(result.messages),
+            "tool_schema_count": len(result.tool_schema or []),
+            "tool_names": self._extract_tool_names(result.tool_schema),
             "metadata": result.metadata,
         }
         logger.debug(
             "Prompt render result: %s",
             json.dumps(payload, ensure_ascii=False, indent=2, default=str),
         )
+
+    @staticmethod
+    def _preview_text(text: object, *, limit: int = 240) -> str | None:
+        if not isinstance(text, str):
+            return None
+        normalized = " ".join(text.split())
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[: limit - 3]}..."
+
+    def _preview_messages(
+        self,
+        messages: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        previews: list[dict[str, object]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            preview: dict[str, object] = {
+                "role": message.get("role"),
+            }
+            if isinstance(content, str):
+                preview["content_preview"] = self._preview_text(content)
+            elif isinstance(content, list):
+                preview["part_count"] = len(content)
+                preview["content_types"] = [
+                    part.get("type")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") is not None
+                ]
+                text_previews = []
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") != "text":
+                        continue
+                    text = part.get("text")
+                    text_preview = self._preview_text(text, limit=160)
+                    if text_preview:
+                        text_previews.append(text_preview)
+                if text_previews:
+                    preview["text_previews"] = text_previews[:2]
+            previews.append(preview)
+        return previews
+
+    @staticmethod
+    def _extract_tool_names(
+        tool_schema: list[dict[str, object]] | None,
+    ) -> list[str]:
+        names: list[str] = []
+        for schema in tool_schema or []:
+            if not isinstance(schema, dict):
+                continue
+            function_payload = schema.get("function")
+            if isinstance(function_payload, dict):
+                name = function_payload.get("name")
+            else:
+                name = schema.get("name")
+            if isinstance(name, str) and name:
+                names.append(name)
+        return names

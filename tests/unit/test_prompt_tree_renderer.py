@@ -990,8 +990,9 @@ def test_render_engine_emits_debug_log_for_render_result():
     message_template, payload = debug_mock.call_args.args
     assert message_template == "Prompt render result: %s"
     assert '"renderer": "base"' in payload
-    assert '"system_prompt": "<system>' in payload
-    assert '"content": "Hello there"' in payload
+    assert '"system_prompt_preview": "<system>' in payload
+    assert '"message_count": 1' in payload
+    assert '"content_preview": "Hello there"' in payload
 
 
 def test_render_engine_respects_renderer_disabled_groups():

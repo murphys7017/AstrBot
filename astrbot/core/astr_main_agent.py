@@ -306,6 +306,56 @@ def _build_prompt_shadow_diff(
     }
 
 
+def _preview_prompt_log_text(value: object, *, limit: int = 240) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 3]}..."
+
+
+def _summarize_prompt_apply_result(apply_result: object) -> dict[str, object]:
+    return {
+        "applied_system_prompt": bool(
+            getattr(apply_result, "applied_system_prompt", False)
+        ),
+        "history_message_count": int(
+            getattr(apply_result, "history_message_count", 0) or 0
+        ),
+        "used_user_message": bool(getattr(apply_result, "used_user_message", False)),
+        "user_content_part_count": int(
+            getattr(apply_result, "user_content_part_count", 0) or 0
+        ),
+        "tool_schema_count": int(getattr(apply_result, "tool_schema_count", 0) or 0),
+        "warnings": list(getattr(apply_result, "warnings", []) or []),
+    }
+
+
+def _summarize_provider_request_for_prompt_log(
+    req: ProviderRequest,
+) -> dict[str, object]:
+    return {
+        "prompt_preview": _preview_prompt_log_text(req.prompt),
+        "system_prompt_preview": _preview_prompt_log_text(req.system_prompt),
+        "context_count": len(req.contexts or []),
+        "extra_user_content_part_count": len(req.extra_user_content_parts or []),
+        "image_count": len(req.image_urls or []),
+        "audio_count": len(req.audio_urls or []),
+        "tool_count": len(req.func_tool.names()) if req.func_tool else 0,
+        "model": req.model,
+        "session_id": req.session_id,
+    }
+
+
+def _summarize_prompt_shadow_diff(shadow_diff: dict[str, object]) -> dict[str, object]:
+    return {
+        "changed": bool(shadow_diff.get("changed")),
+        "field_count": int(shadow_diff.get("field_count", 0) or 0),
+        "changed_fields": list(shadow_diff.get("changed_fields", []) or []),
+    }
+
+
 def _run_prompt_pipeline_shadow_mode(
     *,
     event: AstrMessageEvent,
@@ -335,11 +385,29 @@ def _run_prompt_pipeline_shadow_mode(
     event.set_extra(PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY, apply_result)
     event.set_extra(PROMPT_SHADOW_DIFF_EXTRA_KEY, shadow_diff)
 
-    logger.debug("Prompt shadow apply result: %s", apply_result)
-    logger.debug("Prompt shadow provider request: %s", shadow_request)
+    logger.debug(
+        "Prompt shadow apply result: %s",
+        json.dumps(
+            _summarize_prompt_apply_result(apply_result),
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+    logger.debug(
+        "Prompt shadow provider request: %s",
+        json.dumps(
+            _summarize_provider_request_for_prompt_log(shadow_request),
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
     logger.debug(
         "Prompt shadow request diff: %s",
-        json.dumps(shadow_diff, ensure_ascii=False, indent=2, default=str),
+        json.dumps(
+            _summarize_prompt_shadow_diff(shadow_diff),
+            ensure_ascii=False,
+            default=str,
+        ),
     )
 
 
@@ -382,8 +450,22 @@ def _apply_prompt_pipeline_visible_mode(
     apply_result = apply_render_result_to_request(render_result, provider_request)
     event.set_extra(PROMPT_RENDER_RESULT_EXTRA_KEY, render_result)
     event.set_extra(PROMPT_APPLY_RESULT_EXTRA_KEY, apply_result)
-    logger.debug("Prompt apply-visible result: %s", apply_result)
-    logger.debug("Prompt apply-visible provider request: %s", provider_request)
+    logger.debug(
+        "Prompt apply-visible result: %s",
+        json.dumps(
+            _summarize_prompt_apply_result(apply_result),
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+    logger.debug(
+        "Prompt apply-visible provider request: %s",
+        json.dumps(
+            _summarize_provider_request_for_prompt_log(provider_request),
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
 
 
 async def _apply_kb(

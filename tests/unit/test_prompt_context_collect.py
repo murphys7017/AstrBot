@@ -394,7 +394,7 @@ async def test_build_main_agent_runs_prompt_pipeline_in_shadow_mode():
 
 
 @pytest.mark.asyncio
-async def test_log_context_pack_outputs_full_persona_payload():
+async def test_log_context_pack_logs_summary_at_info_and_slots_at_debug():
     event, extras = _make_event()
     context = _make_context()
     req = ProviderRequest(prompt="hello")
@@ -429,23 +429,25 @@ async def test_log_context_pack_outputs_full_persona_payload():
     with patch("astrbot.core.prompt.context_collect.logger") as mock_logger:
         log_context_pack(pack, event=event)
 
-    logged_messages = [
+    info_messages = [
         call.args[0] % call.args[1:] if call.args else ""
         for call in mock_logger.info.call_args_list
     ]
-    persona_logs = [
-        message for message in logged_messages if "Prompt persona loaded:" in message
+    debug_messages = [
+        call.args[0] % call.args[1:] if call.args else ""
+        for call in mock_logger.debug.call_args_list
     ]
 
-    assert len(persona_logs) == 1
-    assert '"persona_id": "persona-a"' in persona_logs[0]
-    assert (
-        '"prompt": "身份\\n- 你是 Alice，由 YakumoAki 设计。\\n稳定规则\\n- 始终以 Alice 身份回应。"'
-        in persona_logs[0]
+    assert any("Prompt context pack collected:" in message for message in info_messages)
+    assert not any("Prompt persona loaded:" in message for message in info_messages)
+    assert any(
+        "Prompt context slot: name=persona.prompt" in message
+        for message in debug_messages
     )
-    assert '"segments"' in persona_logs[0]
-    assert '"tools_whitelist": ["tool_a"]' in persona_logs[0]
-    assert '"skills_whitelist": ["skill_a"]' in persona_logs[0]
+    assert any(
+        "Prompt context slot: name=persona.tools_whitelist" in message
+        for message in debug_messages
+    )
 
 
 @pytest.mark.asyncio

@@ -72,47 +72,6 @@ def _stringify_value_preview(value: object, *, max_len: int = 400) -> str:
     return f"{preview[: max_len - 3]}..."
 
 
-def _build_persona_log_payload(pack: ContextPack) -> dict[str, object] | None:
-    """Build a full persona payload for logs when persona slots are present."""
-    persona_slot = pack.get_slot("persona.prompt")
-    segments_slot = pack.get_slot("persona.segments")
-    begin_dialogs_slot = pack.get_slot("persona.begin_dialogs")
-    tools_slot = pack.get_slot("persona.tools_whitelist")
-    skills_slot = pack.get_slot("persona.skills_whitelist")
-
-    if not any(
-        [
-            persona_slot,
-            segments_slot,
-            begin_dialogs_slot,
-            tools_slot,
-            skills_slot,
-        ]
-    ):
-        return None
-
-    persona_id = None
-    for slot in [
-        persona_slot,
-        segments_slot,
-        begin_dialogs_slot,
-        tools_slot,
-        skills_slot,
-    ]:
-        if slot and isinstance(slot.meta, dict) and slot.meta.get("persona_id"):
-            persona_id = slot.meta.get("persona_id")
-            break
-
-    return {
-        "persona_id": persona_id,
-        "prompt": persona_slot.value if persona_slot else None,
-        "segments": segments_slot.value if segments_slot else None,
-        "begin_dialogs": begin_dialogs_slot.value if begin_dialogs_slot else None,
-        "tools_whitelist": tools_slot.value if tools_slot else None,
-        "skills_whitelist": skills_slot.value if skills_slot else None,
-    }
-
-
 def _normalize_prompt_extension_items(raw_items: object) -> list[PromptExtension]:
     if isinstance(raw_items, list):
         candidates = raw_items
@@ -374,17 +333,9 @@ def log_context_pack(
     if not pack.slots:
         return
 
-    persona_payload = _build_persona_log_payload(pack)
-    if persona_payload is not None:
-        logger.info(
-            "Prompt persona loaded: umo=%s payload=%s",
-            umo,
-            json.dumps(persona_payload, ensure_ascii=False, default=str),
-        )
-
     for slot_name in sorted(pack.slots):
         slot: ContextSlot = pack.slots[slot_name]
-        logger.info(
+        logger.debug(
             "Prompt context slot: name=%s category=%s source=%s meta=%s value=%s",
             slot.name,
             slot.category,
