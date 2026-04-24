@@ -4,6 +4,7 @@ import os
 import re
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from quart import Response as QuartResponse
@@ -28,6 +29,17 @@ from .route import Response, Route, RouteContext
 
 # SSE heartbeat message to keep the connection alive during long-running operations
 SSE_HEARTBEAT = ": heartbeat\n\n"
+
+
+def _sanitize_upload_filename(filename: str | None) -> str:
+    if not filename:
+        return f"{uuid.uuid4()!s}"
+
+    normalized = filename.replace("\\", "/")
+    name = PurePosixPath(normalized).name.replace("\x00", "").strip()
+    if not name or name in {".", ".."}:
+        return f"{uuid.uuid4()!s}"
+    return name
 
 
 @asynccontextmanager
@@ -325,7 +337,7 @@ class ChatRoute(Route):
             return Response().error("Missing key: file").__dict__
 
         file = post_data["file"]
-        filename = file.filename or f"{uuid.uuid4()!s}"
+        filename = _sanitize_upload_filename(file.filename)
         content_type = file.content_type or "application/octet-stream"
 
         # 根据 content_type 判断文件类型并添加扩展名
@@ -338,12 +350,12 @@ class ChatRoute(Route):
         else:
             attach_type = "file"
 
-        path = os.path.join(self.attachments_dir, filename)
-        await file.save(path)
+        file_path = Path(self.attachments_dir) / filename
+        await file.save(str(file_path))
 
         # 创建 attachment 记录
         attachment = await self.db.insert_attachment(
-            path=path,
+            path=str(file_path),
             type=attach_type,
             mime_type=content_type,
         )
