@@ -47,6 +47,22 @@ class Main(star.Star):
         """Create new conversation"""
         await self.conversation_c.new_conv(message)
 
+    @filter.command("stats")
+    async def stats(self, message: AstrMessageEvent) -> None:
+        """Show token usage statistics for the current conversation"""
+        await self.conversation_c.stats(message)
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("provider")
+    async def provider(
+        self,
+        event: AstrMessageEvent,
+        idx: str | int | None = None,
+        idx2: int | None = None,
+    ) -> None:
+        """View or switch LLM Provider"""
+        await self.provider_c.provider(event, idx, idx2)
+
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("provider")
     async def provider(

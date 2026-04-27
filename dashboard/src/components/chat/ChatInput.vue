@@ -112,6 +112,10 @@
         ref="inputField"
         v-model="localPrompt"
         @keydown="handleKeyDown"
+        @compositionstart="handleCompositionStart"
+        @compositionend="handleCompositionEnd"
+        @compositioncancel="handleCompositionEnd"
+        @blur="clearCompositionState()"
         :disabled="disabled"
         placeholder="Ask AstrBot..."
         class="chat-textarea"
@@ -165,8 +169,8 @@
               <v-btn
                 v-bind="activatorProps"
                 icon="mdi-plus"
-                variant="text"
-                class="input-neutral-btn"
+                variant="outlined"
+                class="input-neutral-btn input-outline-control"
               />
             </template>
 
@@ -256,8 +260,7 @@
             @click="handleRecordClick"
             icon
             variant="text"
-            :color="isRecording ? 'error' : 'primary'"
-            class="record-btn"
+            class="record-btn input-icon-btn"
           >
             <v-icon
               :icon="isRecording ? 'mdi-stop-circle' : 'mdi-microphone'"
@@ -275,7 +278,7 @@
             v-if="isRunning && !canSend"
             @click="$emit('stop')"
             variant="tonal"
-            class="send-btn input-neutral-btn input-neutral-btn--tonal"
+            class="send-btn input-action-btn"
           >
             <v-icon icon="mdi-stop" variant="text" plain></v-icon>
             <v-tooltip activator="parent" location="top">
@@ -285,10 +288,10 @@
           <v-btn
             v-else
             @click="$emit('send')"
-            icon="mdi-send"
+            icon="mdi-arrow-up"
             variant="tonal"
             :disabled="!canSend"
-            class="send-btn input-neutral-btn input-neutral-btn--tonal"
+            class="send-btn input-action-btn"
           />
         </div>
       </div>
@@ -308,6 +311,7 @@ import {
 import { useDisplay } from "vuetify";
 import { useModuleI18n } from "@/i18n/composables";
 import { useCustomizerStore } from "@/stores/customizer";
+import { isComposingEnter } from "@/utils/imeInput.mjs";
 import ConfigSelector from "./ConfigSelector.vue";
 import ProviderModelMenu from "./ProviderModelMenu.vue";
 import StyledMenu from "@/components/shared/StyledMenu.vue";
@@ -380,6 +384,8 @@ const providerModelMenuRef = ref<InstanceType<typeof ProviderModelMenu> | null>(
 const showProviderSelector = ref(true);
 const isReplyClosing = ref(false);
 const isDragging = ref(false);
+const isComposing = ref(false);
+const lastCompositionEndAt = ref<number | null>(null);
 let dragLeaveTimeout: number | null = null;
 
 const localPrompt = computed({
@@ -515,6 +521,10 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
+  if (isComposingEnter(e, isComposing.value, lastCompositionEndAt.value)) {
+    return;
+  }
+
   const isSendHotkey =
     e.ctrlKey ||
     e.metaKey ||
@@ -531,6 +541,23 @@ function handleKeyDown(e: KeyboardEvent) {
       emit("send");
     }
     return;
+  }
+}
+
+function handleCompositionStart() {
+  isComposing.value = true;
+  lastCompositionEndAt.value = null;
+}
+
+function handleCompositionEnd(e: CompositionEvent) {
+  lastCompositionEndAt.value = e.timeStamp;
+  clearCompositionState({ keepLastEndAt: true });
+}
+
+function clearCompositionState({ keepLastEndAt = false } = {}) {
+  isComposing.value = false;
+  if (!keepLastEndAt) {
+    lastCompositionEndAt.value = null;
   }
 }
 
@@ -635,6 +662,7 @@ onBeforeUnmount(() => {
   if (inputField.value) {
     inputField.value.removeEventListener("paste", handlePaste);
   }
+  clearCompositionState();
   document.removeEventListener("keyup", handleKeyUp);
 });
 
@@ -670,6 +698,43 @@ defineExpose({
   background: #e7e7e7;
 }
 
+.input-action-btn {
+  background: #5594c6 !important;
+  color: #fff !important;
+}
+
+.input-action-btn:hover {
+  background: #4c86b3 !important;
+}
+
+.input-action-btn:disabled {
+  background: rgba(85, 148, 198, 0.24) !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+.input-icon-btn {
+  background: transparent !important;
+  color: rgb(var(--v-theme-on-surface)) !important;
+  margin-right: 8px;
+}
+
+.input-icon-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+}
+
+.input-outline-control {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-color: rgba(var(--v-theme-on-surface), 0.18) !important;
+  background: transparent !important;
+}
+
+.input-outline-control:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.34) !important;
+  background: rgba(var(--v-theme-on-surface), 0.04) !important;
+}
+
 .input-area.is-dark .input-neutral-btn {
   color: rgba(255, 255, 255, 0.78) !important;
 }
@@ -677,6 +742,30 @@ defineExpose({
 .input-area.is-dark .input-neutral-btn:hover,
 .input-area.is-dark .input-neutral-btn--tonal {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.input-area.is-dark .input-outline-control {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  background: transparent !important;
+}
+
+.input-area.is-dark .input-outline-control:hover {
+  border-color: rgba(255, 255, 255, 0.42) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.input-area.is-dark .input-action-btn {
+  background: rgb(var(--v-theme-on-surface)) !important;
+  color: rgb(var(--v-theme-surface)) !important;
+}
+
+.input-area.is-dark .input-action-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.86) !important;
+}
+
+.input-area.is-dark .input-action-btn:disabled {
+  background: rgba(var(--v-theme-on-surface), 0.14) !important;
+  color: rgba(var(--v-theme-on-surface), 0.4) !important;
 }
 
 /* 拖拽上传遮罩 */
@@ -945,14 +1034,38 @@ defineExpose({
   .input-container {
     width: 100% !important;
     max-width: 100% !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+  }
+
+  .input-outline-control {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
   }
 
   .input-area textarea,
   .chat-textarea {
-    min-height: 30px !important;
-    max-height: 160px !important;
+    min-height: 28px !important;
+    max-height: 140px !important;
     font-size: 16px !important;
-    padding: 12px 16px 10px 16px !important;
+    line-height: 20px !important;
+    padding: 8px 14px 7px !important;
+  }
+
+  .attachments-preview {
+    margin: 8px 10px 0;
+    gap: 8px;
+  }
+
+  .attachment-card {
+    width: min(220px, calc(100vw - 28px));
+    height: 58px;
+  }
+
+  .image-preview {
+    width: 58px;
+    flex-basis: 58px;
   }
 
   .attachments-preview {
