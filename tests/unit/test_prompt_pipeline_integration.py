@@ -11,7 +11,9 @@ import pytest
 from astrbot.core import astr_main_agent as ama
 from astrbot.core.agent.agent import Agent
 from astrbot.core.agent.handoff import HandoffTool
+from astrbot.core.agent.message import Message, TextPart
 from astrbot.core.agent.tool import FunctionTool, ToolSet
+from astrbot.core.db.po import Conversation
 from astrbot.core.memory.types import (
     Experience,
     LongTermMemoryIndex,
@@ -29,7 +31,10 @@ from astrbot.core.prompt.render import (
     PromptRenderEngine,
     apply_render_result_to_request,
 )
-from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.pipeline.process_stage.method.agent_sub_stages.internal import (
+    InternalAgentSubStage,
+)
+from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 from astrbot.core.skills.skill_manager import SkillInfo
 
 
@@ -587,6 +592,74 @@ async def test_collect_render_apply_roundtrip_builds_provider_request_message_co
             "path C:/tmp/quoted.txt]"
         ),
     }
+
+
+@pytest.mark.asyncio
+async def test_internal_history_save_uses_prompt_scaffold_free_user_message():
+    stage = object.__new__(InternalAgentSubStage)
+    stage.conv_manager = MagicMock()
+    stage.conv_manager.update_conversation = AsyncMock()
+
+    event = MagicMock()
+    event.unified_msg_origin = "test_platform:private:test-session"
+
+    save_message = {
+        "role": "user",
+        "content": "Look <here> & now\n\n[Image Attachment] current image",
+    }
+
+    def _get_extra(key):
+        if key == ama.CONVERSATION_SAVE_USER_MESSAGE_EXTRA_KEY:
+            return save_message
+        return None
+
+    event.get_extra.side_effect = _get_extra
+
+    conversation = Conversation(
+        platform_id="test_platform",
+        user_id=event.unified_msg_origin,
+        cid="conv-id",
+        history="[]",
+    )
+    req = ProviderRequest(
+        prompt="<request_context><session>metadata</session></request_context>",
+        extra_user_content_parts=[
+            TextPart(
+                text=(
+                    "<user_input>\n"
+                    "  <text>Look &lt;here&gt; &amp; now</text>\n"
+                    "</user_input>"
+                )
+            )
+        ],
+        conversation=conversation,
+    )
+    current_request_message = Message.model_validate(await req.assemble_context())
+    all_messages = [
+        Message(role="system", content="system prompt"),
+        Message(role="user", content="Previous turn."),
+        Message(role="assistant", content="Previous answer."),
+        current_request_message,
+        Message(role="assistant", content="Done."),
+    ]
+
+    await stage._save_to_history(
+        event,
+        req,
+        LLMResponse(role="assistant", completion_text="Done."),
+        all_messages,
+        runner_stats=None,
+    )
+
+    _, conversation_id = stage.conv_manager.update_conversation.await_args.args
+    history = stage.conv_manager.update_conversation.await_args.kwargs["history"]
+
+    assert conversation_id == "conv-id"
+    assert history[2] == save_message
+    assert history[-1]["content"] == "Done."
+    rendered_history = json.dumps(history, ensure_ascii=False)
+    assert "<request_context>" not in rendered_history
+    assert "<user_input>" not in rendered_history
 
 
 @pytest.mark.asyncio

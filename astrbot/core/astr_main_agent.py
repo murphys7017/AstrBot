@@ -10,6 +10,7 @@ import zoneinfo
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from astrbot.core import logger
 from astrbot.core.agent.handoff import HandoffTool
@@ -127,6 +128,8 @@ from astrbot.core.utils.quoted_message_parser import (
     extract_quoted_message_text,
 )
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
+
+CONVERSATION_SAVE_USER_MESSAGE_EXTRA_KEY = "conversation_save_user_message"
 
 
 @dataclass(slots=True)
@@ -348,6 +351,101 @@ def _summarize_provider_request_for_prompt_log(
     }
 
 
+def _clean_conversation_save_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _get_context_pack_slot_value(prompt_context_pack: object, slot_name: str) -> Any:
+    slots = getattr(prompt_context_pack, "slots", None)
+    if not isinstance(slots, dict):
+        return None
+    slot = slots.get(slot_name)
+    return getattr(slot, "value", None) if slot is not None else None
+
+
+def _coerce_context_records(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _build_attachment_save_lines(
+    *,
+    records: list[dict[str, Any]],
+    label: str,
+    name_key: str | None = None,
+) -> list[str]:
+    lines: list[str] = []
+    for record in records:
+        name = _clean_conversation_save_text(record.get(name_key)) if name_key else None
+        caption = _clean_conversation_save_text(record.get("caption"))
+        line = f"[{label}: {name}]" if name else f"[{label}]"
+        if caption:
+            line = f"{line} {caption}"
+        lines.append(line)
+    return lines
+
+
+def _build_conversation_save_user_message(
+    prompt_context_pack: object,
+) -> dict[str, str] | None:
+    """Build a prompt-scaffold-free user message for conversation persistence."""
+    parts: list[str] = []
+
+    current_text = _clean_conversation_save_text(
+        _get_context_pack_slot_value(prompt_context_pack, "input.text")
+    )
+    if current_text:
+        parts.append(current_text)
+
+    quoted_text = _clean_conversation_save_text(
+        _get_context_pack_slot_value(prompt_context_pack, "input.quoted_text")
+    )
+    if quoted_text:
+        parts.append(f"[Quoted Message]\n{quoted_text}")
+
+    image_caption_by_ref: dict[str, str] = {}
+    for slot_name in ("input.image_captions", "input.quoted_image_captions"):
+        for record in _coerce_context_records(
+            _get_context_pack_slot_value(prompt_context_pack, slot_name)
+        ):
+            ref = _clean_conversation_save_text(record.get("ref"))
+            caption = _clean_conversation_save_text(record.get("caption"))
+            if ref and caption:
+                image_caption_by_ref[ref] = caption
+
+    for slot_name, label in (
+        ("input.quoted_images", "Quoted Image Attachment"),
+        ("input.images", "Image Attachment"),
+    ):
+        for record in _coerce_context_records(
+            _get_context_pack_slot_value(prompt_context_pack, slot_name)
+        ):
+            ref = _clean_conversation_save_text(record.get("ref"))
+            line = f"[{label}]"
+            if ref and ref in image_caption_by_ref:
+                line = f"{line} {image_caption_by_ref[ref]}"
+            parts.append(line)
+
+    parts.extend(
+        _build_attachment_save_lines(
+            records=_coerce_context_records(
+                _get_context_pack_slot_value(prompt_context_pack, "input.files")
+            ),
+            label="File Attachment",
+            name_key="name",
+        )
+    )
+
+    content = "\n\n".join(part for part in parts if part.strip()).strip()
+    if not content:
+        return None
+    return {"role": "user", "content": content}
+
+
 def _summarize_prompt_shadow_diff(shadow_diff: dict[str, object]) -> dict[str, object]:
     return {
         "changed": bool(shadow_diff.get("changed")),
@@ -450,6 +548,9 @@ def _apply_prompt_pipeline_visible_mode(
     apply_result = apply_render_result_to_request(render_result, provider_request)
     event.set_extra(PROMPT_RENDER_RESULT_EXTRA_KEY, render_result)
     event.set_extra(PROMPT_APPLY_RESULT_EXTRA_KEY, apply_result)
+    save_user_message = _build_conversation_save_user_message(prompt_context_pack)
+    if save_user_message is not None:
+        event.set_extra(CONVERSATION_SAVE_USER_MESSAGE_EXTRA_KEY, save_user_message)
     logger.debug(
         "Prompt apply-visible result: %s",
         json.dumps(
@@ -1371,6 +1472,7 @@ def _sanitize_context_by_modalities(
             removed_tool_calls,
         )
     req.contexts = sanitized_contexts
+
 
 def _plugin_tool_fix(event: AstrMessageEvent, req: ProviderRequest) -> None:
     """根据事件中的插件设置，过滤请求中的工具列表。

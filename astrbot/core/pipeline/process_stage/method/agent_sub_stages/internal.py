@@ -15,6 +15,7 @@ from astrbot.core.agent.message import (
 )
 from astrbot.core.agent.response import AgentStats
 from astrbot.core.astr_main_agent import (
+    CONVERSATION_SAVE_USER_MESSAGE_EXTRA_KEY,
     MainAgentBuildConfig,
     MainAgentBuildResult,
     build_main_agent,
@@ -72,6 +73,62 @@ def _serialize_final_prompt_messages(messages: list[Message]) -> tuple[str, list
     ]
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
     return rendered, payload
+
+
+def _resolve_conversation_save_user_message(event: AstrMessageEvent) -> Message | None:
+    raw_message = event.get_extra(CONVERSATION_SAVE_USER_MESSAGE_EXTRA_KEY)
+    if raw_message is None:
+        return None
+    try:
+        message = (
+            raw_message
+            if isinstance(raw_message, Message)
+            else Message.model_validate(raw_message)
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Invalid conversation save user message ignored: %s",
+            raw_message,
+            exc_info=True,
+        )
+        return None
+    if message.role != "user":
+        logger.warning(
+            "Conversation save message ignored because role is not user: %s",
+            message.role,
+        )
+        return None
+    return message
+
+
+async def _build_current_request_message_payload(
+    req: ProviderRequest,
+) -> dict | None:
+    if not (
+        req.prompt is not None
+        or req.image_urls
+        or req.audio_urls
+        or req.extra_user_content_parts
+    ):
+        return None
+    try:
+        return await req.assemble_context()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to assemble current request message for history replacement: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+def _message_matches_payload(message: Message, payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    dumped = message.model_dump(mode="json")
+    return dumped.get("role") == payload.get("role") and dumped.get(
+        "content"
+    ) == payload.get("content")
 
 
 class InternalAgentSubStage(Stage):
@@ -493,11 +550,25 @@ class InternalAgentSubStage(Stage):
             logger.debug("LLM 响应为空，不保存记录。")
             return
 
+        save_user_message = _resolve_conversation_save_user_message(event)
+        current_request_payload = None
+        if save_user_message is not None:
+            current_request_payload = await _build_current_request_message_payload(req)
+
         messages_to_save: list[Message] = []
         skipped_initial_system = False
+        save_user_message_applied = False
         for message in all_messages:
             if message.role == "system" and not skipped_initial_system:
                 skipped_initial_system = True
+                continue
+            if (
+                save_user_message is not None
+                and not save_user_message_applied
+                and _message_matches_payload(message, current_request_payload)
+            ):
+                messages_to_save.append(save_user_message)
+                save_user_message_applied = True
                 continue
             if message.role in ["assistant", "user"] and message._no_save:
                 continue
