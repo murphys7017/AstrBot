@@ -47,6 +47,18 @@ export interface ChatRecord {
   created_at?: string;
   sender_id?: string;
   sender_name?: string;
+  llm_checkpoint_id?: string | null;
+  threads?: ChatThread[];
+}
+
+export interface ChatThread {
+  thread_id: string;
+  parent_session_id: string;
+  parent_message_id: number;
+  base_checkpoint_id: string;
+  selected_text: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ChatSessionProject {
