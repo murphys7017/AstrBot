@@ -43,7 +43,9 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
                 parts.append(str(item.get("text", "") or ""))
             elif item_type == "image_url":
                 parts.append("[image]")
-        return _clean_text(_strip_system_reminder(" ".join(part for part in parts if part)))
+        return _clean_text(
+            _strip_system_reminder(" ".join(part for part in parts if part))
+        )
 
     if content is None and message.get("tool_calls"):
         return "[tool_call]"
