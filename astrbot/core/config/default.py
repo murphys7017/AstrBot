@@ -136,6 +136,16 @@ DEFAULT_CONFIG = {
         "show_tool_call_result": False,
         "buffer_intermediate_messages": False,
         "sanitize_context_by_modalities": False,
+        "prompt_selector": {
+            "enable": False,
+            "provider_id": "ollama",
+            "model": "qwen3:1.7b",
+            "timeout": 1.5,
+            "min_confidence": 0.5,
+            "fallback_profile": "balanced",
+            "recent_history_turns": 2,
+            "use_rules_first": True,
+        },
         "max_quoted_fallback_images": 20,
         "quoted_message_parser": {
             "max_component_chain_depth": 4,
@@ -3577,6 +3587,55 @@ CONFIG_METADATA_3 = {
                         "condition": {
                             "provider_settings.agent_runner_type": "local",
                         },
+                    },
+                    "provider_settings.prompt_selector.enable": {
+                        "description": "启用 Prompt 内容选择器",
+                        "type": "bool",
+                        "hint": "启用后，会在渲染前按需裁剪工具、Subagent、历史、记忆和知识库上下文，降低主模型 token 消耗。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                        },
+                        "collapsed": True,
+                    },
+                    "provider_settings.prompt_selector.provider_id": {
+                        "description": "Prompt 内容选择器提供商 ID",
+                        "type": "string",
+                        "hint": "用于分类上下文需求的小模型提供商 ID，例如 ollama。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                            "provider_settings.prompt_selector.enable": True,
+                        },
+                        "collapsed": True,
+                    },
+                    "provider_settings.prompt_selector.model": {
+                        "description": "Prompt 内容选择器模型",
+                        "type": "string",
+                        "hint": "用于分类上下文需求的小模型名称，例如 qwen3:1.7b。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                            "provider_settings.prompt_selector.enable": True,
+                        },
+                        "collapsed": True,
+                    },
+                    "provider_settings.prompt_selector.timeout": {
+                        "description": "Prompt 内容选择器超时",
+                        "type": "float",
+                        "hint": "小模型分类调用超时时间（秒），超时后回退到默认选择策略。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                            "provider_settings.prompt_selector.enable": True,
+                        },
+                        "collapsed": True,
+                    },
+                    "provider_settings.prompt_selector.recent_history_turns": {
+                        "description": "最近历史轮数",
+                        "type": "int",
+                        "hint": "当选择器判断只需要最近历史时保留的对话轮数。",
+                        "condition": {
+                            "provider_settings.agent_runner_type": "local",
+                            "provider_settings.prompt_selector.enable": True,
+                        },
+                        "collapsed": True,
                     },
                     "provider_settings.max_agent_step": {
                         "description": "工具调用轮数上限",

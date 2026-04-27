@@ -14,6 +14,7 @@ from astrbot.core.message.components import File, Image, Plain, Reply, Video
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import PlatformMetadata
 from astrbot.core.prompt.collectors import InputCollector, KnowledgeCollector
+from astrbot.core.prompt.context_types import ContextPack
 from astrbot.core.prompt.context_collect import collect_context_pack
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import ProviderRequest
@@ -78,6 +79,25 @@ def mock_event():
     event.trace = MagicMock()
     event.plugins_name = None
     return event
+
+
+def test_prompt_selection_runtime_effects_clear_tools_when_disabled():
+    req = ProviderRequest(
+        func_tool=ToolSet(
+            [
+                FunctionTool(
+                    name="test_tool",
+                    description="test",
+                    parameters={"type": "object", "properties": {}},
+                )
+            ]
+        )
+    )
+    pack = ContextPack(meta={"selection": {"tools": False, "subagent": False}})
+
+    ama._apply_prompt_selection_runtime_effects(pack, req)
+
+    assert req.func_tool is None
 
 
 @pytest.fixture

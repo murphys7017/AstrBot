@@ -64,6 +64,24 @@ class PromptSelectorInterface(ABC):
         """Select the context pack to pass into the render layer."""
         raise NotImplementedError
 
+    async def select_async(
+        self,
+        pack: ContextPack,
+        *,
+        event: AstrMessageEvent | None = None,
+        plugin_context: Context | None = None,
+        config: MainAgentBuildConfig | None = None,
+        provider_request: ProviderRequest | None = None,
+    ) -> ContextPack:
+        """Select the context pack asynchronously when a selector needs I/O."""
+        return self.select(
+            pack,
+            event=event,
+            plugin_context=plugin_context,
+            config=config,
+            provider_request=provider_request,
+        )
+
 
 class BasePromptRenderer:
     """Base rule provider for prompt rendering."""

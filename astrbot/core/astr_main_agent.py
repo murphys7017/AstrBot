@@ -44,11 +44,14 @@ from astrbot.core.prompt.context_collect import (
 from astrbot.core.prompt.render import (
     PROMPT_APPLY_RESULT_EXTRA_KEY,
     PROMPT_RENDER_RESULT_EXTRA_KEY,
+    PROMPT_SELECTED_CONTEXT_PACK_EXTRA_KEY,
     PROMPT_SHADOW_APPLY_RESULT_EXTRA_KEY,
     PROMPT_SHADOW_DIFF_EXTRA_KEY,
     PROMPT_SHADOW_PROVIDER_REQUEST_EXTRA_KEY,
     PromptRenderEngine,
     apply_render_result_to_request,
+    build_prompt_selector,
+    select_context_pack_async,
 )
 from astrbot.core.prompt.runtime_cache import (
     get_cached_file_extract,
@@ -194,6 +197,8 @@ class MainAgentBuildConfig:
     """Prompt pipeline mode: apply_visible, legacy, or shadow."""
     prompt_pipeline_strict_mode: bool = False
     """Whether to fail loudly when prompt-pipeline stages encounter errors."""
+    prompt_selector: dict = field(default_factory=dict)
+    """Prompt selector settings for context and capability exposure."""
 
 
 @dataclass(slots=True)
@@ -567,6 +572,56 @@ def _apply_prompt_pipeline_visible_mode(
             default=str,
         ),
     )
+
+
+async def _select_prompt_context_pack(
+    *,
+    event: AstrMessageEvent,
+    plugin_context: Context,
+    config: MainAgentBuildConfig,
+    provider_request: ProviderRequest,
+    prompt_context_pack,
+):
+    selector = build_prompt_selector(config)
+    selected_pack = await select_context_pack_async(
+        prompt_context_pack,
+        selector=selector,
+        event=event,
+        plugin_context=plugin_context,
+        config=config,
+        provider_request=provider_request,
+    )
+    event.set_extra(PROMPT_SELECTED_CONTEXT_PACK_EXTRA_KEY, selected_pack)
+    return selected_pack
+
+
+def _apply_prompt_selection_runtime_effects(
+    selected_prompt_context_pack,
+    provider_request: ProviderRequest,
+) -> None:
+    selection = getattr(selected_prompt_context_pack, "meta", {}).get("selection")
+    if not isinstance(selection, dict):
+        return
+
+    keep_tools = bool(selection.get("tools", True))
+    keep_subagent = bool(selection.get("subagent", True))
+    toolset = provider_request.func_tool
+    if toolset is None or toolset.empty():
+        return
+
+    if not keep_tools and not keep_subagent:
+        provider_request.func_tool = None
+        return
+
+    for tool in list(toolset.tools):
+        is_handoff = isinstance(tool, HandoffTool)
+        if is_handoff and not keep_subagent:
+            toolset.remove_tool(tool.name)
+        elif not is_handoff and not keep_tools:
+            toolset.remove_tool(tool.name)
+
+    if toolset.empty():
+        provider_request.func_tool = None
 
 
 async def _apply_kb(
@@ -2030,8 +2085,32 @@ async def build_main_agent(
         req.system_prompt += f"\n{LIVE_MODE_SYSTEM_PROMPT}\n"
 
     prompt_pipeline_mode = _resolve_prompt_pipeline_mode(config)
-
-    if prompt_pipeline_mode == "shadow" and prompt_context_pack is not None:
+    selected_prompt_context_pack = prompt_context_pack
+    if (
+        prompt_pipeline_mode in {"shadow", "apply_visible"}
+        and prompt_context_pack is not None
+    ):
+        try:
+            selected_prompt_context_pack = await _select_prompt_context_pack(
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider_request=req,
+                prompt_context_pack=prompt_context_pack,
+            )
+        except Exception as exc:  # noqa: BLE001
+            selected_prompt_context_pack = prompt_context_pack
+            handle_prompt_pipeline_failure(
+                strict=is_prompt_pipeline_strict(config),
+                message=f"Failed to select prompt context pack: {exc}",
+                exc=exc,
+                log_failure=lambda exc=exc: logger.warning(
+                    "Failed to select prompt context pack: %s",
+                    exc,
+                    exc_info=True,
+                ),
+            )
+    if prompt_pipeline_mode == "shadow" and selected_prompt_context_pack is not None:
         try:
             _run_prompt_pipeline_shadow_mode(
                 event=event,
@@ -2039,7 +2118,7 @@ async def build_main_agent(
                 config=config,
                 provider=provider,
                 provider_request=req,
-                prompt_context_pack=prompt_context_pack,
+                prompt_context_pack=selected_prompt_context_pack,
             )
         except Exception as exc:  # noqa: BLE001
             handle_prompt_pipeline_failure(
@@ -2052,14 +2131,18 @@ async def build_main_agent(
                     exc_info=True,
                 ),
             )
-    elif prompt_pipeline_mode == "apply_visible" and prompt_context_pack is not None:
+    elif (
+        prompt_pipeline_mode == "apply_visible"
+        and selected_prompt_context_pack is not None
+    ):
         try:
+            _apply_prompt_selection_runtime_effects(selected_prompt_context_pack, req)
             _apply_prompt_pipeline_visible_mode(
                 event=event,
                 plugin_context=plugin_context,
                 config=config,
                 provider_request=req,
-                prompt_context_pack=prompt_context_pack,
+                prompt_context_pack=selected_prompt_context_pack,
             )
             _modalities_fix(provider, req)
             _sanitize_context_by_modalities(config, provider, req)
