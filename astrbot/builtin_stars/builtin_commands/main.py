@@ -64,17 +64,6 @@ class Main(star.Star):
         await self.provider_c.provider(event, idx, idx2)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("provider")
-    async def provider(
-        self,
-        event: AstrMessageEvent,
-        idx: str | int | None = None,
-        idx2: int | None = None,
-    ) -> None:
-        """View or switch LLM Provider"""
-        await self.provider_c.provider(event, idx, idx2)
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("dashboard_update")
     async def update_dashboard(self, event: AstrMessageEvent) -> None:
         """Update AstrBot WebUI"""
