@@ -90,8 +90,7 @@ class XinferenceRerankProvider(RerankProvider):
         top_n: int | None = None,
     ) -> list[RerankResult]:
         if not self.model:
-            logger.error("Xinference rerank model is not initialized.")
-            return []
+            raise RuntimeError("Xinference rerank model is not initialized")
         try:
             response = await self.model.rerank(documents, query, top_n)
             results = response.get("results", [])
@@ -112,7 +111,7 @@ class XinferenceRerankProvider(RerankProvider):
         except Exception as e:
             logger.error(f"Xinference rerank failed: {e}")
             logger.debug(f"Xinference rerank failed with exception: {e}", exc_info=True)
-            return []
+            raise
 
     async def terminate(self) -> None:
         """关闭客户端会话"""
