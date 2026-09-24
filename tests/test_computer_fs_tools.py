@@ -298,6 +298,49 @@ async def test_file_read_tool_rejects_large_full_text_read_before_local_stream_r
 
 
 @pytest.mark.asyncio
+async def test_file_edit_preserves_literal_escape_sequences(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    workspace = _setup_local_fs_tools(monkeypatch, tmp_path)
+    source = 'def greet():\n    print("hello\\n")\n'
+    source_path = workspace / "greet.py"
+    source_path.write_text(source, encoding="utf-8")
+
+    result = await fs_tools.FileEditTool().call(
+        _make_context(),
+        path="greet.py",
+        old='print("hello\\n")',
+        new='print("goodbye\\n")',
+    )
+
+    assert "Replaced 1 occurrence" in result
+    assert source_path.read_text(encoding="utf-8") == (
+        'def greet():\n    print("goodbye\\n")\n'
+    )
+
+
+@pytest.mark.asyncio
+async def test_file_edit_decodes_escapes_when_literal_text_does_not_match(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    workspace = _setup_local_fs_tools(monkeypatch, tmp_path)
+    notes_path = workspace / "notes.txt"
+    notes_path.write_text("alpha\nbeta\n", encoding="utf-8")
+
+    result = await fs_tools.FileEditTool().call(
+        _make_context(),
+        path="notes.txt",
+        old="alpha\\nbeta",
+        new="alpha\\ngamma",
+    )
+
+    assert "Replaced 1 occurrence" in result
+    assert notes_path.read_text(encoding="utf-8") == "alpha\ngamma\n"
+
+
+@pytest.mark.asyncio
 async def test_file_read_tool_allows_partial_read_for_large_text_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
