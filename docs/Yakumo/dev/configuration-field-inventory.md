@@ -61,10 +61,11 @@
 `GroupChatContext`：它同时服务 Prompt Extension、外部 Agent Runner 请求装饰和
 发送后游标推进，不再存在第二条旧的内存记录/图片转述链路。
 
-对 `DEFAULT_CONFIG` 叶子字段与 `astrbot/` Python 消费者的静态交叉检查已完成。
-除公开格式标记 `config_version` 外，每个默认叶子字段均存在业务读取者；
-`config_version` 已按上表保留，不能仅凭当前没有业务读取者删除。本轮没有发现第二个
-可在不改变外部接口或平台行为的前提下直接删除的核心字段。
+对 `DEFAULT_CONFIG` 叶子字段与 `astrbot/` Python 的静态 key 读取匹配已完成。
+除公开格式标记 `config_version` 外，每个默认叶子字段至少存在一个源码读取匹配；
+该结果只用于缩小候选范围，不能把迁移、默认值或同名字段误判为路径级业务消费者。
+`config_version` 已按上表保留，不能仅凭当前没有业务读取者删除。后续删除仍须逐项核对
+真实调用链、配置元数据、Dashboard 与迁移器；本轮未发现可以仅凭静态匹配安全删除的字段。
 
 ## 下一批范围
 
