@@ -1488,6 +1488,51 @@ async def test_parse_openai_completion_raises_empty_model_output_error():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "reasoning_field", "answer", "reasoning"),
+    [
+        ("<thinking>step 1</thinking>Answer", None, "Answer", "step 1"),
+        ("<think>One</think><thinking>Two</thinking>Answer", None, "Answer", "One\nTwo"),
+        ("Answer</thinking>", None, "Answer", None),
+        ("<thinking>Inline</thinking>Answer", "Structured", "Answer", "Structured"),
+    ],
+)
+async def test_parse_openai_completion_extracts_compatible_thinking_tags(
+    content, reasoning_field, answer, reasoning
+):
+    provider = _make_provider()
+    try:
+        message = {"role": "assistant", "content": content}
+        if reasoning_field is not None:
+            message["reasoning_content"] = reasoning_field
+        completion = ChatCompletion.model_validate(
+            {
+                "id": "thinking-tags",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": message,
+                    }
+                ],
+            }
+        )
+
+        response = await provider._parse_openai_completion(completion, tools=None)
+
+        assert response.completion_text == answer
+        if reasoning is not None:
+            assert response.reasoning_content == reasoning
+        else:
+            assert not response.reasoning_content
+    finally:
+        await provider.terminate()
+
+
+@pytest.mark.asyncio
 async def test_parse_openai_completion_reads_nested_data_choices():
     provider = _make_provider()
     try:
