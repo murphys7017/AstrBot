@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from PIL import Image
 from google.genai import types
+from PIL import Image
 
 import astrbot.core.provider.sources.gemini_source as gemini_source
 from astrbot.core.exceptions import EmptyModelOutputError
@@ -304,3 +304,91 @@ async def test_prepare_conversation_skips_duplicate_empty_thought_part_when_tool
     assert len(parts) == 1
     assert parts[0].function_call is not None
     assert parts[0].function_call.name == "weather"
+
+
+@pytest.mark.asyncio
+async def test_gemini_stream_keeps_narration_before_tool_call():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+    provider._prepare_conversation = AsyncMock(return_value=[])
+    provider._prepare_query_config = AsyncMock(return_value=None)
+
+    def part(*, text=None, thought=False, function_call=None):
+        return SimpleNamespace(
+            text=text,
+            thought=thought,
+            function_call=function_call,
+            inline_data=None,
+            thought_signature=None,
+        )
+
+    chunks = [
+        SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            part(text="I'll check that."),
+                            part(text="earlier thought", thought=True),
+                        ]
+                    ),
+                    finish_reason=None,
+                )
+            ],
+            text="I'll check that.",
+            response_id="response-1",
+            usage_metadata=None,
+        ),
+        SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            part(text="tool reasoning", thought=True),
+                            part(
+                                function_call=SimpleNamespace(
+                                    name="get_weather",
+                                    args={"city": "Shenyang"},
+                                    id="call-1",
+                                )
+                            ),
+                        ]
+                    ),
+                    finish_reason=None,
+                )
+            ],
+            text=None,
+            response_id="response-2",
+            usage_metadata=None,
+        ),
+    ]
+
+    async def generate_content_stream(**_kwargs):
+        async def stream():
+            for chunk in chunks:
+                yield chunk
+
+        return stream()
+
+    provider.client = SimpleNamespace(
+        models=SimpleNamespace(generate_content_stream=generate_content_stream)
+    )
+    responses = [
+        response
+        async for response in provider._query_stream(
+            payloads={
+                "messages": [{"role": "user", "content": "What's the weather?"}],
+                "model": "gemini-test",
+            },
+            tools=None,
+        )
+    ]
+
+    final = responses[-1]
+    assert final.is_chunk is False
+    assert final.tools_call_name == ["get_weather"]
+    assert final.reasoning_content == "earlier thoughttool reasoning"
+    assert final.result_chain.chain[0].text == "I'll check that."

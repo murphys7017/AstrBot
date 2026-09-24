@@ -784,6 +784,15 @@ class ProviderGoogleGenAI(Provider):
                     llm_response,
                     validate_output=False,
                 )
+                if accumulated_text or accumulated_reasoning:
+                    parts = list(llm_response.result_chain.chain or [])
+                    if accumulated_text:
+                        parts.insert(0, Comp.Plain(accumulated_text))
+                        llm_response.result_chain = MessageChain(chain=parts)
+                    if accumulated_reasoning:
+                        llm_response.reasoning_content = accumulated_reasoning + (
+                            llm_response.reasoning_content or ""
+                        )
                 llm_response.id = chunk.response_id
                 if chunk.usage_metadata:
                     llm_response.usage = self._extract_usage(chunk.usage_metadata)
