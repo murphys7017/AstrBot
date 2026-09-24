@@ -313,13 +313,13 @@ class AiocqhttpAdapter(Platform):
                             if abm.type == MessageType.GROUP_MESSAGE:
                                 ret = await self.bot.call_action(
                                     action="get_group_file_url",
-                                    file_id=event.message[0]["data"]["file_id"],
+                                    file_id=m["data"]["file_id"],
                                     group_id=event.group_id,
                                 )
                             elif abm.type == MessageType.FRIEND_MESSAGE:
                                 ret = await self.bot.call_action(
                                     action="get_private_file_url",
-                                    file_id=event.message[0]["data"]["file_id"],
+                                    file_id=m["data"]["file_id"],
                                 )
                             if ret and "url" in ret:
                                 file_url = ret["url"]  # https
