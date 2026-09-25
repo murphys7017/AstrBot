@@ -722,9 +722,6 @@ export default {
                         params.search = this.search.trim();
                     }
 
-                    // 添加排除条件
-                    params.exclude_ids = 'astrbot';
-
                     const response = await axios.get('/api/conversation/list', {
                         signal: controller.signal,
                         params
