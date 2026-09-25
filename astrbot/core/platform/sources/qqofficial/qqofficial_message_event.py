@@ -101,6 +101,19 @@ class QQOfficialMessageEvent(AstrMessageEvent):
         self.send_buffer = message
         await self._post_send()
 
+    async def _close_stream_segment(self, stream_payload: dict):
+        stream_payload["state"] = 10
+        has_content = self.send_buffer is not None and any(
+            (isinstance(component, Plain) and component.text)
+            or not isinstance(component, Plain)
+            for component in self.send_buffer.chain
+        )
+        if not has_content:
+            if stream_payload.get("id") is None:
+                return None
+            self.send_buffer = MessageChain(chain=[Plain(text="\n")])
+        return await self._post_send(stream=stream_payload)
+
     async def send_streaming(self, generator, use_fallback: bool = False):
         """流式输出仅支持消息列表私聊（C2C），其他消息源退化为普通发送"""
         # 先标记事件层“已执行发送操作”，避免异常路径遗漏
@@ -126,9 +139,10 @@ class QQOfficialMessageEvent(AstrMessageEvent):
 
                 # tool_call break 信号：工具开始执行，先把已有 buffer 以 state=10 结束当前流式段
                 if chain.type == "break":
-                    if self.send_buffer:
-                        stream_payload["state"] = 10
-                        ret = await self._post_send(stream=stream_payload)
+                    if (self.send_buffer and self.send_buffer.chain) or (
+                        stream_payload.get("id") is not None
+                    ):
+                        ret = await self._close_stream_segment(stream_payload)
                         ret_id = self._extract_response_message_id(ret)
                         if ret_id is not None:
                             stream_payload["id"] = ret_id
@@ -160,9 +174,7 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                     self.send_buffer = None  # 清空已发送的分片，避免下次重复发送旧内容
 
             if isinstance(source, botpy.message.C2CMessage):
-                # 结束流式对话，发送 buffer 中剩余内容
-                stream_payload["state"] = 10
-                ret = await self._post_send(stream=stream_payload)
+                ret = await self._close_stream_segment(stream_payload)
             else:
                 ret = await self._post_send()
 

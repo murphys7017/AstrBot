@@ -1,3 +1,5 @@
+import pytest
+
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Plain
 from astrbot.core.platform.sources.qqofficial.qqofficial_message_event import (
@@ -18,3 +20,25 @@ def test_qqofficial_stream_buffer_owns_each_plain_delta():
 
     texts = [component.text for component in event.send_buffer.chain]
     assert texts == ["不", "稀", "罕"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plain_empty", [False, True])
+async def test_qqofficial_closes_open_stream_with_minimal_newline(
+    monkeypatch, plain_empty
+):
+    event = object.__new__(QQOfficialMessageEvent)
+    event.send_buffer = MessageChain(chain=[Plain("")]) if plain_empty else None
+    calls = []
+
+    async def post_send(*, stream=None):
+        calls.append((stream.copy(), [part.text for part in event.send_buffer.chain]))
+        event.send_buffer = None
+        return None
+
+    monkeypatch.setattr(event, "_post_send", post_send)
+    payload = {"state": 1, "id": "message-1", "index": 1}
+
+    await event._close_stream_segment(payload)
+
+    assert calls == [({"state": 10, "id": "message-1", "index": 1}, ["\n"])]
