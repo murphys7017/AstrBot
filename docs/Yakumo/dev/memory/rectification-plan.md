@@ -49,7 +49,7 @@ Phase 4 已同时完成读取与写入：`memory.recall.scope_priority` 控制�
 
 将 semantic payload 与内部 provenance 分成两个明确结构。MemoryCollector 默认只序列化语义字段，调试字段也不得默认进入模型 Prompt。`MemoryJobScheduler` 统一承载短期更新后的 consolidation、promotion、Recall refresh、dirty vector sync 和 PersonaState reflection。任务按 scope 串行、按 dedupe key 合并，并消费后台异常形成诊断；Recall 仍保持 stale-while-revalidate，dirty vector sync 提供显式的非等待提交入口。
 
-`MemoryService.update_from_postprocess()` 保留两种明确语义：生产 Postprocessor 传入 `background_jobs=True`，只完成回合与短期写入并提交后台任务；其他直接调用默认同步执行 scope job，并继续传播 analyzer/整理异常，保持管理和测试入口的可观察行为。
+`MemoryService.update_from_postprocess()` 保留两种明确语义：生产 Postprocessor 传入 `background_jobs=True`，只持久化 `TurnRecord` 并按会话提交短期更新任务；任务从存储重读该回合，再串行更新短期状态并提交作用域整理。其他直接调用默认同步完成短期与 scope job，并继续传播 analyzer/整理异常，保持管理和测试入口的可观察行为。
 
 ### Phase 6：删除旧路径并更新文档
 

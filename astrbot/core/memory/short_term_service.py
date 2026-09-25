@@ -126,6 +126,22 @@ class ShortTermMemoryService:
             turn.umo,
             turn.conversation_id,
         )
+        existing_topic = await self.store.get_topic_state(
+            turn.umo,
+            turn.conversation_id,
+        )
+        if _turn_is_older_than_state(turn, existing_short_term, existing_topic):
+            logger.info(
+                "memory short-term update skipped stale turn: turn_id=%s umo=%s conversation_id=%s "
+                "turn_timestamp=%s short_term_timestamp=%s topic_timestamp=%s",
+                turn.turn_id,
+                turn.umo,
+                turn.conversation_id,
+                turn.message_timestamp,
+                existing_short_term.updated_at if existing_short_term else None,
+                existing_topic.last_active_at if existing_topic else None,
+            )
+            return existing_topic, existing_short_term
         if not await self._should_update_after_turn(turn, existing_short_term):
             logger.info(
                 "memory short-term update skipped by frequency: umo=%s conversation_id=%s interval=%s min_chars=%s",
@@ -134,11 +150,7 @@ class ShortTermMemoryService:
                 self.short_term_config.update_interval_turns,
                 self.short_term_config.update_min_chars,
             )
-            topic_state = await self.store.get_topic_state(
-                turn.umo,
-                turn.conversation_id,
-            )
-            return topic_state, existing_short_term
+            return existing_topic, existing_short_term
 
         recent_payloads = await self.history_source.get_recent_turn_payloads(
             conversation_history=conversation_history,
@@ -414,3 +426,20 @@ def _build_dialogue_lines(recent_turns: list[dict[str, str]]) -> list[str]:
         if turn.get("assistant"):
             lines.append(f"Assistant: {turn['assistant']}")
     return lines
+
+
+def _turn_is_older_than_state(
+    turn: TurnRecord,
+    short_term_memory: ShortTermMemory | None,
+    topic_state: TopicState | None,
+) -> bool:
+    """Prevent an out-of-order background turn from moving state backwards."""
+    state_timestamps = [
+        timestamp
+        for timestamp in (
+            short_term_memory.updated_at if short_term_memory else None,
+            topic_state.last_active_at if topic_state else None,
+        )
+        if timestamp is not None
+    ]
+    return bool(state_timestamps) and turn.message_timestamp < max(state_timestamps)

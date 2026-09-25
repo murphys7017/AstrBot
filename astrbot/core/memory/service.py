@@ -134,11 +134,40 @@ class MemoryService:
                 turn.conversation_id,
             )
             return turn
-        conversation_history = _get_conversation_history(req.provider_request)
-        await self.short_term_service.update_after_turn(
-            turn,
-            conversation_history=conversation_history,
+        if background_jobs:
+            await self.job_scheduler.submit(self._build_turn_update_job(turn))
+        else:
+            await self._run_turn_update(turn, background_jobs=False)
+        return turn
+
+    def _build_turn_update_job(self, turn: TurnRecord) -> MemoryScopeJob:
+        return MemoryScopeJob(
+            owner_id=turn.umo,
+            scope_type=ScopeType.CONVERSATION.value,
+            scope_id=turn.conversation_id or "__default__",
+            conversation_id=turn.conversation_id,
+            umo=turn.umo,
+            kind="turn_update",
+            dedupe_key=turn.turn_id,
+            payload=turn.turn_id,
         )
+
+    async def _run_turn_update(
+        self,
+        turn: TurnRecord,
+        *,
+        background_jobs: bool,
+    ) -> None:
+        """Update short-term state from persisted turns, then fan out scopes."""
+        await self.short_term_service.update_after_turn(turn)
+        await self._submit_scope_jobs(turn, background_jobs=background_jobs)
+
+    async def _submit_scope_jobs(
+        self,
+        turn: TurnRecord,
+        *,
+        background_jobs: bool,
+    ) -> None:
         contribution_refs = (
             turn.scope_context.contribution_refs()
             if turn.scope_context is not None
@@ -168,7 +197,7 @@ class MemoryService:
                 turn.umo,
                 turn.conversation_id,
             )
-            return turn
+            return None
 
         submitted_jobs: list[MemoryScopeJob] = []
         for scope in contribution_refs:
@@ -347,6 +376,22 @@ class MemoryService:
         )
 
     async def _run_memory_job(self, job: MemoryScopeJob) -> None:
+        if job.kind == "turn_update":
+            if not isinstance(job.payload, str) or not job.payload.strip():
+                raise TypeError("memory turn update job payload is invalid")
+            turn = await self.store.get_turn_record(job.payload)
+            if turn is None:
+                raise LookupError(f"memory turn record not found: {job.payload}")
+            if not turn.user_message:
+                logger.debug(
+                    "memory short-term and mid-long pipelines skipped for persisted assistant-only "
+                    "turn: turn_id=%s umo=%s",
+                    turn.turn_id,
+                    turn.umo,
+                )
+                return
+            await self._run_turn_update(turn, background_jobs=True)
+            return
         if job.kind == "scope":
             await self._run_scope_job(job)
             return
@@ -878,14 +923,3 @@ async def shutdown_memory_service(
     for service in list(_MEMORY_SERVICES_BY_KEY.values()):
         await service.shutdown()
     _MEMORY_SERVICES_BY_KEY.clear()
-
-
-def _get_conversation_history(
-    provider_request: dict[str, Any] | None,
-) -> list[dict[str, Any]] | None:
-    if not isinstance(provider_request, dict):
-        return None
-    history = provider_request.get("conversation_history")
-    if isinstance(history, list):
-        return [item for item in history if isinstance(item, dict)]
-    return None
