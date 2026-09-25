@@ -35,11 +35,7 @@ def build_default_memory_config_payload() -> dict:
             "enabled": True,
             "bindings": [],
         },
-        "storage": {
-            "sqlite_path": "data/memory/memory.db",
-            "docs_root": "data/memory/long_term",
-            "projections_root": "data/memory/projections",
-        },
+        "storage": {},
         "short_term": {
             "enabled": True,
             "recent_turns_window": 8,
@@ -86,7 +82,7 @@ def build_default_memory_config_payload() -> dict:
             "provider": "faiss",
             "provider_id": "",
             "model": "",
-            "root_dir": "data/memory/vector_index",
+            "root_dir": "",
             "experience_top_k": 5,
             "long_term_top_k": 5,
         },
@@ -109,7 +105,7 @@ def build_default_memory_config_payload() -> dict:
             "strict": True,
             "standard_provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
             "advanced_provider_id": DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
-            "prompts_root": "data/memory/prompts",
+            "prompts_root": "",
             "analyzers": {
                 analyzer_name: {
                     "enabled": True,

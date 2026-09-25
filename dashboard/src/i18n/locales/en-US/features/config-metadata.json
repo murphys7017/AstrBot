@@ -1589,23 +1589,23 @@
         },
         "storage": {
           "sqlite_path": {
-            "description": "SQLite Database Path"
+            "description": "SQLite Database Path (empty uses Profile isolation)"
           },
           "docs_root": {
-            "description": "Long-Term Memory Documents Directory"
+            "description": "Long-Term Memory Documents Directory (empty uses Profile isolation)"
           },
           "projections_root": {
-            "description": "Experience Projection Directory"
+            "description": "Experience Projection Directory (empty uses Profile isolation)"
           }
         },
         "vector_index": {
           "root_dir": {
-            "description": "Vector Index Directory"
+            "description": "Vector Index Directory (empty uses Profile isolation)"
           }
         },
         "analysis": {
           "prompts_root": {
-            "description": "Memory Analysis Prompt Directory"
+            "description": "Memory Analysis Prompt Directory (empty uses Profile isolation)"
           }
         }
       }
@@ -1698,13 +1698,13 @@
         },
         "storage": {
           "sqlite_path": {
-            "description": "SQLite Database Path"
+            "description": "SQLite Database Path (empty uses Profile isolation)"
           },
           "docs_root": {
-            "description": "Long-Term Memory Documents Directory"
+            "description": "Long-Term Memory Documents Directory (empty uses Profile isolation)"
           },
           "projections_root": {
-            "description": "Experience Projection Directory"
+            "description": "Experience Projection Directory (empty uses Profile isolation)"
           }
         },
         "persona": {

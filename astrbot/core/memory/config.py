@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -17,6 +18,17 @@ from astrbot.core.memory_config_defaults import (
     build_default_memory_config_payload,
 )
 from astrbot.core.utils.astrbot_path import get_astrbot_root
+
+_DEFAULT_MEMORY_PROFILE_ID = "default"
+_LEGACY_SHARED_MEMORY_PATHS = frozenset(
+    {
+        "data/memory/memory.db",
+        "data/memory/long_term",
+        "data/memory/projections",
+        "data/memory/vector_index",
+        "data/memory/prompts",
+    }
+)
 
 DEFAULT_MEMORY_ANALYZER_PROMPTS: dict[str, str] = {
     "topic_v1.md": """You are a memory topic analyzer.
@@ -318,7 +330,8 @@ class MemoryVectorIndexConfig:
     provider_id: str = ""
     model: str = ""
     root_dir: Path = field(
-        default_factory=lambda: resolve_memory_path("data/memory/vector_index")
+        default_factory=lambda: resolve_memory_profile_root(_DEFAULT_MEMORY_PROFILE_ID)
+        / "vector_index"
     )
     experience_top_k: int = 5
     long_term_top_k: int = 5
@@ -371,7 +384,8 @@ class MemoryAnalysisConfig:
     standard_analyzers: tuple[str, ...] = DEFAULT_MEMORY_STANDARD_ANALYZER_NAMES
     advanced_analyzers: tuple[str, ...] = DEFAULT_MEMORY_ADVANCED_ANALYZER_NAMES
     prompts_root: Path = field(
-        default_factory=lambda: resolve_memory_path("data/memory/prompts")
+        default_factory=lambda: resolve_memory_profile_root(_DEFAULT_MEMORY_PROFILE_ID)
+        / "prompts"
     )
     analyzers: dict[str, MemoryAnalyzerConfig] = field(default_factory=dict)
     stages: dict[str, MemoryAnalysisStageConfig] = field(default_factory=dict)
@@ -384,14 +398,55 @@ def resolve_memory_path(path: str | Path) -> Path:
     return (Path(get_astrbot_root()) / candidate).resolve()
 
 
+def normalize_memory_profile_id(profile_id: str | None) -> str:
+    """Return a stable, filesystem-safe Profile identifier for Memory storage."""
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "_", str(profile_id or "")).strip(
+        "_.-"
+    )
+    return normalized or _DEFAULT_MEMORY_PROFILE_ID
+
+
+def resolve_memory_profile_root(profile_id: str | None) -> Path:
+    return resolve_memory_path(
+        Path("data") / "memory" / "profiles" / normalize_memory_profile_id(profile_id)
+    )
+
+
+def _is_retired_shared_memory_path(path: str) -> bool:
+    candidate = Path(path)
+    if candidate.as_posix().lstrip("./") in _LEGACY_SHARED_MEMORY_PATHS:
+        return True
+    if not candidate.is_absolute():
+        return False
+    resolved_candidate = candidate.resolve()
+    return any(
+        resolved_candidate == resolve_memory_path(legacy_path)
+        for legacy_path in _LEGACY_SHARED_MEMORY_PATHS
+    )
+
+
+def _resolve_profile_memory_path(
+    value: object,
+    *,
+    default_path: Path,
+) -> Path:
+    configured_path = _as_str(value, "")
+    if not configured_path or _is_retired_shared_memory_path(configured_path):
+        return default_path
+    return resolve_memory_path(configured_path)
+
+
 @dataclass(slots=True)
 class MemoryConfig:
     enabled: bool = True
     storage: MemoryStorageConfig = field(
         default_factory=lambda: MemoryStorageConfig(
-            sqlite_path=resolve_memory_path("data/memory/memory.db"),
-            docs_root=resolve_memory_path("data/memory/long_term"),
-            projections_root=resolve_memory_path("data/memory/projections"),
+            sqlite_path=resolve_memory_profile_root(_DEFAULT_MEMORY_PROFILE_ID)
+            / "memory.db",
+            docs_root=resolve_memory_profile_root(_DEFAULT_MEMORY_PROFILE_ID)
+            / "long_term",
+            projections_root=resolve_memory_profile_root(_DEFAULT_MEMORY_PROFILE_ID)
+            / "projections",
         )
     )
     identity: MemoryIdentityConfig = field(default_factory=MemoryIdentityConfig)
@@ -587,6 +642,8 @@ def _load_stage_configs(payload: object) -> dict[str, MemoryAnalysisStageConfig]
 def load_memory_config(
     path: Path | None = None,
     payload: Mapping[str, object] | None = None,
+    *,
+    profile_id: str | None = None,
 ) -> MemoryConfig:
     if path is not None and payload is not None:
         raise ValueError("memory config path and payload cannot be used together")
@@ -605,6 +662,7 @@ def load_memory_config(
             ensure_memory_config_file(config_path)
         payload = load_memory_config_payload(config_path)
 
+    profile_root = resolve_memory_profile_root(profile_id)
     storage_payload = payload.get("storage", {}) if isinstance(payload, dict) else {}
     short_term_payload = (
         payload.get("short_term", {}) if isinstance(payload, dict) else {}
@@ -651,17 +709,17 @@ def load_memory_config(
             ),
         ),
         storage=MemoryStorageConfig(
-            sqlite_path=resolve_memory_path(
-                _as_str(storage_payload.get("sqlite_path"), "data/memory/memory.db")
+            sqlite_path=_resolve_profile_memory_path(
+                storage_payload.get("sqlite_path"),
+                default_path=profile_root / "memory.db",
             ),
-            docs_root=resolve_memory_path(
-                _as_str(storage_payload.get("docs_root"), "data/memory/long_term")
+            docs_root=_resolve_profile_memory_path(
+                storage_payload.get("docs_root"),
+                default_path=profile_root / "long_term",
             ),
-            projections_root=resolve_memory_path(
-                _as_str(
-                    storage_payload.get("projections_root"),
-                    "data/memory/projections",
-                )
+            projections_root=_resolve_profile_memory_path(
+                storage_payload.get("projections_root"),
+                default_path=profile_root / "projections",
             ),
         ),
         short_term=MemoryShortTermConfig(
@@ -748,10 +806,9 @@ def load_memory_config(
             provider=_as_str(vector_index_payload.get("provider"), "faiss"),
             provider_id=_as_str(vector_index_payload.get("provider_id"), ""),
             model=_as_str(vector_index_payload.get("model"), ""),
-            root_dir=resolve_memory_path(
-                _as_str(
-                    vector_index_payload.get("root_dir"), "data/memory/vector_index"
-                )
+            root_dir=_resolve_profile_memory_path(
+                vector_index_payload.get("root_dir"),
+                default_path=profile_root / "vector_index",
             ),
             experience_top_k=_as_int(
                 vector_index_payload.get("experience_top_k"),
@@ -802,8 +859,9 @@ def load_memory_config(
                 analysis_payload.get("advanced_provider_id"),
                 DEFAULT_MEMORY_ANALYZER_PROVIDER_ID,
             ),
-            prompts_root=resolve_memory_path(
-                _as_str(analysis_payload.get("prompts_root"), "data/memory/prompts")
+            prompts_root=_resolve_profile_memory_path(
+                analysis_payload.get("prompts_root"),
+                default_path=profile_root / "prompts",
             ),
             analyzers=loaded_analyzers,
             stages=loaded_stages,
@@ -896,7 +954,10 @@ def get_memory_config(
             payload = config.get("memory")
             if not isinstance(payload, Mapping):
                 raise ValueError("memory config in AstrBot config must be a mapping")
-            cached_config = load_memory_config(payload=payload)
+            cached_config = load_memory_config(
+                payload=payload,
+                profile_id=cache_key,
+            )
             _MEMORY_CONFIGS_BY_KEY[key] = cached_config
         return cached_config
 

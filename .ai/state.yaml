@@ -1,3 +1,28 @@
+memory_profile_storage_reset:
+  date: '2026-09-24'
+  class: refactor
+  risk: high
+  status: implemented_pending_manual_restart
+  scope: >-
+    Replace the shared default Core Memory storage with isolated managed roots
+    for every configuration Profile, including SQLite, documents, projections,
+    vector indexes, and analyzer prompts.
+  data_decision: >-
+    The user explicitly chose a fresh start: existing data/memory content is
+    neither imported nor deleted, and retired shared data/memory paths are not
+    a runtime fallback.
+  non_goals: >-
+    Migrate legacy memory data, change Conversation or Memory scheduling,
+    modify the independent astrbot_plugin_memory plugin, restart AstrBot, or
+    delete user data.
+  validation: >-
+    Focused Memory configuration tests passed (12). JSON parsing for all local
+    Profiles, scoped Ruff, compileall, git diff --check, and a direct
+    three-Profile path-isolation smoke passed.
+  followup: >-
+    Restart AstrBot manually and verify startup initializes each Profile under
+    data/memory/profiles/<config_id>; legacy data/memory must remain untouched.
+
 subagent_dashboard_profile_scope:
   date: '2026-09-24'
   class: bugfix

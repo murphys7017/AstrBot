@@ -104,15 +104,18 @@ Router、Planner、Persona 和 Core 不直接查询 Memory Service，只消费 P
 Memory 配置已进入 AstrBot 统一配置，不存在 `data/memory/config.yaml`。默认值由
 `memory_config_defaults.py` 提供，`get_memory_config(event_config)` 解析当前事件的有效配置。
 
-默认持久化位置：
+每个配置档默认拥有独立的持久化根目录：
 
-- `data/memory/memory.db`：结构化真源。
-- `data/memory/long_term/`：长期记忆正文。
-- `data/memory/projections/`：可审阅投影。
-- `data/memory/vector_index/`：向量索引。
+- `data/memory/profiles/<config_id>/memory.db`：结构化真源。
+- `data/memory/profiles/<config_id>/long_term/`：长期记忆正文。
+- `data/memory/profiles/<config_id>/projections/`：可审阅投影。
+- `data/memory/profiles/<config_id>/vector_index/`：向量索引。
+- `data/memory/profiles/<config_id>/prompts/`：该配置档的 Memory analyzer Prompt。
 
-这些路径可通过统一 `memory.storage` 和 `memory.vector_index` 配置覆盖。跨平台身份映射
-仅由当前 AstrBot 配置档中的 `memory.identity.bindings` 管理；Dashboard 显示的列表即运行时使用的映射。
+`memory.storage`、`memory.vector_index.root_dir` 和 `memory.analysis.prompts_root` 只有在
+显式指定非空的自定义路径时才覆盖上述默认值。此前共享的 `data/memory/*` 默认路径已退役，
+不再作为运行时兼容路径或迁移来源。跨平台身份映射仅由当前 AstrBot 配置档中的
+`memory.identity.bindings` 管理；Dashboard 显示的列表即运行时使用的映射。
 
 ## 边界约束
 

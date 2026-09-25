@@ -26,10 +26,10 @@ def test_ensure_memory_config_file_creates_default_yaml(temp_dir: Path):
     assert config_path.exists()
     content = config_path.read_text(encoding="utf-8")
     assert "storage:" in content
-    assert "sqlite_path: data/memory/memory.db" in content
+    assert "sqlite_path: data/memory/memory.db" not in content
     assert "vector_index:" in content
     assert "analysis:" in content
-    assert "prompts_root: data/memory/prompts" in content
+    assert "prompts_root: data/memory/prompts" not in content
     assert "keyword_extraction:" in content
     assert "topic_v1:" in content
     assert "focus_v1:" in content
@@ -50,26 +50,26 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "runtime-root"))
     config_path = temp_dir / "runtime" / "config.yaml"
 
-    config = load_memory_config(config_path)
+    config = load_memory_config(config_path, profile_id="test-profile")
 
     assert config_path.exists()
     assert config.enabled is True
     assert config.storage.sqlite_path == (
-        temp_dir / "runtime-root" / "data/memory/memory.db"
+        temp_dir / "runtime-root" / "data/memory/profiles/test-profile/memory.db"
     )
     assert config.storage.docs_root == (
-        temp_dir / "runtime-root" / "data/memory/long_term"
+        temp_dir / "runtime-root" / "data/memory/profiles/test-profile/long_term"
     )
     assert config.storage.projections_root == (
-        temp_dir / "runtime-root" / "data/memory/projections"
+        temp_dir / "runtime-root" / "data/memory/profiles/test-profile/projections"
     )
     assert config.vector_index.root_dir == (
-        temp_dir / "runtime-root" / "data/memory/vector_index"
+        temp_dir / "runtime-root" / "data/memory/profiles/test-profile/vector_index"
     )
     assert config.storage.docs_root.exists()
     assert config.storage.projections_root.exists()
     assert config.analysis.prompts_root == (
-        temp_dir / "runtime-root" / "data/memory/prompts"
+        temp_dir / "runtime-root" / "data/memory/profiles/test-profile/prompts"
     )
     assert config.analysis.prompts_root.exists()
     assert config.analysis.enabled is True
@@ -86,6 +86,32 @@ def test_load_memory_config_creates_missing_file_and_uses_defaults(
     assert config.analysis.standard_provider_id == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
     assert config.analysis.advanced_provider_id == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
     assert config.analysis.analyzers["topic_v1"].model is None
+
+
+def test_load_memory_config_retires_shared_paths_per_profile(temp_dir: Path, monkeypatch):
+    monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "astrbot-root"))
+    payload = build_default_memory_config_payload()
+    payload["storage"] = {
+        "sqlite_path": str(temp_dir / "astrbot-root" / "data/memory/memory.db"),
+        "docs_root": "data/memory/long_term",
+        "projections_root": "data/memory/projections",
+    }
+    payload["vector_index"]["root_dir"] = "data/memory/vector_index"
+    payload["analysis"]["prompts_root"] = "data/memory/prompts"
+
+    first = load_memory_config(payload=payload, profile_id="first")
+    second = load_memory_config(payload=payload, profile_id="second")
+
+    first_root = temp_dir / "astrbot-root" / "data/memory/profiles/first"
+    second_root = temp_dir / "astrbot-root" / "data/memory/profiles/second"
+    assert first.storage.sqlite_path == first_root / "memory.db"
+    assert first.storage.docs_root == first_root / "long_term"
+    assert first.vector_index.root_dir == first_root / "vector_index"
+    assert first.analysis.prompts_root == first_root / "prompts"
+    assert second.storage.sqlite_path == second_root / "memory.db"
+    assert second.storage.docs_root == second_root / "long_term"
+    assert second.vector_index.root_dir == second_root / "vector_index"
+    assert second.analysis.prompts_root == second_root / "prompts"
 
 
 def test_default_memory_analyzer_prompts_include_score_ranges():
@@ -229,15 +255,13 @@ def test_build_default_memory_config_payload_contains_expected_sections():
         "analysis",
     }
     assert payload["enabled"] is default_config.enabled
-    assert payload["storage"]["sqlite_path"] == "data/memory/memory.db"
-    assert payload["storage"]["docs_root"] == "data/memory/long_term"
-    assert payload["storage"]["projections_root"] == "data/memory/projections"
+    assert payload["storage"] == {}
     assert payload["identity"]["bindings"] == []
-    assert payload["vector_index"]["root_dir"] == "data/memory/vector_index"
+    assert payload["vector_index"]["root_dir"] == ""
     assert payload["keyword_extraction"]["enabled"] is True
     assert payload["keyword_extraction"]["implementation"] == "jieba_tfidf"
     assert payload["keyword_extraction"]["top_k"] == 12
-    assert payload["analysis"]["prompts_root"] == "data/memory/prompts"
+    assert payload["analysis"]["prompts_root"] == ""
     assert (
         payload["analysis"]["standard_provider_id"]
         == DEFAULT_MEMORY_ANALYZER_PROVIDER_ID
@@ -440,5 +464,33 @@ def test_get_memory_config_reuses_explicit_config_cache_key(temp_dir: Path):
         )
 
         assert second is first
+    finally:
+        reset_memory_config()
+
+
+def test_get_memory_config_uses_distinct_managed_roots_per_profile(
+    temp_dir: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("ASTRBOT_ROOT", str(temp_dir / "astrbot-root"))
+    reset_memory_config()
+    try:
+        first = get_memory_config(
+            {"memory": build_default_memory_config_payload()},
+            cache_key="first-profile",
+        )
+        second = get_memory_config(
+            {"memory": build_default_memory_config_payload()},
+            cache_key="second-profile",
+        )
+
+        assert first.storage.sqlite_path == (
+            temp_dir / "astrbot-root" / "data/memory/profiles/first-profile/memory.db"
+        )
+        assert second.storage.sqlite_path == (
+            temp_dir / "astrbot-root" / "data/memory/profiles/second-profile/memory.db"
+        )
+        assert first.vector_index.root_dir != second.vector_index.root_dir
+        assert first.analysis.prompts_root != second.analysis.prompts_root
     finally:
         reset_memory_config()

@@ -4903,27 +4903,27 @@ CONFIG_METADATA_3 = {
                         "collapsed": True,
                     },
                     "memory.storage.sqlite_path": {
-                        "description": "SQLite 数据库路径",
+                        "description": "SQLite 数据库路径（留空时按配置档隔离）",
                         "type": "string",
                         "collapsed": True,
                     },
                     "memory.storage.docs_root": {
-                        "description": "长期记忆文档目录",
+                        "description": "长期记忆文档目录（留空时按配置档隔离）",
                         "type": "string",
                         "collapsed": True,
                     },
                     "memory.storage.projections_root": {
-                        "description": "经验投影目录",
+                        "description": "经验投影目录（留空时按配置档隔离）",
                         "type": "string",
                         "collapsed": True,
                     },
                     "memory.vector_index.root_dir": {
-                        "description": "向量索引目录",
+                        "description": "向量索引目录（留空时按配置档隔离）",
                         "type": "string",
                         "collapsed": True,
                     },
                     "memory.analysis.prompts_root": {
-                        "description": "记忆分析 Prompt 目录",
+                        "description": "记忆分析 Prompt 目录（留空时按配置档隔离）",
                         "type": "string",
                         "collapsed": True,
                     },
