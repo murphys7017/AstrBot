@@ -1532,6 +1532,19 @@ async def test_parse_openai_completion_extracts_compatible_thinking_tags(
         await provider.terminate()
 
 
+@pytest.mark.parametrize(
+    "api_base",
+    [None, ""],
+)
+@pytest.mark.asyncio
+async def test_empty_api_base_uses_default_openai_endpoint(api_base):
+    provider = _make_provider({"api_base": api_base})
+    try:
+        assert provider.client.base_url == "https://api.openai.com/v1/"
+    finally:
+        await provider.terminate()
+
+
 @pytest.mark.asyncio
 async def test_parse_openai_completion_reads_nested_data_choices():
     provider = _make_provider()
