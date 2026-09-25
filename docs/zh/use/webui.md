@@ -46,6 +46,17 @@ ChatUI 支持以下常用能力：
 
 ![alt text](https://files.astrbot.app/docs/source/images/webui/image-5.png)
 
+全局设置位于左下角 `设置`，不在配置文件选择器中：
+
+- `常规`：时区、外部回调地址、日志和缓存。
+- `外观`：侧边栏、主题和文本转图像。
+- `网络`：HTTP 代理、Python 依赖源和 GitHub 加速地址。Docker 下的代理填法见 [Docker 部署](/deploy/astrbot/docker.md)。
+- `安全`：WebUI HTTPS、登录限速和 TOTP。
+- `维护`：备份、恢复和重启。
+- `OpenAPI`：开发者访问密钥。
+
+系统配置修改后自动保存，请确认保存成功提示；如果页面提示需要重启，再按提示重启 AstrBot。
+
 ## 插件
 
 在管理面板中，你可以通过左栏的 `插件` 来查看已安装的插件，以及安装新插件。

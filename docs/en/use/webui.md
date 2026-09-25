@@ -46,6 +46,17 @@ After editing, first click `Apply This Configuration`, which will apply the conf
 
 ![alt text](https://files.astrbot.app/docs/source/images/webui/image-5.png)
 
+Global settings are under `Settings` at the bottom of the sidebar:
+
+- `General`: timezone, external callback address, logs, and cache.
+- `Appearance`: sidebar, theme, and text-to-image rendering.
+- `Network`: HTTP proxy, Python package sources, and GitHub proxy. For the address to use when AstrBot runs in Docker, see [Deploy with Docker](/en/deploy/astrbot/docker.md).
+- `Security`: WebUI HTTPS, login rate limits, and TOTP.
+- `Maintenance`: backup, restore, and restart.
+- `OpenAPI`: developer access keys.
+
+System configuration changes save automatically. Check for a successful save message and restart AstrBot if the page indicates that a restart is required.
+
 ## Plugins
 
 In the admin panel, you can view installed plugins and install new plugins through the `Plugins` section in the left sidebar.
