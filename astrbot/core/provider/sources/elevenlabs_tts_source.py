@@ -116,6 +116,7 @@ class ProviderElevenLabsTTSAPI(TTSProvider):
         if proxy:
             logger.info("[ElevenLabs TTS] Using proxy: %s", proxy)
         self.client = httpx.AsyncClient(
+            headers=self.request_headers,
             timeout=_normalize_timeout(provider_config.get("timeout", 20)),
             proxy=proxy or None,
             trust_env=False,

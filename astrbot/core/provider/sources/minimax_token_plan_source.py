@@ -66,7 +66,7 @@ class ProviderMiniMaxTokenPlan(ProviderAnthropic):
             logger.warning("No API key configured for MiniMax Token Plan.")
             return MINIMAX_TOKEN_PLAN_MODELS.copy()
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(headers=self.request_headers) as client:
                 resp = await client.get(
                     "https://api.minimaxi.com/v1/models",
                     headers={"Authorization": f"Bearer {key}"},
