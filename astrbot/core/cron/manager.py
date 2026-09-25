@@ -278,6 +278,12 @@ class CronJobManager:
         async with self._job_lock:
             if self._closing:
                 raise RuntimeError("Cron manager is shutting down")
+            current_job = await self.db.get_cron_job(job_id)
+            if not current_job:
+                return None
+            candidate = current_job.model_copy(update=kwargs)
+            if candidate.enabled:
+                self._build_trigger(candidate)
             kwargs.update(
                 status="scheduled",
                 last_execution_id=None,
@@ -344,6 +350,27 @@ class CronJobManager:
             self.scheduler.start()
             self._started = True
         try:
+            trigger = self._build_trigger(job)
+            scheduler_id = self._scheduler_job_id(job.job_id, job.revision)
+            self.scheduler.add_job(
+                self._run_job,
+                id=scheduler_id,
+                trigger=trigger,
+                args=[job.job_id],
+                kwargs={"scheduled_revision": job.revision},
+                replace_existing=True,
+                misfire_grace_time=30,
+            )
+            self._scheduled_job_ids[job.job_id] = scheduler_id
+            job.next_run_time = self._get_next_run_time(job.job_id)
+        except (ValueError, TypeError) as e:
+            logger.exception("Failed to schedule cron job %s", job.job_id)
+            raise CronJobSchedulingError(str(e)) from e
+
+    @staticmethod
+    def _build_trigger(job: CronJob) -> CronTrigger | DateTrigger:
+        """Validate a schedule without mutating the scheduler or stored job."""
+        try:
             tzinfo = None
             if job.timezone:
                 try:
@@ -386,20 +413,9 @@ class CronJobManager:
                     normalized_cron_expression,
                     timezone=tzinfo,
                 )
-            scheduler_id = self._scheduler_job_id(job.job_id, job.revision)
-            self.scheduler.add_job(
-                self._run_job,
-                id=scheduler_id,
-                trigger=trigger,
-                args=[job.job_id],
-                kwargs={"scheduled_revision": job.revision},
-                replace_existing=True,
-                misfire_grace_time=30,
-            )
-            self._scheduled_job_ids[job.job_id] = scheduler_id
-            job.next_run_time = self._get_next_run_time(job.job_id)
+            return trigger
         except (ValueError, TypeError) as e:
-            logger.exception("Failed to schedule cron job %s", job.job_id)
+            logger.exception("Failed to build trigger for cron job %s", job.job_id)
             raise CronJobSchedulingError(str(e)) from e
 
     def _get_next_run_time(self, job_id: str):

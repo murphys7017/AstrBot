@@ -448,6 +448,7 @@ class TestUpdateJob:
             cron_expression="0 10 * * *",
             enabled=False,  # Disabled to avoid scheduling
         )
+        mock_db.get_cron_job.return_value = sample_cron_job
         mock_db.update_cron_job.return_value = updated_job
 
         result = await cron_manager.update_job("test-job-id", name="Updated Job")
@@ -458,11 +459,45 @@ class TestUpdateJob:
     @pytest.mark.asyncio
     async def test_update_job_not_found(self, cron_manager, mock_db):
         """Test updating a non-existent job."""
+        mock_db.get_cron_job.return_value = None
         mock_db.update_cron_job.return_value = None
 
         result = await cron_manager.update_job("non-existent", name="Updated")
 
         assert result is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_edit_preserves_persisted_and_scheduled_job(tmp_path):
+    db = SQLiteDatabase(str(tmp_path / "cron-edit.db"))
+    await db.initialize()
+    manager = CronJobManager(db)
+    await manager.start(MagicMock())
+    manager.scheduler.pause()
+    try:
+        job = await manager.add_active_job(
+            name="Daily reminder",
+            cron_expression="0 9 * * 1",
+            timezone="UTC",
+            payload={"note": "Send the report", "session": "test:Friend:user"},
+        )
+        scheduled = manager.scheduler.get_job(
+            manager._scheduled_job_ids[job.job_id]
+        )
+
+        with pytest.raises(CronJobSchedulingError):
+            await manager.update_job(job.job_id, cron_expression="not a cron")
+
+        stored = await db.get_cron_job(job.job_id)
+        assert stored.cron_expression == "0 9 * * 1"
+        assert stored.payload == job.payload
+        assert (
+            manager.scheduler.get_job(manager._scheduled_job_ids[job.job_id])
+            is scheduled
+        )
+    finally:
+        await manager.shutdown()
+        await db.engine.dispose()
 
 
 class TestDeleteJob:
