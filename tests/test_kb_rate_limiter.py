@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+import astrbot.api  # noqa: F401
 from astrbot.core.knowledge_base.kb_helper import RateLimiter
 
 
