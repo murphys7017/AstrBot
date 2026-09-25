@@ -3,13 +3,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TypedDict
 
+from sqlalchemy import DateTime
 from sqlmodel import JSON, Field, SQLModel, Text, UniqueConstraint
 
 
 class TimestampMixin(SQLModel):
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Preserve legacy storage instead of SQLModel's inferred UTCDateTime type.
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=False),
+    )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=False),
         sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
     )
 
@@ -23,7 +29,7 @@ class PlatformStat(SQLModel, table=True):
     __tablename__: str = "platform_stats"
 
     id: int = Field(primary_key=True, sa_column_kwargs={"autoincrement": True})
-    timestamp: datetime = Field(nullable=False)
+    timestamp: datetime = Field(nullable=False, sa_type=DateTime(timezone=False))
     platform_id: str = Field(nullable=False)
     platform_type: str = Field(nullable=False)  # such as "aiocqhttp", "slack", etc.
     count: int = Field(default=0, nullable=False)
@@ -215,8 +221,10 @@ class CronJob(TimestampMixin, SQLModel, table=True):
     persistent: bool = Field(default=True)
     run_once: bool = Field(default=False)
     status: str = Field(default="scheduled", max_length=32)
-    last_run_at: datetime | None = Field(default=None)
-    next_run_time: datetime | None = Field(default=None)
+    last_run_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=False))
+    next_run_time: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=False)
+    )
     last_error: str | None = Field(default=None, sa_type=Text)
     revision: int = Field(default=0, nullable=False)
     last_execution_id: str | None = Field(default=None, max_length=64)
@@ -452,9 +460,11 @@ class ApiKey(TimestampMixin, SQLModel, table=True):
     key_prefix: str = Field(max_length=24, nullable=False)
     scopes: list | None = Field(default=None, sa_type=JSON)
     created_by: str = Field(max_length=255, nullable=False)
-    last_used_at: datetime | None = Field(default=None)
-    expires_at: datetime | None = Field(default=None)
-    revoked_at: datetime | None = Field(default=None)
+    last_used_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=False)
+    )
+    expires_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=False))
+    revoked_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=False))
 
     __table_args__ = (
         UniqueConstraint(
