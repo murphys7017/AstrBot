@@ -357,7 +357,15 @@ def should_use_bundled_dashboard_dist(
         return False
 
 
-async def get_dashboard_version():
+async def get_dashboard_version(dist_dir: str | Path | None = None):
+    """Return the version of the Dashboard assets currently being served.
+
+    When a directory is supplied, read that directory directly instead of
+    falling back to the managed or bundled asset locations.
+    """
+    if dist_dir is not None:
+        return _read_dashboard_dist_version(dist_dir)
+
     # First check user data directory (manually updated / downloaded dashboard).
     dist_dir = os.path.join(get_astrbot_data_path(), "dist")
     if os.path.exists(dist_dir):

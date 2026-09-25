@@ -151,8 +151,14 @@ class AstrBotDashboard:
             self.context,
             core_lifecycle.astrbot_updator,
             core_lifecycle,
+            dashboard_static_folder=self.data_path,
         )
-        self.sr = StatRoute(self.context, db, core_lifecycle)
+        self.sr = StatRoute(
+            self.context,
+            db,
+            core_lifecycle,
+            dashboard_static_folder=self.data_path,
+        )
         self.pr = PluginRoute(
             self.context,
             core_lifecycle,

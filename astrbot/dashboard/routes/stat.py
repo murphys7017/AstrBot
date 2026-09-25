@@ -47,6 +47,7 @@ class StatRoute(Route):
         context: RouteContext,
         db_helper: BaseDatabase,
         core_lifecycle: AstrBotCoreLifecycle,
+        dashboard_static_folder: str | None = None,
     ) -> None:
         super().__init__(context)
         self.routes = {
@@ -64,6 +65,7 @@ class StatRoute(Route):
             "/stat/storage/cleanup": ("POST", self.cleanup_storage),
         }
         self.db_helper = db_helper
+        self.dashboard_static_folder = dashboard_static_folder
         self.register_routes()
         self.core_lifecycle = core_lifecycle
         self.storage_cleaner = StorageCleaner(self.config)
@@ -124,7 +126,9 @@ class StatRoute(Route):
             .ok(
                 {
                     "version": VERSION,
-                    "dashboard_version": await get_dashboard_version(),
+                    "dashboard_version": await get_dashboard_version(
+                        self.dashboard_static_folder
+                    ),
                     "change_pwd_hint": await self.is_default_cred(),
                     "legacy_pwd_hint": is_legacy_dashboard_password(password),
                     "password_upgrade_required": not storage_upgraded,

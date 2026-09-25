@@ -9,7 +9,10 @@ from unittest import mock
 
 import pytest
 
-from astrbot.core.utils.io import should_use_bundled_dashboard_dist
+from astrbot.core.utils.io import (
+    get_dashboard_version,
+    should_use_bundled_dashboard_dist,
+)
 from main import (
     DASHBOARD_RESET_PASSWORD_ENV,
     _apply_startup_env_flags,
@@ -239,6 +242,24 @@ def test_should_keep_data_dist_when_version_file_is_malformed(tmp_path):
         return_value=bundled_dist,
     ):
         assert should_use_bundled_dashboard_dist(user_dist, "4.24.4") is False
+
+
+@pytest.mark.asyncio
+async def test_get_dashboard_version_reads_explicit_served_dist(tmp_path, monkeypatch):
+    """An explicitly served WebUI directory must win over data/dist."""
+    served_dist = tmp_path / "served-dist"
+    user_dist = tmp_path / "data" / "dist"
+    (served_dist / "assets").mkdir(parents=True)
+    (user_dist / "assets").mkdir(parents=True)
+    (served_dist / "assets" / "version").write_text("v9.9.9", encoding="utf-8")
+    (user_dist / "assets" / "version").write_text("v1.0.0", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "astrbot.core.utils.io.get_astrbot_data_path",
+        lambda: str(tmp_path / "data"),
+    )
+
+    assert await get_dashboard_version(served_dist) == "v9.9.9"
 
 
 @pytest.mark.asyncio

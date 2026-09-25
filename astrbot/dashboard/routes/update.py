@@ -37,6 +37,7 @@ class UpdateRoute(Route):
         context: RouteContext,
         astrbot_updator: AstrBotUpdator,
         core_lifecycle: AstrBotCoreLifecycle,
+        dashboard_static_folder: str | None = None,
     ) -> None:
         super().__init__(context)
         self.routes = {
@@ -50,6 +51,7 @@ class UpdateRoute(Route):
         }
         self.astrbot_updator = astrbot_updator
         self.core_lifecycle = core_lifecycle
+        self.dashboard_static_folder = dashboard_static_folder
         self.update_progress: dict[str, dict] = {}
         self.register_routes()
 
@@ -167,7 +169,7 @@ class UpdateRoute(Route):
         type_ = request.args.get("type", None)
 
         try:
-            dv = await get_dashboard_version()
+            dv = await get_dashboard_version(self.dashboard_static_folder)
             if type_ == "dashboard":
                 return (
                     Response()
