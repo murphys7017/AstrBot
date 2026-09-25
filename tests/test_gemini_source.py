@@ -392,3 +392,67 @@ async def test_gemini_stream_keeps_narration_before_tool_call():
     assert final.tools_call_name == ["get_weather"]
     assert final.reasoning_content == "earlier thoughttool reasoning"
     assert final.result_chain.chain[0].text == "I'll check that."
+
+
+@pytest.mark.asyncio
+async def test_gemini_stream_keeps_conversation_header_until_consumed():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+    provider._prepare_conversation = AsyncMock(return_value=[])
+    provider._prepare_query_config = AsyncMock(return_value=None)
+
+    headers: dict[str, str] = {}
+    observed_headers: list[str | None] = []
+
+    chunk = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            text="ok",
+                            thought=False,
+                            function_call=None,
+                            inline_data=None,
+                            thought_signature=None,
+                        )
+                    ]
+                ),
+                finish_reason=None,
+            )
+        ],
+        text="ok",
+        response_id="response-1",
+        usage_metadata=None,
+    )
+
+    async def generate_content_stream(**_kwargs):
+        async def stream():
+            observed_headers.append(headers.get("x-astrbot-conversation-id"))
+            yield chunk
+
+        return stream()
+
+    provider.client = SimpleNamespace(
+        models=SimpleNamespace(generate_content_stream=generate_content_stream),
+        _api_client=SimpleNamespace(_http_options=SimpleNamespace(headers=headers)),
+    )
+
+    responses = [
+        response
+        async for response in provider._query_stream(
+            payloads={
+                "messages": [{"role": "user", "content": "hello"}],
+                "model": "gemini-test",
+            },
+            tools=None,
+            conversation_id="conversation-1",
+        )
+    ]
+
+    assert responses[-1].completion_text == "ok"
+    assert observed_headers == ["conversation-1"]
+    assert "x-astrbot-conversation-id" not in headers

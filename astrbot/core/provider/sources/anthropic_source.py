@@ -39,7 +39,7 @@ from astrbot.core.utils.network_utils import (
     log_connection_failure,
 )
 
-from ..headers import build_provider_headers
+from ..headers import build_conversation_headers, build_provider_headers
 from ..register import register_provider_adapter
 
 
@@ -559,7 +559,13 @@ class ProviderAnthropic(Provider):
         logger.warning("Unknown Anthropic tool_choice %r; falling back to auto.", tool_choice)
         return {"type": "auto"}
 
-    async def _query(self, payloads: dict, tools: ToolSet | None) -> LLMResponse:
+    async def _query(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
         self._drop_provider_only_request_keys(payloads)
         if tools:
             if tool_list := tools.get_func_desc_anthropic_style():
@@ -580,7 +586,10 @@ class ProviderAnthropic(Provider):
 
         try:
             completion = await self.client.messages.create(
-                **payloads, stream=False, extra_body=extra_body
+                **payloads,
+                stream=False,
+                extra_body=extra_body,
+                extra_headers=build_conversation_headers(conversation_id),
             )
         except httpx.RequestError as e:
             proxy = self.provider_config.get("proxy", "")
@@ -656,6 +665,8 @@ class ProviderAnthropic(Provider):
         self,
         payloads: dict,
         tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         self._drop_provider_only_request_keys(payloads)
         if tools:
@@ -688,7 +699,9 @@ class ProviderAnthropic(Provider):
         self._sanitize_assistant_messages(payloads)
 
         async with self.client.messages.stream(
-            **payloads, extra_body=extra_body
+            **payloads,
+            extra_body=extra_body,
+            extra_headers=build_conversation_headers(conversation_id),
         ) as stream:
             assert isinstance(stream, anthropic.AsyncMessageStream)
             async for event in stream:
@@ -855,6 +868,7 @@ class ProviderAnthropic(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
+        conversation_id = kwargs.pop("conversation_id", None)
         if contexts is None:
             contexts = []
         new_record = None
@@ -912,7 +926,11 @@ class ProviderAnthropic(Provider):
 
         llm_response = None
         try:
-            llm_response = await self._query(payloads, func_tool)
+            llm_response = await self._query(
+                payloads,
+                func_tool,
+                conversation_id=conversation_id,
+            )
         except Exception as e:
             raise e
 
@@ -935,6 +953,7 @@ class ProviderAnthropic(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ):
+        conversation_id = kwargs.pop("conversation_id", None)
         if contexts is None:
             contexts = []
         new_record = None
@@ -989,7 +1008,11 @@ class ProviderAnthropic(Provider):
                 else system_prompt
             )
 
-        async for llm_response in self._query_stream(payloads, func_tool):
+        async for llm_response in self._query_stream(
+            payloads,
+            func_tool,
+            conversation_id=conversation_id,
+        ):
             yield llm_response
 
     async def assemble_context(

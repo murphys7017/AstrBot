@@ -56,6 +56,7 @@ from astrbot.core.utils.network_utils import (
 from astrbot.core.utils.path_util import file_uri_to_path
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 
 
@@ -606,7 +607,13 @@ class ProviderOpenAIOfficial(Provider):
             )
         payloads["messages"] = final_messages
 
-    async def _query(self, payloads: dict, tools: ToolSet | None) -> LLMResponse:
+    async def _query(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
         payloads = dict(payloads)
         self._drop_provider_only_request_keys(payloads)
         if tools:
@@ -644,6 +651,7 @@ class ProviderOpenAIOfficial(Provider):
             **payloads,
             stream=False,
             extra_body=extra_body,
+            extra_headers=build_conversation_headers(conversation_id),
         )
 
         if not isinstance(completion, ChatCompletion):
@@ -661,6 +669,8 @@ class ProviderOpenAIOfficial(Provider):
         self,
         payloads: dict,
         tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         """流式查询API，逐步返回结果"""
         payloads = dict(payloads)
@@ -698,6 +708,7 @@ class ProviderOpenAIOfficial(Provider):
             **payloads,
             stream=True,
             extra_body=extra_body,
+            extra_headers=build_conversation_headers(conversation_id),
             stream_options={"include_usage": True},
         )
 
@@ -1278,6 +1289,7 @@ class ProviderOpenAIOfficial(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
+        conversation_id = kwargs.pop("conversation_id", None)
         payloads, context_query = await self._prepare_chat_payload(
             prompt,
             image_urls,
@@ -1311,7 +1323,11 @@ class ProviderOpenAIOfficial(Provider):
         for attempt in range(1, self._MAX_RECOVERY_ATTEMPTS + 1):
             try:
                 self.client.api_key = state.chosen_key
-                return await self._query(state.payloads, state.func_tool)
+                return await self._query(
+                    state.payloads,
+                    state.func_tool,
+                    conversation_id=conversation_id,
+                )
             except Exception as e:
                 await self._recover_chat_request(
                     e,
@@ -1337,6 +1353,7 @@ class ProviderOpenAIOfficial(Provider):
         **kwargs,
     ) -> AsyncGenerator[LLMResponse, None]:
         """流式对话，与服务商交互并逐步返回结果"""
+        conversation_id = kwargs.pop("conversation_id", None)
         payloads, context_query = await self._prepare_chat_payload(
             prompt,
             image_urls,
@@ -1373,6 +1390,7 @@ class ProviderOpenAIOfficial(Provider):
                 async for response in self._query_stream(
                     state.payloads,
                     state.func_tool,
+                    conversation_id=conversation_id,
                 ):
                     stream_started = True
                     yield response

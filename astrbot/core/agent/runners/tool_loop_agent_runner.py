@@ -564,6 +564,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             "contexts": self._sanitize_contexts_for_provider(self.run_context.messages),
             "func_tool": self._func_tool_for_provider(),
             "session_id": self.req.session_id,
+            "conversation_id": (
+                self.req.conversation.cid if self.req.conversation else None
+            ),
             "extra_user_content_parts": self._extra_user_content_parts_for_provider(
                 self.req.extra_user_content_parts
             ),
@@ -1500,6 +1503,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     func_tool=param_subset,
                     model=self.req.model,
                     session_id=self.req.session_id,
+                    conversation_id=(
+                        self.req.conversation.cid if self.req.conversation else None
+                    ),
                     extra_user_content_parts=self._extra_user_content_parts_for_provider(
                         self.req.extra_user_content_parts
                     ),
@@ -1529,6 +1535,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                         func_tool=param_subset,
                         model=self.req.model,
                         session_id=self.req.session_id,
+                        conversation_id=(
+                            self.req.conversation.cid if self.req.conversation else None
+                        ),
                         extra_user_content_parts=self._extra_user_content_parts_for_provider(
                             self.req.extra_user_content_parts
                         ),

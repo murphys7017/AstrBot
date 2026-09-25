@@ -1,6 +1,7 @@
 from astrbot.core.config.default import VERSION
 
 DEFAULT_USER_AGENT = f"astrbot/{VERSION}"
+CONVERSATION_ID_HEADER = "x-astrbot-conversation-id"
 
 
 def build_provider_headers(custom_headers: object = None) -> dict[str, str]:
@@ -22,3 +23,10 @@ def build_provider_headers(custom_headers: object = None) -> dict[str, str]:
             else:
                 headers[name] = value
     return headers
+
+
+def build_conversation_headers(conversation_id: str | None) -> dict[str, str]:
+    """Build request headers for an AstrBot conversation ID."""
+    if not conversation_id:
+        return {}
+    return {CONVERSATION_ID_HEADER: str(conversation_id)}

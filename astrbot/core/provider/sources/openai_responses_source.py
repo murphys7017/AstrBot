@@ -16,6 +16,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
 from astrbot.core.provider.entities import LLMResponse, TokenUsage, ToolCallsResult
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 from .openai_source import ProviderOpenAIOfficial
 
@@ -315,19 +316,32 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         payload: dict,
         tools: ToolSet | None,
         tool_choice: str,
+        *,
+        conversation_id: str | None = None,
     ) -> LLMResponse:
         request = self._request_options(payload, tools, tool_choice)
-        response = await self.client.responses.create(**request)
+        response = await self.client.responses.create(
+            **request,
+            extra_headers=build_conversation_headers(conversation_id),
+        )
         if not isinstance(response, Response):
             raise TypeError(f"Responses API 返回类型错误: {type(response)}: {response}")
         return self._parse_response(response, tools)
 
     async def _query_stream(
-        self, payload: dict, tools: ToolSet | None, tool_choice: str
+        self,
+        payload: dict,
+        tools: ToolSet | None,
+        tool_choice: str,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         request = self._request_options(payload, tools, tool_choice)
         request["stream"] = True
-        stream = await self.client.responses.create(**request)
+        stream = await self.client.responses.create(
+            **request,
+            extra_headers=build_conversation_headers(conversation_id),
+        )
         response_id: str | None = None
         final_response: Response | None = None
         text_parts: list[str] = []
@@ -426,6 +440,7 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
+        conversation_id = kwargs.pop("conversation_id", None)
         payload, _ = await self._prepare_response_payload(
             prompt,
             image_urls,
@@ -447,7 +462,12 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         for attempt in range(self._MAX_RECOVERY_ATTEMPTS):
             try:
                 self.client.api_key = self.chosen_api_key
-                return await self._query(payload, func_tool, tool_choice)
+                return await self._query(
+                    payload,
+                    func_tool,
+                    tool_choice,
+                    conversation_id=conversation_id,
+                )
             except Exception:
                 if attempt + 1 >= self._MAX_RECOVERY_ATTEMPTS:
                     raise
@@ -477,6 +497,7 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> AsyncGenerator[LLMResponse, None]:
+        conversation_id = kwargs.pop("conversation_id", None)
         payload, _ = await self._prepare_response_payload(
             prompt,
             image_urls,
@@ -495,5 +516,10 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         func_tool, tool_choice = self._resolve_output_contract(
             output_contract, compiled_output_contract, func_tool, tool_choice
         )
-        async for response in self._query_stream(payload, func_tool, tool_choice):
+        async for response in self._query_stream(
+            payload,
+            func_tool,
+            tool_choice,
+            conversation_id=conversation_id,
+        ):
             yield response

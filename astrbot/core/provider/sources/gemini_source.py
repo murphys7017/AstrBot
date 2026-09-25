@@ -5,6 +5,7 @@ import logging
 import random
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import urlparse
@@ -32,6 +33,7 @@ from astrbot.core.utils.io import download_file
 from astrbot.core.utils.media_utils import ensure_wav
 from astrbot.core.utils.network_utils import is_connection_error, log_connection_failure
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 
 
@@ -83,6 +85,7 @@ class ProviderGoogleGenAI(Provider):
 
         self._http_client: httpx.AsyncClient | None = None
         self._stale_http_clients: list[httpx.AsyncClient] = []
+        self._request_lock = asyncio.Lock()
         self._init_client()
         self.set_model(provider_config.get("model", "unknown"))
         self._init_safety_settings()
@@ -124,6 +127,35 @@ class ProviderGoogleGenAI(Provider):
         ).aio
         # The SDK adds its own lower-case UA alongside our explicit header.
         self.client._api_client._http_options.headers.pop("user-agent", None)
+
+    @asynccontextmanager
+    async def _conversation_header(self, conversation_id: str | None):
+        """Temporarily attach a conversation ID to a Gemini request."""
+        api_client = getattr(getattr(self, "client", None), "_api_client", None)
+        http_options = getattr(api_client, "_http_options", None)
+        headers = getattr(http_options, "headers", None)
+        conversation_headers = build_conversation_headers(conversation_id)
+        if not isinstance(headers, dict) or not conversation_headers:
+            yield
+            return
+
+        request_lock = getattr(self, "_request_lock", None)
+        if request_lock is None:
+            request_lock = asyncio.Lock()
+            self._request_lock = request_lock
+
+        header_name, header_value = next(iter(conversation_headers.items()))
+        missing = object()
+        async with request_lock:
+            previous_value = headers.get(header_name, missing)
+            headers[header_name] = header_value
+            try:
+                yield
+            finally:
+                if previous_value is missing:
+                    headers.pop(header_name, None)
+                else:
+                    headers[header_name] = previous_value
 
     def _init_safety_settings(self) -> None:
         """初始化安全设置"""
@@ -634,7 +666,13 @@ class ProviderGoogleGenAI(Provider):
             )
         return chain_result
 
-    async def _query(self, payloads: dict, tools: ToolSet | None) -> LLMResponse:
+    async def _query(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
         """非流式请求 Gemini API"""
         system_instruction = next(
             (msg["content"] for msg in payloads["messages"] if msg["role"] == "system"),
@@ -661,11 +699,12 @@ class ProviderGoogleGenAI(Provider):
                     modalities,
                     temperature,
                 )
-                result = await self.client.models.generate_content(
-                    model=model,
-                    contents=cast(types.ContentListUnion, conversation),
-                    config=config,
-                )
+                async with self._conversation_header(conversation_id):
+                    result = await self.client.models.generate_content(
+                        model=model,
+                        contents=cast(types.ContentListUnion, conversation),
+                        config=config,
+                    )
                 logger.debug(f"genai result: {result}")
 
                 if not result.candidates:
@@ -723,15 +762,35 @@ class ProviderGoogleGenAI(Provider):
         self,
         payloads: dict,
         tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
-        """流式请求 Gemini API"""
         system_instruction = next(
             (msg["content"] for msg in payloads["messages"] if msg["role"] == "system"),
             None,
         )
         model = payloads.get("model", self.get_model())
         conversation = await self._prepare_conversation(payloads)
+        async with self._conversation_header(conversation_id):
+            async for response in self._query_stream_impl(
+                payloads,
+                tools,
+                model=model,
+                conversation=conversation,
+                system_instruction=system_instruction,
+            ):
+                yield response
 
+    async def _query_stream_impl(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        model: str,
+        conversation: list[types.Content],
+        system_instruction: str | None,
+    ) -> AsyncGenerator[LLMResponse, None]:
+        """流式请求 Gemini API"""
         result = None
         while True:
             try:
@@ -871,6 +930,7 @@ class ProviderGoogleGenAI(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
+        conversation_id = kwargs.pop("conversation_id", None)
         self.ensure_output_contract_supported(
             output_contract=output_contract,
             compiled_output_contract=compiled_output_contract,
@@ -915,7 +975,11 @@ class ProviderGoogleGenAI(Provider):
 
         for _ in range(retry):
             try:
-                return await self._query(payloads, func_tool)
+                return await self._query(
+                    payloads,
+                    func_tool,
+                    conversation_id=conversation_id,
+                )
             except APIError as e:
                 if await self._handle_api_error(e, keys):
                     continue
@@ -940,6 +1004,7 @@ class ProviderGoogleGenAI(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> AsyncGenerator[LLMResponse, None]:
+        conversation_id = kwargs.pop("conversation_id", None)
         self.ensure_output_contract_supported(
             output_contract=output_contract,
             compiled_output_contract=compiled_output_contract,
@@ -984,7 +1049,11 @@ class ProviderGoogleGenAI(Provider):
 
         for _ in range(retry):
             try:
-                async for response in self._query_stream(payloads, func_tool):
+                async for response in self._query_stream(
+                    payloads,
+                    func_tool,
+                    conversation_id=conversation_id,
+                ):
                     yield response
                 break
             except APIError as e:
