@@ -31,7 +31,7 @@ class _RecallProfile:
 class _RecallFamilyKey:
     umo: str
     conversation_id: str | None
-    canonical_user_id: str
+    canonical_user_id: str | None
     scopes: tuple[tuple[str, str], ...]
     profile: _RecallProfile
 
@@ -86,7 +86,7 @@ class RecallSnapshotManager:
     ) -> MemoryRecallSnapshot | None:
         if self._closed or not self.config.enabled:
             return None
-        if snapshot.canonical_user_id is None or snapshot.short_term_memory is None:
+        if snapshot.short_term_memory is None:
             return None
 
         profile = _RecallProfile(
@@ -163,7 +163,7 @@ class RecallSnapshotManager:
             return
         self._scheduled_keys.add(key)
         job = MemoryScopeJob(
-            owner_id=key.family.canonical_user_id,
+            owner_id=f"recall:{_key_digest(key.family)}",
             scope_type="recall_refresh",
             scope_id=_key_digest(key.family),
             conversation_id=key.family.conversation_id,

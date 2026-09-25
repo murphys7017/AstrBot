@@ -42,10 +42,12 @@ from astrbot.core.memory.postprocessor import (
     reset_memory_postprocessor,
 )
 from astrbot.core.memory.projection import ExperienceProjectionService
+from astrbot.core.memory.scope_context import MemoryScopeContext
 from astrbot.core.memory.service import MemoryService
 from astrbot.core.memory.short_term_service import ShortTermMemoryService
 from astrbot.core.memory.snapshot_builder import (
     MemorySnapshotBuilder,
+    MemorySnapshotReadOptions,
     memory_injection_to_snapshot_read_options,
 )
 from astrbot.core.memory.store import MemoryStore
@@ -62,6 +64,7 @@ from astrbot.core.memory.types import (
     MemoryIdentity,
     MemoryUpdateRequest,
     PersonaState,
+    ScopeRef,
     ScopeType,
     SessionInsight,
     ShortTermMemory,
@@ -1199,6 +1202,72 @@ async def test_memory_snapshot_preserves_local_state_when_vector_search_fails():
             "reason": "embedding unavailable",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_memory_snapshot_recalls_group_scope_without_canonical_user_identity():
+    now = datetime.now(UTC)
+    store = MagicMock()
+    store.config = MemoryConfig()
+    store.config.recall.scope_priority = ("group",)
+    store.get_topic_state = AsyncMock(return_value=None)
+    store.get_short_term_memory = AsyncMock(
+        return_value=ShortTermMemory(
+            umo=TEST_UMO,
+            conversation_id="conv-1",
+            short_summary="Group project status",
+            active_focus="Review the deployment plan",
+            revision=1,
+        )
+    )
+    store.get_recent_turn_records = AsyncMock(return_value=[])
+    group_experience = _experience(
+        experience_id="group-exp-1",
+        scope_type=ScopeType.GROUP,
+        scope_id="test:group-1",
+        event_time=now,
+        category="project_progress",
+        summary="The group agreed to review deployment risks.",
+        created_at=now,
+        updated_at=now,
+        canonical_user_id="test:group-1",
+    )
+    store.list_experiences_for_scope = AsyncMock(return_value=[group_experience])
+    store.list_long_term_memory_indexes = AsyncMock(return_value=[])
+    builder = MemorySnapshotBuilder(store)
+
+    snapshot = await builder.build_local_snapshot(
+        TEST_UMO,
+        "conv-1",
+        read_options=MemorySnapshotReadOptions(),
+        identity=MemoryIdentity(
+            umo=TEST_UMO,
+            platform_id=TEST_PLATFORM_ID,
+            sender_user_id=None,
+            sender_nickname=None,
+            platform_user_key=None,
+            canonical_user_id=None,
+        ),
+    )
+    recall = await builder.build_recall_snapshot(
+        snapshot,
+        query=None,
+        read_options=MemorySnapshotReadOptions(
+            long_term=MemoryConfig().injection.long_term,
+        ),
+        scope_context=MemoryScopeContext(
+            group=ScopeRef(ScopeType.GROUP, "test:group-1")
+        ),
+    )
+
+    assert recall.experiences == [group_experience]
+    store.list_experiences_for_scope.assert_awaited_once_with(
+        None,
+        ScopeType.GROUP,
+        "test:group-1",
+        ascending=False,
+        limit=10,
+    )
 
 
 class FailingManualVectorIndex:
@@ -5897,7 +5966,7 @@ async def test_memory_postprocessor_prefers_explicit_turn_material():
     ctx.visible_outputs = []
     ctx.turn_material = {
         "turn_id": "turn-1",
-        "assistant_text": "Let me check. You can run commands in the workspace.",
+        "assistant_text": "You can run commands in the workspace.",
         "visible_outputs": [
             {
                 "turn_id": "turn-1",
@@ -5920,9 +5989,7 @@ async def test_memory_postprocessor_prefers_explicit_turn_material():
 
     assert req is not None
     assert req.turn_id == "turn-1"
-    assert req.assistant_message["content"] == (
-        "Let me check. You can run commands in the workspace."
-    )
+    assert req.assistant_message["content"] == "You can run commands in the workspace."
     assert req.provider_request is not None
     assert req.provider_request["history_source"] == "interaction.turn.material"
     assert len(req.provider_request["visible_outputs"]) == 2

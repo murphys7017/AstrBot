@@ -23,7 +23,6 @@ from astrbot.core.memory.types import (
     PersonaState,
     ShortTermMemory,
     TopicState,
-    TurnRecord,
 )
 from astrbot.core.message.components import File, Image, Plain, Reply
 from astrbot.core.prompt.builder import PromptContextBuilder
@@ -213,14 +212,6 @@ def _patch_memory_service():
     service.memory_config = memory_config
 
     with (
-        patch(
-            "astrbot.core.prompt.collectors.conversation_history_collector.get_memory_service",
-            return_value=service,
-        ),
-        patch(
-            "astrbot.core.prompt.collectors.conversation_history_collector.get_memory_config",
-            return_value=memory_config,
-        ),
         patch(
             "astrbot.core.prompt.collectors.memory_collector.get_memory_service",
             return_value=service,
@@ -2424,9 +2415,7 @@ async def test_collect_context_pack_collects_conversation_history_from_conversat
 
 
 @pytest.mark.asyncio
-async def test_collect_context_pack_conversation_history_prefers_memory_turn_records(
-    _patch_memory_service,
-):
+async def test_collect_context_pack_conversation_history_does_not_fallback_to_memory_turn_records():
     event, _ = _make_event()
     context = _make_context()
     req = ProviderRequest(prompt="hello")
@@ -2438,33 +2427,6 @@ async def test_collect_context_pack_conversation_history_prefers_memory_turn_rec
     context.persona_manager.resolve_selected_persona = AsyncMock(
         return_value=(None, None, None, False)
     )
-    _patch_memory_service.store.get_recent_turn_records.return_value = [
-        TurnRecord(
-            turn_id="turn-2",
-            umo=event.unified_msg_origin,
-            conversation_id="conv-id",
-            platform_id="test_platform",
-            platform_user_key="test_platform:user123",
-            canonical_user_id="canonical-user-1",
-            session_id=event.unified_msg_origin,
-            user_message={"role": "user", "content": "memory user 2"},
-            assistant_message={"role": "assistant", "content": "memory assistant 2"},
-            message_timestamp=datetime(2026, 4, 5, 12, 2, 0),
-        ),
-        TurnRecord(
-            turn_id="turn-1",
-            umo=event.unified_msg_origin,
-            conversation_id="conv-id",
-            platform_id="test_platform",
-            platform_user_key="test_platform:user123",
-            canonical_user_id="canonical-user-1",
-            session_id=event.unified_msg_origin,
-            user_message={"role": "user", "content": "memory user 1"},
-            assistant_message={"role": "assistant", "content": "memory assistant 1"},
-            message_timestamp=datetime(2026, 4, 5, 12, 1, 0),
-        ),
-    ]
-
     pack = await collect_context_pack(
         event=event,
         plugin_context=context,
@@ -2475,16 +2437,11 @@ async def test_collect_context_pack_conversation_history_prefers_memory_turn_rec
 
     history_slot = pack.get_slot("conversation.history")
     assert history_slot is not None
-    assert history_slot.value["source"] == "memory.turn_records"
-    assert history_slot.value["turn_count"] == 2
+    assert history_slot.value["source"] == "provider_request.conversation.history"
+    assert history_slot.value["turn_count"] == 1
     assert [
         turn["user_message"]["content"] for turn in history_slot.value["turns"]
-    ] == ["memory user 1", "memory user 2"]
-    _patch_memory_service.store.get_recent_turn_records.assert_awaited_once_with(
-        event.unified_msg_origin,
-        8,
-        conversation_id="conv-id",
-    )
+    ] == ["legacy user"]
 
 
 @pytest.mark.asyncio

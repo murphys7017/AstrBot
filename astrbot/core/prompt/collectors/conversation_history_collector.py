@@ -7,17 +7,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core import logger
-from astrbot.core.memory.config import get_memory_config
 from astrbot.core.memory.history_source import (
     extract_turn_payloads,
-    normalize_message_payload,
     parse_conversation_history,
 )
-from astrbot.core.memory.service import get_memory_service
-from astrbot.core.memory.types import TurnRecord
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
-from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
@@ -40,7 +35,6 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         history_payload = await self._resolve_history_source(
             event,
             plugin_context,
-            config,
             provider_request,
         )
         if history_payload is None:
@@ -52,7 +46,6 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         self,
         event: AstrMessageEvent,
         plugin_context: Context,
-        config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None,
     ) -> dict[str, Any] | None:
         conversation_payload = await self._load_current_conversation_history(
@@ -61,14 +54,6 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         )
         if conversation_payload is not None:
             return conversation_payload
-
-        memory_payload = await self._load_memory_turn_records(
-            event,
-            config,
-            provider_request,
-        )
-        if memory_payload is not None:
-            return memory_payload
 
         if provider_request is None:
             return None
@@ -125,53 +110,6 @@ class ConversationHistoryCollector(ContextCollectorInterface):
             payload["conversation_id"] = getattr(conversation, "cid", conversation_id)
         return payload
 
-    async def _load_memory_turn_records(
-        self,
-        event: AstrMessageEvent,
-        config: MainAgentBuildConfig,
-        provider_request: ProviderRequest | None,
-    ) -> dict[str, Any] | None:
-        umo = getattr(event, "unified_msg_origin", None)
-        if not isinstance(umo, str) or not umo.strip():
-            return None
-
-        event_config, config_id = resolve_event_runtime_configuration(event)
-        memory_config = get_memory_config(event_config, cache_key=config_id)
-        if not memory_config.enabled:
-            return None
-
-        conversation_id = self._resolve_conversation_id(provider_request)
-        limit = self._resolve_memory_turn_limit(config, memory_config)
-        if limit <= 0:
-            return None
-
-        try:
-            records = await get_memory_service(
-                event_config,
-                cache_key=config_id,
-            ).store.get_recent_turn_records(
-                umo,
-                limit,
-                conversation_id=conversation_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to collect conversation history from memory turn records: %s",
-                exc,
-                exc_info=True,
-            )
-            return None
-
-        if not records:
-            return None
-
-        records.reverse()
-        return {
-            "source": "memory.turn_records",
-            "conversation_id": conversation_id,
-            "turns": [self._turn_record_to_payload(record) for record in records],
-        }
-
     def _load_conversation_history(
         self,
         *,
@@ -208,23 +146,6 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         if isinstance(raw_conversation_id, str) and raw_conversation_id.strip():
             return raw_conversation_id
         return None
-
-    def _resolve_memory_turn_limit(
-        self,
-        config: MainAgentBuildConfig,
-        memory_config,
-    ) -> int:
-        del config
-        return max(0, int(memory_config.short_term.recent_turns_window))
-
-    @staticmethod
-    def _turn_record_to_payload(record: TurnRecord) -> dict[str, Any]:
-        user_message = normalize_message_payload(record.user_message)
-        return {
-            "user_message": user_message if user_message.get("content") else {},
-            "assistant_message": normalize_message_payload(record.assistant_message),
-            "assistant_only": not bool(user_message.get("content")),
-        }
 
     def _build_history_slot(
         self,

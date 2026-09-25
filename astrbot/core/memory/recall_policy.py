@@ -23,11 +23,15 @@ class ScopedRecallPolicy:
 
     def resolve_scopes(
         self,
-        canonical_user_id: str,
+        canonical_user_id: str | None,
         scope_context: MemoryScopeContext | None,
     ) -> tuple[ScopeRef, ...]:
         if scope_context is None:
-            return (ScopeRef(ScopeType.USER, canonical_user_id),)
+            return (
+                (ScopeRef(ScopeType.USER, canonical_user_id),)
+                if canonical_user_id
+                else ()
+            )
         available = {
             self._enum_value(ref.scope_type): ref
             for ref in scope_context.recall_refs()
@@ -41,7 +45,7 @@ class ScopedRecallPolicy:
     def cache_scope_key(
         self,
         scope_context: MemoryScopeContext | None,
-        canonical_user_id: str,
+        canonical_user_id: str | None,
     ) -> tuple[tuple[str, str], ...]:
         return tuple(
             sorted(
@@ -53,7 +57,7 @@ class ScopedRecallPolicy:
     def canonical_user_id_for_scope(
         self,
         scope: ScopeRef,
-        canonical_user_id: str,
+        canonical_user_id: str | None,
     ) -> str | None:
         return (
             canonical_user_id

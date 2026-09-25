@@ -178,7 +178,7 @@ class MemorySnapshotBuilder:
         scope_context: MemoryScopeContext | None = None,
     ) -> MemoryRecallSnapshot:
         options = read_options
-        if not snapshot.canonical_user_id or not options.enabled:
+        if not options.enabled:
             return MemoryRecallSnapshot()
         scopes = self.recall_policy.resolve_scopes(
             snapshot.canonical_user_id,
@@ -240,7 +240,7 @@ class MemorySnapshotBuilder:
         self,
         *,
         umo: str,
-        canonical_user_id: str,
+        canonical_user_id: str | None,
         conversation_id: str | None,
         query: str | None,
         read_options: MemorySnapshotReadOptions,
@@ -306,7 +306,7 @@ class MemorySnapshotBuilder:
     async def _load_snapshot_experiences(
         self,
         *,
-        canonical_user_id: str,
+        canonical_user_id: str | None,
         conversation_id: str | None,
         query: str | None,
         long_term_memories: list[LongTermMemoryIndex],

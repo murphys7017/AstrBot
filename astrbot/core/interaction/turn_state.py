@@ -429,10 +429,18 @@ def build_interaction_turn_reply(
     utterances: list[InteractionUtterance] | None = None,
 ) -> str:
     if isinstance(utterances, list):
+        has_substantive_reply = any(
+            utterance.kind != "immediate_reply"
+            and utterance.kind != "stream_interjection"
+            and utterance.memory_relevant
+            and utterance.text.strip()
+            for utterance in utterances
+        )
         parts = [
             utterance.text.strip()
             for utterance in utterances
             if utterance.kind != "stream_interjection"
+            and (not has_substantive_reply or utterance.kind != "immediate_reply")
             and utterance.memory_relevant
             and utterance.text.strip()
         ]
