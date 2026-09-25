@@ -291,12 +291,16 @@ class TelegramPlatformAdapter(Platform):
                 await asyncio.sleep(self._polling_restart_delay)
 
     def _on_polling_error(self, error: Exception) -> None:
+        if not isinstance(error, NetworkError):
+            logger.error(
+                f"Telegram polling request failed: {type(error).__name__}: {error!s}"
+            )
+            return
+
         logger.error(
             f"Telegram polling request failed: {type(error).__name__}: {error!s}",
             exc_info=error,
         )
-        if not isinstance(error, NetworkError):
-            return
 
         if self._loop is None:
             return
