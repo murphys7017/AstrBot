@@ -1,8 +1,9 @@
+import json
 import typing as T
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import CursorResult, Row
+from sqlalchemy import CursorResult, Row, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, desc, func, or_, select, text, update
 
@@ -33,6 +34,22 @@ from astrbot.core.sentinels import NOT_GIVEN
 
 TxResult = T.TypeVar("TxResult")
 CRON_FIELD_NOT_SET = object()
+
+
+def _webchat_session_title_match(keyword: str):
+    """Match a WebChat conversation by its platform-session display name."""
+    return (
+        select(1)
+        .where(col(PlatformSession.platform_id) == "webchat")
+        .where(col(PlatformSession.display_name).ilike(f"%{keyword}%"))
+        .where(col(ConversationV2.platform_id) == "webchat")
+        .where(
+            col(ConversationV2.user_id).like(
+                literal("%!").concat(col(PlatformSession.session_id)),
+            )
+        )
+        .exists()
+    )
 
 
 class SQLiteDatabase(BaseDatabase):
@@ -377,13 +394,20 @@ class SQLiteDatabase(BaseDatabase):
                     col(ConversationV2.platform_id).in_(platform_ids),
                 )
             if search_query:
-                search_query = search_query.encode("unicode_escape").decode("utf-8")
+                escaped_search_query = json.dumps(
+                    search_query,
+                    ensure_ascii=True,
+                )[1:-1]
                 base_query = base_query.where(
                     or_(
                         col(ConversationV2.title).ilike(f"%{search_query}%"),
                         col(ConversationV2.content).ilike(f"%{search_query}%"),
+                        col(ConversationV2.content).ilike(
+                            f"%{escaped_search_query}%"
+                        ),
                         col(ConversationV2.user_id).ilike(f"%{search_query}%"),
                         col(ConversationV2.conversation_id).ilike(f"%{search_query}%"),
+                        _webchat_session_title_match(search_query),
                     ),
                 )
             if "message_types" in kwargs and len(kwargs["message_types"]) > 0:

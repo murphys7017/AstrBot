@@ -1595,3 +1595,22 @@ Validation:
 
 - Focused runner regression coverage passed. Scoped Python compilation and
   `git diff --check` passed.
+
+## 2026-09-27 WebChat Conversation Title Follow-Up
+
+Reviewed upstream reference: `312ec36d5`
+
+Absorbed by local rewrite:
+
+- Conversation search now matches a WebChat session's display name, which is
+  stored in `PlatformSession` rather than the conversation row.
+- The conversation list and detail APIs use that name only when no explicit
+  conversation title exists. Other platforms and manually assigned titles keep
+  their existing behavior.
+- Search now uses the original text for title, UMO, and session-name matches,
+  while retaining an escaped form for JSON-encoded conversation content.
+
+Validation:
+
+- Focused database coverage, scoped Python checks, YAML parsing, and
+  `git diff --check` passed.

@@ -54,6 +54,37 @@ class ConversationRoute(Route):
         data["umo_info"] = self._build_umo_info(conversation.user_id, alias_map)
         return data
 
+    @staticmethod
+    def _webchat_session_id(conversation) -> str:
+        if conversation.platform_id != "webchat" or "!" not in conversation.user_id:
+            return ""
+        return conversation.user_id.rsplit("!", 1)[-1]
+
+    async def _get_webchat_titles(self, conversations) -> dict[str, str]:
+        session_ids = {
+            conversation.user_id: session_id
+            for conversation in conversations
+            if (session_id := self._webchat_session_id(conversation))
+        }
+        if not session_ids:
+            return {}
+        try:
+            sessions = await self.db_helper.get_platform_sessions_by_ids(
+                list(set(session_ids.values()))
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WebChat session title lookup failed: %s", exc)
+            return {}
+        display_names = {
+            session.session_id: session.display_name
+            for session in sessions
+            if session.display_name
+        }
+        return {
+            user_id: display_names.get(session_id, "")
+            for user_id, session_id in session_ids.items()
+        }
+
     async def list_conversations(self):
         """获取对话列表，支持分页、排序和筛选"""
         try:
@@ -104,10 +135,16 @@ class ConversationRoute(Route):
             )
             umos = sorted({conv.user_id for conv in conversations if conv.user_id})
             alias_map = build_umo_alias_map(await self.db_helper.get_umo_aliases(umos))
+            webchat_titles = await self._get_webchat_titles(conversations)
 
             result = {
                 "conversations": [
-                    self._serialize_conversation(conversation, alias_map)
+                    {
+                        **self._serialize_conversation(conversation, alias_map),
+                        "title": conversation.title
+                        or webchat_titles.get(conversation.user_id, "")
+                        or None,
+                    }
                     for conversation in conversations
                 ],
                 "pagination": {
@@ -144,13 +181,16 @@ class ConversationRoute(Route):
             alias_map = build_umo_alias_map(
                 await self.db_helper.get_umo_aliases([user_id])
             )
+            webchat_titles = await self._get_webchat_titles([conversation])
             return (
                 Response()
                 .ok(
                     {
                         "user_id": user_id,
                         "cid": cid,
-                        "title": conversation.title,
+                        "title": conversation.title
+                        or webchat_titles.get(conversation.user_id, "")
+                        or None,
                         "persona_id": conversation.persona_id,
                         "history": conversation.history,
                         "created_at": conversation.created_at,

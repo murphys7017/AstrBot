@@ -1738,3 +1738,21 @@ skills_like_streaming_fallback_repair:
     test module has an unrelated duplicate-test-name Ruff F811 finding, so a
     whole-file Ruff run is not counted as passing. No live platform test or
     service restart is required for this in-memory output-contract repair.
+
+webchat_conversation_title_fallback:
+  date: '2026-09-27'
+  class: bugfix
+  risk: medium
+  status: validated
+  scope: >-
+    Let conversation search and Dashboard serialization use a WebChat session
+    display name as a fallback only when the conversation has no explicit title.
+    Search keeps a raw-text branch for relational fields and a JSON-escaped
+    branch for persisted history content.
+  non_goals: >-
+    Change conversation persistence, WebChat session ownership, other platform
+    titles, Dashboard layout, or user-provided conversation titles.
+  validation: >-
+    Focused database coverage passed for a session-title search. Scoped Ruff
+    and Python compilation, state YAML parsing, and git diff checks passed. No
+    restart is required for this query and response-shape repair.
