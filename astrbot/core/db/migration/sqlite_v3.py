@@ -437,8 +437,17 @@ class SQLiteDatabase:
             # 排除特定用户ID
             if exclude_ids and len(exclude_ids) > 0:
                 for exclude_id in exclude_ids:
-                    where_clauses.append("user_id NOT LIKE ?")
-                    params.append(f"{exclude_id}%")
+                    if not exclude_id:
+                        continue
+                    escaped = (
+                        exclude_id.replace("\\", "\\\\")
+                        .replace("%", r"\%")
+                        .replace("_", r"\_")
+                    )
+                    where_clauses.append(
+                        "NOT (user_id = ? OR user_id LIKE ? ESCAPE '\\')"
+                    )
+                    params.extend([exclude_id, f"{escaped}:%"])
 
             # 排除特定平台
             if exclude_platforms and len(exclude_platforms) > 0:

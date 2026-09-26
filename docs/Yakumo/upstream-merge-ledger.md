@@ -7,7 +7,7 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 Last recorded comparison baseline:
 
@@ -62,8 +62,27 @@ Current local reference-intake commits:
 - `5d5320d2b` Absorb v4.27 scheduler and provider updates.
 - `1fd4bbbc4` Align Bailian rerank protocol.
 - `f6e6c6845` Complete provider conversation-header propagation across local overrides.
+- `f35f9a7c9` Enforce future-task creator ownership.
 - `be5bd430f` Preserve literal escape sequences in file edits.
 - `7bba141a8` Preserve legacy SQLite datetime storage.
+
+## 2026-09-27 conversation exclusion boundary follow-up
+
+Reviewed upstream reference: `bb79c083e`
+
+Absorbed by local rewrite:
+
+- Dashboard pages in this fork already omit the stale `exclude_ids=astrbot` request
+  parameter, so no frontend change was needed.
+- The active SQLAlchemy SQLite implementation and the retained v3 migration reader now
+  interpret every `exclude_ids` item as either an exact UMO or a complete platform
+  segment (`<id>:`). SQL `LIKE` wildcard characters inside IDs are escaped.
+
+Validation:
+
+- Focused conversation-filter regression test passed, including `astrbot` versus
+  `astrbotweb` and a literal percent-sign platform ID.
+- Scoped Ruff, Python compilation, and `git diff --check` passed.
 
 ## 2026-08-02 v4.27.0 Bailian rerank follow-up
 

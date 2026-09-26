@@ -1699,3 +1699,22 @@ cron_future_task_creator_ownership:
     sees only their own task, cannot edit or delete the other's task, and gets a
     truthful creator explanation. Confirm Dashboard-created tasks remain
     manageable in the Dashboard and are not attributed to a group member.
+
+conversation_exclusion_boundary_repair:
+  date: '2026-09-27'
+  class: bugfix
+  risk: medium
+  status: validated
+  scope: >-
+    Restore the documented exclude_ids behavior for conversation listing: match
+    only an exact UMO or a complete platform segment and treat SQL LIKE wildcard
+    characters in supplied IDs literally. Keep the retained v3 migration reader
+    consistent with the active SQLAlchemy SQLite implementation.
+  non_goals: >-
+    Change Dashboard conversation layout, remove any conversations by default,
+    alter ordinary platform or message-type filtering, or migrate stored data.
+  validation: >-
+    Focused database regression test passed for astrbot versus astrbotweb and a
+    literal percent-sign platform ID. Scoped Ruff, Python compilation, and git
+    diff checks passed. No service restart or live Dashboard acceptance was
+    needed because this is a query-only behavior change.

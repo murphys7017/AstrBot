@@ -395,6 +395,23 @@ class SQLiteDatabase(BaseDatabase):
                 base_query = base_query.where(
                     col(ConversationV2.platform_id).in_(kwargs["platforms"]),
                 )
+            exclude_ids = kwargs.get("exclude_ids") or []
+            for exclude_id in exclude_ids:
+                if not exclude_id:
+                    continue
+                escaped = (
+                    exclude_id.replace("\\", "\\\\")
+                    .replace("%", r"\%")
+                    .replace("_", r"\_")
+                )
+                base_query = base_query.where(
+                    ~or_(
+                        col(ConversationV2.user_id) == exclude_id,
+                        col(ConversationV2.user_id).like(
+                            f"{escaped}:%", escape="\\"
+                        ),
+                    )
+                )
 
             # Get total count matching the filters
             count_query = select(func.count()).select_from(base_query.subquery())
