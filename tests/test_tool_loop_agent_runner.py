@@ -1482,6 +1482,59 @@ def test_skills_like_requery_preserves_existing_context_prefix():
 
 
 @pytest.mark.asyncio
+async def test_skills_like_requery_fallback_emits_streaming_delta():
+    """A non-streaming parameter re-query still reaches a streaming output bridge."""
+
+    class SkillsLikeFallbackProvider(MockProvider):
+        async def text_chat(self, **kwargs) -> LLMResponse:
+            self.call_count += 1
+            if self.call_count == 1:
+                return LLMResponse(
+                    role="assistant",
+                    completion_text="Selecting a tool.",
+                    tools_call_name=["test_tool"],
+                    tools_call_args=[{}],
+                    tools_call_ids=["call_select"],
+                )
+            return LLMResponse(
+                role="assistant",
+                completion_text="The requested answer.",
+            )
+
+    provider = SkillsLikeFallbackProvider()
+    tool = FunctionTool(
+        name="test_tool",
+        description="Test tool",
+        parameters={"type": "object", "properties": {}},
+        handler=AsyncMock(),
+    )
+    runner = ToolLoopAgentRunner()
+    await runner.reset(
+        provider=provider,
+        request=ProviderRequest(prompt="run", func_tool=ToolSet(tools=[tool]), contexts=[]),
+        run_context=ContextWrapper(
+            context=MockAgentContext(MockEvent("test_umo", "test_sender"))
+        ),
+        tool_executor=cast(Any, MockToolExecutor()),
+        agent_hooks=MockHooks(),
+        streaming=True,
+        tool_schema_mode="skills_like",
+    )
+
+    responses = [response async for response in runner.step()]
+
+    visible = [
+        (response.type, response.data["chain"].get_plain_text())
+        for response in responses
+    ]
+    assert [
+        response_type
+        for response_type, text in visible
+        if text == "The requested answer."
+    ] == ["llm_result", "streaming_delta"]
+
+
+@pytest.mark.asyncio
 async def test_skills_like_requery_preserves_original_visible_reply():
     """skills-like re-query should only replace tool-call fields."""
 

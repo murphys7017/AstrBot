@@ -1575,5 +1575,23 @@ Absorbed by local rewrite:
 
 Validation:
 
-- Dashboard TypeScript typecheck and `git diff --check` are required before
-  this intake is committed.
+- Dashboard TypeScript typecheck and `git diff --check` passed.
+
+## 2026-09-27 Skills-Like Streaming Fallback Follow-Up
+
+Reviewed upstream reference: `0f445f5ef`
+
+Absorbed by local rewrite:
+
+- A parameter-only tool re-query that returns a plain assistant answer now
+  supplies the same `streaming_delta` output contract as an ordinary streaming
+  provider response. The existing `llm_result` is retained for non-streaming
+  and general-output paths.
+- This is intentionally limited to the Runner-to-output-bridge boundary. It
+  does not alter tool execution, Core terminal state, OLV segment confirmation,
+  or response ordering before the normal completion hooks.
+
+Validation:
+
+- Focused runner regression coverage passed. Scoped Python compilation and
+  `git diff --check` passed.

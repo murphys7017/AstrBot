@@ -1718,3 +1718,23 @@ conversation_exclusion_boundary_repair:
     literal percent-sign platform ID. Scoped Ruff, Python compilation, and git
     diff checks passed. No service restart or live Dashboard acceptance was
     needed because this is a query-only behavior change.
+
+skills_like_streaming_fallback_repair:
+  date: '2026-09-27'
+  class: bugfix
+  risk: high
+  status: validated
+  scope: >-
+    Restore a visible streaming output for a skills_like parameter re-query
+    that returns an assistant answer instead of a tool call. The Runner emits
+    a streaming_delta after its existing llm_result so the Native output bridge
+    handles the reply like an ordinary streamed response.
+  non_goals: >-
+    Change tool execution, agent completion hooks, Core execution terminal
+    facts, OLV segment finalization, or non-streaming/general output behavior.
+  validation: >-
+    Focused Runner regression coverage passed. Scoped Runner Ruff and Python
+    compilation, state YAML parsing, and git diff checks passed. The existing
+    test module has an unrelated duplicate-test-name Ruff F811 finding, so a
+    whole-file Ruff run is not counted as passing. No live platform test or
+    service restart is required for this in-memory output-contract repair.
