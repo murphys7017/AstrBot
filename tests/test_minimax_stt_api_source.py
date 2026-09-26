@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from astrbot.core.provider.headers import DEFAULT_USER_AGENT
 from astrbot.core.provider.sources.minimax_stt_api_source import (
     MiniMaxSTTAPIError,
     ProviderMiniMaxSTTAPI,
@@ -33,7 +34,7 @@ def test_minimax_stt_defaults():
 
 @pytest.mark.asyncio
 async def test_minimax_stt_uploads_audio_as_multipart(tmp_path: Path):
-    provider = _make_provider()
+    provider = _make_provider({"custom_headers": {"X-Trace-Id": "trace-1"}})
     audio_path = tmp_path / "voice.ogg"
     audio_path.write_bytes(b"OggSfake-audio")
     captured: dict = {}
@@ -57,6 +58,8 @@ async def test_minimax_stt_uploads_audio_as_multipart(tmp_path: Path):
     assert await provider.get_text(str(audio_path)) == "transcribed text"
     assert captured["url"] == "https://api.minimax.cn/v1/speech_to_text"
     assert captured["headers"] == {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "X-Trace-Id": "trace-1",
         "Authorization": "Bearer test-key",
         "language": "zh",
     }

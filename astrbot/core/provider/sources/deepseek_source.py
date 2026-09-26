@@ -10,6 +10,7 @@ from astrbot.core.agent.tool import ToolSet
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.provider.entities import LLMResponse
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 from .openai_source import ProviderOpenAIOfficial
 
@@ -126,13 +127,20 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             if isinstance(message, dict) and message.get("role") == "assistant":
                 message.pop("reasoning_content", None)
 
-    async def _query(self, payloads: dict, tools: ToolSet | None) -> LLMResponse:
+    async def _query(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
         payloads, extra_body, tools = self._prepare_request(payloads, tools)
 
         completion = await self.client.chat.completions.create(
             **payloads,
             stream=False,
             extra_body=extra_body,
+            extra_headers=build_conversation_headers(conversation_id),
         )
 
         if not isinstance(completion, ChatCompletion):
@@ -148,6 +156,8 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
         self,
         payloads: dict,
         tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         payloads, extra_body, tools = self._prepare_request(payloads, tools)
 
@@ -155,6 +165,7 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             **payloads,
             stream=True,
             extra_body=extra_body,
+            extra_headers=build_conversation_headers(conversation_id),
             stream_options={"include_usage": True},
         )
 

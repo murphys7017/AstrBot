@@ -105,7 +105,10 @@ class ProviderMiniMaxSTTAPI(STTProvider):
 
     async def get_text(self, audio_url: str) -> str:
         audio_path, cleanup_paths = await self._prepare_audio_file(audio_url)
-        headers = {"Authorization": f"Bearer {self.chosen_api_key}"}
+        headers = {
+            **self.request_headers,
+            "Authorization": f"Bearer {self.chosen_api_key}",
+        }
         if self.language:
             headers["language"] = self.language
 

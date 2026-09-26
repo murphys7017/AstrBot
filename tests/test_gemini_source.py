@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from io import BytesIO
 from types import SimpleNamespace
@@ -455,4 +456,42 @@ async def test_gemini_stream_keeps_conversation_header_until_consumed():
 
     assert responses[-1].completion_text == "ok"
     assert observed_headers == ["conversation-1"]
+    assert "x-astrbot-conversation-id" not in headers
+
+
+@pytest.mark.asyncio
+async def test_gemini_conversation_header_does_not_leak_to_parallel_request():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    headers: dict[str, str] = {}
+    provider.client = SimpleNamespace(
+        _api_client=SimpleNamespace(_http_options=SimpleNamespace(headers=headers))
+    )
+    provider._request_lock = asyncio.Lock()
+    conversation_started = asyncio.Event()
+    release_conversation = asyncio.Event()
+    observed_headers: list[tuple[str, str | None]] = []
+
+    async def request_with_conversation():
+        async with provider._conversation_header("conversation-1"):
+            conversation_started.set()
+            observed_headers.append(
+                ("conversation", headers.get("x-astrbot-conversation-id"))
+            )
+            await release_conversation.wait()
+
+    async def request_without_conversation():
+        await conversation_started.wait()
+        async with provider._conversation_header(None):
+            observed_headers.append(
+                ("plain", headers.get("x-astrbot-conversation-id"))
+            )
+
+    conversation_task = asyncio.create_task(request_with_conversation())
+    plain_task = asyncio.create_task(request_without_conversation())
+    await conversation_started.wait()
+    await asyncio.sleep(0)
+    release_conversation.set()
+    await asyncio.gather(conversation_task, plain_task)
+
+    assert observed_headers == [("conversation", "conversation-1"), ("plain", None)]
     assert "x-astrbot-conversation-id" not in headers

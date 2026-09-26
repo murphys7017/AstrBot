@@ -135,7 +135,7 @@ class ProviderGoogleGenAI(Provider):
         http_options = getattr(api_client, "_http_options", None)
         headers = getattr(http_options, "headers", None)
         conversation_headers = build_conversation_headers(conversation_id)
-        if not isinstance(headers, dict) or not conversation_headers:
+        if not isinstance(headers, dict):
             yield
             return
 
@@ -144,9 +144,13 @@ class ProviderGoogleGenAI(Provider):
             request_lock = asyncio.Lock()
             self._request_lock = request_lock
 
-        header_name, header_value = next(iter(conversation_headers.items()))
-        missing = object()
         async with request_lock:
+            if not conversation_headers:
+                yield
+                return
+
+            header_name, header_value = next(iter(conversation_headers.items()))
+            missing = object()
             previous_value = headers.get(header_name, missing)
             headers[header_name] = header_value
             try:

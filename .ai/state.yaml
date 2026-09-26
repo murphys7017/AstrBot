@@ -1647,3 +1647,31 @@ retired_interaction_projection_cleanup:
     capability target entries remain outside the static default template.
     Pytest was not run because the focused config collection remains a known
     local timeout. No service restart was performed.
+
+provider_conversation_header_boundary_repair:
+  date: '2026-09-25'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Repair the provider request boundary introduced by conversation-id header
+    propagation: keep DeepSeek and Ollama overrides compatible, serialize all
+    Gemini requests while its SDK header is temporarily mutated, prevent Ark
+    from serializing the internal ID into extra_body, and apply standard
+    request headers to MiniMax STT and Ark.
+  non_goals: >-
+    Change provider selection, alter upstream API payload semantics beyond the
+    AstrBot conversation header, redesign the Gemini SDK integration, or
+    restart AstrBot.
+  validation: >-
+    Focused provider tests passed 47 cases, covering DeepSeek, Ollama, Gemini
+    concurrent header isolation, Ark request payload/header projection,
+    MiniMax STT headers, OpenAI recovery behavior, and standardized SDK user
+    agents. Provider source compilation and git diff checks passed. The full
+    Ark source test file retains five pre-existing failures in its stale image
+    materialization/template fixtures, outside this header-boundary change.
+  followup: >-
+    After the next restart, send one ordinary and one streaming request through
+    each configured DeepSeek, Ollama, Gemini, and Ark provider. Confirm the
+    upstream access logs receive x-astrbot-conversation-id only for the active
+    conversation, and Ark receives it as a header rather than request JSON.

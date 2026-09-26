@@ -13,7 +13,9 @@ import astrbot.core.provider.sources.openai_source as openai_source_module
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.provider.entities import LLMResponse
+from astrbot.core.provider.sources.deepseek_source import ProviderDeepSeek
 from astrbot.core.provider.sources.groq_source import ProviderGroq
+from astrbot.core.provider.sources.ollama_source import ProviderOllamaNative
 from astrbot.core.provider.sources.openai_source import ProviderOpenAIOfficial
 from astrbot.core.utils.image_materializer import (
     ImageMaterializationError,
@@ -76,6 +78,84 @@ def _make_groq_provider(overrides: dict | None = None) -> ProviderGroq:
         provider_config=provider_config,
         provider_settings={},
     )
+
+
+@pytest.mark.asyncio
+async def test_deepseek_query_forwards_conversation_header():
+    provider = ProviderDeepSeek.__new__(ProviderDeepSeek)
+    provider.provider_config = {}
+    provider.default_params = {"model", "messages"}
+    provider.reasoning_key = "reasoning_content"
+    captured: dict = {}
+
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return ChatCompletion.model_validate(
+            {
+                "id": "deepseek-response",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "deepseek-chat",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "ok"},
+                    }
+                ],
+            }
+        )
+
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+    await provider._query(
+        {"model": "deepseek-chat", "messages": []},
+        None,
+        conversation_id="conversation-1",
+    )
+
+    assert captured["extra_headers"] == {
+        "x-astrbot-conversation-id": "conversation-1"
+    }
+
+
+@pytest.mark.asyncio
+async def test_ollama_query_forwards_conversation_header():
+    provider = ProviderOllamaNative.__new__(ProviderOllamaNative)
+    provider.provider_config = {}
+    provider.configured_context_tokens = 0
+    provider.model_name = "qwen3"
+    provider.reasoning_key = "reasoning_content"
+    provider.ollama_api_base = "http://127.0.0.1:11434"
+    provider.timeout = 30
+    captured: dict = {}
+
+    class Response:
+        is_success = True
+
+        def json(self):
+            return {
+                "model": "qwen3",
+                "message": {"role": "assistant", "content": "ok"},
+            }
+
+    async def post(*args, **kwargs):
+        captured.update(args=args, kwargs=kwargs)
+        return Response()
+
+    provider.ollama_client = SimpleNamespace(post=post)
+
+    await provider._query(
+        {"model": "qwen3", "messages": []},
+        None,
+        conversation_id="conversation-1",
+    )
+
+    assert captured["kwargs"]["headers"] == {
+        "x-astrbot-conversation-id": "conversation-1"
+    }
 
 
 def test_create_http_client_uses_openai_httpx_module(monkeypatch):
@@ -601,7 +681,7 @@ async def test_text_chat_returns_success_on_last_recovery_attempt(monkeypatch):
     expected = LLMResponse(role="assistant", completion_text="recovered")
     call_count = 0
 
-    async def fake_query(payloads, tools):
+    async def fake_query(payloads, tools, **_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -639,7 +719,7 @@ async def test_text_chat_preserves_required_tools_on_unsupported_provider(monkey
         ]
     )
 
-    async def fake_query(payloads, func_tool):
+    async def fake_query(payloads, func_tool, **_kwargs):
         nonlocal call_count
         call_count += 1
         assert payloads["tool_choice"] == "required"

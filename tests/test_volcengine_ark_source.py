@@ -7,6 +7,7 @@ import pytest
 
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.config.default import CONFIG_METADATA_2
+from astrbot.core.provider.headers import DEFAULT_USER_AGENT
 from astrbot.core.provider.register import provider_cls_map
 from astrbot.core.provider.sources.volcengine_ark_source import ProviderVolcengineArk
 
@@ -181,6 +182,7 @@ async def test_volcengine_ark_text_chat_maps_payload_and_response(
             prompt="hello",
             system_prompt="be helpful",
             func_tool=tool_set,
+            conversation_id="conversation-1",
         )
 
         last_kwargs = fake_ark.last_instance.last_kwargs
@@ -203,6 +205,13 @@ async def test_volcengine_ark_text_chat_maps_payload_and_response(
                 },
             }
         ]
+        assert last_kwargs["extra_headers"] == {
+            "x-astrbot-conversation-id": "conversation-1"
+        }
+        assert "conversation_id" not in last_kwargs.get("extra_body", {})
+        assert fake_ark.last_instance.default_headers == {
+            "User-Agent": DEFAULT_USER_AGENT
+        }
 
         assert response.role == "tool"
         assert response.completion_text == "Working"

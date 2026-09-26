@@ -19,6 +19,7 @@ from astrbot.core.utils.network_utils import (
     log_connection_failure,
 )
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 from .openai_source import ProviderOpenAIOfficial
 
@@ -307,12 +308,19 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
             }
         )
 
-    async def _query(self, payloads: dict, tools: ToolSet | None) -> LLMResponse:
+    async def _query(
+        self,
+        payloads: dict,
+        tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
+    ) -> LLMResponse:
         request = self._build_ollama_payload(payloads, tools, stream=False)
         response = await self.ollama_client.post(
             f"{self.ollama_api_base}/api/chat",
             json=request,
             timeout=self.timeout,
+            headers=build_conversation_headers(conversation_id),
         )
         self._raise_for_ollama_error(response)
         completion = self._to_openai_completion(response.json())
@@ -322,6 +330,8 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
         self,
         payloads: dict,
         tools: ToolSet | None,
+        *,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         request = self._build_ollama_payload(payloads, tools, stream=True)
         aggregate: dict[str, Any] = {
@@ -333,6 +343,7 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
             f"{self.ollama_api_base}/api/chat",
             json=request,
             timeout=self.timeout,
+            headers=build_conversation_headers(conversation_id),
         ) as response:
             if not response.is_success:
                 await response.aread()

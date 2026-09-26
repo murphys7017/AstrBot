@@ -27,6 +27,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.image_materializer import materialize_image_ref
 from astrbot.core.utils.network_utils import is_connection_error, log_connection_failure
 
+from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
 
 
@@ -66,13 +67,7 @@ class ProviderVolcengineArk(Provider):
         if isinstance(self.timeout, str):
             self.timeout = int(self.timeout)
 
-        self.custom_headers = provider_config.get("custom_headers", {})
-        if not isinstance(self.custom_headers, dict) or not self.custom_headers:
-            self.custom_headers = None
-        else:
-            self.custom_headers = {
-                str(key): str(value) for key, value in self.custom_headers.items()
-            }
+        self.custom_headers = self.request_headers
 
         self.api_base = str(provider_config.get("api_base", "") or "").strip()
         self.proxy = str(provider_config.get("proxy", "") or "").strip()
@@ -555,6 +550,7 @@ class ProviderVolcengineArk(Provider):
         tools: ToolSet | None = None,
         **kwargs,
     ) -> dict[str, Any]:
+        conversation_id = kwargs.pop("conversation_id", None)
         context_query = self._ensure_message_to_dicts(contexts)
         if prompt is not None:
             context_query.append(
@@ -597,6 +593,13 @@ class ProviderVolcengineArk(Provider):
             custom_extra_body=custom_extra_body,
             request_kwargs=dict(kwargs),
         )
+        conversation_headers = build_conversation_headers(conversation_id)
+        if conversation_headers:
+            existing_headers = payload.get("extra_headers")
+            payload["extra_headers"] = {
+                **(existing_headers if isinstance(existing_headers, dict) else {}),
+                **conversation_headers,
+            }
         return payload
 
     async def _create_response(self, payload: dict[str, Any], *, stream: bool) -> Any:
