@@ -1557,3 +1557,23 @@ Deferred / not applicable:
 
 - `344627354`: upstream fixes scroll anchoring when earlier history pages are prepended. Local ChatUI currently loads session history through a different non-paginated path, so this patch has no compatible insertion point.
 - `67c74b7ed`: upstream adds compression in FastAPI static-file routes. This fork serves its Dashboard through Quart and `app.send_static_file`; defer until a Quart-specific implementation can preserve range, cache, and streaming semantics.
+
+## 2026-09-27 Numeric slider boundary follow-up
+
+Reviewed upstream reference: `0d40d3418`
+
+Absorbed by local rewrite:
+
+- Numeric configuration fields with a slider now clamp manual input to the
+  metadata-defined range before emitting an update.
+- The object editor applies the same rule for slider-backed template fields on
+  blur and again when the dialog is confirmed, so keyboard input cannot bypass
+  the range through a direct confirm action.
+- The existing compact slider layout is retained. Upstream's min/max text
+  labels were deliberately not copied because the bounds are already conveyed
+  by the control and the labels unnecessarily duplicate UI information.
+
+Validation:
+
+- Dashboard TypeScript typecheck and `git diff --check` are required before
+  this intake is committed.

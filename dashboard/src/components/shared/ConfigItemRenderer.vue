@@ -161,7 +161,7 @@
       <v-slider
         v-if="itemMeta?.slider"
         :model-value="toNumber(numericTemp ?? modelValue)"
-        @update:model-value="val => { numericTemp = val; emitUpdate(toNumber(val)) }"
+        @update:model-value="val => { numericTemp = val; emitNumericUpdate(val) }"
         @end="numericTemp = null"
         :min="itemMeta?.slider?.min ?? 0"
         :max="itemMeta?.slider?.max ?? 100"
@@ -174,7 +174,7 @@
       <v-text-field
         :model-value="numericTemp ?? modelValue"
         @update:model-value="val => (numericTemp = val)"
-        @blur="() => { if (numericTemp != null) { emitUpdate(toNumber(numericTemp)) } numericTemp = null }"
+        @blur="() => { if (numericTemp != null) { emitNumericUpdate(numericTemp) } numericTemp = null }"
         density="compact"
         variant="outlined"
         class="config-field"
@@ -316,6 +316,20 @@ const listSelectItems = computed(() =>
 function toNumber(val) {
   const n = parseFloat(val)
   return isNaN(n) ? 0 : n
+}
+
+function emitNumericUpdate(value) {
+  const slider = props.itemMeta?.slider
+  const numericValue = toNumber(value)
+
+  if (!slider) {
+    emitUpdate(numericValue)
+    return
+  }
+
+  const min = toNumber(slider.min ?? 0)
+  const max = toNumber(slider.max ?? 100)
+  emitUpdate(Math.min(Math.max(numericValue, min), max))
 }
 
 function getLabel(itemMeta, index, option) {

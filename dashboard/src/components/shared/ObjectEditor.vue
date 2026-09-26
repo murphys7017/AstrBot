@@ -66,6 +66,7 @@
                   <v-text-field
                     v-model.number="pair.value"
                     type="number"
+                    @blur="normalizePairSliderValue(pair)"
                     density="compact"
                     variant="outlined"
                     hide-details
@@ -145,6 +146,7 @@
                     :model-value="getTemplateValue(templateKey)"
                     @update:model-value="updateTemplateValue(templateKey, $event)"
                     type="number"
+                    @blur="normalizeTemplateSliderValue(templateKey, template)"
                     density="compact"
                     variant="outlined"
                     hide-details
@@ -460,6 +462,31 @@ function updateTemplateValue(templateKey, newValue) {
   }
 }
 
+function clampSliderValue(value, slider) {
+  if (!slider) return value
+
+  const numericValue = Number(value)
+  const safeValue = Number.isFinite(numericValue) ? numericValue : 0
+  const min = Number.isFinite(Number(slider.min)) ? Number(slider.min) : 0
+  const max = Number.isFinite(Number(slider.max)) ? Number(slider.max) : 100
+  return Math.min(Math.max(safeValue, min), max)
+}
+
+function normalizePairSliderValue(pair) {
+  if (pair.slider) {
+    pair.value = clampSliderValue(pair.value, pair.slider)
+  }
+}
+
+function normalizeTemplateSliderValue(templateKey, template) {
+  if (template.slider) {
+    updateTemplateValue(
+      templateKey,
+      clampSliderValue(getTemplateValue(templateKey), template.slider)
+    )
+  }
+}
+
 function removeTemplateKey(templateKey) {
   const index = localKeyValuePairs.value.findIndex(pair => pair.key === templateKey)
   if (index >= 0) {
@@ -516,6 +543,12 @@ function confirmDialog() {
         // 默认转换为字符串
         convertedValue = String(pair.value)
         break
+    }
+    if (
+      (pair.type === 'int' || pair.type === 'float' || pair.type === 'number')
+      && pair.slider
+    ) {
+      convertedValue = clampSliderValue(convertedValue, pair.slider)
     }
     updatedValue[pair.key] = convertedValue
   }
