@@ -84,6 +84,20 @@ Validation:
   `astrbotweb` and a literal percent-sign platform ID.
 - Scoped Ruff, Python compilation, and `git diff --check` passed.
 
+## 2026-09-27 fullscreen console contrast follow-up
+
+Reviewed upstream reference: `b13338dbd`
+
+Absorbed by local rewrite:
+
+- The Dashboard's forced dark fullscreen console now explicitly supplies the
+  readable foreground and Vuetify switch-track theme variables. This fixes
+  light-theme fullscreen controls without changing the normal console theme.
+
+Validation:
+
+- Dashboard TypeScript typecheck and `git diff --check` passed.
+
 ## 2026-08-02 v4.27.0 Bailian rerank follow-up
 
 Reviewed upstream baseline: `upstream/master` at `9bb294d8c` (`v4.27.0`)
