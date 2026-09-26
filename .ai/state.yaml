@@ -1756,3 +1756,20 @@ webchat_conversation_title_fallback:
     Focused database coverage passed for a session-title search. Scoped Ruff
     and Python compilation, state YAML parsing, and git diff checks passed. No
     restart is required for this query and response-shape repair.
+
+github_default_branch_archive_download:
+  date: '2026-09-27'
+  class: bugfix
+  risk: medium
+  status: validated
+  scope: >-
+    Resolve an unspecified GitHub repository branch through the archive HEAD
+    reference, replacing the Releases lookup and master-branch fallback in the
+    local plugin updater.
+  non_goals: >-
+    Change explicit branch downloads, plugin installation staging, extraction,
+    replacement, rollback, or repository URL parsing.
+  validation: >-
+    Focused updater coverage passed, along with scoped Ruff checks, Python
+    compilation, YAML parsing, and git diff checks. No live network download
+    is performed.

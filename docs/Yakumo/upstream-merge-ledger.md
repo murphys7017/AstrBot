@@ -1614,3 +1614,22 @@ Validation:
 
 - Focused database coverage, scoped Python checks, YAML parsing, and
   `git diff --check` passed.
+
+## 2026-09-27 GitHub Default Branch Download Follow-Up
+
+Reviewed upstream reference: `27824540c`
+
+Absorbed by local rewrite:
+
+- Plugin repository downloads with no explicit branch now use GitHub's
+  `HEAD` archive. This follows the repository's actual default branch without
+  querying Releases or assuming the obsolete `master` default.
+- Explicit `/tree/<branch>` URLs continue to use their requested branch. The
+  local plugin staging, replacement, and archive extraction behavior is not
+  changed.
+
+Validation:
+
+- Focused updater coverage, scoped Ruff checks, Python compilation, YAML
+  parsing, and `git diff --check` passed. No live network download is
+  performed.

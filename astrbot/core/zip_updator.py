@@ -234,22 +234,10 @@ class RepoZipUpdator:
                 f"https://github.com/{author}/{repo}/archive/refs/heads/{branch}.zip"
             )
         else:
-            try:
-                release_url = f"https://api.github.com/repos/{author}/{repo}/releases"
-                releases = await self.fetch_release_info(url=release_url)
-            except Exception as e:
-                logger.warning(
-                    f"获取 {author}/{repo} 的 GitHub Releases 失败: {e}，将尝试下载默认分支",
-                )
-                releases = []
-            if not releases:
-                # 如果没有最新版本，下载默认分支
-                logger.info(f"正在从默认分支下载 {author}/{repo}")
-                release_url = (
-                    f"https://github.com/{author}/{repo}/archive/refs/heads/master.zip"
-                )
-            else:
-                release_url = releases[0]["zipball_url"]
+            # GitHub resolves HEAD to the repository's configured default branch.
+            # This avoids a separate metadata request and does not assume master.
+            logger.info(f"正在从默认引用 HEAD 下载 {author}/{repo}")
+            release_url = f"https://github.com/{author}/{repo}/archive/HEAD.zip"
 
         if proxy:
             proxy = proxy.rstrip("/")

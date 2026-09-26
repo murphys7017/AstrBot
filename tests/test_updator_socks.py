@@ -27,6 +27,7 @@ class _FakeJSONResponse:
 class _FakeStreamResponse:
     def __init__(self, payload: bytes):
         self._payload = payload
+        self.headers = {"content-length": str(len(payload))}
 
     async def __aenter__(self):
         return self
@@ -404,7 +405,7 @@ async def test_fetch_release_info_uses_httpx_client_with_env_proxy_support(
 
 
 @pytest.mark.asyncio
-async def test_download_from_repo_url_uses_httpx_stream_for_zip_download(
+async def test_download_from_repo_url_uses_head_for_unspecified_branch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     fake_async_client_state: _FakeAsyncClientState,
@@ -413,18 +414,6 @@ async def test_download_from_repo_url_uses_httpx_stream_for_zip_download(
 
     fake_async_client_state.stream_payload = b"zip-data"
 
-    async def fake_fetch_release_info(self, url: str, latest: bool = True):  # noqa: ARG001
-        return [
-            {
-                "version": "AstrBot v4.23.2",
-                "published_at": "2026-04-16T00:00:00Z",
-                "body": "fix updater socks proxy support",
-                "tag_name": "v4.23.2",
-                "zipball_url": "https://example.com/archive.zip",
-            }
-        ]
-
-    monkeypatch.setattr(RepoZipUpdator, "fetch_release_info", fake_fetch_release_info)
     monkeypatch.setattr(
         zip_updator_module,
         "download_file",
@@ -449,7 +438,9 @@ async def test_download_from_repo_url_uses_httpx_stream_for_zip_download(
     )
 
     assert (tmp_path / "AstrBot.zip").read_bytes() == b"zip-data"
-    assert fake_async_client_state.stream_urls == ["https://example.com/archive.zip"]
+    assert fake_async_client_state.stream_urls == [
+        "https://github.com/AstrBotDevs/AstrBot/archive/HEAD.zip"
+    ]
     assert fake_async_client_state.init_kwargs is not None
     assert fake_async_client_state.init_kwargs["follow_redirects"] is True
     assert fake_async_client_state.init_kwargs["timeout"] == 1800.0
