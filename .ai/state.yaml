@@ -1675,3 +1675,27 @@ provider_conversation_header_boundary_repair:
     each configured DeepSeek, Ollama, Gemini, and Ark provider. Confirm the
     upstream access logs receive x-astrbot-conversation-id only for the active
     conversation, and Ark receives it as a header rather than request JSON.
+
+cron_future_task_creator_ownership:
+  date: '2026-09-26'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Limit active-agent future-task listing, editing, and deletion to the sender
+    recorded as the task creator within the current UMO. Explain same-group
+    ownership failures and creatorless Dashboard/legacy tasks without exposing
+    another member's task details.
+  non_goals: >-
+    Change cron scheduling or execution, add administrator overrides, change
+    Dashboard job management, or alter task creation and session routing.
+  validation: >-
+    Focused cron tool tests passed (9), covering own-task edits, rejection of
+    another group member's edit/delete, creatorless rows, and owner-scoped
+    listing. Scoped Ruff, compilation, YAML parsing, and git diff checks passed.
+    No live group or scheduled-trigger acceptance was performed.
+  followup: >-
+    In a shared group, create one task from each of two members. Confirm each
+    sees only their own task, cannot edit or delete the other's task, and gets a
+    truthful creator explanation. Confirm Dashboard-created tasks remain
+    manageable in the Dashboard and are not attributed to a group member.

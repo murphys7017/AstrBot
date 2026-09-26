@@ -7,14 +7,14 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-09-15
+Last updated: 2026-09-26
 
 Last recorded comparison baseline:
 
-- Local side: the active Yakumo working branch at review time; local `master` is also a fork branch and is not treated as the official baseline.
+- Local side: `master` at `f6e6c6845`; this AG99 fork is reviewed by behavior, not as an official upstream baseline.
 - Upstream remote: `upstream` (`https://github.com/AstrBotDevs/AstrBot`)
-- Last local upstream snapshot checked: `upstream/master` at `a4121464` (`v4.28.0`).
-- Reference snapshot status: the local `upstream/master` ref was checked for this review and remains pinned to the recorded SHA. This confirms the reference snapshot only; it does not create an integration or merge obligation.
+- Last local upstream snapshot checked: `upstream/master` at `26ff7673f53245043718d5121153bcd2a46b3a75` (2026-09-25).
+- Reference snapshot status: local history was checked against this SHA. A fetch attempted on 2026-09-26 failed because the GitHub connection was reset, so commits after this snapshot are not verified.
 - Git-only divergence is not tracked as a decision signal for this fork; topic and behavioral
   review remain the source of truth.
 - The refreshed range contains 270 upstream commits after the previous `25cbd41e0` review baseline. Only the topics recorded below have been studied in this pass; unrecorded commits are reference material to inspect only when they relate to an AG99 need, not a backlog that must be cleared.
@@ -61,6 +61,9 @@ Current local reference-intake commits:
 - `79b9628c6` Absorb v4.27 compatibility guards.
 - `5d5320d2b` Absorb v4.27 scheduler and provider updates.
 - `1fd4bbbc4` Align Bailian rerank protocol.
+- `f6e6c6845` Complete provider conversation-header propagation across local overrides.
+- `be5bd430f` Preserve literal escape sequences in file edits.
+- `7bba141a8` Preserve legacy SQLite datetime storage.
 
 ## 2026-08-02 v4.27.0 Bailian rerank follow-up
 
@@ -1469,3 +1472,26 @@ Some tests duplicate behavior already covered locally, while others depend on fe
 Revisit if:
 
 The related production code is merged or changed locally.
+
+## 2026-09-26 Recent Upstream Review
+
+Reviewed local official snapshot: `upstream/master` at `26ff7673f53245043718d5121153bcd2a46b3a75` (2026-09-25). Fetching a newer ref on 2026-09-26 failed because the GitHub connection was reset.
+
+Absorbed by local rewrite:
+
+- `763a5ee97`: future-task listing, editing, and deletion now require both the current UMO and the creating sender ID. Same-group ownership failures are explained clearly; creatorless Dashboard/legacy jobs are not falsely attributed to another member. The list only includes the caller's tasks and notes when same-session tasks are hidden.
+
+Already equivalent locally:
+
+- `1f940d153`: raw edit text is tried before decoded escape sequences (`be5bd430f`), with regression coverage for literal `\\n` and Windows paths.
+- `dae7c24e1`: compatible OpenAI completions extract both `<think>` and `<thinking>` tags and preserve explicit reasoning fields.
+- `f09760001`: Gemini streaming retains narration and reasoning emitted before a tool call in the final turn response.
+- `8b5e24ba2`: proactive and cron turns derive plugin admission from the selected configuration snapshot.
+- `28c6aef1e`: legacy naive SQLite datetime storage is retained for Core, Knowledge Base, and document models (`7bba141a8`).
+- `54c98e8ac`: each OneBot V11 file segment is resolved with its own `file_id`.
+- `081261664`: Xinference rerank failures propagate so retrieval can preserve fused results.
+
+Deferred / not applicable:
+
+- `344627354`: upstream fixes scroll anchoring when earlier history pages are prepended. Local ChatUI currently loads session history through a different non-paginated path, so this patch has no compatible insertion point.
+- `67c74b7ed`: upstream adds compression in FastAPI static-file routes. This fork serves its Dashboard through Quart and `app.send_static_file`; defer until a Quart-specific implementation can preserve range, cache, and streaming semantics.
