@@ -83,6 +83,10 @@ const props = defineProps<{
   thread: ChatThread | null;
   isDark: boolean;
   deleting?: boolean;
+  getProviderSelection?: () =>
+    | { providerId: string; modelName: string }
+    | null
+    | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -159,6 +163,7 @@ async function send() {
   const abort = new AbortController();
   sending.value = true;
   try {
+    const selection = props.getProviderSelection?.();
     const response = await fetch("/api/chat/thread/send", {
       method: "POST",
       headers: {
@@ -169,6 +174,8 @@ async function send() {
         thread_id: props.thread.thread_id,
         message: [{ type: "plain", text }],
         enable_streaming: true,
+        selected_provider: selection?.providerId || "",
+        selected_model: selection?.modelName || "",
       }),
       signal: abort.signal,
     });

@@ -1654,3 +1654,21 @@ Validation:
 - Focused command coverage, scoped Ruff checks, Python compilation, YAML
   parsing, and `git diff --check` passed. No remote Runner or platform service
   was invoked.
+
+## 2026-09-27 WebChat Side-Thread Model Selection Follow-Up
+
+Reviewed upstream reference: `4007d645c`
+
+Absorbed by local rewrite:
+
+- WebChat side-thread sends now forward the provider and model selected by the
+  parent chat composer.
+- The existing side-thread API and WebChat adapter already propagate these
+  fields, so this is limited to supplying the omitted Dashboard request values.
+- No selection state is duplicated: the panel reads the parent composer's
+  current selection at send time and preserves the empty-field fallback.
+
+Validation:
+
+- Dashboard TypeScript typecheck and `git diff --check` passed. No live
+  provider or WebChat session was invoked.

@@ -1790,3 +1790,18 @@ third_party_new_conversation_selection:
     Focused command coverage passed, along with scoped Ruff checks, Python
     compilation, YAML parsing, and git diff checks. No remote Runner or
     platform service was invoked.
+
+webchat_side_thread_model_selection:
+  date: '2026-09-27'
+  class: bugfix
+  risk: medium
+  status: validated
+  scope: >-
+    Forward the parent WebChat composer's currently selected provider and model
+    when a side-thread submits its message.
+  non_goals: >-
+    Change provider selection state, side-thread persistence, server API
+    routing, WebChat adapter behavior, or default provider fallback.
+  validation: >-
+    Dashboard TypeScript typecheck and git diff checks passed. No live provider
+    or WebChat session was invoked.
