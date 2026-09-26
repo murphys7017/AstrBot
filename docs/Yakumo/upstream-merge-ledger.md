@@ -112,6 +112,21 @@ Validation:
 - Focused message-event outline test, scoped Ruff, Python compilation, and
   `git diff --check` passed.
 
+## 2026-09-27 persisted conversation deletion follow-up
+
+Reviewed upstream reference: `6dde01b7e`
+
+Absorbed by local rewrite:
+
+- Deleting the current conversation now reads the persisted selection through
+  `get_curr_conversation_id()` when the in-memory session cache is cold, so a
+  restart cannot turn a delete request into a silent no-op.
+
+Validation:
+
+- Focused conversation-manager regression test, scoped Ruff, Python
+  compilation, and `git diff --check` passed.
+
 ## 2026-08-02 v4.27.0 Bailian rerank follow-up
 
 Reviewed upstream baseline: `upstream/master` at `9bb294d8c` (`v4.27.0`)
