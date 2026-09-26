@@ -228,12 +228,11 @@ class ConversationCommands:
                 message.unified_msg_origin,
                 agent_runner_type,
             )
-            message.set_result(
-                MessageEventResult().message("✅ New conversation created.")
+        else:
+            active_event_registry.stop_all(
+                message.unified_msg_origin,
+                exclude=message,
             )
-            return
-
-        active_event_registry.stop_all(message.unified_msg_origin, exclude=message)
         cpersona = await self._get_current_persona_id(message.unified_msg_origin)
         cid = await self.context.conversation_manager.new_conversation(
             message.unified_msg_origin,

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -188,3 +189,51 @@ async def test_clear_third_party_agent_runner_state_removes_local_state_when_dee
         "umo-3",
         conversation_module.DEERFLOW_THREAD_ID_KEY,
     ) in calls
+
+
+@pytest.mark.asyncio
+async def test_new_conversation_creates_local_record_after_clearing_third_party_state(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    cleared: list[tuple[str, str]] = []
+
+    async def clear_runner_state(context, umo: str, runner_type: str):
+        _ = context
+        cleared.append((umo, runner_type))
+
+    manager = SimpleNamespace(
+        get_curr_conversation_id=AsyncMock(return_value=None),
+        new_conversation=AsyncMock(return_value="new-conversation"),
+    )
+    context = SimpleNamespace(
+        get_config=lambda **kwargs: {
+            "agent_runner": {"mode": "dify", "provider_id": "dify-runner"}
+        },
+        conversation_manager=manager,
+    )
+    event = SimpleNamespace(
+        unified_msg_origin="qq:FriendMessage:user",
+        get_platform_id=lambda: "qq",
+        set_extra=Mock(),
+        set_result=Mock(),
+    )
+    monkeypatch.setattr(
+        conversation_module,
+        "_clear_third_party_agent_runner_state",
+        clear_runner_state,
+    )
+    monkeypatch.setattr(
+        conversation_module.active_event_registry,
+        "stop_all",
+        Mock(),
+    )
+
+    await conversation_module.ConversationCommands(context).new_conv(event)
+
+    assert cleared == [("qq:FriendMessage:user", "dify")]
+    manager.new_conversation.assert_awaited_once_with(
+        "qq:FriendMessage:user",
+        "qq",
+        persona_id=None,
+    )
+    assert event.set_extra.call_count == 2

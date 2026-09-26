@@ -1633,3 +1633,24 @@ Validation:
 - Focused updater coverage, scoped Ruff checks, Python compilation, YAML
   parsing, and `git diff --check` passed. No live network download is
   performed.
+
+## 2026-09-27 Conversation Reset/New Semantics Follow-Up
+
+Reviewed upstream reference: `3ada8aa0a`
+
+Absorbed by local rewrite:
+
+- The fork already separated `/reset` from `/new`: reset clears the selected
+  local conversation in place, while new preserves it and creates another.
+- For third-party Agent Runners, `/new` now also creates and selects that new
+  local conversation after clearing its remote runner state. This restores
+  local history retention and the same session-selection result as the native
+  runner path.
+- Existing reset permission policy, remote cleanup behavior, Persona
+  inheritance, and session-context cleanup remain unchanged.
+
+Validation:
+
+- Focused command coverage, scoped Ruff checks, Python compilation, YAML
+  parsing, and `git diff --check` passed. No remote Runner or platform service
+  was invoked.

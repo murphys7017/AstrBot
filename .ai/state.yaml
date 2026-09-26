@@ -1773,3 +1773,20 @@ github_default_branch_archive_download:
     Focused updater coverage passed, along with scoped Ruff checks, Python
     compilation, YAML parsing, and git diff checks. No live network download
     is performed.
+
+third_party_new_conversation_selection:
+  date: '2026-09-27'
+  class: bugfix
+  risk: medium
+  status: validated
+  scope: >-
+    After /new clears a third-party Agent Runner's remote session state, create
+    and select a new local conversation just as the native Runner path does.
+  non_goals: >-
+    Change /reset semantics, command permissions, remote cleanup behavior,
+    Persona inheritance, provider selection, or group and long-term context
+    cleanup.
+  validation: >-
+    Focused command coverage passed, along with scoped Ruff checks, Python
+    compilation, YAML parsing, and git diff checks. No remote Runner or
+    platform service was invoked.
