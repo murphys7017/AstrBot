@@ -98,6 +98,20 @@ Validation:
 
 - Dashboard TypeScript typecheck and `git diff --check` passed.
 
+## 2026-09-27 message-outline type-order follow-up
+
+Reviewed upstream reference: `5935430b1`
+
+Absorbed by local rewrite:
+
+- Message outlines now classify `AtAll` before its `At` base class, displaying
+  the intentional all-members marker instead of a generic literal `all` ID.
+
+Validation:
+
+- Focused message-event outline test, scoped Ruff, Python compilation, and
+  `git diff --check` passed.
+
 ## 2026-08-02 v4.27.0 Bailian rerank follow-up
 
 Reviewed upstream baseline: `upstream/master` at `9bb294d8c` (`v4.27.0`)
