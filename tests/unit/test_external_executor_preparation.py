@@ -24,7 +24,21 @@ def _spec() -> CoreExecutionSpec:
             ),
             "conversation.history": ContextSlot(
                 name="conversation.history",
-                value={"turns": [{"role": "user", "content": "Please fix it."}]},
+                value={
+                    "format": "turn_pairs",
+                    "turns": [
+                        {
+                            "user_message": {
+                                "role": "user",
+                                "content": "Please fix it.",
+                            },
+                            "assistant_message": {
+                                "role": "assistant",
+                                "content": "I will inspect it.",
+                            },
+                        }
+                    ],
+                },
                 category="conversation",
                 source="test",
             ),
@@ -104,7 +118,8 @@ def test_prepare_external_request_uses_core_projection_and_scoped_workspace(tmp_
     assert request.session_key.runtime_config_id == "bot-a"
     assert request.capabilities == ()
     assert "Inspect the repository and update one file." in request.prompt
-    assert "conversation.history" in request.prompt
+    assert "Please fix it." in request.prompt
+    assert "I will inspect it." in request.prompt
     assert "persona.prompt" not in request.prompt
     assert "astrbot_only_tool" not in request.prompt
 

@@ -21,6 +21,7 @@ from .po import (
     MemoryLongTermMemoryIndex,
     MemoryLongTermMemoryLink,
     MemoryLongTermPromotionCursor,
+    MemoryPendingJobRecord,
     MemoryPersonaEvolutionLog,
     MemoryPersonaState,
     MemorySessionInsight,
@@ -36,6 +37,7 @@ from .types import (
     LongTermPromotionCursor,
     LongTermVectorSyncStatus,
     MemoryIdentityBinding,
+    MemoryPendingJob,
     PersonaEvolutionLog,
     PersonaState,
     PersonaStateConflictError,
@@ -157,6 +159,8 @@ class MemoryStore:
             async with self.engine.begin() as conn:
                 await conn.run_sync(BaseMemoryModel.metadata.create_all)
                 await self._migrate_nullable_platform_user_key_columns(conn)
+                await self._migrate_turn_record_assistant_only_column(conn)
+                await self._migrate_pending_job_delivery_token_column(conn)
             async with self.engine.connect() as conn:
                 conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
                 await conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -200,6 +204,30 @@ class MemoryStore:
                 table_name,
             )
 
+    async def _migrate_turn_record_assistant_only_column(self, conn) -> None:
+        columns = await self._get_table_column_info(conn, "memory_turn_records")
+        if not columns or any(item["name"] == "assistant_only" for item in columns):
+            return
+        await conn.execute(
+            text(
+                "ALTER TABLE memory_turn_records "
+                "ADD COLUMN assistant_only BOOLEAN NOT NULL DEFAULT 0"
+            )
+        )
+        logger.info("memory store migrated memory_turn_records.assistant_only")
+
+    async def _migrate_pending_job_delivery_token_column(self, conn) -> None:
+        columns = await self._get_table_column_info(conn, "memory_pending_jobs")
+        if not columns or any(item["name"] == "delivery_token" for item in columns):
+            return
+        await conn.execute(
+            text(
+                "ALTER TABLE memory_pending_jobs "
+                "ADD COLUMN delivery_token VARCHAR(64) NOT NULL DEFAULT ''"
+            )
+        )
+        logger.info("memory store migrated memory_pending_jobs.delivery_token")
+
     async def _get_table_column_info(self, conn, table_name: str) -> list[dict]:
         result = await conn.execute(text(f'PRAGMA table_info("{table_name}")'))
         return [dict(row) for row in result.mappings().all()]
@@ -242,11 +270,94 @@ class MemoryStore:
                 entity.assistant_message = record.assistant_message
                 entity.message_timestamp = record.message_timestamp
                 entity.source_refs = list(record.source_refs)
+                entity.assistant_only = bool(record.assistant_only)
                 entity.scope_context = scope_context_to_dict(record.scope_context)
 
                 await session.flush()
                 await session.refresh(entity)
                 return self._to_turn_record(entity)
+
+    async def upsert_pending_job(self, job: MemoryPendingJob) -> MemoryPendingJob:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryPendingJobRecord).where(
+                        col(MemoryPendingJobRecord.job_key) == job.job_key
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is None:
+                    entity = MemoryPendingJobRecord(
+                        job_key=job.job_key,
+                        delivery_token=job.delivery_token,
+                    )
+                    session.add(entity)
+                else:
+                    # A newly submitted coalesced job supersedes the previous
+                    # delivery. Its retry counter must describe this payload,
+                    # not a previous one that happened to share the queue key.
+                    entity.attempts = 0
+                entity.owner_id = job.owner_id
+                entity.scope_type = job.scope_type
+                entity.scope_id = job.scope_id
+                entity.conversation_id = job.conversation_id
+                entity.umo = job.umo
+                entity.kind = job.kind
+                entity.dedupe_key = job.dedupe_key
+                entity.delivery_token = job.delivery_token
+                entity.payload = job.payload
+                await session.flush()
+                await session.refresh(entity)
+                return self._to_pending_job(entity)
+
+    async def list_pending_jobs(self) -> list[MemoryPendingJob]:
+        async with self.get_db() as session:
+            result = await session.execute(
+                select(MemoryPendingJobRecord).order_by(
+                    MemoryPendingJobRecord.created_at
+                )
+            )
+            return [self._to_pending_job(item) for item in result.scalars().all()]
+
+    async def delete_pending_job(
+        self,
+        job_key: str,
+        delivery_token: str,
+    ) -> None:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryPendingJobRecord).where(
+                        and_(
+                            col(MemoryPendingJobRecord.job_key) == job_key,
+                            col(MemoryPendingJobRecord.delivery_token)
+                            == delivery_token,
+                        )
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is not None:
+                    await session.delete(entity)
+
+    async def record_pending_job_attempt(
+        self,
+        job_key: str,
+        delivery_token: str,
+    ) -> None:
+        async with self.get_db() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(MemoryPendingJobRecord).where(
+                        and_(
+                            col(MemoryPendingJobRecord.job_key) == job_key,
+                            col(MemoryPendingJobRecord.delivery_token)
+                            == delivery_token,
+                        )
+                    )
+                )
+                entity = result.scalar_one_or_none()
+                if entity is not None:
+                    entity.attempts = int(entity.attempts or 0) + 1
 
     async def get_turn_record(self, turn_id: str) -> TurnRecord | None:
         async with self.get_db() as session:
@@ -1660,8 +1771,26 @@ class MemoryStore:
             assistant_message=dict(entity.assistant_message or {}),
             message_timestamp=entity.message_timestamp,
             source_refs=list(entity.source_refs or []),
+            assistant_only=bool(entity.assistant_only),
             scope_context=scope_context_from_dict(entity.scope_context),
             created_at=entity.created_at,
+        )
+
+    @staticmethod
+    def _to_pending_job(entity: MemoryPendingJobRecord) -> MemoryPendingJob:
+        return MemoryPendingJob(
+            job_key=entity.job_key,
+            owner_id=entity.owner_id,
+            scope_type=entity.scope_type,
+            scope_id=entity.scope_id,
+            conversation_id=entity.conversation_id,
+            umo=entity.umo,
+            kind=entity.kind,
+            dedupe_key=entity.dedupe_key,
+            delivery_token=entity.delivery_token,
+            payload=entity.payload,
+            created_at=entity.created_at,
+            attempts=int(entity.attempts or 0),
         )
 
     def _to_topic_state(self, entity: MemoryTopicState) -> TopicState:

@@ -87,8 +87,27 @@ class TurnRecord:
     assistant_message: MessagePayload
     message_timestamp: datetime
     source_refs: list[SourceRef] = field(default_factory=list)
+    assistant_only: bool = False
     scope_context: MemoryScopeContext | None = None
     created_at: datetime | None = None
+
+
+@dataclass(slots=True)
+class MemoryPendingJob:
+    """Durable scheduler entry for work that must survive a process restart."""
+
+    job_key: str
+    owner_id: str
+    scope_type: str
+    scope_id: str
+    conversation_id: str | None
+    umo: str
+    kind: str
+    dedupe_key: str | None
+    delivery_token: str
+    payload: JsonValue = None
+    created_at: datetime | None = None
+    attempts: int = 0
 
 
 @dataclass(slots=True)

@@ -125,30 +125,14 @@ def filter_llm_exposed_context_pack(
     *,
     config: object | None = None,
 ) -> ContextPack:
-    """Return a Core-budgeted compatibility view of all LLM-exposed slots."""
+    """Return the explicit Core projection for legacy render callers.
 
-    filtered = ContextPack(
-        provider_request_ref=pack.provider_request_ref,
-        meta=deepcopy(pack.meta),
-    )
-    for slot in pack.slots.values():
-        if slot.llm_exposure != "never":
-            filtered.add_slot(deepcopy(slot))
-    budget = resolve_target_budget(PromptTarget.CORE.value, config=config)
-    apply_target_budget(
-        source_slots={
-            name: slot
-            for name, slot in pack.slots.items()
-            if slot.llm_exposure != "never"
-        },
-        projected=filtered,
-        target=PromptTarget.CORE.value,
-        budget=budget,
-    )
-    filtered.meta["source_slot_names"] = sorted(pack.slots)
-    filtered.meta["selected_slot_names"] = sorted(filtered.slots)
-    filtered.meta["slot_count"] = len(filtered.slots)
-    return filtered
+    A targetless rendering path must not bypass per-slot target restrictions.
+    Callers that have not migrated to an explicit target retain Core semantics,
+    which is the historic model-facing surface.
+    """
+
+    return project_context_pack(pack, PromptTarget.CORE, config=config)
 
 
 def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:

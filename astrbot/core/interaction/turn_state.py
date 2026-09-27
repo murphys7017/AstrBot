@@ -306,6 +306,8 @@ class InteractionTurnState:
     runtime_privacy_scope: str = ""
     runtime_reservation_state: str = ""
     prompt_build_config: Any | None = None
+    prompt_source_request: Any | None = None
+    prompt_source_request_frozen: bool = False
     context_material: InteractionContextMaterial | None = None
     context_material_task: asyncio.Task[InteractionContextMaterial] | None = None
     core_execution_capability_summary: ExecutionCapabilitySummary | None = None

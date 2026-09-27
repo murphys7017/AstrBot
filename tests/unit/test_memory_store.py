@@ -14,6 +14,7 @@ from astrbot.core.memory import (
     LongTermMemoryStatus,
     LongTermPromotionCursor,
     LongTermVectorSyncStatus,
+    MemoryPendingJob,
     MemoryStore,
     PersonaEvolutionLog,
     PersonaState,
@@ -263,6 +264,44 @@ async def test_memory_store_concurrent_first_reads_initialize_once(temp_dir: Pat
 
         assert results == [None, None, []]
         assert store.inited is True
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_pending_job_replacement_is_not_settled_by_stale_delivery(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+
+    def pending_job(*, token: str, payload: str) -> MemoryPendingJob:
+        return MemoryPendingJob(
+            job_key="scope-job",
+            owner_id=TEST_CANONICAL_USER_ID,
+            scope_type=ScopeType.USER.value,
+            scope_id=TEST_CANONICAL_USER_ID,
+            conversation_id="conv-1",
+            umo=TEST_UMO,
+            kind="scope",
+            dedupe_key="conv-1",
+            delivery_token=token,
+            payload=payload,
+        )
+
+    try:
+        await store.upsert_pending_job(pending_job(token="old", payload="old-turn"))
+        await store.record_pending_job_attempt("scope-job", "old")
+        await store.upsert_pending_job(pending_job(token="new", payload="new-turn"))
+
+        await store.delete_pending_job("scope-job", "old")
+        pending = await store.list_pending_jobs()
+        assert len(pending) == 1
+        assert pending[0].delivery_token == "new"
+        assert pending[0].payload == "new-turn"
+        assert pending[0].attempts == 0
+
+        await store.delete_pending_job("scope-job", "new")
+        assert await store.list_pending_jobs() == []
     finally:
         await store.close()
 

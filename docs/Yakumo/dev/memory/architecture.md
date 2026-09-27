@@ -13,7 +13,7 @@ Finalized Turn Material
   -> TurnRecord
   -> assistant-only: stop
   -> user turn: Short-Term Update
-  -> MemoryJobScheduler(background Postprocessor)
+  -> Memory pending-job journal + MemoryJobScheduler(background Postprocessor)
         -> scoped Consolidation / Experience / Long-Term Promotion
   -> MemoryJobScheduler(background Recall refresh / Vector sync)
 ```
@@ -38,8 +38,8 @@ material；普通 Pipeline 则读取官方 Conversation 或当前 Provider 回�
    `ShortTermMemory`、`PersonaState`，也不运行 consolidation、Experience 或长期记忆
    promotion。
 3. 普通用户回合更新 `TopicState` 与 `ShortTermMemory`，再按 `MemoryScopeContext` 枚举可贡献的 USER/GROUP scope。
-4. 生产 Postprocessor 将每个 scope 提交给 `MemoryJobScheduler`；同一 scope 串行执行，同一 conversation 的重复待处理任务合并。任务内部按阈值运行 consolidation，产生对应的 `SessionInsight` 与 `Experience`；GROUP 会聚合同一群组不同成员的回合。
-5. 每个 scope 的任务继续推进长期沉淀、文档和向量索引；共享 scope 使用稳定 scope owner key，当前贡献者仍保留在 `platform_user_key`、回合和 source refs 中。Recall refresh、dirty vector sync 和 USER-scoped PersonaState reflection 也通过同一 scheduler 托管。
+4. 生产 Postprocessor 将短期更新、每个 scope 的 consolidation/promotion、dirty vector sync 和 Persona reflection 先写入 SQLite pending-job journal，再提交给 `MemoryJobScheduler`；同一 scope 串行执行，同一 conversation 的重复待处理任务合并。每个 journal entry 带 delivery token：被新任务替换的旧 worker 即使晚完成，也不能删除新任务；进程重启时未结算项会重新入队。任务内部按阈值运行 consolidation，产生对应的 `SessionInsight` 与 `Experience`；GROUP 会聚合同一群组不同成员的回合。
+5. 每个 scope 的任务继续推进长期沉淀、文档和向量索引；共享 scope 使用稳定 scope owner key，当前贡献者仍保留在 `platform_user_key`、回合和 source refs 中。Recall refresh、dirty vector sync 和 USER-scoped PersonaState reflection 也通过同一 scheduler 托管。Recall refresh 是可再生缓存任务，不写入 pending-job journal；其余上述变更型任务都必须先持久化。
 
 `MemoryService.update_from_postprocess()` 的生产调用显式使用 `background_jobs=True`，不会等待 analyzer 或整理任务；直接管理调用默认同步执行并传播异常，避免把后台异常吞成同步 API 的假成功。Recall refresh 通过同一 scheduler 提交，但仍由 `RecallSnapshotManager` 保持 stale-while-revalidate 的缓存语义；dirty vector sync 通过 `schedule_dirty_long_term_vector_indexes()` 提交，原有同步修复入口继续保留给管理调用。
 
@@ -89,8 +89,8 @@ Router、Planner、Persona 和 Core 不直接查询 Memory Service，只消费 P
 - `config.py`：把 AstrBot 统一配置中的 `memory` mapping 解析为类型化配置。
 - `types.py`：MemoryUpdateRequest、TurnRecord、TopicState、ShortTermMemory、Experience、
   LongTermMemory、PersonaState、MemorySnapshot 等公共数据类型。
-- `store.py`：SQLite 结构化持久化。
-- `service.py`：统一读写编排与按配置隔离的 service 实例。
+- `store.py`：SQLite 结构化持久化，包括可恢复的 pending-job journal。
+- `service.py`：统一读写编排、journal 恢复和按配置隔离的 service 实例。
 - `job_scheduler.py`：按作用域串行、按任务类型和 dedupe key 合并并消费后台 Memory 任务异常。
 - `short_term_service.py`：近期主题、摘要和 active focus。
 - `consolidation_service.py` / `experience_service.py`：中期抽象与经历沉淀。
@@ -126,5 +126,6 @@ Memory 配置已进入 AstrBot 统一配置，不存在 `data/memory/config.yaml
 - `PersonaStateService` 只接受 USER scope 语义变化，负责中性基线、置信度、delta 限幅、间隔判断，以及 state + evolution log 的原子写入和显式回滚。
 - PersonaState reflection 只消费 consolidation 后的 SessionInsight/Experience；相关开关和 Prompt 注入继续默认关闭，真实运行验收仍待完成。
 - Prompt 负责读取和可见范围，不负责 consolidation 或持久化。
+- `TurnRecord.assistant_only` 是持久化的回合事实，后台 worker 不再通过空用户文本猜测它。
 - Interaction finalized material 是 Interaction 回合的提交材料，不再另存私有记忆。
 - 长期文档和向量索引是检索载体，SQLite 中的 index/link/status 仍是结构化真源。

@@ -166,19 +166,27 @@ async def drive_executor_run(
                 if head is not None and activated:
                     head.release_executor(executor_id=body.executor_id)
 
-        cleanup = (
-            cleanup_scope.create_task(
+        if cleanup_scope is not None and not cleanup_scope.closed:
+            cleanup = cleanup_scope.create_task(
                 close_run(),
                 role="executor_cleanup",
                 name=f"executor-cleanup:{body.executor_id}",
             )
-            if cleanup_scope is not None
-            else asyncio.create_task(
+        else:
+            if cleanup_scope is not None:
+                # Turn shutdown may have closed the scope while the driver was
+                # unwinding a cancellation. Cleanup must still run and must not
+                # replace the original terminal reason.
+                logger.warning(
+                    "Turn scope closed before executor cleanup; using detached cleanup: "
+                    "executor_id=%s",
+                    body.executor_id,
+                )
+            cleanup = asyncio.create_task(
                 close_run(), name=f"executor-cleanup:{body.executor_id}"
             )
-        )
         try:
-            _, pending = await asyncio.wait({cleanup}, timeout=1.0)
+            done, pending = await asyncio.wait({cleanup}, timeout=1.0)
         except asyncio.CancelledError:
             cleanup.cancel()
             raise
@@ -190,6 +198,21 @@ async def drive_executor_run(
                 "Executor cleanup still pending; binding retained: executor_id=%s",
                 body.executor_id,
             )
+        elif cleanup in done:
+            try:
+                cleanup.result()
+            except asyncio.CancelledError:
+                logger.warning(
+                    "Executor cleanup cancelled; binding state unknown: executor_id=%s",
+                    body.executor_id,
+                )
+            except BaseException:
+                # close_run already invalidated the run and logged the full
+                # traceback. Do not mask the execution's primary outcome.
+                logger.warning(
+                    "Executor cleanup completed with an error: executor_id=%s",
+                    body.executor_id,
+                )
 
 
 def _request_run_stop(run: ExecutorRun) -> None:

@@ -7,6 +7,7 @@ or live ToolSet.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,8 @@ from typing import Any
 
 from astrbot.core.execution import CoreExecutionDeadlineView, CoreExecutionSpec
 from astrbot.core.execution_capabilities import collect_semantic_capability_bindings
-from astrbot.core.prompt.targets import PromptTarget, project_context_pack
+from astrbot.core.prompt.render import PromptRenderEngine
+from astrbot.core.prompt.targets import PromptTarget
 
 
 class ExternalExecutorConfigurationError(ValueError):
@@ -69,14 +71,9 @@ def prepare_external_executor_request(
     normalized_session_id = _require_non_empty(session_id, "session_id")
     workspace_root = _resolve_workspace_root(workspace_config)
     workspace = _resolve_workspace(workspace_config, workspace_root)
-    context_pack = project_context_pack(
-        execution_spec.context_pack,
-        PromptTarget.CORE,
-        config=prompt_config,
-    )
     prompt = _render_external_prompt(
         execution_spec=execution_spec,
-        context_pack=context_pack,
+        prompt_config=prompt_config,
         workspace=workspace,
     )
     return ExternalExecutorRequest(
@@ -144,7 +141,7 @@ def _resolve_workspace(config: Mapping[str, Any], root: Path) -> Path:
 def _render_external_prompt(
     *,
     execution_spec: CoreExecutionSpec,
-    context_pack,
+    prompt_config: object,
     workspace: Path,
 ) -> str:
     task_spec = execution_spec.task_spec or {}
@@ -169,9 +166,12 @@ def _render_external_prompt(
     if task_summary and task_summary != execution_prompt:
         sections.extend(("", "Task summary:", task_summary))
 
-    context_lines = _render_context_slots(context_pack)
-    if context_lines:
-        sections.extend(("", "Authorized context:", *context_lines))
+    rendered_context = _render_core_context(
+        execution_spec,
+        prompt_config=prompt_config,
+    )
+    if rendered_context:
+        sections.extend(("", "Authorized context:", rendered_context))
     sections.extend(
         (
             "",
@@ -182,21 +182,31 @@ def _render_external_prompt(
     return "\n".join(sections)
 
 
-def _render_context_slots(context_pack) -> list[str]:
-    rendered: list[str] = []
-    for slot_name in sorted(context_pack.slots):
-        if slot_name in {
-            "capability.tools_schema",
-            "capability.subagent_handoff_tools",
-            "capability.plugin_directory",
-        }:
-            continue
-        slot = context_pack.slots[slot_name]
-        value = slot.value
-        if value in (None, "", [], {}):
-            continue
-        rendered.append(f"[{slot_name}]\n{value}")
-    return rendered
+def _render_core_context(
+    execution_spec: CoreExecutionSpec,
+    *,
+    prompt_config: object,
+) -> str:
+    """Serialize the Core projection through the shared prompt renderer."""
+
+    rendered = PromptRenderEngine().render(
+        execution_spec.context_pack,
+        target=PromptTarget.CORE,
+        config=prompt_config,
+    )
+    sections: list[str] = []
+    if rendered.system_prompt:
+        sections.extend(("System context:", rendered.system_prompt.strip()))
+    if rendered.messages:
+        sections.extend(
+            (
+                "Conversation context:",
+                json.dumps(rendered.messages, ensure_ascii=False, default=str),
+            )
+        )
+    if rendered.request_prompt:
+        sections.extend(("Current request context:", rendered.request_prompt.strip()))
+    return "\n\n".join(section for section in sections if section)
 
 
 def _resolve_capabilities(

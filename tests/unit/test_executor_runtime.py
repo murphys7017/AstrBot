@@ -199,3 +199,27 @@ async def test_unresponsive_cleanup_retains_binding_and_turn_ownership():
     finally:
         release_close.set()
         await scope.close(timeout_seconds=1.0)
+
+
+@pytest.mark.asyncio
+async def test_closed_turn_scope_still_closes_and_releases_executor_run():
+    result = ExecutionResult(output=ExecutionOutputMaterial(text="done"))
+    run = _Run([ExecutionFinalUpdate(result=result)])
+    head = _Head()
+    scope = TurnExecutionScope()
+    await scope.close()
+
+    actual = await drive_executor_run(
+        head=head,
+        body=SimpleNamespace(executor_id="scripted"),
+        run=run,
+        cleanup_scope=scope,
+    )
+
+    assert actual is result
+    assert run.closed is True
+    assert [call[0] for call in head.calls] == [
+        "activate",
+        "complete",
+        "release",
+    ]

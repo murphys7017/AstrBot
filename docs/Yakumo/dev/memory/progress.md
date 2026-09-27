@@ -18,6 +18,8 @@
 - 群聊用户回合可同时贡献 `USER` 与 `GROUP`；GROUP consolidation 会聚合同一群组的不同成员回合，使用稳定群组 owner key 运行 Experience/Long-Term promotion，贡献者身份仍保留在回合 provenance 中。
 - Memory Phase 5 第一批已接入 `MemoryJobScheduler`：后台 Postprocessor 先持久化 `TurnRecord`，再按会话串行提交短期更新；短期更新完成后继续按 scope 串行提交 consolidation/promotion。后台任务只携带 `turn_id` 并从存储重读，旧时间戳回合不会覆盖较新的短期状态；直接调用 `MemoryService.update_from_postprocess()` 仍保持同步执行和异常传播。
 - Memory Phase 5 第二批已将 Recall refresh 和 dirty vector sync 接入同一 scheduler；Recall 继续保持 stale-while-revalidate，向量修复增加显式 `schedule_dirty_long_term_vector_indexes()` 非等待入口，并按任务类型和 dedupe key 合并。
+- 变更型后台任务已接入 SQLite pending-job journal：短期更新、scope consolidation/promotion、dirty vector sync 与 Persona reflection 在入队前持久化，启动时恢复未结算项。每条目使用 delivery token，旧 worker 完成不会误删已被合并任务替换的新条目；Recall refresh 保持可丢弃的缓存刷新任务，不写入 journal。
+- `assistant_only` 已作为 `TurnRecord` 持久化字段保存，后台更新按该明确事实跳过抽象状态写入，不再以空 `user_message` 推断。
 - Persona reflection analyzer 与 `persona_reflection` 后台 Job 已接入 consolidation 成功后的 USER scope 链路；两个开关仍默认关闭，失败只影响 PersonaState，不影响已完成的 Memory consolidation/promotion。
 - `MemoryService` 已提供 PersonaState 只读状态、演进日志、显式 rollback 和 scheduler/reflection 诊断入口；真实运行观察与开关启用仍未执行。
 - `MemoryCollector` 已进入统一 Prompt ContextPack，并由 target projection 控制 Router、
@@ -26,7 +28,7 @@
 
 ## 当前限制
 
-- consolidation、长期 promotion、Recall 刷新和 dirty vector sync 已由后台 scheduler 承担；PersonaState 真实运行验收尚未完成，默认注入与自动演进仍默认关闭。
+- consolidation、长期 promotion、Recall 刷新和 dirty vector sync 已由后台 scheduler 承担；变更型任务可在下次服务初始化时恢复，但当前不会在同一进程内自动重试持续失败的 analyzer 任务。PersonaState 真实运行验收尚未完成，默认注入与自动演进仍默认关闭。
 - canonical identity 缺失的用户回合只跳过 USER 中长期沉淀；若回合带有稳定 GROUP scope，GROUP 中长期沉淀仍可执行。
 - Memory analyzer 依赖配置的 Provider；分析失败按 Postprocessor 失败语义记录并跳过该次更新。
 - 向量检索、文档回表和 analyzer 调用仍需要持续关注延迟、超时和可观测性。

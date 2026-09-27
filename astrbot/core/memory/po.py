@@ -35,7 +35,33 @@ class MemoryTurnRecord(BaseMemoryModel, table=True):
     assistant_message: dict = Field(default_factory=dict, sa_type=JSON)
     message_timestamp: datetime = Field(nullable=False, index=True)
     source_refs: list = Field(default_factory=list, sa_type=JSON)
+    assistant_only: bool = Field(default=False, nullable=False)
     scope_context: dict = Field(default_factory=dict, sa_type=JSON)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MemoryPendingJobRecord(BaseMemoryModel, table=True):
+    __tablename__ = "memory_pending_jobs"  # type: ignore
+
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True},
+    )
+    job_key: str = Field(nullable=False, unique=True, index=True, max_length=128)
+    owner_id: str = Field(nullable=False, index=True, max_length=255)
+    scope_type: str = Field(nullable=False, index=True, max_length=64)
+    scope_id: str = Field(nullable=False, index=True, max_length=255)
+    conversation_id: str | None = Field(default=None, index=True, max_length=64)
+    umo: str = Field(nullable=False, index=True, max_length=255)
+    kind: str = Field(nullable=False, index=True, max_length=64)
+    dedupe_key: str | None = Field(default=None, max_length=255)
+    delivery_token: str = Field(nullable=False, max_length=64)
+    payload: dict | list | str | int | float | bool | None = Field(
+        default=None,
+        sa_type=JSON,
+    )
+    attempts: int = Field(default=0, nullable=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

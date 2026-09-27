@@ -781,7 +781,7 @@ async def _build_native_main_agent(
         provider=provider,
         provider_request=provider_request,
         prompt_context_pack=prepared_execution.execution_spec.context_pack,
-        target=PromptTarget.CORE if interaction_core else None,
+        target=PromptTarget.CORE,
     )
     native_execution = NativeExecutionAdapter().adapt(
         prepared_execution.execution_spec,

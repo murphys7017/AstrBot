@@ -27,6 +27,7 @@ from astrbot.core.voice import (
 
 from .capability_route_guard import correct_contradictory_capability_denial
 from .config import is_middleware_enabled, load_interaction_agent_config
+from .context_builder import get_interaction_prompt_source_request
 from .conversation_history import commit_interaction_conversation_turn
 from .core_planner import CorePlannerAgent, CorePlannerError
 from .dialogue import build_canonical_user_message
@@ -77,7 +78,6 @@ from .turn_state import (
     mark_interaction_turn_cancelled,
     mark_interaction_turn_completed,
     mark_interaction_turn_core_delegated,
-    mark_interaction_turn_core_planner_recovered_via_persona,
     mark_interaction_turn_failed,
     mark_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_postprocess_dispatched,
@@ -760,6 +760,7 @@ class InteractionMiddleware:
             InteractionLifecycleStage.RECEIVED,
         )
         await self._materialize_inbound_media(event)
+        get_interaction_prompt_source_request(event)
         if isinstance(event.get_extra("provider_request"), ProviderRequest):
             self.attach_event_context(event, turn_id=turn_state.turn_id)
             event.set_extra("_interaction_protocol_core_bypass", True)
@@ -928,15 +929,10 @@ class InteractionMiddleware:
                     and turn_state.speculative_persona_status
                     is InteractionSpeculativePersonaStatus.EMITTED
                 ):
-                    mark_interaction_turn_core_planner_recovered_via_persona(
-                        event
+                    await self._complete_delegated_planner_failure(
+                        event,
+                        planner_error,
                     )
-                    if (
-                        turn_state.failures
-                        and turn_state.failures[-1].stage == "core_planner"
-                    ):
-                        turn_state.failures[-1].user_visible_action = "persona_only"
-                    await self._complete_persona_only_turn(event, expression)
                     return
                 if isinstance(expression, BaseException):
                     raise expression from planner_error
@@ -963,6 +959,36 @@ class InteractionMiddleware:
             await self._complete_silent_or_committed_persona_turn(event, None)
             return
         await self._complete_persona_only_turn(event, expression)
+
+    async def _complete_delegated_planner_failure(
+        self,
+        event: AstrMessageEvent,
+        planner_error: BaseException,
+    ) -> None:
+        """Close a delegated turn without treating its acknowledgement as success."""
+
+        if (
+            turn_state := get_interaction_turn_state(event)
+        ) is not None and turn_state.failures:
+            turn_state.failures[-1].user_visible_action = "delegation_failed"
+        await self.output_controller.emit_failure_reply(
+            "刚才没能启动这个任务，请稍后再试一次。",
+            event,
+            failure_kind=InteractionFailureKind.INTERNAL_FAILURE,
+        )
+        logger.warning(
+            "Delegated Core planning failed after immediate acknowledgement: "
+            "turn_id=%s error=%s",
+            event.get_extra("_turn_id"),
+            planner_error,
+            exc_info=(
+                type(planner_error),
+                planner_error,
+                planner_error.__traceback__,
+            ),
+        )
+        await self._finalize_turn(event)
+        event.stop_event()
 
     def _start_speculative_persona_task(
         self,

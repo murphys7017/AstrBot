@@ -202,6 +202,27 @@ def test_direct_slot_targets_are_enforced_before_target_rules():
     )
 
 
+def test_targetless_render_defaults_to_core_projection():
+    pack = ContextPack(
+        slots={
+            "system.base": _slot("system.base", "Core instructions", "system"),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Persona-only input",
+                category="input",
+                source="test",
+                meta={"targets": ["persona"]},
+            ),
+        }
+    )
+
+    result = PromptRenderEngine().render(pack)
+
+    assert result.metadata["prompt_target"] == PromptTarget.CORE.value
+    assert "input.text" not in result.metadata["selected_slot_names"]
+    assert "Persona-only input" not in str(result.messages)
+
+
 def test_plugin_prompt_extensions_do_not_reach_core_planner():
     pack = ContextPack(
         slots={

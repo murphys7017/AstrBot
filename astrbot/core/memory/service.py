@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from astrbot.core import logger
 
@@ -33,6 +36,7 @@ from .types import (
     LongTermMemoryIndex,
     LongTermVectorSyncStatus,
     MemoryIdentity,
+    MemoryPendingJob,
     MemorySnapshot,
     MemoryUpdateRequest,
     PersonaEvolutionLog,
@@ -67,11 +71,11 @@ class MemoryService:
         self.turn_record_service = turn_record_service
         self.short_term_service = short_term_service
         self.snapshot_builder = snapshot_builder
-        self.job_scheduler = MemoryJobScheduler(self._run_memory_job)
+        self.job_scheduler = MemoryJobScheduler(self._run_memory_job_with_journal)
         self.recall_snapshot_manager = RecallSnapshotManager(
             snapshot_builder,
             config=self.store.config.recall,
-            submit_job=self.job_scheduler.submit,
+            submit_job=self._submit_memory_job,
         )
         self.analyzer_manager = analyzer_manager or MemoryAnalyzerManager()
         self.identity_mapping_service = identity_mapping_service
@@ -104,6 +108,7 @@ class MemoryService:
                     "memory identity mappings synchronized: count=%s",
                     count,
                 )
+            await self._recover_pending_jobs()
             self._initialized = True
 
     async def update_from_postprocess(
@@ -135,7 +140,7 @@ class MemoryService:
             )
             return turn
         if background_jobs:
-            await self.job_scheduler.submit(self._build_turn_update_job(turn))
+            await self._submit_memory_job(self._build_turn_update_job(turn))
         else:
             await self._run_turn_update(turn, background_jobs=False)
         return turn
@@ -220,7 +225,7 @@ class MemoryService:
                 umo=turn.umo,
             )
             if background_jobs:
-                await self.job_scheduler.submit(job)
+                await self._submit_memory_job(job)
             else:
                 submitted_jobs.append(job)
 
@@ -328,7 +333,7 @@ class MemoryService:
         ):
             current_state = await self.persona_state_service.get_state(job.owner_id)
             if self.persona_state_service.reflection_due(current_state):
-                submitted = await self.job_scheduler.submit(
+                submitted = await self._submit_memory_job(
                     MemoryScopeJob(
                         owner_id=job.owner_id,
                         scope_type=job.scope_type,
@@ -382,7 +387,7 @@ class MemoryService:
             turn = await self.store.get_turn_record(job.payload)
             if turn is None:
                 raise LookupError(f"memory turn record not found: {job.payload}")
-            if not turn.user_message:
+            if turn.assistant_only:
                 logger.debug(
                     "memory short-term and mid-long pipelines skipped for persisted assistant-only "
                     "turn: turn_id=%s umo=%s",
@@ -413,6 +418,104 @@ class MemoryService:
             await self._run_persona_reflection_job(job.payload)
             return
         raise ValueError(f"unknown memory job kind: {job.kind}")
+
+    async def _run_memory_job_with_journal(self, job: MemoryScopeJob) -> None:
+        """Run one job and settle its durable entry only after successful work."""
+
+        journal_key = job.journal_key
+        journal_token = job.journal_token
+        try:
+            await self._run_memory_job(job)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if journal_key is not None and journal_token is not None:
+                await self.store.record_pending_job_attempt(journal_key, journal_token)
+            raise
+        else:
+            if journal_key is not None and journal_token is not None:
+                await self.store.delete_pending_job(journal_key, journal_token)
+
+    async def _submit_memory_job(self, job: MemoryScopeJob) -> bool:
+        """Persist durable Memory work before it enters the in-process queue."""
+
+        journal_key = self._durable_job_key(job)
+        if journal_key is not None:
+            journal_token = uuid4().hex
+            job = replace(
+                job,
+                journal_key=journal_key,
+                journal_token=journal_token,
+            )
+            await self.store.upsert_pending_job(
+                MemoryPendingJob(
+                    job_key=journal_key,
+                    owner_id=job.owner_id,
+                    scope_type=job.scope_type,
+                    scope_id=job.scope_id,
+                    conversation_id=job.conversation_id,
+                    umo=job.umo,
+                    kind=job.kind,
+                    dedupe_key=job.dedupe_key,
+                    delivery_token=journal_token,
+                    payload=job.payload,
+                )
+            )
+        return await self.job_scheduler.submit(job)
+
+    async def _recover_pending_jobs(self) -> None:
+        """Restore unfinished durable jobs after a clean or unclean restart."""
+
+        pending_jobs = await self.store.list_pending_jobs()
+        if not pending_jobs:
+            return
+        restored = 0
+        for pending in pending_jobs:
+            job = MemoryScopeJob(
+                owner_id=pending.owner_id,
+                scope_type=pending.scope_type,
+                scope_id=pending.scope_id,
+                conversation_id=pending.conversation_id,
+                umo=pending.umo,
+                kind=pending.kind,
+                dedupe_key=pending.dedupe_key,
+                payload=pending.payload,
+                journal_key=pending.job_key,
+                journal_token=pending.delivery_token,
+            )
+            if await self.job_scheduler.submit(job):
+                restored += 1
+        logger.info(
+            "memory durable jobs restored: restored=%s pending=%s",
+            restored,
+            len(pending_jobs),
+        )
+
+    @staticmethod
+    def _durable_job_key(job: MemoryScopeJob) -> str | None:
+        if job.kind not in {
+            "turn_update",
+            "scope",
+            "vector_sync",
+            "persona_reflection",
+        }:
+            return None
+        try:
+            encoded = json.dumps(
+                [
+                    job.owner_id,
+                    job.scope_type,
+                    job.scope_id,
+                    job.queue_key,
+                    job.kind,
+                ],
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
+        except (TypeError, ValueError):
+            return None
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     async def _run_persona_reflection_job(self, payload: dict[str, Any]) -> None:
         if (
@@ -771,7 +874,7 @@ class MemoryService:
                 dedupe_key=memory.memory_id,
                 payload=memory.memory_id,
             )
-            if await self.job_scheduler.submit(job):
+            if await self._submit_memory_job(job):
                 submitted += 1
         return submitted
 

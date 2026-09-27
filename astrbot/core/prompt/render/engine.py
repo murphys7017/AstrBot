@@ -15,7 +15,6 @@ from astrbot.core.star.context import Context
 from ..context_types import ContextPack, ContextSlot
 from ..targets import (
     PromptTarget,
-    filter_llm_exposed_context_pack,
     project_context_pack,
 )
 from .anthropic_renderer import AnthropicPromptRenderer
@@ -54,23 +53,20 @@ class PromptRenderEngine:
         provider_request: ProviderRequest | None = None,
         profile: PromptRenderProfile | None = None,
     ) -> RenderResult:
-        resolved_target = PromptTarget(target) if target is not None else None
-        target_pack = (
-            project_context_pack(
-                pack,
-                resolved_target,
-                history_turns=profile.history_turns if profile is not None else None,
-                config=config,
-            )
-            if resolved_target is not None
-            else filter_llm_exposed_context_pack(pack, config=config)
+        resolved_target = (
+            PromptTarget(target) if target is not None else PromptTarget.CORE
+        )
+        target_pack = project_context_pack(
+            pack,
+            resolved_target,
+            history_turns=profile.history_turns if profile is not None else None,
+            config=config,
         )
         selected_pack = self._apply_render_profile(
             target_pack,
             profile,
             preserve_existing_system_prompt=(
-                resolved_target is None
-                or resolved_target in {PromptTarget.PERSONA, PromptTarget.CORE}
+                resolved_target in {PromptTarget.PERSONA, PromptTarget.CORE}
             ),
         )
         renderer = self._resolve_renderer(
@@ -103,8 +99,7 @@ class PromptRenderEngine:
             renderer=renderer,
             layout=self.default_layout,
         )
-        if resolved_target is not None:
-            result.metadata["prompt_target"] = resolved_target.value
+        result.metadata["prompt_target"] = resolved_target.value
         self._log_render_result(
             result,
             selected_pack=selected_pack,

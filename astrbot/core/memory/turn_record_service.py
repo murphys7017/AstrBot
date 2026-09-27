@@ -26,6 +26,7 @@ class TurnRecordService:
             assistant_message=dict(req.assistant_message),
             message_timestamp=req.message_timestamp,
             source_refs=list(req.source_refs),
+            assistant_only=bool(req.assistant_only),
             scope_context=(
                 req.scope_context
                 if isinstance(req.scope_context, MemoryScopeContext)

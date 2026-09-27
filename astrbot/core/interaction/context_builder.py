@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from copy import copy
+from copy import copy, deepcopy
 from typing import Any
 
 from astrbot import logger
@@ -66,20 +66,57 @@ async def build_interaction_context_pack(
     config,
 ) -> ContextPack:
     builder = PromptContextBuilder(event, plugin_context, config)
+    provider_request = get_interaction_prompt_source_request(event)
     base_pack = await builder.build(
-        provider_request=event.get_extra("provider_request"),
+        provider_request=provider_request,
         collectors=interaction_base_collectors(),
         include_prompt_extensions=True,
         prompt_extension_collector_scope="control_plane",
         scope="interaction_base",
     )
     return await builder.build(
-        provider_request=event.get_extra("provider_request"),
+        provider_request=provider_request,
         collectors=[AttachmentSummaryCollector(base_pack)],
         include_prompt_extensions=False,
         base=base_pack,
         scope="interaction_derived",
     )
+
+
+def get_interaction_prompt_source_request(event) -> ProviderRequest | None:
+    """Freeze inbound prompt facts once for the lifetime of an Interaction turn."""
+
+    turn_state = get_interaction_turn_state(event)
+    if turn_state is None:
+        return _snapshot_provider_request(event.get_extra("provider_request"))
+    if turn_state.prompt_source_request_frozen:
+        source = turn_state.prompt_source_request
+        return source if isinstance(source, ProviderRequest) else None
+
+    turn_state.prompt_source_request = _snapshot_provider_request(
+        event.get_extra("provider_request")
+    )
+    turn_state.prompt_source_request_frozen = True
+    source = turn_state.prompt_source_request
+    return source if isinstance(source, ProviderRequest) else None
+
+
+def _snapshot_provider_request(source: object) -> ProviderRequest | None:
+    if not isinstance(source, ProviderRequest):
+        return None
+    snapshot = copy(source)
+    snapshot.image_urls = list(source.image_urls or [])
+    snapshot.audio_urls = list(source.audio_urls or [])
+    snapshot.extra_user_content_parts = deepcopy(source.extra_user_content_parts or [])
+    snapshot.contexts = deepcopy(source.contexts or [])
+    snapshot.metadata = deepcopy(source.metadata or {})
+    snapshot.tool_calls_result = deepcopy(source.tool_calls_result)
+    if source.conversation is not None:
+        conversation = copy(source.conversation)
+        if isinstance(getattr(source.conversation, "history", None), list):
+            conversation.history = deepcopy(source.conversation.history)
+        snapshot.conversation = conversation
+    return snapshot
 
 
 def _build_attachment_summary(pack: ContextPack) -> dict[str, int]:
@@ -406,7 +443,7 @@ async def _build_interaction_context_material(
                 definition=persona_definition,
                 memory_snapshot=get_cached_prompt_memory_snapshot(
                     event,
-                    provider_request=event.get_extra("provider_request"),
+                    provider_request=get_interaction_prompt_source_request(event),
                 ),
             )
             if persona_definition is not None
@@ -459,7 +496,7 @@ async def _build_interaction_plugin_context_pack(
         plugin_context,
         build_config,
     ).build(
-        provider_request=event.get_extra("provider_request"),
+        provider_request=get_interaction_prompt_source_request(event),
         collectors=[],
         include_prompt_extensions=True,
         prompt_extension_collector_scope="plugin",
@@ -505,7 +542,7 @@ def _refresh_context_material_view(
 
 def build_prompt_render_provider_request(event, provider) -> ProviderRequest:
     """Build a branch-local render request without mutating shared event extras."""
-    source = event.get_extra("provider_request")
+    source = get_interaction_prompt_source_request(event)
     request = copy(source) if isinstance(source, ProviderRequest) else ProviderRequest()
     request.provider = provider
     return request

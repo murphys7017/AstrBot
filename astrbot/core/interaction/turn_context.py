@@ -13,6 +13,7 @@ from astrbot.core.platform.message_type import MessageType
 from astrbot.core.provider.entities import ProviderRequest
 
 from .config import load_interaction_agent_config
+from .context_builder import get_interaction_prompt_source_request
 from .group_reply import (
     get_group_conversation_continuation_mode,
     is_group_conversation_explicit_trigger,
@@ -175,9 +176,7 @@ class PlatformTurnContextFactory:
             session_id=session_data.session_id,
             unified_msg_origin=session_data.unified_msg_origin,
         )
-        provider_request = event.get_extra("provider_request")
-        if not isinstance(provider_request, ProviderRequest):
-            provider_request = None
+        provider_request = get_interaction_prompt_source_request(event)
         group_continuation_owner_eligible = (
             session_data.message_type is MessageType.GROUP_MESSAGE
             and actor is not None

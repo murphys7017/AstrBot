@@ -18,6 +18,8 @@ class MemoryScopeJob:
     kind: str = "scope"
     dedupe_key: str | None = None
     payload: object | None = None
+    journal_key: str | None = None
+    journal_token: str | None = None
 
     @property
     def scope_key(self) -> tuple[str, str, str]:

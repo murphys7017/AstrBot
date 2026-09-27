@@ -909,7 +909,7 @@ def test_render_engine_builds_prompt_tree_from_nested_slots():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="core")
     rendered = result.system_prompt
 
     assert result.prompt_tree is not None
@@ -917,8 +917,8 @@ def test_render_engine_builds_prompt_tree_from_nested_slots():
     assert "<core>" in rendered
     assert "<base>" in rendered
     assert "Base system prompt." in rendered
-    assert "<persona>" in rendered
-    assert "You are Alice." in rendered
+    assert "<persona>" not in rendered
+    assert "You are Alice." not in rendered
     assert "<policy>" in rendered
     assert "<safety>" in rendered
     assert "Safety prompt." in rendered
@@ -1013,15 +1013,6 @@ def test_render_engine_compiles_history_before_dynamic_context_messages():
 def test_render_engine_orders_begin_history_explicit_and_current_input():
     pack = ContextPack(
         slots={
-            "persona.begin_dialogs": ContextSlot(
-                name="persona.begin_dialogs",
-                value=[
-                    {"role": "user", "content": "Begin user"},
-                    {"role": "assistant", "content": "Begin assistant"},
-                ],
-                category="persona",
-                source="test",
-            ),
             "conversation.history": ContextSlot(
                 name="conversation.history",
                 value={
@@ -1060,8 +1051,6 @@ def test_render_engine_orders_begin_history_explicit_and_current_input():
     result = PromptRenderEngine(default_renderer=BasePromptRenderer()).render(pack)
 
     assert [message["content"] for message in result.messages] == [
-        "Begin user",
-        "Begin assistant",
         "History user",
         "History assistant",
         "Plugin context",
@@ -1086,7 +1075,7 @@ def test_render_engine_prunes_empty_persona_segment_nodes():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="persona")
 
     assert result.system_prompt is not None
     assert "<persona>" in result.system_prompt
@@ -1096,7 +1085,7 @@ def test_render_engine_prunes_empty_persona_segment_nodes():
     assert "You are Alice." in result.system_prompt
 
 
-def test_render_engine_routes_cross_target_slots():
+def test_render_engine_core_target_hides_persona_slots():
     pack = ContextPack(
         slots={
             "persona.prompt": ContextSlot(
@@ -1143,15 +1132,13 @@ def test_render_engine_routes_cross_target_slots():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="core")
 
     assert "<history>" not in result.system_prompt
     assert "<tools>" not in result.system_prompt
     assert "Route carefully." in result.system_prompt
-    assert result.messages == [
-        {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": "Hi"},
-    ]
+    assert "You are Alice." not in result.system_prompt
+    assert result.messages == []
     assert result.tool_schema == [
         {
             "type": "function",
@@ -1164,7 +1151,7 @@ def test_render_engine_routes_cross_target_slots():
     ]
 
 
-def test_render_engine_applies_persona_whitelists_to_capabilities():
+def test_render_engine_core_target_ignores_persona_capability_whitelists():
     pack = ContextPack(
         slots={
             "persona.tools_whitelist": ContextSlot(
@@ -1252,11 +1239,11 @@ def test_render_engine_applies_persona_whitelists_to_capabilities():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="core")
 
     assert "skill_a" in result.system_prompt
     assert "workspace_skill" in result.system_prompt
-    assert "skill_b" not in result.system_prompt
+    assert "skill_b" in result.system_prompt
     assert result.tool_schema == [
         {
             "type": "function",
@@ -1265,7 +1252,15 @@ def test_render_engine_applies_persona_whitelists_to_capabilities():
                 "description": "Tool A",
                 "parameters": {"type": "object", "properties": {}},
             },
-        }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "tool_b",
+                "description": "Tool B",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
     ]
 
 
@@ -1379,7 +1374,7 @@ def test_render_engine_compiles_user_input_and_merged_tool_schema():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="core")
 
     assert result.messages[-1]["role"] == "user"
     assert isinstance(result.messages[-1]["content"], list)
@@ -1445,7 +1440,7 @@ def test_render_engine_renders_workspace_and_local_env_prompts_in_system_prompt(
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="core")
 
     assert result.system_prompt is not None
     assert "<workspace_extra_prompt>" in result.system_prompt
@@ -1549,7 +1544,7 @@ def test_render_engine_compiles_caption_and_file_extract_blocks_in_user_message(
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="persona")
 
     assert result.messages[-1]["role"] == "user"
     assert isinstance(result.messages[-1]["content"], list)
@@ -1754,7 +1749,7 @@ def test_render_engine_escapes_markup_text_in_system_and_structured_input():
     )
 
     engine = PromptRenderEngine(default_renderer=BasePromptRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="persona")
 
     assert result.system_prompt is not None
     assert (
@@ -1888,7 +1883,7 @@ def test_render_engine_returns_prompt_tree_and_system_prompt():
     )
 
     engine = PromptRenderEngine()
-    result = engine.render(pack)
+    result = engine.render(pack, target="persona")
 
     assert result.prompt_tree is not None
     assert result.system_prompt is not None
@@ -1958,7 +1953,7 @@ def test_render_engine_renders_visible_reply_material_as_native_input_context():
         }
     )
 
-    result = PromptRenderEngine().render(pack)
+    result = PromptRenderEngine().render(pack, target="persona")
 
     assert result.system_prompt is None
     assert result.metadata["rendered_slots"] == [
@@ -2000,7 +1995,7 @@ def test_render_engine_emits_debug_log_for_render_result():
         patch.object(render_logger, "isEnabledFor", return_value=True),
         patch.object(render_logger, "debug") as debug_mock,
     ):
-        engine.render(pack)
+        engine.render(pack, target="persona")
 
     debug_mock.assert_called_once()
     message_template, payload = debug_mock.call_args.args
@@ -2126,13 +2121,13 @@ def test_custom_renderer_can_override_render_text_escape():
     )
 
     engine = PromptRenderEngine(default_renderer=CustomEscapeRenderer())
-    result = engine.render(pack)
+    result = engine.render(pack, target="persona")
 
     assert result.system_prompt is not None
     assert "You are [lt]Alice[gt] [amp] Bob" in result.system_prompt
 
 
-def test_render_engine_renders_plugin_directory_without_extension_metadata():
+def test_render_engine_core_target_hides_plugin_directory():
     pack = ContextPack(
         slots={
             "capability.plugin_directory": ContextSlot(
@@ -2142,6 +2137,7 @@ def test_render_engine_renders_plugin_directory_without_extension_metadata():
                         {
                             "name": "AG99 Live Adapter",
                             "description": "负责本地虚拟角色的动作、表情、语音和前端显示。",
+                            "targets": ["core"],
                         }
                     ]
                 },
@@ -2150,6 +2146,7 @@ def test_render_engine_renders_plugin_directory_without_extension_metadata():
                 meta={
                     "scope": "static",
                     "node_type": "plugin_directory",
+                    "targets": ["core"],
                 },
             )
         }
@@ -2157,15 +2154,7 @@ def test_render_engine_renders_plugin_directory_without_extension_metadata():
 
     result = PromptRenderEngine(default_renderer=BasePromptRenderer()).render(pack)
 
-    assert result.system_prompt is not None
-    assert "<local_plugins>" in result.system_prompt
-    assert "<name>" in result.system_prompt
-    assert "AG99 Live Adapter" in result.system_prompt
-    assert "负责本地虚拟角色的动作、表情、语音和前端显示。" in result.system_prompt
-    assert "plugin_id" not in result.system_prompt
-    assert "Local Plugin Directory" not in result.system_prompt
-    assert "value_kind" not in result.system_prompt
-    assert "plugin_directory" not in result.system_prompt
+    assert result.system_prompt is None
     assert result.messages == []
 
 
