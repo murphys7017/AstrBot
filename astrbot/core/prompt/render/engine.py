@@ -90,7 +90,6 @@ class PromptRenderEngine:
             profile,
         )
         renderer = self._resolve_renderer(
-            selected_pack,
             event=event,
             plugin_context=plugin_context,
             config=config,
@@ -127,6 +126,28 @@ class PromptRenderEngine:
             event=event,
             provider_request=provider_request,
         )
+        return result
+
+    def recompile_for_provider(
+        self,
+        source: RenderResult,
+        *,
+        provider_request: ProviderRequest,
+    ) -> RenderResult:
+        """Serialize an already-projected prompt tree for another provider."""
+        if source.prompt_tree is None:
+            raise ValueError("Cannot recompile a render result without a prompt tree")
+        renderer = self._resolve_renderer(provider_request=provider_request)
+        result = renderer.render_prompt_tree(
+            deepcopy(source.prompt_tree),
+            provider_request=provider_request,
+        )
+        result.request_prompt = source.request_prompt
+        result.metadata = {
+            **source.metadata,
+            **result.metadata,
+            "renderer_name": renderer.get_name(),
+        }
         return result
 
     @staticmethod
@@ -174,14 +195,12 @@ class PromptRenderEngine:
 
     def _resolve_renderer(
         self,
-        pack: ContextPack,
         *,
         event: AstrMessageEvent | None = None,
         plugin_context: Context | None = None,
         config=None,
         provider_request: ProviderRequest | None = None,
     ) -> BasePromptRenderer:
-        del pack
         provider = self._resolve_provider_from_request(provider_request)
         if provider is None:
             provider = self._resolve_provider_from_event(event)

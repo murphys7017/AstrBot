@@ -1,3 +1,54 @@
+provider_fallback_prompt_continuity:
+  date: '2026-09-28'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Keep Core provider-call messages and extra content independent across
+    fallback attempts. Recompile a prepared Persona semantic prompt tree for
+    the selected fallback renderer without recollecting facts or replaying
+    request hooks, and clear the primary model override for that candidate.
+  evidence: >-
+    A real MiniMax-to-Responses Persona fallback retained the same rendered
+    prompt size but logged renderer=minimax on the Responses candidate. This
+    proves a physical-renderer mismatch, not that the projected history was
+    empty. A failing provider could also mutate a shared Core request payload.
+  non_goals: >-
+    Change history budgets, restart the service, or modify AG99 plugin code.
+  validation: >-
+    Focused Prompt renderer, Core fallback, and Persona cross-renderer tests
+    passed (52). Changed runtime and Persona test files pass Ruff and Python
+    compilation; the full Runner test file has an existing unrelated duplicate
+    test-name F811 finding. Git diff whitespace check passed.
+  followup: >-
+    After restart, reproduce a primary-model failure and confirm the fallback
+    receives the same recent history and current turn, uses its own renderer
+    and model, and remains bound to the original conversation. If behavior
+    still appears reset, capture provider-send message counts without content.
+
+persona_continuity_and_plugin_hook_followup:
+  date: '2026-09-28'
+  class: bugfix
+  risk: high
+  status: core_validated_plugin_followup_pending
+  scope: >-
+    Resolve the latest interrupted Core task from ConversationManager on normal
+    Persona turns without an inbound ProviderRequest. The memory plugin has a
+    local protected-Persona skip, but its git-ignored source and live reload
+    are separate from the tracked Core change. AG99 retirement is user-owned.
+  validation: >-
+    Focused continuity collector tests passed 3 cases; scoped Ruff and Python
+    compilation passed. On-disk memory code skips protected Persona injection.
+    The current AG99 source still contains the inline prompt/output path; no
+    AG99 retirement smoke or live restart is counted as passing.
+  source_note: >-
+    AG99live and memory plugin sources live under git-ignored data/plugins,
+    so this tracked commit cannot deliver or validate their code changes.
+  followup: >-
+    After restart, verify a superseded Core task reaches Persona. Separately
+    retire AG99's legacy inline route and identify any remaining protected
+    system_prompt writer; AngelHeart also rewrites this field.
+
 persona_turn_plan_contract_and_continuity_repair:
   date: '2026-09-28'
   class: bugfix
@@ -35,32 +86,29 @@ ag99live_legacy_compatibility_retirement:
   date: '2026-09-28'
   class: maintenance
   risk: high
-  status: implemented_pending_manual_restart
+  status: pending_user_owned_implementation
   scope: >-
-    Remove AG99live's retired official-Core inline-motion compatibility path,
+    Retire AG99live's official-Core inline-motion compatibility path,
     including request-time system-prompt mutation, <@anim> parsing, output
-    metadata, and the runtime flags that selected that path. Remove confirmed
-    unused imports and MiniMax's unreachable context-message override.
+    metadata, and the runtime flags that select that path.
   compatibility_decision: >-
     The user explicitly approved dropping support for Cores that lack Persona
     Effects, Prompt Extensions, or Interaction Result Contributors. Plugin
-    initialization now fails clearly instead of silently running without the
-    required motion contract.
+    initialization should fail clearly instead of silently running without the
+    required motion contract. This behavior is not yet implemented on disk.
   non_goals: >-
     Broad code formatting, removal of public Core APIs solely from local usage
     scans, changes to Persona/Planner output contracts, deletion of .jspace,
     or a service restart.
   validation: >-
-    Scoped undefined-name and unused-import Ruff checks passed; compileall
-    passed; prompt-tree renderer tests passed (49); a direct contributor
-    registration smoke verified enhanced API registration and explicit legacy
-    API rejection; git diff --check passed. The repository has no
-    scripts/check_astrbot_plugin.py. Its .gitignore excludes data/, so AG99live
-    source changes are intentionally not represented by git status.
+    Current on-disk main.py still registers the inline on_llm_request hook,
+    and the parser and output fallback remain. Prior implementation and smoke
+    claims in this state record were inaccurate. The plugin lives under
+    git-ignored data/plugins and is not part of this Core commit.
   followup: >-
-    Restart AstrBot and run one ordinary AG99live reply plus one tool-backed
-    reply. Confirm every emitted segment receives exactly one ag99live.motion
-    effect and that no request path mutates system_prompt after rendering.
+    After the user-owned AG99 cleanup, test enhanced contributor registration,
+    startup failure without required APIs, ordinary and tool-backed replies,
+    and one ag99live.motion effect per segment before restarting production.
 
 memory_profile_storage_reset:
   date: '2026-09-24'

@@ -1161,7 +1161,7 @@ class InteractionExpressionAgent:
         event=None,
         plugin_context: Context | None = None,
     ) -> _PreparedPersonaExpression:
-        """Rebind one frozen, already-hooked request to a fallback provider."""
+        """Rebind one already-hooked request without recollecting prompt facts."""
         provider_request = previous.provider_request
         terminal_tool_name = _resolve_terminal_tool_name(
             provider_request.output_contract,
@@ -1173,7 +1173,33 @@ class InteractionExpressionAgent:
                 "fallback provider does not support the required Persona tool contract",
                 prepared=previous,
             )
+        render_result = previous.render_result
+        if render_result.prompt_tree is not None:
+            render_request = copy.copy(provider_request)
+            render_request.provider = provider
+            candidate_render = PromptRenderEngine().recompile_for_provider(
+                render_result,
+                provider_request=render_request,
+            )
+            if not supports_strict_tool_call_output_contract(
+                provider,
+                candidate_render.output_contract,
+                candidate_render.compiled_output_contract,
+            ):
+                raise InteractionExpressionError(
+                    "fallback_provider_incompatible",
+                    "fallback provider cannot satisfy the required Persona output contract",
+                    prepared=previous,
+                )
+            prompt_apply_result = apply_render_result_to_request(
+                candidate_render, provider_request
+            )
+            previous.render_result = candidate_render
+            previous.lifecycle.bind_request(
+                provider_request, prompt_apply_result=prompt_apply_result
+            )
         provider_request.provider = provider
+        provider_request.model = None
         provider_request.func_tool = (
             previous.capabilities.to_toolset()
             if self._provider_supports_tool_calls(provider)

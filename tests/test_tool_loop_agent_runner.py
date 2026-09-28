@@ -1059,6 +1059,70 @@ async def test_same_tool_streak_resets_after_switching_tools(
 
 
 @pytest.mark.asyncio
+async def test_fallback_preserves_history_after_primary_mutates_request(
+    runner, provider_request, mock_tool_executor, mock_hooks
+):
+    class MutatingFailingProvider(MockProvider):
+        async def text_chat(self, **kwargs) -> LLMResponse:
+            self.received_conversation_id = kwargs["conversation_id"]
+            self.received_session_id = kwargs["session_id"]
+            kwargs["contexts"].clear()
+            kwargs["extra_user_content_parts"][0].text = "corrupted"
+            raise RuntimeError("primary unavailable")
+
+    class RecordingFallbackProvider(MockProvider):
+        def __init__(self):
+            super().__init__()
+            self.received_contexts = None
+            self.received_extra_parts = None
+            self.should_call_tools = False
+
+        async def text_chat(self, **kwargs) -> LLMResponse:
+            self.received_contexts = kwargs["contexts"]
+            self.received_extra_parts = kwargs["extra_user_content_parts"]
+            self.received_conversation_id = kwargs["conversation_id"]
+            self.received_session_id = kwargs["session_id"]
+            return await super().text_chat(**kwargs)
+
+    primary_provider = MutatingFailingProvider()
+    fallback_provider = RecordingFallbackProvider()
+    provider_request.contexts = [
+        {"role": "user", "content": "earlier question"},
+        {"role": "assistant", "content": "earlier answer"},
+    ]
+    provider_request.extra_user_content_parts = [TextPart(text="current attachment")]
+    provider_request.conversation = SimpleNamespace(cid="conversation-1", token_usage=0)
+    provider_request.session_id = "session-1"
+    await runner.reset(
+        provider=primary_provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=mock_tool_executor,
+        agent_hooks=mock_hooks,
+        streaming=False,
+        fallback_providers=[fallback_provider],
+    )
+
+    async for _ in runner.step_until_done(5):
+        pass
+
+    assert runner.get_final_llm_resp().role == "assistant"
+    assert [message.content for message in fallback_provider.received_contexts][
+        :2
+    ] == ["earlier question", "earlier answer"]
+    assert [message.content for message in runner.run_context.messages][:2] == [
+        "earlier question",
+        "earlier answer",
+    ]
+    assert fallback_provider.received_extra_parts[0].text == "current attachment"
+    assert provider_request.extra_user_content_parts[0].text == "current attachment"
+    assert primary_provider.received_conversation_id == "conversation-1"
+    assert fallback_provider.received_conversation_id == "conversation-1"
+    assert primary_provider.received_session_id == "session-1"
+    assert fallback_provider.received_session_id == "session-1"
+
+
+@pytest.mark.asyncio
 async def test_fallback_provider_used_when_primary_raises(
     runner, provider_request, mock_tool_executor, mock_hooks
 ):

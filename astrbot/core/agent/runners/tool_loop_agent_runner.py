@@ -567,8 +567,10 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             "conversation_id": (
                 self.req.conversation.cid if self.req.conversation else None
             ),
-            "extra_user_content_parts": self._extra_user_content_parts_for_provider(
-                self.req.extra_user_content_parts
+            "extra_user_content_parts": copy.deepcopy(
+                self._extra_user_content_parts_for_provider(
+                    self.req.extra_user_content_parts
+                )
             ),
             "output_contract": self.req.output_contract,
             "compiled_output_contract": self.req.compiled_output_contract,
@@ -735,7 +737,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         contexts: list[Message] | list[dict[str, T.Any]],
     ) -> list[Message] | list[dict[str, T.Any]]:
         if not self._should_fix_modalities_for_provider():
-            return contexts
+            return copy.deepcopy(contexts)
         sanitized_contexts, stats = sanitize_contexts_by_modalities(
             contexts,
             self.provider.provider_config.get("modalities", None),

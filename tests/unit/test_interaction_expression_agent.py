@@ -39,7 +39,7 @@ from astrbot.core.prompt.render import (
     PromptTarget,
 )
 from astrbot.core.prompt.render.interfaces import RenderResult
-from astrbot.core.provider.entities import LLMResponse
+from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
 
 def _provider_context_text(call: dict) -> str:
@@ -2208,14 +2208,20 @@ async def test_persona_request_hook_context_mutation_survives_business_tool_loop
 @pytest.mark.asyncio
 async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeypatch):
     class Provider:
-        def __init__(self, provider_id, *, fails=False, modalities=None):
+        def __init__(
+            self, provider_id, *, fails=False, modalities=None, renderer_family=None
+        ):
             self.provider_config = {
                 "id": provider_id,
                 "type": "test",
                 "modalities": modalities or ["text", "tool_use"],
+                "prompt_renderer_family": renderer_family,
             }
             self.fails = fails
             self.calls = []
+
+        def supports_output_contract_strategy(self, strategy):
+            return strategy == "protocol_tool_call"
 
         async def text_chat(self, **kwargs):
             self.calls.append(kwargs)
@@ -2240,7 +2246,12 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
         plugins_name = []
 
         def __init__(self):
-            self._extras = {}
+            self._extras = {
+                "provider_request": ProviderRequest(
+                    model="primary-model",
+                    conversation=SimpleNamespace(cid="conversation-1", token_usage=0),
+                )
+            }
             self.message_str = "What is this image?"
             self.message_obj = SimpleNamespace(
                 message=[Image(file="https://example.com/image.png")]
@@ -2258,8 +2269,13 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
         def is_stopped(self):
             return False
 
-    primary = Provider("primary", fails=True, modalities=["text", "image", "tool_use"])
-    fallback = Provider("fallback")
+    primary = Provider(
+        "primary",
+        fails=True,
+        modalities=["text", "image", "tool_use"],
+        renderer_family="minimax",
+    )
+    fallback = Provider("fallback", renderer_family="openai")
     caption_provider = CaptionProvider()
     plugin_context = type(
         "PluginContext",
@@ -2276,12 +2292,6 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
         },
     )()
     contract = build_persona_expression_output_contract_for_effects([])
-    compiled = CompiledOutputContract(
-        contract=contract,
-        strategy="protocol_tool_call",
-        tool_name="persona_expression",
-        tool_schema=contract.schema,
-    )
     agent = InteractionExpressionAgent()
     monkeypatch.setattr(
         "astrbot.core.interaction.expression_agent.Provider",
@@ -2296,25 +2306,50 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
         AsyncMock(return_value="A test image."),
     )
     agent._prepare_render_result = AsyncMock(
-        return_value=RenderResult(
-            system_prompt="persona",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "hello"},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "https://example.com/image.png"
-                            },
+        return_value=PromptRenderEngine().render(
+            ContextPack(
+                slots={
+                    "conversation.history": ContextSlot(
+                        name="conversation.history",
+                        value={
+                            "format": "turn_pairs",
+                            "turns": [
+                                {
+                                    "user_message": {
+                                        "role": "user",
+                                        "content": "earlier question",
+                                    },
+                                    "assistant_message": {
+                                        "role": "assistant",
+                                        "content": "earlier answer",
+                                    },
+                                }
+                            ],
                         },
-                    ],
+                        category="conversation",
+                        source="test",
+                    ),
+                    "input.text": ContextSlot(
+                        name="input.text",
+                        value="hello",
+                        category="input",
+                        source="test",
+                    ),
+                    "input.images": ContextSlot(
+                        name="input.images",
+                        value=[{"ref": "https://example.com/image.png"}],
+                        category="input",
+                        source="test",
+                    ),
                 }
-            ],
-            output_contract=contract,
-            compiled_output_contract=compiled,
-            metadata={"persona_effect_specs": []},
+            ),
+            target=PromptTarget.PERSONA,
+            provider_request=SimpleNamespace(provider=primary),
+            profile=PromptRenderProfile(
+                name="test_persona",
+                system_prompt="persona",
+                output_contract=contract,
+            ),
         )
     )
     hooks = []
@@ -2345,7 +2380,15 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
     assert result.spoken_reply == "由回退模型完成"
     fallback_context = _provider_context_text(fallback.calls[0])
     assert "persona" in fallback_context
+    assert "earlier question" in fallback_context
+    assert "earlier answer" in fallback_context
+    assert "astrbot_minimax_system_v1" in _provider_context_text(primary.calls[0])
+    assert "astrbot_minimax_system_v1" not in fallback_context
+    assert "<base" in fallback_context
     assert "plugin context" not in fallback_context
+    assert primary.calls[0]["model"] == "primary-model"
+    assert fallback.calls[0]["model"] is None
+    assert fallback.calls[0]["conversation_id"] == "conversation-1"
     fallback_extra_parts = fallback.calls[0]["extra_user_content_parts"]
     assert len(fallback_extra_parts) == 1
     assert fallback_extra_parts[0].text == "[Image descriptions]\nA test image."

@@ -33,9 +33,16 @@ class PersonaExecutionContinuityCollector(ContextCollectorInterface):
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
-        del event, config
+        del config
         conversation = getattr(provider_request, "conversation", None)
         conversation_id = str(getattr(conversation, "cid", "") or "").strip()
+        if not conversation_id:
+            conversation_manager = getattr(plugin_context, "conversation_manager", None)
+            origin = str(getattr(event, "unified_msg_origin", "") or "").strip()
+            if conversation_manager is not None and origin:
+                conversation_id = str(
+                    await conversation_manager.get_curr_conversation_id(origin) or ""
+                ).strip()
         ledger = getattr(plugin_context, "core_execution_ledger", None)
         if not conversation_id or not isinstance(ledger, CoreExecutionLedger):
             return []

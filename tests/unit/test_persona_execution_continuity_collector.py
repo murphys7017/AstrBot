@@ -18,6 +18,41 @@ class _Ledger(CoreExecutionLedger):
 
 
 @pytest.mark.asyncio
+async def test_persona_execution_continuity_uses_current_conversation_without_request():
+    class ConversationManager:
+        def __init__(self):
+            self.origins = []
+
+        async def get_curr_conversation_id(self, origin):
+            self.origins.append(origin)
+            return "conversation-1"
+
+    conversation_manager = ConversationManager()
+    ledger = _Ledger(
+        [
+            {
+                "status": "cancelled",
+                "error": "superseded_by_new_user_input",
+                "task_spec": {"task_summary": "interrupted task"},
+            }
+        ]
+    )
+    slots = await PersonaExecutionContinuityCollector().collect(
+        event=SimpleNamespace(unified_msg_origin="webchat:friend:session-1"),
+        plugin_context=SimpleNamespace(
+            conversation_manager=conversation_manager,
+            core_execution_ledger=ledger,
+        ),
+        config=SimpleNamespace(),
+    )
+
+    assert conversation_manager.origins == ["webchat:friend:session-1"]
+    assert ledger.calls == [("conversation-1", 1)]
+    assert len(slots) == 1
+    assert slots[0].value["task_summary"] == "interrupted task"
+
+
+@pytest.mark.asyncio
 async def test_persona_execution_continuity_collector_projects_only_latest_superseded_task():
     ledger = _Ledger(
         [
