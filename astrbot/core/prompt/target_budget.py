@@ -42,6 +42,8 @@ def resolve_target_budget(
     target: str,
     *,
     history_turns: int | None = None,
+    history_limit_reason: str | None = None,
+    history_max_estimated_tokens: int | None = None,
     config: object | None = None,
 ) -> PromptTargetBudget:
     """Resolve one explicit budget for a model-facing prompt target."""
@@ -50,7 +52,7 @@ def resolve_target_budget(
 
     if history_turns is not None:
         selected_history_turns = max(0, int(history_turns))
-        history_limit_reason = "render_profile_history_limit"
+        history_limit_reason = history_limit_reason or "render_profile_history_limit"
     elif target == "personal_policy":
         selected_history_turns = 6
         history_limit_reason = "personal_policy_history_limit"
@@ -76,6 +78,8 @@ def resolve_target_budget(
         "persona": 16000,
         "core": 16000,
     }[target]
+    if history_max_estimated_tokens is not None:
+        history_token_limit = max(0, int(history_max_estimated_tokens))
     history_max_message_chars = 1800
     if compact_target:
         history_max_message_chars = 1200

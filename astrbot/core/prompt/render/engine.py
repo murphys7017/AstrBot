@@ -70,20 +70,24 @@ class PromptRenderEngine:
             )
         view_pack = project_prompt_context_view(pack, context_view)
         history_turns = profile.history_turns if profile is not None else None
+        history_limit_reason = None
+        history_max_estimated_tokens = None
         if view_spec is not None and view_spec.history_turns is not None:
             history_turns = view_spec.history_turns
+        if view_spec is not None:
+            history_limit_reason = view_spec.history_limit_reason
+            history_max_estimated_tokens = view_spec.history_max_estimated_tokens
         target_pack = project_context_pack(
             view_pack,
             resolved_target,
             history_turns=history_turns,
+            history_limit_reason=history_limit_reason,
+            history_max_estimated_tokens=history_max_estimated_tokens,
             config=config,
         )
         selected_pack = self._apply_render_profile(
             target_pack,
             profile,
-            preserve_existing_system_prompt=(
-                resolved_target in {PromptTarget.PERSONA, PromptTarget.CORE}
-            ),
         )
         renderer = self._resolve_renderer(
             selected_pack,
@@ -129,8 +133,6 @@ class PromptRenderEngine:
     def _apply_render_profile(
         pack: ContextPack,
         profile: PromptRenderProfile | None,
-        *,
-        preserve_existing_system_prompt: bool,
     ) -> ContextPack:
         if profile is None:
             return pack
@@ -144,20 +146,10 @@ class PromptRenderEngine:
             selected.slots.pop(slot_name, None)
 
         if profile.system_prompt is not None:
-            existing_base = selected.get_slot("system.base")
-            system_prompt = profile.system_prompt
-            if (
-                preserve_existing_system_prompt
-                and existing_base is not None
-                and isinstance(existing_base.value, str)
-            ):
-                legacy_prompt = existing_base.value.strip()
-                if legacy_prompt and legacy_prompt != system_prompt.strip():
-                    system_prompt = f"{system_prompt.rstrip()}\n\n{legacy_prompt}"
             selected.add_slot(
                 ContextSlot(
                     name="system.base",
-                    value=system_prompt,
+                    value=profile.system_prompt,
                     category="system",
                     source=f"prompt_render_profile:{profile.name}",
                     render_mode="text",

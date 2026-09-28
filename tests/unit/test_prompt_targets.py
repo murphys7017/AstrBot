@@ -18,6 +18,7 @@ def _slot(name: str, value, category: str) -> ContextSlot:
 def _canonical_pack() -> ContextPack:
     return ContextPack(
         slots={
+            "system.global": _slot("system.global", "global instructions", "system"),
             "system.base": _slot("system.base", "system", "system"),
             "system.core_execution_context": _slot(
                 "system.core_execution_context",
@@ -29,6 +30,11 @@ def _canonical_pack() -> ContextPack:
             "input.text": _slot("input.text", "current", "input"),
             "input.visible_reply_material": _slot(
                 "input.visible_reply_material", {"source_text": "core"}, "input"
+            ),
+            "input.previous_persona_acknowledgement": _slot(
+                "input.previous_persona_acknowledgement",
+                {"text": "I am checking that now."},
+                "input",
             ),
             "conversation.history": _slot(
                 "conversation.history",
@@ -238,8 +244,10 @@ def test_persona_progress_view_keeps_only_phase_local_persona_facts():
     assert result.metadata["context_view"] == "progress"
     assert result.metadata["context_view_source_requirement"] == "base_only"
     assert set(result.metadata["selected_slot_names"]) == {
+        "system.global",
         "persona.summary",
         "input.visible_reply_material",
+        "input.previous_persona_acknowledgement",
     }
     assert "conversation.history" not in result.metadata["selected_slot_names"]
     assert "persona.prompt" not in result.metadata["selected_slot_names"]
@@ -259,6 +267,38 @@ def test_persona_proactive_view_has_small_history_budget_and_no_extensions():
     assert "memory.short_term" in selected
     assert "extension.system" not in selected
     assert result.metadata["context_budgets"]["conversation_history"]["limit_amount"] == 2
+    assert (
+        result.metadata["context_budgets"]["conversation_history"]
+        ["limit_estimated_tokens"]
+        == 1200
+    )
+
+
+def test_persona_proactive_view_enforces_its_history_token_budget():
+    pack = _canonical_pack()
+    pack.get_slot("conversation.history").value = {
+        "turn_count": 3,
+        "turns": [
+            {
+                "id": index,
+                "user_message": {"content": "x" * 2200},
+                "assistant_message": {"content": "y" * 2200},
+            }
+            for index in range(3)
+        ],
+    }
+
+    result = PromptRenderEngine().render(
+        pack,
+        target=PromptTarget.PERSONA,
+        context_view=PromptContextView.PROACTIVE,
+    )
+    history_budget = result.metadata["context_budgets"]["conversation_history"]
+
+    assert history_budget["retained_amount"] < 3
+    assert history_budget["retained_estimated_tokens"] <= 1200
+    assert "context_view_history_limit" in history_budget["truncation_reasons"]
+    assert "persona_recent_token_budget" in history_budget["truncation_reasons"]
 
 
 def test_plugin_prompt_extensions_do_not_reach_core_planner():
@@ -298,12 +338,17 @@ def test_plugin_prompt_extensions_do_not_reach_core_planner():
     assert project_context_pack(pack, PromptTarget.CORE).get_slot("extension.system") is not None
 
 
-def test_control_plane_profile_does_not_merge_legacy_plugin_system_prompt():
+def test_render_profile_replaces_local_base_without_dropping_global_instructions():
     pack = ContextPack(
         slots={
+            "system.global": _slot(
+                "system.global",
+                "Stable global instructions.",
+                "system",
+            ),
             "system.base": _slot(
                 "system.base",
-                "Legacy plugin system prompt.",
+                "Stale target instructions.",
                 "system",
             )
         }
@@ -319,7 +364,8 @@ def test_control_plane_profile_does_not_merge_legacy_plugin_system_prompt():
     )
 
     assert "Planner instruction." in result.system_prompt
-    assert "Legacy plugin system prompt." not in result.system_prompt
+    assert "Stable global instructions." in result.system_prompt
+    assert "Stale target instructions." not in result.system_prompt
 
     persona_result = PromptRenderEngine().render(
         pack,
@@ -331,7 +377,8 @@ def test_control_plane_profile_does_not_merge_legacy_plugin_system_prompt():
     )
 
     assert "Persona instruction." in persona_result.system_prompt
-    assert "Legacy plugin system prompt." in persona_result.system_prompt
+    assert "Stable global instructions." in persona_result.system_prompt
+    assert "Stale target instructions." not in persona_result.system_prompt
 
 
 def test_direct_slot_with_malformed_targets_is_hidden():

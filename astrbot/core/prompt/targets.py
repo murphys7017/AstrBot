@@ -33,6 +33,7 @@ _CORE_BLOCKED_SLOT_NAMES = frozenset(
 
 _CORE_PLANNER_SLOT_NAMES = frozenset(
     {
+        "system.global",
         "system.base",
         "input.text",
         "input.quoted_text",
@@ -62,6 +63,7 @@ _PERSONA_BLOCKED_SLOT_NAMES = frozenset(
 
 _PERSONAL_POLICY_SLOT_NAMES = frozenset(
     {
+        "system.global",
         "system.base",
         "persona.summary",
         "session.datetime",
@@ -82,6 +84,8 @@ def project_context_pack(
     target: PromptTarget | str,
     *,
     history_turns: int | None = None,
+    history_limit_reason: str | None = None,
+    history_max_estimated_tokens: int | None = None,
     config: object | None = None,
 ) -> ContextPack:
     """Build an isolated target view without mutating the canonical pack."""
@@ -90,6 +94,8 @@ def project_context_pack(
     budget = resolve_target_budget(
         resolved_target.value,
         history_turns=history_turns,
+        history_limit_reason=history_limit_reason,
+        history_max_estimated_tokens=history_max_estimated_tokens,
         config=config,
     )
     projected = ContextPack(

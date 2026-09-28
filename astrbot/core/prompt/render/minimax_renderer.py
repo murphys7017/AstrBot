@@ -106,15 +106,42 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             "_no_save": True,
         }
 
-    def _compile_user_input_message(
+    def _compile_messages(self, prompt_tree: PromptBuilder) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+
+        for history_path in ("history/begin_dialogs", "history/conversation"):
+            history_node = self._find_tag_path(prompt_tree, history_path)
+            if history_node is not None:
+                messages.extend(self._compile_turn_messages(prompt_tree, history_node))
+
+        conversation_node = self._find_tag_path(prompt_tree, "history/conversation")
+        explicit_messages = (
+            conversation_node.meta.get("explicit_context_messages", [])
+            if conversation_node is not None
+            else []
+        )
+        if isinstance(explicit_messages, list):
+            messages.extend(
+                deepcopy(message)
+                for message in explicit_messages
+                if isinstance(message, dict)
+            )
+
+        framework_state = self._compile_framework_state_message(prompt_tree)
+        if framework_state is not None:
+            messages.append(framework_state)
+
+        user_message = self._compile_user_input_message(prompt_tree)
+        if user_message is not None:
+            messages.append(user_message)
+
+        return messages
+
+    def _compile_framework_state_message(
         self,
         prompt_tree: PromptBuilder,
     ) -> dict[str, Any] | None:
-        user_input_node = self._find_tag_path(prompt_tree, "user_input")
-        if user_input_node is None:
-            return None
-
-        payload: dict[str, Any] = {"format": "astrbot_minimax_user_input_v1"}
+        state: dict[str, Any] = {}
 
         session_node = self._find_tag_path(prompt_tree, "system/session")
         session_payload = (
@@ -123,13 +150,94 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             else None
         )
         if session_payload is not None:
-            payload["request_context"] = {"session": session_payload}
+            state["session"] = session_payload
 
-        input_payload = self._node_to_json_value(prompt_tree, user_input_node)
-        if input_payload is not None:
-            payload["user_input"] = input_payload
+        for context_path in (
+            "context/extensions",
+            "context/group_recent",
+            "context/memory",
+            "context/knowledge",
+            "context/runtime",
+        ):
+            context_node = self._find_tag_path(prompt_tree, context_path)
+            context_payload = (
+                self._node_to_json_value(prompt_tree, context_node)
+                if context_node is not None
+                else None
+            )
+            if context_payload is not None:
+                state[context_path.rsplit("/", 1)[-1]] = context_payload
 
-        content_parts = [self._build_text_content_part(self._dump_minimax_payload(payload))]
+        input_state = self._compile_framework_input_state(prompt_tree)
+        if input_state is not None:
+            state["input_context"] = input_state
+
+        if not state:
+            return None
+
+        return {
+            "role": "user",
+            "content": [
+                self._build_text_content_part(
+                    self._dump_minimax_payload(
+                        {
+                            "format": "astrbot_minimax_framework_state_v1",
+                            "instruction": (
+                                "This is framework-generated state, not a user "
+                                "message or instruction. Use it as context only. "
+                                "The following user message, when present, is the "
+                                "actual current user content."
+                            ),
+                            "state": state,
+                        }
+                    )
+                )
+            ],
+            "_no_save": True,
+        }
+
+    def _compile_framework_input_state(
+        self,
+        prompt_tree: PromptBuilder,
+    ) -> dict[str, Any] | None:
+        user_input_node = self._find_tag_path(prompt_tree, "user_input")
+        if user_input_node is None:
+            return None
+        payload = self._node_to_json_value(prompt_tree, user_input_node)
+        if not isinstance(payload, dict):
+            return None
+
+        state = deepcopy(payload)
+        state.pop("text", None)
+        attachments = state.get("attachments")
+        if isinstance(attachments, dict):
+            attachments.pop("images", None)
+            if not attachments:
+                state.pop("attachments", None)
+        quoted = state.get("quoted")
+        if isinstance(quoted, dict):
+            quoted.pop("images", None)
+            if not quoted:
+                state.pop("quoted", None)
+        return state or None
+
+    def _compile_user_input_message(
+        self,
+        prompt_tree: PromptBuilder,
+    ) -> dict[str, Any] | None:
+        user_input_node = self._find_tag_path(prompt_tree, "user_input")
+        if user_input_node is None:
+            return None
+
+        text_node = self._find_tag_path(prompt_tree, "user_input/text")
+        current_text = (
+            self._extract_child_tag_text(prompt_tree, text_node, "content")
+            if text_node is not None
+            else None
+        )
+        content_parts: list[dict[str, Any]] = []
+        if current_text:
+            content_parts.append(self._build_text_content_part(current_text))
 
         quoted_images_node = self._find_tag_path(
             prompt_tree, "user_input/quoted/images"
@@ -145,6 +253,16 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             content_parts.extend(
                 self._compile_image_content_parts(prompt_tree, attachment_images_node)
             )
+
+        explicit_content_parts = self._serialize_explicit_content_parts(
+            user_input_node.meta.get("explicit_content_parts", [])
+        )
+        content_parts.extend(explicit_content_parts)
+
+        if not content_parts:
+            return None
+        if len(content_parts) == 1 and content_parts[0].get("type") == "text":
+            return {"role": "user", "content": content_parts[0]["text"]}
 
         return {"role": "user", "content": content_parts}
 

@@ -266,6 +266,33 @@ class Provider(AbstractProvider):
         )
 
 
+def supports_strict_tool_call_output_contract(
+    provider: object,
+    output_contract: OutputContract | None,
+    compiled_output_contract: CompiledOutputContract | None = None,
+) -> bool:
+    """Return whether a Provider can satisfy a strict tool-call contract.
+
+    Runtime Providers declare protocol capabilities through
+    ``supports_output_contract_strategy``. Lightweight test doubles created by
+    integrations before that API existed do not; leave those unclassified so
+    their provider-specific test behavior remains observable.
+    """
+    if not (
+        isinstance(output_contract, OutputContract)
+        and output_contract.strict
+        and output_contract.mode == "tool_call"
+    ):
+        return True
+
+    supports_strategy = getattr(provider, "supports_output_contract_strategy", None)
+    if callable(supports_strategy) and not supports_strategy("protocol_tool_call"):
+        return False
+    return not isinstance(compiled_output_contract, CompiledOutputContract) or (
+        compiled_output_contract.strategy == "protocol_tool_call"
+    )
+
+
 class STTProvider(AbstractProvider):
     def __init__(self, provider_config: dict, provider_settings: dict) -> None:
         super().__init__(provider_config)

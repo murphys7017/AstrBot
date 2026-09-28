@@ -11,7 +11,7 @@ from astrbot.core.prompt.render import (
     PromptTarget,
 )
 from astrbot.core.prompt.structured_json import extract_json_object
-from astrbot.core.provider import Provider
+from astrbot.core.provider import Provider, supports_strict_tool_call_output_contract
 from astrbot.core.star.context import Context
 
 from .context_builder import (
@@ -153,6 +153,12 @@ class CorePlannerAgent:
                 "provider_unavailable",
                 f"provider unavailable: provider_id={provider_id}",
             )
+        required_contract = build_core_planner_output_contract()
+        if not supports_strict_tool_call_output_contract(provider, required_contract):
+            raise CorePlannerError(
+                "unsupported_output_contract",
+                "Core Planner requires a provider with protocol_tool_call support",
+            )
         render_result = await self._prepare_render_result(
             event,
             plugin_context,
@@ -166,6 +172,11 @@ class CorePlannerAgent:
             CompiledOutputContract,
         ):
             raise CorePlannerError("unsupported_output_contract")
+        if not supports_strict_tool_call_output_contract(provider, contract, compiled):
+            raise CorePlannerError(
+                "unsupported_output_contract",
+                "Core Planner requires a provider with protocol_tool_call support",
+            )
         deadline = get_interaction_turn_deadline(event)
         try:
             timeout_context = (

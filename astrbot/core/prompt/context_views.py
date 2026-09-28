@@ -36,6 +36,8 @@ class PromptContextViewSpec:
     allowed_slot_names: frozenset[str] | None = None
     allowed_slot_prefixes: frozenset[str] = frozenset()
     history_turns: int | None = None
+    history_limit_reason: str | None = None
+    history_max_estimated_tokens: int | None = None
     requires_media_context: bool = True
 
     def allows_slot(self, slot_name: str) -> bool:
@@ -63,8 +65,10 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
         allowed_slot_names=frozenset(
             {
+                "system.global",
                 "persona.summary",
                 "input.visible_reply_material",
+                "input.previous_persona_acknowledgement",
             }
         ),
         requires_media_context=False,
@@ -75,6 +79,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
         allowed_slot_names=frozenset(
             {
+                "system.global",
                 "persona.summary",
                 "input.visible_reply_material",
                 "conversation.history",
@@ -84,6 +89,8 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
             }
         ),
         history_turns=2,
+        history_limit_reason="context_view_history_limit",
+        history_max_estimated_tokens=1200,
         requires_media_context=False,
     ),
 }

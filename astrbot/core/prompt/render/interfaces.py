@@ -189,6 +189,7 @@ class BasePromptRenderer:
 
         rendered_slot_names: list[str] = []
         for slot_name, child_tag in (
+            ("system.global", "global"),
             ("system.base", "base"),
             ("system.tool_call_instruction", "tool_call_instruction"),
             ("system.live_mode_prompt", "live_mode"),

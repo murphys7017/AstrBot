@@ -10,8 +10,22 @@ from astrbot.core.prompt.interfaces.context_collector_inferface import (
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 
+from .turn_state import get_interaction_turn_immediate_reply
+
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
+
+
+_PERSONA_PROGRESS_TEXT_MAX_CHARS = 480
+_PERSONA_PROGRESS_ACKNOWLEDGEMENT_MAX_CHARS = 240
+_PERSONA_PROACTIVE_TEXT_MAX_CHARS = 1000
+
+
+def _truncate_phase_local_text(value: object, *, max_chars: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}..."
 
 
 class PersonaVisibleReplyCollector(ContextCollectorInterface):
@@ -27,9 +41,10 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
-        del event, plugin_context, config, provider_request
+        del plugin_context, config, provider_request
         request = self.request
         intent = getattr(request, "intent", None)
+        intent_kind = str(getattr(intent, "kind", "") or "")
         payload = {
             "phase": str(getattr(intent, "phase", "standalone") or "standalone"),
             "source": str(getattr(intent, "source", "direct") or "direct"),
@@ -51,12 +66,40 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
             "short_reply": bool(getattr(request, "short_reply", False)),
             "allow_empty": bool(getattr(request, "allow_empty", False)),
         }
+        if intent_kind == "interjection":
+            payload = {
+                "phase": payload["phase"],
+                "source": payload["source"],
+                "progress_stage": payload["progress_stage"],
+                "observed_text": _truncate_phase_local_text(
+                    payload["observed_text"],
+                    max_chars=_PERSONA_PROGRESS_TEXT_MAX_CHARS,
+                ),
+                "pending_text": _truncate_phase_local_text(
+                    payload["pending_text"],
+                    max_chars=_PERSONA_PROGRESS_TEXT_MAX_CHARS,
+                ),
+                "short_reply": payload["short_reply"],
+                "allow_empty": payload["allow_empty"],
+            }
+        elif intent_kind == "proactive":
+            for field in (
+                "source_text",
+                "immediate_reply",
+                "observed_text",
+                "total_text",
+                "pending_text",
+            ):
+                payload[field] = _truncate_phase_local_text(
+                    payload[field],
+                    max_chars=_PERSONA_PROACTIVE_TEXT_MAX_CHARS,
+                )
         payload = {
             key: value for key, value in payload.items() if value not in {"", False}
         }
         if not payload:
             return []
-        return [
+        slots = [
             ContextSlot(
                 name="input.visible_reply_material",
                 value=payload,
@@ -69,3 +112,25 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                 },
             )
         ]
+        if intent_kind == "interjection":
+            acknowledgement = get_interaction_turn_immediate_reply(event)
+            if acknowledgement:
+                slots.append(
+                    ContextSlot(
+                        name="input.previous_persona_acknowledgement",
+                        value={
+                            "text": _truncate_phase_local_text(
+                                acknowledgement,
+                                max_chars=_PERSONA_PROGRESS_ACKNOWLEDGEMENT_MAX_CHARS,
+                            )
+                        },
+                        category="input",
+                        source="interaction_turn_state",
+                        render_mode="structured",
+                        meta={
+                            "scope": "dynamic",
+                            "node_type": "previous_persona_acknowledgement",
+                        },
+                    )
+                )
+        return slots

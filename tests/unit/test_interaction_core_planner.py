@@ -1,14 +1,20 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from astrbot.core.interaction.core_planner import (
+    CorePlannerAgent,
     CorePlannerError,
     build_core_planner_output_contract,
     build_core_planner_system_prompt,
     extract_core_planning_decision,
 )
-from astrbot.core.interaction.types import CorePlanningAction, CoreTaskSpec
+from astrbot.core.interaction.types import (
+    CorePlanningAction,
+    CoreTaskSpec,
+    InteractionAgentConfig,
+)
 from astrbot.core.output_contract import CompiledOutputContract
 from astrbot.core.tools.web_search_tools import is_web_search_tool_name
 
@@ -211,3 +217,46 @@ def test_core_planner_contract_requires_nonempty_task_fields():
     assert task_schema["properties"]["task_intent"]["minLength"] == 1
     assert task_schema["properties"]["task_summary"]["minLength"] == 1
     assert task_schema["properties"]["execution_prompt"]["minLength"] == 1
+
+
+@pytest.mark.asyncio
+async def test_core_planner_rejects_incompatible_provider_before_model_call(monkeypatch):
+    class Provider:
+        provider_config = {"id": "planner", "type": "test"}
+
+        def __init__(self):
+            self.calls = []
+
+        def supports_output_contract_strategy(self, strategy):
+            return strategy == "prompt_only"
+
+        async def text_chat(self, **kwargs):
+            self.calls.append(kwargs)
+            raise AssertionError("incompatible planner must not be called")
+
+    class Event:
+        def get_extra(self, _key, default=None):
+            return default
+
+        def get_platform_id(self):
+            return "webchat"
+
+        session_id = "session-1"
+
+    provider = Provider()
+    agent = CorePlannerAgent()
+    agent._prepare_render_result = AsyncMock(
+        side_effect=AssertionError("incompatible provider must not be rendered")
+    )
+    monkeypatch.setattr("astrbot.core.interaction.core_planner.Provider", Provider)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.core_planner.resolve_interaction_chat_provider",
+        AsyncMock(return_value=(provider, "planner")),
+    )
+
+    with pytest.raises(CorePlannerError) as exc_info:
+        await agent.plan(Event(), object(), InteractionAgentConfig(planner_provider_id="planner"))
+
+    assert exc_info.value.reason == "unsupported_output_contract"
+    assert provider.calls == []
+    agent._prepare_render_result.assert_not_awaited()

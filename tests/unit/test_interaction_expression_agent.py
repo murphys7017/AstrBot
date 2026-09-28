@@ -22,6 +22,7 @@ from astrbot.core.interaction.expression_agent import (
     resolve_deepseek_first_turn_reasoning_marker,
     validate_persona_expression_result,
 )
+from astrbot.core.interaction.turn_state import set_interaction_turn_immediate_reply
 from astrbot.core.interaction.types import (
     InteractionAgentConfig,
     PersonalResponseAction,
@@ -29,11 +30,13 @@ from astrbot.core.interaction.types import (
 from astrbot.core.message.components import Image
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.output_contract import CompiledOutputContract
+from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.render import (
     PROMPT_APPLY_RESULT_EXTRA_KEY,
     PromptRenderEngine,
     PromptRenderProfile,
+    PromptTarget,
 )
 from astrbot.core.prompt.render.interfaces import RenderResult
 from astrbot.core.provider.entities import LLMResponse
@@ -593,7 +596,7 @@ async def test_visible_reply_material_renders_as_native_input_message_with_strea
 
     assert pack.get_slot("input.visible_reply_material") is not None
     assert pack.get_slot("extension.context") is None
-    result = PromptRenderEngine().render(pack)
+    result = PromptRenderEngine().render(pack, target=PromptTarget.PERSONA)
     assert "input.visible_reply_material" in result.metadata["selected_slot_names"]
     assert "extension.context" not in result.metadata["selected_slot_names"]
     assert len(result.messages) == 1
@@ -603,6 +606,51 @@ async def test_visible_reply_material_renders_as_native_input_message_with_strea
     assert "核心累计内容" in material_text
     assert "待完成内容" in material_text
     assert "extensions" not in material_text
+
+
+@pytest.mark.asyncio
+async def test_progress_visible_reply_material_includes_only_turn_acknowledgement():
+    event = AstrMessageEvent.__new__(AstrMessageEvent)
+    event._extras = {}
+    set_interaction_turn_immediate_reply(event, "I am checking that now.")
+    slots = await PersonaVisibleReplyCollector(
+        PersonaExpressionRequest(
+            observed_text="The tool is still running.",
+            intent=PersonaExpressionIntent(kind="interjection"),
+        )
+    ).collect(event, None, None)
+    pack = ContextPack(slots={slot.name: slot for slot in slots})
+
+    acknowledgement = pack.get_slot("input.previous_persona_acknowledgement")
+    assert acknowledgement is not None
+    assert acknowledgement.value == {"text": "I am checking that now."}
+
+
+@pytest.mark.asyncio
+async def test_progress_visible_reply_material_excludes_old_results_and_bounds_stream_text():
+    event = AstrMessageEvent.__new__(AstrMessageEvent)
+    event._extras = {}
+    slots = await PersonaVisibleReplyCollector(
+        PersonaExpressionRequest(
+            source_text="old final result that must not reach progress",
+            immediate_reply="old acknowledgement",
+            observed_text="o" * 600,
+            total_text="t" * 600,
+            pending_text="p" * 600,
+            progress_stage="stream_text",
+            intent=PersonaExpressionIntent(kind="interjection"),
+        )
+    ).collect(event, None, None)
+
+    material = next(
+        slot for slot in slots if slot.name == "input.visible_reply_material"
+    )
+
+    assert "source_text" not in material.value
+    assert "immediate_reply" not in material.value
+    assert "total_text" not in material.value
+    assert len(material.value["observed_text"]) == 483
+    assert len(material.value["pending_text"]) == 483
 
 
 @pytest.mark.asyncio
@@ -1133,7 +1181,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
 
 
 @pytest.mark.asyncio
-async def test_persona_expression_keeps_prompt_only_contract(
+async def test_persona_expression_rejects_prompt_only_contract_before_model_call(
     monkeypatch,
 ):
     class Provider:
@@ -1203,15 +1251,16 @@ async def test_persona_expression_keeps_prompt_only_contract(
         )
     )
 
-    result = await agent.generate_expression(
-        event,
-        plugin_context,
-        InteractionAgentConfig(expression_provider_id="persona"),
-        PersonaExpressionRequest(),
-    )
+    with pytest.raises(InteractionExpressionError) as exc_info:
+        await agent.generate_expression(
+            event,
+            plugin_context,
+            InteractionAgentConfig(expression_provider_id="persona"),
+            PersonaExpressionRequest(),
+        )
 
-    assert result.spoken_reply == "嗯。"
-    assert provider.calls[0]["compiled_output_contract"] is compiled
+    assert exc_info.value.reason == "unsupported_output_contract"
+    assert provider.calls == []
 
 
 def test_minimax_token_plan_only_supports_required_output_tool_call_before_m3():
@@ -1232,6 +1281,96 @@ def test_minimax_token_plan_only_supports_required_output_tool_call_before_m3():
     assert provider.supports_output_contract_strategy("protocol_tool_call")
     provider.set_model("MiniMax-M3")
     assert not provider.supports_output_contract_strategy("protocol_tool_call")
+
+
+@pytest.mark.asyncio
+async def test_persona_expression_skips_protocol_incompatible_primary_provider(monkeypatch):
+    class Provider:
+        def __init__(self, provider_id, *, protocol_tool_call):
+            self.provider_config = {
+                "id": provider_id,
+                "type": "test",
+                "modalities": ["text", "tool_use"],
+            }
+            self.protocol_tool_call = protocol_tool_call
+            self.calls = []
+
+        def supports_output_contract_strategy(self, strategy):
+            return strategy == "prompt_only" or (
+                strategy == "protocol_tool_call" and self.protocol_tool_call
+            )
+
+        async def text_chat(self, **kwargs):
+            self.calls.append(kwargs)
+            return LLMResponse(
+                role="assistant",
+                completion_text="",
+                tools_call_name=["persona_expression"],
+                tools_call_args=[{"spoken_reply": "由兼容回退完成", "effect_calls": []}],
+            )
+
+    class Event:
+        session_id = "session-1"
+        unified_msg_origin = "webchat:friend:session-1"
+        plugins_name = []
+
+        def __init__(self):
+            self._extras = {}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "webchat"
+
+        def is_stopped(self):
+            return False
+
+    primary = Provider("primary", protocol_tool_call=False)
+    fallback = Provider("fallback", protocol_tool_call=True)
+    contract = build_persona_expression_output_contract_for_effects([])
+    compiled = CompiledOutputContract(
+        contract=contract,
+        strategy="protocol_tool_call",
+        tool_name="persona_expression",
+        tool_schema=contract.schema,
+    )
+    agent = InteractionExpressionAgent()
+    agent._prepare_render_result = AsyncMock(
+        return_value=RenderResult(
+            system_prompt="persona",
+            messages=[{"role": "user", "content": "hello"}],
+            output_contract=contract,
+            compiled_output_contract=compiled,
+            metadata={"persona_effect_specs": []},
+        )
+    )
+    monkeypatch.setattr("astrbot.core.interaction.expression_agent.Provider", Provider)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.resolve_interaction_chat_provider",
+        AsyncMock(return_value=(primary, "primary")),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.resolve_fallback_chat_providers",
+        lambda *_args: [fallback],
+    )
+
+    result = await agent.generate_expression(
+        Event(),
+        SimpleNamespace(
+            get_provider_by_id=lambda _provider_id: primary,
+            get_config=lambda **_kwargs: {},
+        ),
+        InteractionAgentConfig(expression_provider_id="primary"),
+        PersonaExpressionRequest(),
+    )
+
+    assert primary.calls == []
+    assert len(fallback.calls) == 1
+    assert result.spoken_reply == "由兼容回退完成"
 
 
 @pytest.mark.asyncio
@@ -1357,7 +1496,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
     ]
     context_text = _provider_context_text(provider.calls[0])
     assert "persona" in context_text
-    assert "plugin context" in context_text
+    assert "plugin context" not in context_text
     assert provider.calls[0]["output_contract"] is contract
     assert provider.calls[0]["compiled_output_contract"] is compiled
     assert result.spoken_reply == "插件修饰后的回复"
@@ -1964,7 +2103,7 @@ async def test_persona_request_hook_context_mutation_survives_business_tool_loop
     )
 
     assert len(provider.calls) == 2
-    assert "plugin context" in _provider_context_text(provider.calls[1])
+    assert "plugin context" not in _provider_context_text(provider.calls[1])
     assert "工具结果" in _provider_context_text(provider.calls[1])
 
 
@@ -2108,7 +2247,7 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
     assert result.spoken_reply == "由回退模型完成"
     fallback_context = _provider_context_text(fallback.calls[0])
     assert "persona" in fallback_context
-    assert "plugin context" in fallback_context
+    assert "plugin context" not in fallback_context
     fallback_extra_parts = fallback.calls[0]["extra_user_content_parts"]
     assert len(fallback_extra_parts) == 1
     assert fallback_extra_parts[0].text == "[Image descriptions]\nA test image."

@@ -1481,10 +1481,10 @@ async def test_collect_context_pack_collects_system_base_from_provider_request()
         collectors=[SystemCollector()],
     )
 
-    base_slot = pack.get_slot("system.base")
-    assert base_slot is not None
-    assert base_slot.value == "Base system prompt"
-    assert base_slot.meta["source_field"] == "provider_request.system_prompt"
+    global_slot = pack.get_slot("system.global")
+    assert global_slot is not None
+    assert global_slot.value == "Base system prompt"
+    assert global_slot.meta["source_field"] == "provider_request.system_prompt"
 
 
 @pytest.mark.asyncio

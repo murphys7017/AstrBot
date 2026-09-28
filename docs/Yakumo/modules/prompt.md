@@ -71,7 +71,7 @@ Interaction 使用两层 single-flight。`interaction_base` 收集 system、pers
 
 ## 目标投影
 
-`project_context_pack(...)` 从 Pack 深拷贝出隔离视图。所有模型渲染都会先排除 `llm_exposure="never"`；显式目标还会同时执行固定代码规则和 slot 级 `meta.targets`。无 target 的普通 Main Agent 不套用 Core 白名单，但仍执行 exposure 过滤。敏感事实仍应在 Collector 产生前最小化，不能把渲染过滤当作日志或进程内保密机制。
+`project_context_pack(...)` 从 Pack 深拷贝出隔离视图。所有模型渲染都会先排除 `llm_exposure="never"`；显式目标还会同时执行固定代码规则和 slot 级 `meta.targets`。未传 `target` 的渲染默认使用 `Core` 投影，绝不绕过目标白名单。敏感事实仍应在 Collector 产生前最小化，不能把渲染过滤当作日志或进程内保密机制。
 
 | 目标 | 当前可见范围 | 明确排除 |
 |---|---|---|
@@ -89,8 +89,8 @@ Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享�
 
 - `turn_plan`：保留既有 Persona 上下文来源和历史预算。
 - `final_result`：保留既有来源和质量预算，`source_text` 仍由请求指令定义为权威结果。
-- `progress`：base-only；仅人格摘要和本轮 `input.visible_reply_material`，不带旧 system、历史、memory、插件扩展或媒体派生。
-- `proactive`：base-only；人格摘要、Observation 材料、最多两轮历史和有限的 topic/short-term/persona memory，不带当前用户输入、插件扩展或媒体派生。
+- `progress`：base-only；仅稳定的 `system.global`、人格摘要、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、插件扩展、旧结果或媒体派生；本阶段的职责指令仍由 Profile 显式写入。
+- `proactive`：base-only；稳定的 `system.global`、人格摘要、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入、插件扩展或媒体派生。
 
 Renderer 结果会记录 `context_view`、来源要求、实际 slot 和目标预算；Interaction 额外记录阶段、保留历史数和近似 token 数，供生产 trace 检查。
 
@@ -100,7 +100,7 @@ Renderer 结果会记录 `context_view`、来源要求、实际 slot 和目标�
 
 `PromptRenderProfile` 在目标投影后应用到一个新的目标视图，当前支持：
 
-- `system_prompt`：提供目标自己的系统指令。Persona、Core 及无显式 target 的 legacy Core 会在其后保留旧 `ProviderRequest.system_prompt` 以兼容既有插件；Core Planner 与 Personal Policy 始终替换旧值，避免插件提示进入控制面。
+- `system_prompt`：提供目标自己的系统指令，并写入 Profile 专有的 `system.base`。Collector 从初始 `ProviderRequest.system_prompt` 收集的稳定全局指令始终位于独立的 `system.global`；Profile 不会隐式拼接或继承另一目标的 `system.base`。
 - `request_prompt`：成为最终模型请求命令，不写入共享事实。
 - `output_contract`：写入目标树的输出契约元数据。
 - `input_text_suffix`：只追加到字符串类型的 `input.text`。
@@ -174,6 +174,8 @@ OutputContract
 ```
 
 Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 优先通过虚拟 `persona_expression` tool call 返回 `spoken_reply` 和按当前事件过滤后的 `effect_calls`；普通即时轮还必须返回 `turn_action=reply|delegate`，允许静默的群聊候选才可返回 `silent`。`persona_expression` 是终端输出契约，不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
+
+Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect，因为 effect 是同一用户可见 segment 的输出契约，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 
 ## 当前限制
 

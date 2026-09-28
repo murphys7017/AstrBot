@@ -1829,3 +1829,38 @@ persona_context_views:
     proactive traces. Confirm progress/proactive show base_only with their
     declared slots and budgets, no plugin/media task, while turn-plan/final
     still preserve configured plugin-context behavior.
+
+prompt_contract_boundary_closure:
+  date: '2026-09-28'
+  class: refactor
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Complete the surrounding Prompt boundaries: preserve stable request-level
+    instructions as system.global while reserving system.base for the active
+    Render Profile; keep progress/proactive narrow while retaining the current
+    turn acknowledgement for progress; separate MiniMax framework state from
+    natural current user content; reject strict Persona/Planner contracts on
+    incompatible providers; reject Personal Policy prompt-only degradation;
+    bound phase-local progress/proactive material and proactive history; and
+    prevent Persona request hooks from bypassing the rendered content surface
+    through text, contexts, or media fields.
+  non_goals: >-
+    Remove the AG99 legacy compatibility hook, change Persona wording or
+    function-tool authorization, alter Core execution, or make unselected
+    plugins eligible for capability snapshots.
+  validation: >-
+    Focused lifecycle, Planner and Personal Policy preflight, Prompt
+    View/Profile, MiniMax and Persona acknowledgement/boundary tests passed.
+    A combined six-file run completed 218 passing tests and six failures in
+    untouched capability/tool and subagent collector fixtures, where their
+    test tools were excluded as plugin_not_selected before any changed Prompt
+    boundary was exercised. A follow-up focused run passed 68 tests. Scoped
+    Ruff and Python compilation passed, as did git diff checks.
+  followup: >-
+    After restart, capture MiniMax Persona, Planner and Core traces: verify
+    framework state is no-save context before the final natural user message,
+    unsupported strict-contract providers including Personal Policy are
+    skipped before a model call, progress has only its declared bounded facts
+    plus one acknowledgement, and OnLLMRequest hooks cannot reintroduce
+    prompt or media material.

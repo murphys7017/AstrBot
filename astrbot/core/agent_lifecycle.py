@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import Any
 
 from astrbot import logger
@@ -41,6 +42,7 @@ class AgentRequestLifecycle:
         hook_dispatcher: Callable[..., Any] = call_event_hook,
         record_reasoning: bool = False,
         dispatch_response_postprocess: bool = False,
+        protected_request_fields: frozenset[str] = frozenset(),
     ) -> None:
         self.event = event
         self.execution_surface = execution_surface
@@ -49,6 +51,7 @@ class AgentRequestLifecycle:
         self.hook_dispatcher = hook_dispatcher
         self.record_reasoning = record_reasoning
         self.dispatch_response_postprocess = dispatch_response_postprocess
+        self.protected_request_fields = protected_request_fields
         self.lifecycle_id = uuid.uuid4().hex
         self.tool_execution_count = 0
         self._waiting_dispatched = False
@@ -124,6 +127,11 @@ class AgentRequestLifecycle:
         if self.provider_request is None:
             raise RuntimeError("provider request is not bound")
         self._request_dispatched = True
+        protected_fields = {
+            field_name: deepcopy(getattr(self.provider_request, field_name))
+            for field_name in self.protected_request_fields
+            if hasattr(self.provider_request, field_name)
+        }
         with self.expose_request():
             self._request_stopped = bool(
                 await self.hook_dispatcher(
@@ -133,6 +141,14 @@ class AgentRequestLifecycle:
                     execution_surface=self.execution_surface,
                 )
             )
+        for field_name, value in protected_fields.items():
+            if getattr(self.provider_request, field_name) != value:
+                logger.warning(
+                    "Ignoring OnLLMRequestEvent mutation of protected %s field on %s",
+                    field_name,
+                    self.execution_surface,
+                )
+                setattr(self.provider_request, field_name, value)
         return self._request_stopped
 
     async def dispatch_agent_begin(self, run_context: ContextWrapper) -> bool:

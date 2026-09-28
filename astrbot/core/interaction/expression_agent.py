@@ -66,7 +66,11 @@ from astrbot.core.prompt.render import (
     apply_render_result_to_request,
 )
 from astrbot.core.prompt.structured_json import extract_json_object
-from astrbot.core.provider import Provider, resolve_fallback_chat_providers
+from astrbot.core.provider import (
+    Provider,
+    resolve_fallback_chat_providers,
+    supports_strict_tool_call_output_contract,
+)
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 from astrbot.core.provider.request_media import normalize_provider_request_images
 from astrbot.core.speech_cues import (
@@ -876,15 +880,43 @@ class InteractionExpressionAgent:
         if not candidates:
             raise primary_error or InteractionExpressionError("provider_unavailable")
 
+        compatible_candidates = [
+            candidate
+            for candidate in candidates
+            if supports_strict_tool_call_output_contract(
+                candidate,
+                build_persona_expression_output_contract_for_effects(),
+            )
+        ]
+        if not compatible_candidates:
+            raise InteractionExpressionError(
+                "unsupported_output_contract",
+                "no configured Persona provider supports the required "
+                "protocol_tool_call output contract",
+            )
+        if provider is not None and provider not in compatible_candidates:
+            primary_error = InteractionExpressionError(
+                "unsupported_output_contract",
+                "primary Persona provider does not support the required "
+                "protocol_tool_call output contract",
+            )
+        candidates = compatible_candidates
+
         last_error: InteractionExpressionError | None = primary_error
         prepared: _PreparedPersonaExpression | None = None
+        fallback_request_error = (
+            primary_error
+            if primary_error is not None
+            and primary_error.reason != "unsupported_output_contract"
+            else None
+        )
         for index, candidate in enumerate(candidates):
             if prepared is not None:
                 candidate_request = prepared.req
-            elif primary_error is not None:
+            elif fallback_request_error is not None:
                 candidate_request = _build_failure_expression_request(
                     req,
-                    primary_error,
+                    fallback_request_error,
                 )
             else:
                 candidate_request = req
@@ -951,6 +983,8 @@ class InteractionExpressionAgent:
                 )
                 if primary_error is None:
                     primary_error = exc
+                if exc.reason != "unsupported_output_contract":
+                    fallback_request_error = exc
                 if exc.tool_execution_count > 0:
                     break
                 if index + 1 < len(candidates):
@@ -1006,6 +1040,17 @@ class InteractionExpressionAgent:
                 req=req,
             )
 
+        if not supports_strict_tool_call_output_contract(
+            provider,
+            render_result.output_contract,
+            render_result.compiled_output_contract,
+        ):
+            raise InteractionExpressionError(
+                "unsupported_output_contract",
+                "Persona provider cannot satisfy the required "
+                "protocol_tool_call output contract",
+            )
+
         provider_request = build_prompt_render_provider_request(event, provider)
         provider_request.session_id = event.session_id
         provider_request.metadata = dict(provider_request.metadata or {})
@@ -1022,6 +1067,16 @@ class InteractionExpressionAgent:
             provider_request=provider_request,
             prompt_apply_result=prompt_apply_result,
             hook_dispatcher=call_event_hook,
+            protected_request_fields=frozenset(
+                {
+                    "prompt",
+                    "contexts",
+                    "system_prompt",
+                    "extra_user_content_parts",
+                    "image_urls",
+                    "audio_urls",
+                }
+            ),
         )
 
         # Preserve the official lifecycle boundary before Persona generation.

@@ -68,12 +68,12 @@ class SystemCollector(ContextCollectorInterface):
         slots: list[ContextSlot] = []
 
         try:
-            base_slot = self._build_system_base_slot(provider_request)
-            if base_slot is not None:
-                slots.append(base_slot)
+            global_slot = self._build_system_global_slot(provider_request)
+            if global_slot is not None:
+                slots.append(global_slot)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to collect system base prompt: %s", exc, exc_info=True
+                "Failed to collect global system prompt: %s", exc, exc_info=True
             )
 
         if self.base_only:
@@ -129,7 +129,7 @@ class SystemCollector(ContextCollectorInterface):
 
         return slots
 
-    def _build_system_base_slot(
+    def _build_system_global_slot(
         self,
         provider_request: ProviderRequest | None,
     ) -> ContextSlot | None:
@@ -143,7 +143,7 @@ class SystemCollector(ContextCollectorInterface):
             return None
 
         return ContextSlot(
-            name="system.base",
+            name="system.global",
             value=system_prompt,
             category="system",
             source="provider_request",

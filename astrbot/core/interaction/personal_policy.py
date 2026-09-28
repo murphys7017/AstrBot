@@ -26,7 +26,7 @@ from astrbot.core.prompt.render import (
     PromptTarget,
 )
 from astrbot.core.prompt.structured_json import extract_json_object
-from astrbot.core.provider import Provider
+from astrbot.core.provider import Provider, supports_strict_tool_call_output_contract
 from astrbot.core.provider.entities import ProviderRequest
 
 from .observation_inbox import ObservationBatch
@@ -276,14 +276,6 @@ def extract_personal_policy_decision(
     output_contract: OutputContract,
     compiled_output_contract: CompiledOutputContract,
 ) -> PersonalPolicyDecision:
-    if compiled_output_contract.strategy == "prompt_only":
-        payload = extract_json_object(
-            getattr(llm_response, "completion_text", "") or ""
-        )
-        decision = PersonalPolicyDecision.from_mapping(payload)
-        if decision is not None:
-            return decision
-        raise PersonalPolicyError("invalid_policy_json")
     if (
         compiled_output_contract.strategy != "protocol_tool_call"
         or compiled_output_contract.degraded
@@ -343,6 +335,14 @@ class PersonalPolicyAgent:
                 provider_id=provider_id,
                 failure_code="provider_unavailable",
             )
+        required_contract = build_personal_policy_output_contract()
+        if not supports_strict_tool_call_output_contract(provider, required_contract):
+            return PersonalPolicyEvaluation.fail_closed(
+                batch_id=batch.batch_id,
+                evaluated_at=gate_result.evaluated_at,
+                provider_id=provider_id,
+                failure_code="unsupported_policy_tool_call",
+            )
 
         try:
             render_result = await self._prepare_render_result(
@@ -391,11 +391,10 @@ class PersonalPolicyAgent:
             )
         if (
             not isinstance(validated_contract, CompiledOutputContract)
-            or validated_contract.strategy
-            not in {"protocol_tool_call", "prompt_only"}
-            or (
-                validated_contract.strategy == "protocol_tool_call"
-                and validated_contract.degraded
+            or not supports_strict_tool_call_output_contract(
+                provider,
+                contract,
+                validated_contract,
             )
         ):
             return PersonalPolicyEvaluation.fail_closed(
@@ -429,11 +428,7 @@ class PersonalPolicyAgent:
                     ),
                     system_prompt=render_result.system_prompt or "",
                     temperature=interaction_config.personal_policy_temperature,
-                    tool_choice=(
-                        "required"
-                        if compiled.strategy == "protocol_tool_call"
-                        else "auto"
-                    ),
+                    tool_choice="required",
                     output_contract=contract,
                     compiled_output_contract=compiled,
                 ),

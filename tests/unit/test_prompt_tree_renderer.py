@@ -270,7 +270,7 @@ def test_anthropic_prompt_renderer_compiles_content_blocks_and_tool_schema():
     ]
 
 
-def test_minimax_prompt_renderer_compiles_json_sections_and_tool_schema():
+def test_minimax_prompt_renderer_separates_framework_state_from_user_content():
     renderer = MiniMaxPromptRenderer()
     pack = ContextPack(
         slots={
@@ -290,6 +290,12 @@ def test_minimax_prompt_renderer_compiles_json_sections_and_tool_schema():
                     "is_group": False,
                 },
                 category="session",
+                source="test",
+            ),
+            "runtime.personal_state": ContextSlot(
+                name="runtime.personal_state",
+                value={"availability_state": "available"},
+                category="runtime",
                 source="test",
             ),
             "input.text": ContextSlot(
@@ -331,18 +337,27 @@ def test_minimax_prompt_renderer_compiles_json_sections_and_tool_schema():
     assert system_payload["system"]["core"]["base"] == "Follow the system contract."
     assert "<system>" not in result.system_prompt
 
+    framework_message = result.messages[-2]
+    assert framework_message["role"] == "user"
+    assert framework_message["_no_save"] is True
+    framework_payload = json.loads(framework_message["content"][0]["text"])
+    assert framework_payload["format"] == "astrbot_minimax_framework_state_v1"
+    assert framework_payload["state"]["session"]["user_info"]["nickname"] == "Alice"
+    assert (
+        framework_payload["state"]["runtime"]["personal_state"][
+            "availability_state"
+        ]
+        == "available"
+    )
+    assert "text" not in framework_payload["state"].get("input_context", {})
+
     final_message = result.messages[-1]
     assert final_message["role"] == "user"
     assert isinstance(final_message["content"], list)
-    user_payload = json.loads(final_message["content"][0]["text"])
-    assert user_payload["format"] == "astrbot_minimax_user_input_v1"
-    assert (
-        user_payload["request_context"]["session"]["user_info"]["nickname"] == "Alice"
-    )
-    assert (
-        user_payload["user_input"]["text"]["content"] == "Return JSON please."
-    )
-    assert "<user_input>" not in final_message["content"][0]["text"]
+    assert final_message["content"][0] == {
+        "type": "text",
+        "text": "Return JSON please.",
+    }
     assert final_message["content"][1] == {
         "type": "image_url",
         "image_url": {"url": "file:///tmp/demo.png"},
@@ -388,9 +403,7 @@ def test_render_engine_selects_minimax_renderer_from_token_plan_provider():
 
     assert result.metadata["renderer_name"] == "minimax"
     content = result.messages[-1]["content"]
-    assert isinstance(content, list)
-    payload = json.loads(content[0]["text"])
-    assert payload["user_input"]["text"]["content"] == "Hello MiniMax"
+    assert content == "Hello MiniMax"
 
 
 def test_minimax_renderer_uses_protocol_tool_call_by_default():
