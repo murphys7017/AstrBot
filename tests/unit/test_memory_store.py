@@ -291,6 +291,7 @@ async def test_pending_job_replacement_is_not_settled_by_stale_delivery(
     try:
         await store.upsert_pending_job(pending_job(token="old", payload="old-turn"))
         await store.record_pending_job_attempt("scope-job", "old")
+        assert (await store.list_pending_jobs())[0].attempts == 1
         await store.upsert_pending_job(pending_job(token="new", payload="new-turn"))
 
         await store.delete_pending_job("scope-job", "old")
@@ -304,6 +305,54 @@ async def test_pending_job_replacement_is_not_settled_by_stale_delivery(
         assert await store.list_pending_jobs() == []
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_pending_job_replacement_survives_concurrent_stale_settlement(
+    temp_dir: Path,
+):
+    store = MemoryStore(db_path=temp_dir / "memory.db")
+
+    def pending_job(token: str) -> MemoryPendingJob:
+        return MemoryPendingJob(
+            job_key="scope-job",
+            owner_id=TEST_CANONICAL_USER_ID,
+            scope_type=ScopeType.USER.value,
+            scope_id=TEST_CANONICAL_USER_ID,
+            conversation_id="conv-1",
+            umo=TEST_UMO,
+            kind="scope",
+            dedupe_key="conv-1",
+            delivery_token=token,
+            payload=token,
+        )
+
+    try:
+        for index in range(10):
+            old_token = f"old-{index}"
+            new_token = f"new-{index}"
+            await store.upsert_pending_job(pending_job(old_token))
+            await asyncio.gather(
+                store.upsert_pending_job(pending_job(new_token)),
+                store.delete_pending_job("scope-job", old_token),
+                store.record_pending_job_attempt("scope-job", old_token),
+            )
+            pending = await store.list_pending_jobs()
+            assert len(pending) == 1
+            assert pending[0].delivery_token == new_token
+            assert pending[0].payload == new_token
+            assert pending[0].attempts == 0
+    finally:
+        await store.close()
+
+    reopened = MemoryStore(db_path=temp_dir / "memory.db")
+    try:
+        pending = await reopened.list_pending_jobs()
+        assert len(pending) == 1
+        assert pending[0].delivery_token == "new-9"
+        assert pending[0].attempts == 0
+    finally:
+        await reopened.close()
 
 
 @pytest.mark.asyncio

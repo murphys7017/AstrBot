@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import and_, case
+from sqlalchemy import and_, case, delete, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlmodel import col, desc, select, text
@@ -280,34 +280,43 @@ class MemoryStore:
     async def upsert_pending_job(self, job: MemoryPendingJob) -> MemoryPendingJob:
         async with self.get_db() as session:
             async with session.begin():
+                statement = sqlite_insert(MemoryPendingJobRecord).values(
+                    job_key=job.job_key,
+                    owner_id=job.owner_id,
+                    scope_type=job.scope_type,
+                    scope_id=job.scope_id,
+                    conversation_id=job.conversation_id,
+                    umo=job.umo,
+                    kind=job.kind,
+                    dedupe_key=job.dedupe_key,
+                    delivery_token=job.delivery_token,
+                    payload=job.payload,
+                    attempts=0,
+                    created_at=datetime.now(UTC),
+                )
+                statement = statement.on_conflict_do_update(
+                    index_elements=["job_key"],
+                    set_={
+                        "owner_id": statement.excluded.owner_id,
+                        "scope_type": statement.excluded.scope_type,
+                        "scope_id": statement.excluded.scope_id,
+                        "conversation_id": statement.excluded.conversation_id,
+                        "umo": statement.excluded.umo,
+                        "kind": statement.excluded.kind,
+                        "dedupe_key": statement.excluded.dedupe_key,
+                        "delivery_token": statement.excluded.delivery_token,
+                        "payload": statement.excluded.payload,
+                        # A replacement starts with its own retry count.
+                        "attempts": 0,
+                    },
+                )
+                await session.execute(statement)
                 result = await session.execute(
                     select(MemoryPendingJobRecord).where(
                         col(MemoryPendingJobRecord.job_key) == job.job_key
                     )
                 )
-                entity = result.scalar_one_or_none()
-                if entity is None:
-                    entity = MemoryPendingJobRecord(
-                        job_key=job.job_key,
-                        delivery_token=job.delivery_token,
-                    )
-                    session.add(entity)
-                else:
-                    # A newly submitted coalesced job supersedes the previous
-                    # delivery. Its retry counter must describe this payload,
-                    # not a previous one that happened to share the queue key.
-                    entity.attempts = 0
-                entity.owner_id = job.owner_id
-                entity.scope_type = job.scope_type
-                entity.scope_id = job.scope_id
-                entity.conversation_id = job.conversation_id
-                entity.umo = job.umo
-                entity.kind = job.kind
-                entity.dedupe_key = job.dedupe_key
-                entity.delivery_token = job.delivery_token
-                entity.payload = job.payload
-                await session.flush()
-                await session.refresh(entity)
+                entity = result.scalar_one()
                 return self._to_pending_job(entity)
 
     async def list_pending_jobs(self) -> list[MemoryPendingJob]:
@@ -326,8 +335,8 @@ class MemoryStore:
     ) -> None:
         async with self.get_db() as session:
             async with session.begin():
-                result = await session.execute(
-                    select(MemoryPendingJobRecord).where(
+                await session.execute(
+                    delete(MemoryPendingJobRecord).where(
                         and_(
                             col(MemoryPendingJobRecord.job_key) == job_key,
                             col(MemoryPendingJobRecord.delivery_token)
@@ -335,9 +344,6 @@ class MemoryStore:
                         )
                     )
                 )
-                entity = result.scalar_one_or_none()
-                if entity is not None:
-                    await session.delete(entity)
 
     async def record_pending_job_attempt(
         self,
@@ -346,18 +352,17 @@ class MemoryStore:
     ) -> None:
         async with self.get_db() as session:
             async with session.begin():
-                result = await session.execute(
-                    select(MemoryPendingJobRecord).where(
+                await session.execute(
+                    update(MemoryPendingJobRecord)
+                    .where(
                         and_(
                             col(MemoryPendingJobRecord.job_key) == job_key,
                             col(MemoryPendingJobRecord.delivery_token)
                             == delivery_token,
                         )
                     )
+                    .values(attempts=col(MemoryPendingJobRecord.attempts) + 1)
                 )
-                entity = result.scalar_one_or_none()
-                if entity is not None:
-                    entity.attempts = int(entity.attempts or 0) + 1
 
     async def get_turn_record(self, turn_id: str) -> TurnRecord | None:
         async with self.get_db() as session:
