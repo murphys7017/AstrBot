@@ -1,3 +1,36 @@
+persona_turn_plan_contract_and_continuity_repair:
+  date: '2026-09-28'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Prevent invalid Persona turn-plan results from reaching Persona result hooks;
+    exclude DeepSeek thinking mode from strict protocol-tool-call Persona
+    selection; expose one bounded, superseded Core task only to Persona turn
+    planning; and bound TURN_PLAN to base facts, six history turns, and an
+    estimated 3000-token history cap without prompt extensions or long-term
+    memory.
+  non_goals: >-
+    Change Persona wording, alter Core task cancellation or execution, resume a
+    task automatically, change FINAL_RESULT source policy, change MiniMax
+    rendering, or retain legacy prompt-only structured-output degradation.
+  validation: >-
+    Focused Persona expression, Prompt Target, continuity collector, DeepSeek,
+    and prompt-tree renderer suites passed. Scoped Ruff, Python compilation,
+    YAML parsing, and git diff --check passed. The boundary tests verify that
+    continuity reaches the actual base and MiniMax model messages as no-save
+    framework context before the current user input; the collector reads only
+    the latest execution and excludes tool evidence and result text.
+  followup: >-
+    Restart AstrBot and test a tool-backed turn superseded by a user follow-up.
+    Confirm the next Persona trace is view=turn_plan, source_requirement=base_only,
+    no extension.system, history cap 6/3000, and a single
+    pending_execution_continuity slot only when the latest execution was
+    superseded. Confirm Persona delegates only when the new message clearly
+    follows the interrupted task. Also test DeepSeek reasoning enabled with a
+    configured fallback and verify the thinking provider is skipped before an
+    API call.
+
 ag99live_legacy_compatibility_retirement:
   date: '2026-09-28'
   class: maintenance

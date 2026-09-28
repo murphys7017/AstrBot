@@ -608,6 +608,25 @@ class BasePromptRenderer:
         ):
             rendered_slot_names.append("conversation.core_execution_history")
 
+        pending_execution_slot = self._find_slot(
+            slots,
+            "conversation.pending_execution_continuity",
+        )
+        if self._render_mapping_slot(
+            resolve_node("context/pending_execution_continuity"),
+            "pending_execution_continuity",
+            pending_execution_slot,
+            body_keys=(
+                "instruction",
+                "task_summary",
+                "task_intent",
+                "status",
+                "cancellation_reason",
+                "resume_recommended",
+            ),
+        ):
+            rendered_slot_names.append("conversation.pending_execution_continuity")
+
         group_recent_slot = self._find_slot(slots, "conversation.group_recent")
         if group_recent_slot is not None and isinstance(
             group_recent_slot.value,
@@ -1097,6 +1116,7 @@ class BasePromptRenderer:
 
         for context_path in (
             "context/extensions",
+            "context/pending_execution_continuity",
             "context/group_recent",
             "context/memory",
             "context/knowledge",

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from astrbot.core.output_contract import OutputContract
 from astrbot.core.prompt.context_types import ContextPack
 from astrbot.core.prompt.render import PromptRenderEngine
+from astrbot.core.provider import supports_strict_tool_call_output_contract
 from astrbot.core.provider.sources.deepseek_source import ProviderDeepSeek
 
 
@@ -47,6 +48,40 @@ def test_deepseek_uses_protocol_tool_call_output_contract():
     assert result.compiled_output_contract.strategy == "protocol_tool_call"
     assert result.compiled_output_contract.tool_name == "persona_expression"
     assert result.compiled_output_contract.degraded is False
+
+
+def test_deepseek_thinking_mode_rejects_strict_tool_call_contract():
+    provider = _make_provider()
+    contract = OutputContract(
+        mode="tool_call",
+        strict=True,
+        schema={"type": "object", "properties": {}},
+        preferred_tool_name="persona_expression",
+        allow_text_fallback=False,
+    )
+
+    try:
+        assert not provider.supports_output_contract_strategy("protocol_tool_call")
+        assert not supports_strict_tool_call_output_contract(provider, contract)
+    finally:
+        asyncio.run(provider.terminate())
+
+
+def test_deepseek_non_thinking_mode_allows_strict_tool_call_contract():
+    provider = _make_provider({"reasoning": False})
+    contract = OutputContract(
+        mode="tool_call",
+        strict=True,
+        schema={"type": "object", "properties": {}},
+        preferred_tool_name="persona_expression",
+        allow_text_fallback=False,
+    )
+
+    try:
+        assert provider.supports_output_contract_strategy("protocol_tool_call")
+        assert supports_strict_tool_call_output_contract(provider, contract)
+    finally:
+        asyncio.run(provider.terminate())
 
 
 def test_deepseek_reasoning_enabled_maps_to_thinking_and_omits_tool_choice():

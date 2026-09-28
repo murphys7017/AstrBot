@@ -8,6 +8,7 @@ from astrbot.core.prompt import (
 )
 from astrbot.core.prompt.render import PromptRenderProfile
 from astrbot.core.prompt.render.engine import PromptRenderEngine
+from astrbot.core.prompt.render.minimax_renderer import MiniMaxPromptRenderer
 from astrbot.core.prompt.targets import project_context_pack
 
 
@@ -58,6 +59,18 @@ def _canonical_pack() -> ContextPack:
                             "content": "ambient",
                         }
                     ],
+                },
+                "conversation",
+            ),
+            "conversation.pending_execution_continuity": _slot(
+                "conversation.pending_execution_continuity",
+                {
+                    "instruction": "continuity data",
+                    "task_summary": "look up the weather",
+                    "task_intent": "weather lookup",
+                    "status": "cancelled",
+                    "cancellation_reason": "superseded_by_new_user_input",
+                    "resume_recommended": True,
                 },
                 "conversation",
             ),
@@ -251,6 +264,65 @@ def test_persona_progress_view_keeps_only_phase_local_persona_facts():
     }
     assert "conversation.history" not in result.metadata["selected_slot_names"]
     assert "persona.prompt" not in result.metadata["selected_slot_names"]
+
+
+def test_persona_turn_plan_view_bounds_history_and_keeps_only_base_continuity():
+    pack = _canonical_pack()
+    pack.add_slot(
+        _slot(
+            "extension.system",
+            {"items": [{"value": "large plugin execution context"}]},
+            "extension",
+        )
+    )
+
+    result = PromptRenderEngine().render(
+        pack,
+        target=PromptTarget.PERSONA,
+        context_view=PromptContextView.TURN_PLAN,
+    )
+
+    selected = set(result.metadata["selected_slot_names"])
+    history_budget = result.metadata["context_budgets"]["conversation_history"]
+
+    assert result.metadata["context_view"] == "turn_plan"
+    assert result.metadata["context_view_source_requirement"] == "base_only"
+    assert "conversation.pending_execution_continuity" in selected
+    assert "extension.system" not in selected
+    assert history_budget["limit_amount"] == 6
+    assert history_budget["limit_estimated_tokens"] == 3000
+    continuity_messages = [
+        message
+        for message in result.messages
+        if "look up the weather" in str(message.get("content", ""))
+    ]
+    assert len(continuity_messages) == 1
+    assert continuity_messages[0]["_no_save"] is True
+    assert result.messages[-1]["role"] == "user"
+    assert "current" in str(result.messages[-1]["content"])
+
+
+def test_minimax_turn_plan_keeps_continuity_in_framework_state():
+    result = PromptRenderEngine(
+        default_renderer=MiniMaxPromptRenderer()
+    ).render(
+        _canonical_pack(),
+        target=PromptTarget.PERSONA,
+        context_view=PromptContextView.TURN_PLAN,
+    )
+
+    continuity_messages = [
+        message
+        for message in result.messages
+        if "look up the weather" in str(message.get("content", ""))
+    ]
+    assert len(continuity_messages) == 1
+    assert continuity_messages[0]["_no_save"] is True
+    assert "astrbot_minimax_framework_state_v1" in str(
+        continuity_messages[0]["content"]
+    )
+    assert result.messages[-1]["role"] == "user"
+    assert "current" in str(result.messages[-1]["content"])
 
 
 def test_persona_proactive_view_has_small_history_budget_and_no_extensions():

@@ -21,6 +21,13 @@ from .openai_source import ProviderOpenAIOfficial
     prompt_renderer_family="openai",
 )
 class ProviderDeepSeek(ProviderOpenAIOfficial):
+    def supports_output_contract_strategy(self, strategy: str) -> bool:
+        if strategy == "prompt_only":
+            return True
+        return strategy == "protocol_tool_call" and not self._is_thinking_enabled(
+            {},
+        )
+
     @staticmethod
     def _parse_reasoning_enabled(value: Any) -> bool | None:
         if isinstance(value, bool):

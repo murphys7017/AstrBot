@@ -167,6 +167,7 @@ def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:
             return slot.name in {
                 "conversation.history",
                 "conversation.group_recent",
+                "conversation.pending_execution_continuity",
             }
         return group not in {"capability", "knowledge", "policy"}
 

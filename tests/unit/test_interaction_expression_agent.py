@@ -756,10 +756,10 @@ def test_direct_reply_keeps_media_slots():
 
 
 @pytest.mark.asyncio
-async def test_persona_projection_keeps_identity_history_memory_without_waiting(
+async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     monkeypatch,
 ):
-    """Persona keeps identity/history/memory and defers plugin context to policy.
+    """Persona planning keeps bounded recent facts and defers plugin context.
 
     ``compact_context`` no longer selects the context pack: the configured
     ``persona_plugin_context_mode`` is the only wait policy, so every expression
@@ -813,6 +813,12 @@ async def test_persona_projection_keeps_identity_history_memory_without_waiting(
             "conversation.history": ContextSlot(
                 name="conversation.history",
                 value={"turns": []},
+                category="memory",
+                source="test",
+            ),
+            "memory.short_term": ContextSlot(
+                name="memory.short_term",
+                value={"active_focus": "当前任务"},
                 category="memory",
                 source="test",
             ),
@@ -898,14 +904,12 @@ async def test_persona_projection_keeps_identity_history_memory_without_waiting(
     assert {
         "persona.summary",
         "conversation.history",
-        "memory.long_term_memories",
+        "memory.short_term",
     } <= selected_slots
+    assert "memory.long_term_memories" not in selected_slots
     assert "persona.segments" in selected_slots
     assert "persona.begin_dialogs" not in selected_slots
-    # Plugin enrichment now comes from the wait-policy entry point, not from a
-    # possibly-pending prefetch task, so extension slots are present even though
-    # compact_context was requested.
-    assert "extension.system" in selected_slots
+    assert "extension.system" not in selected_slots
     assert "extension.context" not in selected_slots
     get_persona_context_pack.assert_awaited()
 
@@ -920,7 +924,7 @@ async def test_persona_projection_keeps_identity_history_memory_without_waiting(
 
     ready_slots = set(ready_result.metadata["selected_slot_names"])
     assert "persona.segments" in ready_slots
-    assert "extension.system" in ready_slots
+    assert "extension.system" not in ready_slots
     assert "extension.context" not in ready_slots
     # The cached plugin pack is reused without rebuilding.
     assert get_persona_context_pack.await_count == 2
@@ -1371,6 +1375,100 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
     assert primary.calls == []
     assert len(fallback.calls) == 1
     assert result.spoken_reply == "由兼容回退完成"
+
+
+@pytest.mark.asyncio
+async def test_invalid_turn_plan_result_never_reaches_persona_result_hook(monkeypatch):
+    class Provider:
+        provider_config = {"id": "persona", "type": "test"}
+
+        async def text_chat(self, **_kwargs):
+            return LLMResponse(
+                role="assistant",
+                completion_text="",
+                tools_call_name=["persona_expression"],
+                tools_call_args=[{"spoken_reply": "我来处理。", "effect_calls": []}],
+            )
+
+    class Event:
+        session_id = "session-1"
+        unified_msg_origin = "webchat:friend:session-1"
+        plugins_name = []
+
+        def __init__(self):
+            self._extras = {}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "webchat"
+
+        def is_stopped(self):
+            return False
+
+    provider = Provider()
+    allowed_turn_actions = (
+        PersonalResponseAction.REPLY,
+        PersonalResponseAction.DELEGATE,
+    )
+    contract = build_persona_expression_output_contract_for_effects(
+        [],
+        allowed_turn_actions=allowed_turn_actions,
+    )
+    compiled = CompiledOutputContract(
+        contract=contract,
+        strategy="protocol_tool_call",
+        tool_name="persona_expression",
+        tool_schema=contract.schema,
+    )
+    agent = InteractionExpressionAgent()
+    agent._prepare_render_result = AsyncMock(
+        return_value=RenderResult(
+            system_prompt="persona",
+            messages=[{"role": "user", "content": "hello"}],
+            output_contract=contract,
+            compiled_output_contract=compiled,
+            metadata={"persona_effect_specs": []},
+        )
+    )
+    result_hook_calls = []
+
+    async def call_hook(_event, hook_type, *args, **_kwargs):
+        if hook_type.name == "OnPersonaExpressionResultEvent":
+            result_hook_calls.append(args[0])
+        return False
+
+    monkeypatch.setattr("astrbot.core.interaction.expression_agent.Provider", Provider)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.resolve_interaction_chat_provider",
+        AsyncMock(return_value=(provider, "persona")),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.resolve_fallback_chat_providers",
+        lambda *_args: [],
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.call_event_hook",
+        call_hook,
+    )
+
+    with pytest.raises(InteractionExpressionError) as exc_info:
+        await agent.generate_expression(
+            Event(),
+            SimpleNamespace(
+                get_provider_by_id=lambda _provider_id: provider,
+                get_config=lambda **_kwargs: {},
+            ),
+            InteractionAgentConfig(expression_provider_id="persona"),
+            PersonaExpressionRequest(require_turn_action=True),
+        )
+
+    assert exc_info.value.reason == "missing_personal_response_action"
+    assert result_hook_calls == []
 
 
 @pytest.mark.asyncio

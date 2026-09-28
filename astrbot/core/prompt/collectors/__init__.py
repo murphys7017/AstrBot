@@ -12,6 +12,7 @@ from .input_collector import InputCollector, InputMediaEnrichmentCollector
 from .knowledge_collector import KnowledgeCollector
 from .memory_collector import MemoryCollector
 from .persona_collector import PersonaCollector
+from .persona_execution_continuity_collector import PersonaExecutionContinuityCollector
 from .persona_relationship_collector import PersonaRelationshipCollector
 from .policy_collector import PolicyCollector
 from .runtime_context_collector import RuntimeContextCollector
@@ -25,6 +26,7 @@ __all__ = [
     "ConversationHistoryCollector",
     "CoreTaskCollector",
     "CoreExecutionHistoryCollector",
+    "PersonaExecutionContinuityCollector",
     "ExplicitContextCollector",
     "InputCollector",
     "InputMediaEnrichmentCollector",

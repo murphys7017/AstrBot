@@ -125,6 +125,7 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
 
         for context_path in (
             "context/extensions",
+            "context/pending_execution_continuity",
             "context/group_recent",
             "context/memory",
             "context/knowledge",

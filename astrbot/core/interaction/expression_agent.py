@@ -1319,6 +1319,10 @@ class InteractionExpressionAgent:
                     exc.tool_execution_count = prepared.tool_execution_count
                     exc.prepared = prepared
                     raise exc from correction_error
+            else:
+                exc.tool_execution_count = prepared.tool_execution_count
+                exc.prepared = prepared
+                raise
         previous_expression_fingerprint = render_result.metadata.get(
             PREVIOUS_EXPRESSION_FINGERPRINT_METADATA_KEY
         )
