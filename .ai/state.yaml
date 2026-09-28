@@ -1805,3 +1805,27 @@ webchat_side_thread_model_selection:
   validation: >-
     Dashboard TypeScript typecheck and git diff checks passed. No live provider
     or WebChat session was invoked.
+
+persona_context_views:
+  date: '2026-09-28'
+  class: refactor
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Add pre-target Context Views for shared Persona invocation stages. Progress
+    and proactive expressions use narrow base-only facts; turn planning and
+    final results retain their current Persona source behavior and prefetch.
+  non_goals: >-
+    Change Persona wording, split Persona into separate models, alter the
+    MiniMax renderer or output-contract policy, change target projections, or
+    revise targetless-render compatibility documentation and tests.
+  validation: >-
+    Focused Prompt Target and Persona plugin-context policy tests passed 24
+    cases. Scoped Ruff, Python compilation, and git diff checks passed. The
+    broader Persona expression file retains one known stale targetless-render
+    test that belongs to the separate targetless documentation cleanup.
+  followup: >-
+    After restart, inspect ordinary, delegated-progress, final-result, and
+    proactive traces. Confirm progress/proactive show base_only with their
+    declared slots and budgets, no plugin/media task, while turn-plan/final
+    still preserve configured plugin-context behavior.

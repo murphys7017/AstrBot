@@ -17,6 +17,11 @@ from astrbot.core.prompt.context_collect import (
     interaction_base_collectors,
 )
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
+from astrbot.core.prompt.context_views import (
+    PromptContextSourceRequirement,
+    PromptContextView,
+    resolve_prompt_context_view,
+)
 from astrbot.core.prompt.interfaces import ContextCollectorInterface
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
@@ -197,6 +202,7 @@ async def get_or_build_interaction_persona_context_pack(
     interaction_config: InteractionAgentConfig,
     build_config: InteractionPromptBuildConfig,
     material: InteractionContextMaterial | None = None,
+    context_view: PromptContextView | str | None = None,
 ) -> ContextPack:
     material = material or await get_or_build_interaction_context_material(
         event=event,
@@ -207,6 +213,20 @@ async def get_or_build_interaction_persona_context_pack(
     base_context_pack = material.prompt_context_pack
     if base_context_pack is None:
         raise RuntimeError("Interaction base context pack is unavailable")
+
+    view_spec = resolve_prompt_context_view(context_view)
+    if (
+        view_spec is not None
+        and view_spec.source_requirement
+        is PromptContextSourceRequirement.BASE_ONLY
+    ):
+        _log_persona_context_selection(
+            event,
+            plugin_status="not_requested",
+            selected_context="base_only",
+            context_view=view_spec.name.value,
+        )
+        return base_context_pack
 
     cached = material.target_context_packs.get("plugin")
     if cached is not None:
@@ -282,6 +302,33 @@ async def get_or_build_interaction_persona_context_pack(
         selected_context="plugin",
     )
     return context_pack
+
+
+def start_interaction_persona_context_prefetch(
+    *,
+    event,
+    plugin_context: Context,
+    build_config: InteractionPromptBuildConfig,
+    material: InteractionContextMaterial,
+    context_view: PromptContextView | str | None = None,
+) -> None:
+    """Start shared plugin enrichment only for a view allowed to consume it."""
+
+    view_spec = resolve_prompt_context_view(context_view)
+    if (
+        view_spec is not None
+        and view_spec.source_requirement
+        is PromptContextSourceRequirement.BASE_ONLY
+    ):
+        return
+    if get_interaction_turn_state(event) is None:
+        return
+    _ensure_interaction_plugin_context_pack_task(
+        event=event,
+        plugin_context=plugin_context,
+        build_config=build_config,
+        material=material,
+    )
 
 
 async def get_or_build_interaction_core_plugin_context_pack(
@@ -379,11 +426,13 @@ def _log_persona_context_selection(
     plugin_status: str,
     selected_context: str,
     error_type: str = "",
+    context_view: str = "",
 ) -> None:
     logger.debug(
-        "DIAG interaction.persona_context: platform_id=%s session_id=%s plugin_status=%s selected_context=%s error_type=%s",
+        "DIAG interaction.persona_context: platform_id=%s session_id=%s context_view=%s plugin_status=%s selected_context=%s error_type=%s",
         event.get_platform_id(),
         event.session_id,
+        context_view,
         plugin_status,
         selected_context,
         error_type,
@@ -463,12 +512,6 @@ async def _build_interaction_context_material(
     _refresh_context_material_view(material, interaction_config)
     if turn_state is not None:
         turn_state.context_material = material
-        _ensure_interaction_plugin_context_pack_task(
-            event=event,
-            plugin_context=plugin_context,
-            build_config=build_config,
-            material=material,
-        )
     logger.debug(
         "DIAG interaction.context_material: platform_id=%s session_id=%s scope=base duration_ms=%.2f slot_count=%s extension_collectors=%s",
         event.get_platform_id(),

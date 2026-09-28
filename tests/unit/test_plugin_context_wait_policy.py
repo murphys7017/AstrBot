@@ -15,6 +15,7 @@ from astrbot.core.interaction import context_builder as context_builder_module
 from astrbot.core.interaction.context_builder import (
     get_or_build_interaction_core_plugin_context_pack,
     get_or_build_interaction_persona_context_pack,
+    start_interaction_persona_context_prefetch,
 )
 from astrbot.core.interaction.expression_agent import (
     InteractionExpressionAgent,
@@ -26,6 +27,7 @@ from astrbot.core.interaction.turn_state import (
 )
 from astrbot.core.interaction.types import InteractionAgentConfig
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
+from astrbot.core.prompt.context_views import PromptContextView
 
 BASE_SLOT = "system.base"
 PLUGIN_SLOT = "extension.system"
@@ -161,6 +163,34 @@ async def test_best_effort_uses_base_pack_while_plugin_enrichment_is_pending():
         material.target_context_tasks["plugin"].cancel()
         with pytest.raises(asyncio.CancelledError):
             await material.target_context_tasks["plugin"]
+
+
+@pytest.mark.asyncio
+async def test_progress_view_uses_base_without_starting_plugin_enrichment():
+    event = _Event()
+    ensure_interaction_turn_state(event)
+    material = InteractionContextMaterial(prompt_context_pack=_base_pack())
+
+    start_interaction_persona_context_prefetch(
+        event=event,
+        plugin_context=_PluginContext(),
+        build_config=None,
+        material=material,
+        context_view=PromptContextView.PROGRESS,
+    )
+
+    pack = await get_or_build_interaction_persona_context_pack(
+        event=event,
+        plugin_context=_PluginContext(),
+        interaction_config=_config("wait_complete"),
+        build_config=None,
+        material=material,
+        context_view=PromptContextView.PROGRESS,
+    )
+
+    assert pack is material.prompt_context_pack
+    assert "plugin" not in material.target_context_tasks
+    assert "plugin" not in material.target_context_packs
 
 
 @pytest.mark.asyncio

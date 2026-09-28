@@ -42,6 +42,13 @@ from .context_types import (
     RenderModeType,
     SlotName,
 )
+from .context_views import (
+    PromptContextSourceRequirement,
+    PromptContextView,
+    PromptContextViewSpec,
+    project_prompt_context_view,
+    resolve_prompt_context_view,
+)
 from .extensions import (
     PROMPT_EXTENSION_MOUNTS,
     PROMPT_EXTENSION_VALUE_KINDS,
@@ -116,12 +123,17 @@ __all__ = [
     "PromptContextBuilder",
     "PromptContextConflictError",
     "PromptTarget",
+    "PromptContextSourceRequirement",
+    "PromptContextView",
+    "PromptContextViewSpec",
     # Catalog
     "CatalogItem",
     "ContextCatalog",
     "ContextCatalogLoader",
     "get_catalog",
     "project_context_pack",
+    "project_prompt_context_view",
+    "resolve_prompt_context_view",
     "merge_context_packs",
     # Persona parsing
     "normalize_section_name",

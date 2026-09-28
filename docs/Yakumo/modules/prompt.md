@@ -65,7 +65,7 @@ Collector 只返回事实：
 
 跨阶段新增或替换事实必须经过 Builder。`ContextPack` 数据类型本身仍然可变，供收集和渲染内部使用；业务模块不得把直接 `add_slot()`、`slots.pop()` 或原地改值当作跨阶段 API。进入 `CoreExecutionSpec` 时，slots、meta、TaskSpec、执行历史和可序列化 capability 描述会被深拷贝，避免后续构建侧变更影响已经准备的执行事实；Native `ToolSet` 是唯一明确保留的实时执行句柄。
 
-Interaction 当前使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。`interaction_plugin_context` 随即在后台收集普通 Prompt Extension 与 Interaction Prompt Contributor，每轮只执行一次并按 `meta.targets` 投影。Personal 只在该 Pack 已就绪时尽力使用，否则立即回退 base；Core 等待并复用同一个 task。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
+Interaction 使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。需要普通 Prompt Extension 的调用才启动并复用唯一的 `interaction_plugin_context` task；Core 等待它，普通 Persona 即时计划按既有策略尽力使用或等待它。`progress` 与 `proactive` 等轻量 Persona 调用显式使用 base-only Context View，不启动、不等待也不读取 plugin context。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
 
 媒体事实遵循同一边界：基础 `InputCollector` 只记录原始图片、引用图片、媒体内容块和文件记录，不调用图片转述或文件提取服务。非视觉 Personal、Planner 或 Core 在绑定实际 Provider 后，才通过 `PromptContextBuilder(base=...)` 派生本地媒体事实；视觉 Provider 直接消费原始图片。Provider 调用前的模态门同时检查上下文消息和额外内容块，避免只清理 `image_urls` 造成绕过。
 
@@ -80,6 +80,19 @@ Interaction 当前使用两层 single-flight。`interaction_base` 收集 system�
 | Core | 官方历史、群聊上下文、当前输入和附件、system/policy、tools、skills、knowledge、subagent、插件执行上下文、`CoreTaskSpec`、有限 Core Execution History | 完整人格、persona state、待表达材料、effect 语义 |
 
 Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享模型 Prompt、决策或输出。投影中的历史长度、字段清理和诊断移除属于确定性安全边界，不是“让模型自己忽略”。Persona 的历史先保留最近连续片段，再从最多 300 个候选回合中选取与当前输入、引用文本、topic state 或 short-term memory 相关的较早锚点，并受 token 预算约束。
+
+## Context View
+
+`PromptTarget` 决定哪一种模型角色消费事实；`PromptContextView` 决定该角色在某一次调用需要看见哪一组事实。View 在 Target 投影之前应用，不能由 `PromptRenderProfile.hidden_slot_names` 代替；后者只适合 Profile 局部的精确兼容隐藏，不负责共享事实选择。
+
+当前 Persona View：
+
+- `turn_plan`：保留既有 Persona 上下文来源和历史预算。
+- `final_result`：保留既有来源和质量预算，`source_text` 仍由请求指令定义为权威结果。
+- `progress`：base-only；仅人格摘要和本轮 `input.visible_reply_material`，不带旧 system、历史、memory、插件扩展或媒体派生。
+- `proactive`：base-only；人格摘要、Observation 材料、最多两轮历史和有限的 topic/short-term/persona memory，不带当前用户输入、插件扩展或媒体派生。
+
+Renderer 结果会记录 `context_view`、来源要求、实际 slot 和目标预算；Interaction 额外记录阶段、保留历史数和近似 token 数，供生产 trace 检查。
 
 插件 Prompt Extension 的 `meta.targets` 只允许 `persona`、`core`。普通 extension 未声明目标时只属于 Core。Planner 不挂载插件扩展或插件目录；群聊近期上下文等官方事实若需进入控制面，必须由 AstrBot 内部明确标记的核心 Collector 以结构化上下文槽提供。插件自行设置 `official_context` 不会获得控制面权限。
 

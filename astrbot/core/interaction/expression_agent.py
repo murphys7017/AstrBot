@@ -55,6 +55,10 @@ from astrbot.core.prompt.collectors.input_collector import (
     InputMediaEnrichmentCollector,
 )
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
+from astrbot.core.prompt.context_views import (
+    PromptContextView,
+    resolve_prompt_context_view,
+)
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
     PromptRenderProfile,
@@ -81,6 +85,7 @@ from .context_builder import (
     get_or_build_interaction_media_context_pack,
     get_or_build_interaction_persona_context_pack,
     provider_supports_modality,
+    start_interaction_persona_context_prefetch,
 )
 from .effects import (
     PersonaEffectCall,
@@ -1613,6 +1618,14 @@ class InteractionExpressionAgent:
             interaction_config=interaction_config,
             build_config=build_config,
         )
+        context_view = _resolve_persona_expression_context_view(req)
+        start_interaction_persona_context_prefetch(
+            event=event,
+            plugin_context=plugin_context,
+            build_config=build_config,
+            material=material,
+            context_view=context_view,
+        )
         set_interaction_turn_persona_id(
             event,
             (
@@ -1654,27 +1667,29 @@ class InteractionExpressionAgent:
             if req.require_turn_action
             else None
         )
-        # Immediate and final expression share the same plugin wait policy.
         persona_context_pack = await get_or_build_interaction_persona_context_pack(
             event=event,
             plugin_context=plugin_context,
             interaction_config=interaction_config,
             build_config=build_config,
             material=material,
+            context_view=context_view,
         )
-        persona_context_pack = await get_or_build_interaction_media_context_pack(
-            event=event,
-            plugin_context=plugin_context,
-            build_config=build_config,
-            material=material,
-            base_context_pack=persona_context_pack,
-            provider=provider,
-            cache_key=(
-                "persona_plugin"
-                if persona_context_pack is material.target_context_packs.get("plugin")
-                else "persona_base"
-            ),
-        )
+        view_spec = resolve_prompt_context_view(context_view)
+        if view_spec is None or view_spec.requires_media_context:
+            persona_context_pack = await get_or_build_interaction_media_context_pack(
+                event=event,
+                plugin_context=plugin_context,
+                build_config=build_config,
+                material=material,
+                base_context_pack=persona_context_pack,
+                provider=provider,
+                cache_key=(
+                    "persona_plugin"
+                    if persona_context_pack is material.target_context_packs.get("plugin")
+                    else "persona_base"
+                ),
+            )
         provider_request = build_prompt_render_provider_request(event, provider)
         expression_pack = await PromptContextBuilder(
             event,
@@ -1739,7 +1754,9 @@ class InteractionExpressionAgent:
             config=build_config,
             provider_request=provider_request,
             profile=profile,
+            context_view=context_view,
         )
+        _log_persona_context_view(event, req=req, render_result=render_result)
         if reasoning_marker:
             logger.debug(
                 "DIAG expression.deepseek_reasoning_marker: platform_id=%s session_id=%s phase=%s mode=inner_os applied=True model=%s",
@@ -1966,6 +1983,45 @@ def _describe_expression_request(req: PersonaExpressionRequest) -> str:
     if req.source_text.strip():
         return "material_reply"
     return "direct_reply"
+
+
+def _resolve_persona_expression_context_view(
+    req: PersonaExpressionRequest,
+) -> PromptContextView:
+    if req.intent.kind == "interjection":
+        return PromptContextView.PROGRESS
+    if req.intent.kind == "proactive":
+        return PromptContextView.PROACTIVE
+    if req.intent.phase == "final":
+        return PromptContextView.FINAL_RESULT
+    return PromptContextView.TURN_PLAN
+
+
+def _log_persona_context_view(event, *, req, render_result) -> None:
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    metadata = render_result.metadata if isinstance(render_result.metadata, dict) else {}
+    budgets = metadata.get("context_budgets")
+    history = budgets.get("conversation_history", {}) if isinstance(budgets, dict) else {}
+    raw_slot_sizes = metadata.get("prompt_slot_sizes", {})
+    slot_sizes = raw_slot_sizes if isinstance(raw_slot_sizes, dict) else {}
+    estimated_tokens = math.ceil(
+        sum(size for size in slot_sizes.values() if isinstance(size, int)) / 4
+    )
+    logger.debug(
+        "DIAG expression.context_view: platform_id=%s session_id=%s phase=%s "
+        "view=%s source_requirement=%s slot_count=%s history_turns=%s "
+        "estimated_prompt_tokens=%s slot_names=%s",
+        event.get_platform_id(),
+        event.session_id,
+        _describe_expression_request(req),
+        metadata.get("context_view", ""),
+        metadata.get("context_view_source_requirement", ""),
+        metadata.get("slot_count", 0),
+        history.get("retained_amount", 0) if isinstance(history, dict) else 0,
+        estimated_tokens,
+        metadata.get("selected_slot_names", []),
+    )
 
 
 def _persona_expression_allows_function_tools(

@@ -13,6 +13,11 @@ from astrbot.core.provider.register import provider_cls_map
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextPack, ContextSlot
+from ..context_views import (
+    PromptContextView,
+    project_prompt_context_view,
+    resolve_prompt_context_view,
+)
 from ..targets import (
     PromptTarget,
     project_context_pack,
@@ -52,14 +57,25 @@ class PromptRenderEngine:
         config=None,
         provider_request: ProviderRequest | None = None,
         profile: PromptRenderProfile | None = None,
+        context_view: PromptContextView | str | None = None,
     ) -> RenderResult:
         resolved_target = (
             PromptTarget(target) if target is not None else PromptTarget.CORE
         )
+        view_spec = resolve_prompt_context_view(context_view)
+        if view_spec is not None and view_spec.target is not resolved_target:
+            raise ValueError(
+                f"context view {view_spec.name.value} requires target "
+                f"{view_spec.target.value}, got {resolved_target.value}"
+            )
+        view_pack = project_prompt_context_view(pack, context_view)
+        history_turns = profile.history_turns if profile is not None else None
+        if view_spec is not None and view_spec.history_turns is not None:
+            history_turns = view_spec.history_turns
         target_pack = project_context_pack(
-            pack,
+            view_pack,
             resolved_target,
-            history_turns=profile.history_turns if profile is not None else None,
+            history_turns=history_turns,
             config=config,
         )
         selected_pack = self._apply_render_profile(
@@ -324,6 +340,15 @@ class PromptRenderEngine:
         render_profile = selected_pack.meta.get("render_profile")
         if isinstance(render_profile, str) and render_profile:
             result.metadata["render_profile"] = render_profile
+        context_view = selected_pack.meta.get("context_view")
+        if isinstance(context_view, str) and context_view:
+            result.metadata["context_view"] = context_view
+            result.metadata["context_view_source_requirement"] = (
+                selected_pack.meta.get("context_view_source_requirement")
+            )
+            result.metadata["context_view_source_slot_names"] = deepcopy(
+                selected_pack.meta.get("context_view_source_slot_names", [])
+            )
         return result
 
     @staticmethod

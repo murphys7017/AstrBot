@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from astrbot.core.prompt import ContextPack, ContextSlot, PromptTarget
+from astrbot.core.prompt import (
+    ContextPack,
+    ContextSlot,
+    PromptContextView,
+    PromptTarget,
+)
 from astrbot.core.prompt.render import PromptRenderProfile
 from astrbot.core.prompt.render.engine import PromptRenderEngine
 from astrbot.core.prompt.targets import project_context_pack
@@ -221,6 +226,39 @@ def test_targetless_render_defaults_to_core_projection():
     assert result.metadata["prompt_target"] == PromptTarget.CORE.value
     assert "input.text" not in result.metadata["selected_slot_names"]
     assert "Persona-only input" not in str(result.messages)
+
+
+def test_persona_progress_view_keeps_only_phase_local_persona_facts():
+    result = PromptRenderEngine().render(
+        _canonical_pack(),
+        target=PromptTarget.PERSONA,
+        context_view=PromptContextView.PROGRESS,
+    )
+
+    assert result.metadata["context_view"] == "progress"
+    assert result.metadata["context_view_source_requirement"] == "base_only"
+    assert set(result.metadata["selected_slot_names"]) == {
+        "persona.summary",
+        "input.visible_reply_material",
+    }
+    assert "conversation.history" not in result.metadata["selected_slot_names"]
+    assert "persona.prompt" not in result.metadata["selected_slot_names"]
+
+
+def test_persona_proactive_view_has_small_history_budget_and_no_extensions():
+    result = PromptRenderEngine().render(
+        _canonical_pack(),
+        target=PromptTarget.PERSONA,
+        context_view=PromptContextView.PROACTIVE,
+    )
+
+    selected = set(result.metadata["selected_slot_names"])
+    assert result.metadata["context_view"] == "proactive"
+    assert "persona.summary" in selected
+    assert "conversation.history" in selected
+    assert "memory.short_term" in selected
+    assert "extension.system" not in selected
+    assert result.metadata["context_budgets"]["conversation_history"]["limit_amount"] == 2
 
 
 def test_plugin_prompt_extensions_do_not_reach_core_planner():
