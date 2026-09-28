@@ -77,35 +77,6 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             }
         )
 
-    def _compile_context_message(
-        self,
-        prompt_tree: PromptBuilder,
-        node_path: str,
-    ) -> dict[str, Any] | None:
-        context_node = self._find_tag_path(prompt_tree, node_path)
-        if context_node is None:
-            return None
-
-        payload = self._node_to_json_value(prompt_tree, context_node)
-        if payload is None:
-            return None
-
-        return {
-            "role": "user",
-            "content": [
-                self._build_text_content_part(
-                    self._dump_minimax_payload(
-                        {
-                            "format": "astrbot_minimax_context_v1",
-                            "context_type": node_path.replace("/", "."),
-                            "data": payload,
-                        }
-                    )
-                )
-            ],
-            "_no_save": True,
-        }
-
     def _compile_messages(self, prompt_tree: PromptBuilder) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
 

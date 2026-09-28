@@ -6,7 +6,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from astrbot.api import logger
 from astrbot.core.skills.skill_manager import SANDBOX_SKILLS_ROOT, SkillManager

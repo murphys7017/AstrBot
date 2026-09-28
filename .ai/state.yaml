@@ -1,3 +1,34 @@
+ag99live_legacy_compatibility_retirement:
+  date: '2026-09-28'
+  class: maintenance
+  risk: high
+  status: implemented_pending_manual_restart
+  scope: >-
+    Remove AG99live's retired official-Core inline-motion compatibility path,
+    including request-time system-prompt mutation, <@anim> parsing, output
+    metadata, and the runtime flags that selected that path. Remove confirmed
+    unused imports and MiniMax's unreachable context-message override.
+  compatibility_decision: >-
+    The user explicitly approved dropping support for Cores that lack Persona
+    Effects, Prompt Extensions, or Interaction Result Contributors. Plugin
+    initialization now fails clearly instead of silently running without the
+    required motion contract.
+  non_goals: >-
+    Broad code formatting, removal of public Core APIs solely from local usage
+    scans, changes to Persona/Planner output contracts, deletion of .jspace,
+    or a service restart.
+  validation: >-
+    Scoped undefined-name and unused-import Ruff checks passed; compileall
+    passed; prompt-tree renderer tests passed (49); a direct contributor
+    registration smoke verified enhanced API registration and explicit legacy
+    API rejection; git diff --check passed. The repository has no
+    scripts/check_astrbot_plugin.py. Its .gitignore excludes data/, so AG99live
+    source changes are intentionally not represented by git status.
+  followup: >-
+    Restart AstrBot and run one ordinary AG99live reply plus one tool-backed
+    reply. Confirm every emitted segment receives exactly one ag99live.motion
+    effect and that no request path mutates system_prompt after rendering.
+
 memory_profile_storage_reset:
   date: '2026-09-24'
   class: refactor
