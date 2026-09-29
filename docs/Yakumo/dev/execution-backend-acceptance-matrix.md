@@ -6,9 +6,9 @@
 外部表现逐项核对的统一记录格式。每项都要同时记录 `turn_id`、`execution_id`、
 `executor_id` 和逻辑输出段 `message_id`。
 
-本矩阵不把 D5-A/D5-B 的显式端口注入视为“可替换执行器已完成”。R1-R7 完成后，先按
-[内部可替换执行器：5.6 操作级实施手册](internal-executor-replacement-implementation-guide.md)
-验证 Native 与测试 Body 的同一生产装配入口，再开始真实外部 Body 的平台验收。
+R1-R7 已完成，Codex CLI 已成为真实外部 Body。本矩阵现在用于验证 Native 与 Codex CLI
+的装配、控制、结果桥及可见输出边界；它不把“能够选择第二个 Body”表述为“所有执行器
+输出协议已经统一”。外部增量输出和资产交付仍是未完成项。
 
 ## 0. D5/R7 装配前提
 
@@ -16,6 +16,7 @@
 | --- | --- | --- |
 | 默认 Native | 当前 bot 绑定的配置快照解析 `executor_id=native`，只构造 Native run | 从其他 bot/config 读取 executor；静默选择其他实现 |
 | 测试 Body | 仅测试环境通过同一 factory/coordinator 入口选择 Scripted Body，并返回同类结果材料 | 直接调用 Body 私有方法绕过 Head、coordinator 或输出桥 |
+| Codex CLI | 当前 bot 绑定的配置快照解析 `executor_id=codex_cli`，以受限能力请求创建或复用当前会话的 Codex run，并经结果桥交付最终文本 | 先构造闲置 Native Runner；把 AstrBot FunctionTool 或平台 Event 直接交给 Codex |
 | 无效配置 | 未知 ID、缺少必需配置或能力不匹配明确失败并留下 execution diagnostics | 静默回退 Native、继续发送半成品结果 |
 
 ## 1. OLV 普通委派

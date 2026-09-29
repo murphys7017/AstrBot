@@ -28,21 +28,22 @@ Main Agent 仍拥有运行时能力装配，Prompt 系统只描述模型输入�
 | Waiting/Request/Agent/Response/Tool Hook 状态 | `AgentRequestLifecycle` |
 | provider、conversation、runner、sandbox 环境 | Main Agent |
 | target 可见范围 | Prompt Target Projection |
-| Router/Planner/Persona 决策 | Interaction 对应 Agent |
+| Personal Response Plan / Planner / Persona 决策 | Interaction 对应 Agent |
 
 `CoreCapabilitySnapshot` 已记录本轮实际工具对象以及 Prompt 中的 tool schema、skills 和 knowledge；后面三者在形成快照时与 Prompt 构建侧分离，只有 Native `ToolSet` 作为明确的实时执行句柄保留。`RenderResult.tool_schema` 仍不会自动注册到 `func_tool`。两者尚未统一为一个可序列化能力契约，新代码不能把渲染 schema 当作可执行工具注册表。
 
-在非 Interaction 流程中，官方 `on_llm_request` 仍在 Core 的统一 Prompt Apply 后运行。Interaction turn 中，插件 LLM 生命周期目标依次由 `interaction_middleware.plugin_capability_targets.<plugin>.llm_hooks`、插件类 `interaction_runtime_target` 声明和 Persona 默认值决定；只有最终为 `core` 的插件才在最终 Core 请求上运行。插件拥有的 LLM Tool 独立遵守 `plugin_capability_targets.<plugin>.tools` 用户覆盖、工具 `tool_targets` 声明和 Core 默认值；`on_using_llm_tool` 与 `on_llm_tool_respond` 在实际执行工具时触发，并受插件准入和 LLM Hook 目标过滤。Persona 工具的旧式事件输出会转换为模型可见工具材料，最终人格表达仍是唯一用户可见回复。它们都不是 Router、Planner 或 Persona 内部工具调用的事实扩展入口。
+在非 Interaction 流程中，官方 `on_llm_request` 仍在 Core 的统一 Prompt Apply 后运行。Interaction turn 中，插件 LLM 生命周期目标依次由 `interaction_middleware.plugin_capability_targets.<plugin>.llm_hooks`、插件类 `interaction_runtime_target` 声明和 Persona 默认值决定；只有最终为 `core` 的插件才在最终 Core 请求上运行。插件拥有的 LLM Tool 独立遵守 `plugin_capability_targets.<plugin>.tools` 用户覆盖、工具 `tool_targets` 声明和 Core 默认值；`on_using_llm_tool` 与 `on_llm_tool_respond` 在实际执行工具时触发，并受插件准入和 LLM Hook 目标过滤。Persona 工具的旧式事件输出会转换为模型可见工具材料，最终人格表达仍是唯一用户可见回复。它们都不是 Personal Response Plan、Planner 或 Persona 内部工具调用的事实扩展入口。
 
 Native Core、Persona 和第三方 Runner 现在复用 `AgentRequestLifecycle`。`OnLLMRequest` 完成后，
 最终 `func_tool` 会重新经过目标、插件选择、active 状态和 subagent 约束授权；形成的同一
 `CapabilitySnapshot` 同时驱动实际 ToolSet、CoreExecutionSpec 和诊断。Persona fallback 复用
-同一 Hook 后请求和公开 Agent context，只切换 Provider，不重跑 Hook 或已经发生的工具副作用。
+同一 Hook 后请求和公开 Agent context，并按后备 Provider 重新编译已投影的 Prompt 树；不重新采集
+事实、重跑 Hook 或工具副作用。
 旧 `astr_agent_hooks.py` 当前只保留外部导入兼容，不应被新生产路径引用。
 
 ## 执行连续性
 
-Native Agent 完成后把有限工具证据、结果、错误和 token usage 写入独立 Core Execution Ledger。后续 Core Prompt 通过专用 Collector 读取最近记录；Router、Persona 和普通 Conversation API 不读取该 ledger。
+Native Agent 完成后把有限工具证据、结果、错误和 token usage 写入独立 Core Execution Ledger。后续 Core Prompt 通过专用 Collector 读取最近记录；Personal Response Plan、Persona 和普通 Conversation API 不读取该 ledger。
 
 当前 Ledger 的最终持久化调用仍位于 `InternalAgentSubStage`，但 Native 已通过
 `CoreExecutionLifecycle` 将 submitted、working、progress、artifact-ready、completed、
@@ -50,11 +51,12 @@ failed 和 cancelled 等事实统一排序并投影到 Ledger。D5-A/D5-B 已额
 `CoreExecutionPort` 的显式注入：Native adapter 不再通过 Event 反查 Head，普通 Interaction
 和主动任务都在装配时传入当前 Head。
 
-这仍不是完整的 `ExecutionBackend` / 可替换 Executor 实现。当前没有 executor factory、通用
-`ExecutorRun`、唯一运行 coordinator 或 executor-neutral 结果桥；`ProviderRequest`、Native
-runner、MessageChain 和可见输出仍分别属于 Native adapter 与 Output 边界。后续实现必须按
-[Core 内部执行器替换实施方案](../dev/internal-executor-replacement-plan.md) 先证明 Native 和
-测试 Body 共用同一生产装配入口，再接入任何真实外部执行器。
+执行器注册表已有 Native 与 Codex CLI factory，`ExecutorRun` 定义了中立的运行契约；
+外部执行器由 Core coordinator 装配、驱动，并通过结果桥将最终文本送入 Personal 输出边界。
+但 Native 可见输出仍有专用路径，外部执行器的增量输出和资产只保留为非可见证据；
+`ProviderRequest` 仍是 Native 请求，不能作为中立执行器输入。历史实施计划应按
+[Core 内部执行器替换实施方案](../dev/internal-executor-replacement-plan.md) 的阶段背景阅读，
+不能再把其中“尚无工厂/结果桥”的步骤当成当前状态。
 
 ## Agent 上下文
 

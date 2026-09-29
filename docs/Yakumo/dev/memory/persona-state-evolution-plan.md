@@ -13,7 +13,7 @@
 2. 只在成功 consolidation 后评估，输入使用持久化的 `SessionInsight`、`Experience` 和当前 `PersonaState`，不读取本轮原始消息重新推断。
 3. 同时满足 `memory.persona.enabled=true` 和 `memory.jobs.persona_reflection_enabled=true` 才允许提交后台任务；`memory.injection.persona_state` 只控制 Prompt 可见性，不能反向启用写入。
 4. Reflection 通过 `MemoryJobScheduler` 按 USER scope 串行和去重，不阻塞当前回复、Recall 或 Core。
-5. 静态 Persona 永远不被 Memory 写回。PersonaState 只作为 Persona 与 Personal Policy 的动态只读材料，Router、Planner 和 Core 不可见。
+5. 静态 Persona 永远不被 Memory 写回。PersonaState 只作为 Persona 与 Personal Policy 的动态只读材料，Personal Response Plan、Planner 和 Core 不可见。
 
 ## 状态语义
 
@@ -98,7 +98,7 @@ PersonaState 只允许进入：
 - `PromptTarget.PERSONA`
 - `PromptTarget.PERSONAL_POLICY`
 
-不得进入 Router、Core Planner 或 Core，不得改变工具权限、插件挂载或 Core 决策。
+不得进入 Personal Response Plan、Core Planner 或 Core，不得改变工具权限、插件挂载或 Core 决策。
 
 ## 实施批次
 
@@ -130,7 +130,7 @@ PersonaState 只允许进入：
 3. 高置信 delta 被限幅并原子写入 state + log。
 4. analyzer 失败不影响 consolidation 结果。
 5. rollback 恢复 before_state；首次创建可回滚为无状态。
-6. Prompt 默认没有技术 ID，且 Router/Core 看不到 PersonaState。
+6. Prompt 默认没有技术 ID，且 Personal Response Plan/Core 看不到 PersonaState。
 
 ## 非目标
 

@@ -414,7 +414,7 @@ def should_correct_capability_denial(
 - 需要修改 AG99live；
 - 需要合并多个配置文件；
 - 需要修改 `execution_targets` 的既有语义；
-- 需要新增第二套 Router、Planner 或消息队列；
+- 需要新增独立 Router、第二套 Planner 或消息队列；
 - 需要删除历史/memory；
 - 需要重启 AstrBot；
 - 无法确认当前事件绑定的 `config_id`。

@@ -93,6 +93,8 @@
 - 只有 `tool_call` strict 契约降到 `prompt_only` 时，才应标记 `degraded=True`。
 - 普通非高约束场景可以原生使用 strict `json_object`。
 - 高约束 `tool_call` 场景默认应优先要求协议级 tool-call；若业务明确允许受控降级，parser 必须仍按固定 schema 解析 prompt-only JSON，不能接受自由文本。
+- Persona 的 `persona_expression` 是例外：它要求 `protocol_tool_call`。编译为
+  `prompt_only` 的候选 Provider 会在请求前被筛除，不能作为 Persona 的“受控降级”。
 
 ## Renderer 职责
 
@@ -126,9 +128,9 @@ provider 负责把 compiled binding 落到自身协议：
 - `ProviderAnthropic` 及支持强制 tool choice 的 Anthropic-compatible 子类
 
 MiniMax Token Plan 的 Anthropic-compatible API 支持普通工具调用，但不支持
-`required` / `any` 或指定工具形式的强制 `tool_choice`。因此它的严格输出契约编译为
-`prompt_only`，继续使用同一 schema、JSON 修复和严格校验；普通业务 FunctionTool
-仍按 MiniMax 原生 `auto` 工具调用运行。
+`required` / `any` 或指定工具形式的强制 `tool_choice`。因此其严格 tool-call
+契约会编译为 `prompt_only`：这可以服务于明确允许 JSON 降级的通用场景，但不会成为
+Persona 的候选。普通业务 FunctionTool 仍按 MiniMax 原生 `auto` 工具调用运行。
 
 Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。strict contract 到达这些 provider 时，应按场景策略显式失败或受控降级。
 
@@ -159,7 +161,9 @@ persona visible-reply 是当前主要高约束消费者。
 运行规则：
 
 - render 结果优先使用 `protocol_tool_call`，provider 通过单个虚拟工具返回结构化参数。
-- 若 renderer/provider 明确把 strict tool-call 编译为 `prompt_only`，parser 可按同一 schema 解析单个 JSON object，作为受控降级。
+- Provider 选择会在模型请求前验证该协议能力；若当前主 Provider 不兼容则选择兼容后备，
+  若不存在兼容候选则以 `unsupported_output_contract` 失败。编译为 `prompt_only` 的
+  Provider 不会收到 Persona 请求。
 - 自由文本不算成功；协议级 tool-call 主路径缺失时会记录 `missing_persona_expression_tool_call`。
 - `effect_calls` 使用固定字段；无 effect 时返回空数组。
 - 具体 effect 的 `arguments` 由注册的 effect schema 决定；注册表先按当前事件执行 `event_filter`，不适用的 effect 不进入本轮 schema。

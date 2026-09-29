@@ -1,4 +1,4 @@
-# Personal / Router / Plugin 三线并行设计计划
+# Personal Response Plan / Plugin 并行设计计划
 
 > 2026-09-18 修订：关于两张插件 target 映射和独立 Prompt Contributor 的历史条款由 [插件能力收口契约](./plugin-capability-cleanup.md) 取代。此变更不把 Handler、Prompt 或 Effect 改造成可路由业务工具。
 
@@ -20,13 +20,13 @@ T2、父对话绑定和 direct/media assistant-only 历史接入生产 ProcessSt
 
 ## 2026-09 当前主链修订
 
-本文记录了当时的三线设计和验收历史。当前协调路径只从同一 `t0` 启动 Personal 与 Official Plugin Job；不存在独立 Interaction Router task。Personal 的同一次结构化 `persona_expression` 输出 `reply / delegate / silent`，`delegate` 后才进入 Planner 和 Core。下文关于 Router 的并发、Gate 和验收描述均是历史阶段记录，不得据此重新引入第二次普通消息路由调用。
+本文记录了当时的三线设计和验收历史。当前协调路径只从同一 `t0` 启动 Personal Response Plan 与 Official Plugin Job；不存在独立 Interaction Router task。Personal 的同一次结构化 `persona_expression` 输出 `reply / delegate / silent`，`delegate` 后才进入 Planner 和 Core。下文关于 Router 的并发、Gate 和验收描述均是历史阶段记录，不得据此重新引入第二次普通消息路由调用。
 
-Prompt Context 已同步拆成两层 single-flight：基础事实层只收集官方可信控制面扩展，Router 和 Core
+Prompt Context 已同步拆成两层 single-flight：基础事实层只收集官方可信控制面扩展，Personal Response Plan 和 Core
 Planner 的首个请求只等待这一层；普通 Prompt Extension 与 Interaction Prompt Contributor 在基础事实
 完成后立即后台预取，每轮只收集一次。`persona_plugin_context_mode` 由用户选择 Persona 是否等待
 插件 Pack：`wait_complete` 等待完整上下文，`best_effort` 只在已就绪时使用、否则直接使用基础 Pack。
-Core 则等待并复用同一个插件 Pack。慢 Contributor 不会阻塞 Router / Planner，是否阻塞 Personal 首回复
+Core 则等待并复用同一个插件 Pack。慢 Contributor 不会阻塞 Personal Response Plan / Planner，是否阻塞 Personal 首回复
 由用户配置决定。
 
 本文只处理普通 Interaction turn 中官方 Pipeline Handler 的执行位置、状态隔离、Core 仲裁和
@@ -36,7 +36,7 @@ Core 则等待并复用同一个插件 Pack。慢 Contributor 不会阻塞 Route
 本文不承诺“首回复零等待”或“所有插件行为永不阻塞”。Handler Filter discovery、Personal
 Runtime admission、基础 Prompt 构建、Provider 排队、模型加载和平台发送仍可能影响首回复。
 Phase 5B 的准确承诺是：实际 Handler body 与普通插件 Prompt enrichment 都不再串行阻塞 Personal
-和 Router 启动。
+Response Plan 启动。
 
 ## 一、最终目标
 

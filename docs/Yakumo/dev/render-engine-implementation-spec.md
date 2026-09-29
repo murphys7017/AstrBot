@@ -30,7 +30,7 @@ ContextPack
 5. 让选中的 Renderer 编译树。
 6. 附加 target、layout、renderer、slot、output contract 等诊断 metadata。
 
-不负责：Collector 调度、Router/Planner 决策、Provider 私有请求执行、工具注册和响应解析。
+不负责：Collector 调度、Personal Response Plan/Planner 决策、Provider 私有请求执行、工具注册和响应解析。
 
 ### `PromptRenderProfile`
 
@@ -43,7 +43,7 @@ ContextPack
 - `input_text_suffix`
 - `hidden_slot_names`
 
-Engine 会先深拷贝目标 Pack，再应用 Profile。`system_prompt` 在 Persona、Core 及无显式 target 的 legacy Core 中保留旧 `ProviderRequest.system_prompt` 作为兼容尾段，在 Router、Core Planner 与 Personal Policy 中替换旧值；suffix 只作用于字符串 `input.text`；hidden slot 是精确名称过滤。Profile 不修改输入 Pack。
+Engine 会先深拷贝目标 Pack，再应用 Profile。`system_prompt` 在 Persona、Core 及无显式 target 的 legacy Core 中保留旧 `ProviderRequest.system_prompt` 作为兼容尾段，在 Personal Response Plan、Core Planner 与 Personal Policy 中替换旧值；suffix 只作用于字符串 `input.text`；hidden slot 是精确名称过滤。Profile 不修改输入 Pack。
 
 ### `PromptLayoutInterface` / `DefaultPromptLayout`
 
@@ -114,6 +114,7 @@ Renderer 编译完成的树，产出 system prompt、messages、媒体 content b
 
 - 新事实：实现 Collector 或插件 Prompt Extension Collector。
 - 新目标视图：修改确定性的 `PromptTarget` 投影规则。
+- 同一目标内的新调用阶段：使用 `PromptContextView`，在 Target 投影前收窄调用可见事实。
 - 新目标指令：使用 `PromptRenderProfile`。
 - 新语义布局：实现 `PromptLayoutInterface`，不要修改 Provider Renderer 来选择业务数据。
 - 新 Provider 格式：实现 Provider Renderer 并声明 `prompt_renderer_family`。
@@ -131,4 +132,4 @@ Render metadata 至少应可看到：
 - `rendered_slots` / `rendered_groups`
 - output contract strategy/degradation
 
-日志预览不得被当作事实来源，也不能重新注入 Router 或历史。
+日志预览不得被当作事实来源，也不能重新注入 Personal Response Plan 或历史。

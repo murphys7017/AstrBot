@@ -232,10 +232,10 @@ WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。�
   Core 更早取得最终输出 reservation 时，仍可按统一输出事务阻止迟到的 pending Personal，
   但这是输出先后仲裁，不是 Personal 或 Planner 的回复门禁。
 - 人格 Provider 回退时保留 Hook 后冻结的同一 `ProviderRequest`、结构化输出契约和公开
-  Agent context，只替换 Provider binding；不会重新渲染请求，也不会重复调用
+  Agent context，并按候选 Provider 重新编译已投影的 PromptTree；不会重新采集事实，也不会重复调用
   `OnWaitingLLMRequest`、`OnLLMRequest` 或 `OnAgentBegin`。备用 Provider 无法满足严格 terminal
-  tool contract 时会明确失败。一旦业务工具已经开始执行，本次 Persona run 不再切换 Provider，
-  避免重放副作用。
+  tool contract 时会明确失败；非视觉备用 Provider 会把当前轮图片替换为受控文字材料。一旦业务工具
+  已经开始执行，本次 Persona run 不再切换 Provider，避免重放副作用。
 - Core 的 `OnLLMRequest` 可以替换请求工具集；Hook 返回后由 `bind_effective_core_request()`
   统一重新授权并同步 Native `ProviderRequest`、`CoreExecutionSpec` 和工具预算诊断，第三方 Runner
   复用同一请求边界。Core Prompt projection 与 Native 工具循环使用同一个历史轮数预算；

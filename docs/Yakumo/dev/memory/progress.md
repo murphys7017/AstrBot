@@ -22,8 +22,8 @@
 - `assistant_only` 已作为 `TurnRecord` 持久化字段保存，后台更新按该明确事实跳过抽象状态写入，不再以空 `user_message` 推断。
 - Persona reflection analyzer 与 `persona_reflection` 后台 Job 已接入 consolidation 成功后的 USER scope 链路；两个开关仍默认关闭，失败只影响 PersonaState，不影响已完成的 Memory consolidation/promotion。
 - `MemoryService` 已提供 PersonaState 只读状态、演进日志、显式 rollback 和 scheduler/reflection 诊断入口；真实运行观察与开关启用仍未执行。
-- `MemoryCollector` 已进入统一 Prompt ContextPack，并由 target projection 控制 Router、
-  Planner、Persona 和 Core 的可见范围。
+- `MemoryCollector` 已进入统一 Prompt ContextPack，并由 target projection 控制 Personal
+  Response Plan、Planner、Persona 和 Core 的可见范围。
 - Interaction 私有 Memory Store 和 `memory.interaction` slot 已删除。
 
 ## 当前限制

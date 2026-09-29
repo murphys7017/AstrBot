@@ -10,8 +10,8 @@
 
 ```text
 input
-  -> Interaction route decision
-  -> persona / hybrid
+  -> Personal Response Plan
+  -> reply / delegate / silent
   -> core, tool, or plugin execution result
   -> Interaction output draft
   -> output plugin contributions
@@ -45,7 +45,8 @@ input
 - `turn_id`: 当前 interaction turn。
 - `message_id`: 逻辑输出段 ID；在 contributor、TTS 和物理发送之前分配。
 - `source`: `interaction | core | plugin | system`。
-- `route_mode`: 普通显式唤醒为 `persona | hybrid`；有界群聊模型续接候选也允许 `silent`，协议 Core bypass 不伪造 route。
+- `route_mode`: 兼容诊断投影：Personal 的 `reply | delegate | silent` 分别映射为
+  `persona | hybrid | silent`；协议 Core bypass 不伪造 route。
 - `phase`: `immediate | final | background`。
 - `text`: 当前阶段的候选用户可见文本。
 - `semantic_text`: 当前阶段的候选语义文本，供 TTS、memory、analytics 或插件表现增强使用。
@@ -81,12 +82,13 @@ input
 
 ### 1. Decision
 
-Interaction route decision 只选择本轮对话的处理路径；用户可见表达与 effect 不属于 route：
+Personal Response Plan 只选择本轮对话的处理路径；用户可见表达与 effect 不属于控制动作：
 
-- `persona`: 统一 Persona Expression 直接生成最终回复。
-- `hybrid`: Router 与即时 Persona 已并发启动，Core Planner 再判断是否执行。`execute` 时保留已经提交的即时表达，并由 Core 生成主结果后交回统一 Persona Expression；`not_required` 时以当前即时 Persona 完成本轮。
+- `reply`: 统一 Persona Expression 直接生成最终回复。
+- `delegate`: Personal 可提交简短处理中确认；Core Planner 为已委派任务生成 `execute` 规格，Core 的结果再交回统一 Persona Expression。
+- `silent`: 仅允许合格群聊候选，且不产生可见输出。
 
-直播音频和协议命令使用独立 Core bypass，不进入对话 Router，也不创建伪造的 route decision。
+直播音频和协议命令使用独立 Core bypass，不进入对话 Personal Response Plan，也不创建伪造的控制决策。
 
 `confidence` 不属于该契约。它没有外部校准来源，不能参与路由或输出策略。
 

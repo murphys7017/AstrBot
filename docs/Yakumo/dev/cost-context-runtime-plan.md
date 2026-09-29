@@ -2,6 +2,9 @@
 
 这份文档记录 Yakumo 后续需要严肃对待的成本控制与上下文运行时设计。它是计划文档，不是当前代码说明。
 
+> 术语校准：本文历史段落中的 `Router` 指已删除的独立 Agent。当前普通对话的控制面是
+> 同一次 Persona Expression 产生的 Personal Response Plan；后续设计不得重新引入独立 Router。
+
 背景参考：
 
 - `esengine/DeepSeek-Reasonix` 把 prefix-cache stability 当作 agent loop 的架构不变量，而不是事后优化。

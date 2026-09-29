@@ -1,5 +1,16 @@
 # Yakumo Current State
 
+> 本页保留实施时间线供追溯；下方带日期的小节是当时的历史快照，不代表现在仍未实现。
+> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。
+
+## 现行执行器与 Prompt 边界
+
+Core 已有 Native 与 Codex CLI 执行器注册和配置选择、`ExecutorRun` 中立契约、
+外部执行器运行协调与结果桥。Codex CLI 的最终文本经 Personal 输出；Native 的可见输出
+仍保留专用路径，外部增量输出和资产尚不直接交付。Persona fallback 可按候选 Provider
+重新编译已投影的 Prompt 树，但不会重采事实或重跑插件 Hook。下方旧快照中关于“没有
+executor factory / `ExecutorRun` / 结果桥”的表述均已过期。
+
 ## 2026-09-21 Core 内部可替换执行器状态
 
 当前已经完成的是 D5-A/D5-B：`CoreExecutionPort` 显式注入 Native Body，普通 Interaction 和
@@ -317,8 +328,9 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
   取消并等待正在运行的工具结果 task，超时后跳过非关键 completion feedback 并释放 session
   锁。稳定诊断 reason 为 `turn_deadline_exhausted`，最终日志包含各 stage 的分配、耗时和
   `turn_limited`；未被消费的旧 Agent follow-up 会在新 turn 超时前撤回，未被最终输出认领时，
-  错误文案仍通过 Output Controller 交付且不再调用模型。OpenAI-compatible 恢复不得删除
-  `tool_choice=required` 的协议工具，严格 Persona 输出契约会交给外层 Provider fallback。
+  错误文案仍通过 Output Controller 交付且不再调用模型。严格 Persona 输出契约会在请求前筛除
+  无法提供 `protocol_tool_call` 的主、后备 Provider；若没有兼容候选，明确报配置错误而不发送
+  一次必然失败的模型请求。
 - `PersonalSessionRuntime` 不再在 turn 结束后立即删除。它现在持有进程内 `PersonalState`，按 `config_id + persona_id + audience_key + privacy_scope` 跨 turn 复用；空闲实例通过 24 小时 TTL 和最多 1024 条的 LRU 边界惰性回收。Core stop 会在插件和 Provider 释放前关闭 Runtime Manager 与 PostProcessManager。窄化的 `PersonalStateRepository` 使用独立 `personal_runtime_states` 表，只恢复最近表达、冷却、静音和每日用量等重启安全控制字段；Inbox、active turn、attention、临时 Prompt 和 diagnostics 不持久化。Turn lease 释放时会从规范 turn state 和物理投递回执形成一次 `CompletionFeedback`；所有存在 `delivered_message_ids` 的可见输出都会更新 `last_expression_at`、进程内最近表达指纹并启动 reply cooldown，只有携带 `ActionIntent.action_id` 的已送达输出才增加每日主动输出用量，发送失败不写冷却、指纹或配额。指纹经 NFKC、大小写、空白和标点规范化后哈希，不保存回复原文；重启后的首次比较可从 Persona 已使用的规范 Conversation history 快照恢复。
 - `PersonalRuntimeManager.submit_observation()` 是独立的系统事实入口。它按官方会话人格、session rule、配置默认人格和统一隐私规则解析同一个 RuntimeKey；不要求目标支持主动发送，不创建 `AstrMessageEvent`，也不进入 EventBus、Pipeline、普通 Personal 计划、Planner、Core 或 Output。
 - 每个 `PersonalSessionRuntime` 独占最多 64 条待处理 Observation 和一个 1.5 秒固定聚合窗口 task。显式 `coalesce_key` 按 `kind + source + coalesce_key` 保留最新事实；入队先清理过期项，满载后丢弃最旧项并记录稳定 reason。窗口内的新事实不会延长截止时间，避免持续输入导致 batch 饥饿。batch 关闭后由确定性 Gate 计算可验证 features，并按 expiry、有效材料、目标能力、mute、quiet hours、Runtime busy、冷却和预算返回 `evaluate / hold / reject`。只有 `evaluate` 可以进入默认关闭的 Personal Policy；Policy 使用独立 Provider、严格 tool-call 契约和 fail-closed `observe`，并把“近期已表达同一意图且 batch 无新事实”约束为 `ignore / observe`。`express` 生成仅含 action ID 与表达意图的内部 `ActionIntent`，再复用同一 Runtime 的 `RuntimeObservationEvent -> Persona Expression -> Output Controller` 链路；自主 Persona 请求明确要求避开最近 assistant 回复，生成后还会在 effect、TTS、平台投递和 Conversation 提交前执行确定性指纹防重。命中时 final output 记为 `suppressed`，不执行 effect、不发送、不写历史，也不推进冷却或主动配额。`defer` 保留原 batch 并写入持久化的无动作截止时间。生命周期托管的 Wake Scheduler 会在 defer、冷却或 quiet hours 到期后重新评估 retained batch；busy hold 仍在当前 turn settle 后重评。Policy 不调用 Core 或工具，调用期间到达的新事实会由同一 Runtime 顺序调度为下一批。待处理事实、wake deadline 和 task 存在时 Runtime 不可回收，shutdown 会取消并等待 task。
@@ -333,13 +345,15 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - Core 执行上下文只携带任务和执行事实，要求 Core 直接返回实质结果材料；即时 Persona 是同一表达层的低延迟分支，Core 完成后仍由该 Persona 层生成最终可见表达。
 - Interaction turn 中，插件 LLM 生命周期默认路由到 Persona Expression，并按 `interaction_middleware.plugin_capability_targets.<plugin>.llm_hooks`、插件类 `interaction_runtime_target` 声明、Persona 默认值依次解析。插件拥有的可执行工具独立解析且默认进入 Core；工具声明或 `interaction_middleware.plugin_capability_targets.<plugin>.tools` 用户配置可明确选择 Persona。Persona 现在始终通过一个共享 `ToolLoopAgentRunner` 完成正式表达：授权业务工具和 terminal `persona_expression` 同时对模型可见，不再先调用独立模型判断是否使用工具；业务工具结果留在同一 Agent context，最终 Persona Expression 独占可见回复。关键词、命令和 `AdapterMessageEvent` Handler 保持官方 Pipeline 所有权与终止语义。
 - Native Core 当前按 `ContextPack -> CoreExecutionSpec -> Native 目标渲染 -> RenderResult -> NativeExecutionAdapter -> ProviderRequest` 进入官方 AgentRunner；请求完成 Hook 后再绑定过渡性的 `CoreExecutionHead`，由 Head 持有执行 Lifecycle。`CoreExecutionSpec` 只保存执行身份、TaskSpec、规范 ContextPack、执行历史和能力快照，不包含渲染结果或 Provider 请求。它在形成时深拷贝 ContextPack、TaskSpec、执行历史及可序列化 capability 描述，因此不与 Prompt 构建侧共享可变数据；Native `ToolSet` 是明确保留的实时执行句柄。它目前仍在 Native `build_main_agent` 内形成，不是完整 Backend API。最终解析为 `core` 的插件会在最终 `ProviderRequest` 形成后、执行前运行一次 `OnLLMRequest`；Hook 后的实际工具集由 `bind_effective_core_request()` 单点重新授权并同步回请求、Main Agent 构建结果、CoreExecutionSpec、工具 schema 与预算诊断，第三方 Runner 也复用同一请求绑定边界。`ToolLoopAgentRunner` 从实际执行的最终请求解析文件读取辅助工具，上层不再缓存该 handler。Core Prompt projection 与 Native Agent 工具循环使用同一个历史轮数预算；显式配置优先，`max_context_length=-1` 时两层都受 64 轮安全上限约束。
-- Persona、Native Core 和第三方 Agent Runner 的生产插件生命周期现由 `AgentRequestLifecycle` 统一。各入口保留原有可用阶段；Persona 与 Native Core 包含 Waiting，第三方兼容 Runner 仍从 LLMRequest 开始，随后统一进入 AgentBegin、模型/工具循环、LLMResponse、AgentDone 与可选 postprocess。同一分支使用一个 lifecycle ID。Persona fallback 保留 Hook 后冻结的同一 ProviderRequest，只替换 Provider binding，不重渲染、不重放 Hook；若备用 Provider 无法满足严格 terminal tool contract，则明确失败。`astr_agent_hooks.py` 仅保留为旧外部导入兼容面，不再是生产 Main Agent owner。
+- Persona、Native Core 和第三方 Agent Runner 的生产插件生命周期现由 `AgentRequestLifecycle` 统一。各入口保留原有可用阶段；Persona 与 Native Core 包含 Waiting，第三方兼容 Runner 仍从 LLMRequest 开始，随后统一进入 AgentBegin、模型/工具循环、LLMResponse、AgentDone 与可选 postprocess。同一分支使用一个 lifecycle ID。Persona fallback 保留 Hook 后冻结的同一 ProviderRequest 与公开 Agent context，并按候选 Provider 重新编译已投影的语义 PromptTree；它不重新采集事实、不重放 Hook 或工具副作用。非视觉后备 Provider 会把当前轮图片投影为受控文字材料。若备用 Provider 无法满足严格 terminal tool contract，则明确失败。`astr_agent_hooks.py` 仅保留为旧外部导入兼容面，不再是生产 Main Agent owner。
 - `CoreCapabilitySnapshot` 不再把 SubAgent 建模为一等通用能力。Native Core 仍通过 `SubagentCollector`、`SubAgentOrchestrator` 和 `HandoffTool` 兼容承载，当前 Native ContextPack 和 ToolSet 因此仍会携带 handoff 信息；未来 Backend 不需要实现 AstrBot SubAgent，新增专业能力优先注册为插件 Tool。
 - Core Execution Ledger 以 `execution_id` 独立保存 task、attempt、有限工具证据、结果、错误和 token usage，并仅投影给 Core。Native 当前已通过 `CoreExecutionLifecycle` 统一排序执行事件并承载取消/终态事实，但最终 Ledger 调用仍位于 `InternalAgentSubStage`，跨 Native/Third-party 的共同回流契约尚未完成，因此当前尚不具备直接接入可替换 Backend 的条件。
 - Interaction 的普通 Prompt Extension 与 Prompt Contributor 在 base facts 完成后统一后台运行一次，形成 Persona/Core 共用的 plugin enrichment pack；插件贡献项仍只通过 `meta.targets` 进入目标投影。Persona 是否等待 pending enrichment 由 `persona_plugin_context_mode` 决定，Planner 不挂载普通插件扩展或插件目录，只消费可信控制面 Collector 提供的 base facts；Core 等待同一 task 后在 enrichment pack 上加入阶段性的 `CoreTaskSpec` 并投影为 Core 视图。单个 Prompt Contributor 失败只记录并跳过。
 - `expression_agent` 已从 phase 驱动改为“visible reply material”驱动：
   prompt tree 通过 `astrbot/core/prompt` 组装材料，默认注册严格 `tool_call` 的 `persona_expression`，返回 `spoken_reply` / `effect_calls`；普通即时轮额外要求 `turn_action`。Persona 的稳定职责和输出契约保留在 system prompt，普通计划、结果表达与进度提示分别由 request prompt 声明；当前轮待表达材料由 Collector 进入 `input.visible_reply_material`，其中 `progress_stage` 明确流式观察、单个工具运行中或单个工具完成，防止把局部步骤误说成整轮完成
-- persona visible-reply 当前统一基线是协议级虚拟 tool-call；`prompt_only JSON` 仅作为 renderer/provider 不支持 tool-call 时的受控降级路径，自由文本仍不算成功
+- persona visible-reply 当前统一基线是协议级虚拟 tool-call；严格 Persona 调用不接受
+  `prompt_only` 候选。普通非 Persona 的 JSON 场景可以独立声明其受控降级策略；自由文本始终
+  不算 Persona 成功输出
 - 旧 `finalizer.py` 已删除；core final reply 不再走独立 finalizer provider
 - stream interjection 不再在 `output_controller` 内独立拼 prompt 调模型生成文案，而是只通过统一 persona visible-reply 入口生成
 - **origin 路由**：`send_wrapper` / `send_streaming_wrapper` 通过 `_interaction_output_origin` 区分 core/plugin 输出，

@@ -23,7 +23,7 @@
 
 主 Agent 可以修改运行时对象，例如 `func_tool`、provider、conversation、runner 配置和 sandbox 环境变量。模型可见的 `system_prompt`、`contexts`、当前输入与媒体只能由 Prompt 管线生成。
 
-`PromptRenderProfile` 只用于目标局部指令和输出契约。Core 主链路通常不需要 Router/Planner/Persona Profile；Interaction Core 通过 Core 目标投影获得执行视图。
+`PromptRenderProfile` 只用于目标局部指令和输出契约。Core 主链路通常不需要 Personal Response Plan/Planner/Persona Profile；Interaction Core 通过 Core 目标投影获得执行视图。
 
 知识库非 Agentic 检索由 `KnowledgeCollector` 产生 `knowledge.snippets`；Agentic 模式只在主 Agent 注册查询工具。Persona 的文本、skills、policy、session 信息和 Core 委派意图分别由对应 Collector 提供。
 
@@ -39,7 +39,7 @@ Core 执行意图由 `CoreTaskCollector` 读取 turn state，主 Agent 不直接
 
 ## 非职责
 
-- 不选择 Router、Core Planner、Persona 或 Core 应该读取哪些上下文。
+- 不选择 Personal Response Plan、Core Planner、Persona 或 Core 应该读取哪些上下文。
 - 不生成 Persona Expression。
 - 不解释插件 effect payload。
 - 不保留另一套 legacy/shadow Prompt 管线。

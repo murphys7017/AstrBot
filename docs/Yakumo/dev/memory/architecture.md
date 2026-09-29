@@ -81,7 +81,8 @@ fingerprint、scope set 和 retrieval profile。没有缓存时 Prompt 立即使
 当前 canonical user，GROUP/GLOBAL 只按稳定 scope key 读取，因此可以消费其他成员在同一群组
 作用域形成的记忆。向量结果水合时会再次校验 owner/scope，避免陈旧索引元数据越界。
 
-Router、Planner、Persona 和 Core 不直接查询 Memory Service，只消费 Prompt target 投影。
+Personal Response Plan、Planner、Persona 和 Core 不直接查询 Memory Service，只消费 Prompt
+target 投影。
 `MemoryCollector` 是 optional Collector；读取失败会记录诊断，但不会创建第二套 fallback 记忆。
 
 ## 主要模块

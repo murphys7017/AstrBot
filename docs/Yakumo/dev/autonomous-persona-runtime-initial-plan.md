@@ -1,5 +1,9 @@
 # 自主人格运行时实施计划
 
+> 2026-09-28 术语校准：普通入站消息不再启动独立 Router。当前由同一次 Persona
+> Expression 形成 Personal Response Plan，并产出 `reply / delegate / silent`；下文未标明
+> 历史的 Router 表述均应按此控制面理解。
+
 本文定义 Yakumo 如何从“能够主动投递消息”演进为“持续观察、谨慎判断、按需行动”的
 自主人格运行时，并给出可直接进入开发的分批实施顺序。
 
@@ -12,14 +16,14 @@
 
 1. 官方 EventBus、Pipeline、权限过滤、平台 Adapter 和插件 Handler 继续作为唯一入站基础设施。
 2. Personal Runtime 是持续控制层，不建立第二套 EventBus、消息队列、Conversation 或 Memory。
-3. 普通、明确面向 Bot 的用户消息并发启动 Router 与 Persona Expression；`hybrid` 路径再经
-   Planner 委托 Core，Core 结果回到统一 Persona Expression。未被 Handler 接管的群聊候选也
-   并发启动 Router 与 Persona；`silent` 只取消仍未取得发送权的 Persona。
+3. 普通、明确面向 Bot 的用户消息由同一次 Persona Expression 形成 Personal Response Plan；
+   `delegate` 后再经 Planner 委托 Core，Core 结果回到统一 Persona Expression。未被 Handler
+   接管的群聊候选也遵循同一计划；`silent` 不产生可见输出。
 4. Personal Policy 只处理 Heartbeat、环境活动、计划任务、执行反馈和插件 Sensor 等内部
-   Observation，不取代当前 Router。
-5. Router 只判断普通入站消息是否需要 Core 候选路径；Personal Policy 与 Router 不共享模型
+   Observation，不取代 Personal Response Plan。
+5. Personal Response Plan 只判断普通入站消息是否需要 Core 委派路径；Personal Policy 与该计划不共享模型
    决策、临时 Prompt 或执行状态。
-6. Persona Expression 是唯一人格表达层。Policy、Router、Planner、Core 和插件都不直接生成
+6. Persona Expression 是唯一人格表达层。Policy、Personal Response Plan、Planner、Core 和插件都不直接生成
    最终人格文案。
 7. Core Planner 与 Execution Backend 只负责工作判断和执行，不拥有持续人格状态。
 8. Prompt 继续遵守 `Collectors -> ContextPack -> target projection -> Render Profile -> Renderer`。
@@ -55,7 +59,7 @@
   Personal Runtime admission。
 - `PersonalRuntimeKey` 已按 `config_id + persona_id + audience_key + privacy_scope` 隔离运行实例。
 - `PersonalSessionRuntime` 已持有 session 级 turn lock、active turn 和 follow-up 协调器。
-- `TurnExecutionScope` 已持有单 turn 的 Router、Persona、Context Material 和流式观察任务。
+- `TurnExecutionScope` 已持有单 turn 的 Personal Response Plan、Persona、Context Material 和流式观察任务。
 - `RuntimeObservation` 已是不可变内部事实，不伪装成用户消息。
 - `submit_observation()` 已按 RuntimeKey 把内部事实写入有界 Inbox，并由单 Runtime 固定聚合窗口
   task 关闭为不可变 `ObservationBatch`；这一过程不产生模型调用或输出。
@@ -67,7 +71,7 @@
   Runtime 首次创建时恢复这些控制字段，不恢复 Inbox、active turn 或模型临时状态。
 - `InteractionOutputController` 已负责可见输出、最终输出仲裁、完成状态和规范记录。
 - Persona Expression 已是即时回复、Core 结果和插件可见材料的统一人格表达入口。
-- Prompt 已能从规范 `ContextPack` 投影 Router、Core Planner、Personal Policy、Persona 和 Core 视图。
+- Prompt 已能从规范 `ContextPack` 投影 Personal Response Plan、Core Planner、Personal Policy、Persona 和 Core 视图。
 - Personal Policy 已接入 Gate 的 `evaluate` 分支，使用独立 Provider、严格 tool-call
   `PersonalPolicyDecision` 和 fail-closed `observe`；`express` 形成内部 `ActionIntent` 后复用统一
   Persona 输出链路，`defer` 写入无动作截止时间并保留 batch，由 Wake Scheduler 到期后重新评估。
@@ -111,11 +115,11 @@ flowchart TD
 ```text
 official EventBus / Pipeline
   -> Personal Runtime admission
-  -> Router
-      -> persona -> Persona Expression
-      -> hybrid -> Core Planner
+  -> Personal Response Plan
+      -> reply -> Persona Expression
+      -> delegate -> Core Planner
           -> execute -> Execution Backend -> Persona Expression
-          -> not_required -> Persona Expression
+      -> silent -> no visible output
   -> Output Runtime
 ```
 
@@ -175,7 +179,7 @@ Personal Policy 是后台人格行动决策器。它接收经过 Gate 的规范�
 
 Policy 与现有模块的关系：
 
-- Router：判断普通入站消息是否进入 Core 候选路径。
+- Personal Response Plan：判断普通入站消息是否进入 Core 委派路径。
 - Personal Policy：判断后台或环境 Observation 是否形成行动。
 - Persona Expression：把待表达材料转换为最终人格表达。
 
@@ -505,7 +509,7 @@ Policy 不接收：
 - 完整工具 schema。
 - Skills、知识库正文或 Core Execution Ledger 全量记录。
 - Motion、Live2D 或具体插件 effect schema。
-- Router、Planner 的临时决策。
+- Personal Response Plan、Planner 的临时决策。
 - 已失败、已取消或已过期的 Prompt 痕迹。
 - Provider reasoning 或模型私有上下文。
 
@@ -539,7 +543,7 @@ Policy 不接收：
 
 - 以本文替换初期概念草案。
 - 记录现有 Runtime 删除、主动输出适配和 Prompt target 基线。
-- 确认第一批不修改 Router、Planner、Persona、Cron、Dashboard 和平台 Adapter。
+- 确认第一批不修改 Personal Response Plan、Planner、Persona、Cron、Dashboard 和平台 Adapter。
 
 验收：
 
@@ -577,8 +581,7 @@ Policy 不接收：
 
 ### Phase 1B：Completion Feedback
 
-状态：已实现。当前反馈覆盖现有 turn 的真实投递与终态，不提前引入 Action Coordinator、主动
-预算或持久化。
+状态：已实现，后续已接入 `PersonalActionIntent`、主动成功预算与持久化状态。
 
 目标：用真实终态更新状态，不从发送意图猜测完成。
 
@@ -596,7 +599,9 @@ Policy 不接收：
   只应用一次反馈。
 - 即时表达已经送达、后续 turn 又失败时，delivery 仍为 delivered，同时保留 execution failure
   和 failure code。
-- 当前尚无 Action Coordinator，因此 `action_id` 保持空值，主动输出成功预算不递增。
+- **本阶段原始状态：** 当时尚无 Action Coordinator，因此 `action_id` 保持空值，主动输出
+  成功预算不递增。当前 Runtime 已以 `PersonalActionIntent` 承载 `action_id`，并在确认
+  送达后更新主动成功预算。
 
 验收：
 
@@ -671,7 +676,7 @@ Policy 不接收：
 - Gate 拒绝时零模型调用。
 - Policy 不接收工具、Skills 或 effect schema。
 - schema 错误、超时和 provider 错误统一 fail closed。
-- Policy 默认关闭时不发送消息、不调用 Core、不修改 Router。
+- Policy 默认关闭时不发送消息、不调用 Core、不修改 Personal Response Plan。
 
 ### Phase 4：多目标 Heartbeat Express
 
@@ -737,7 +742,7 @@ max_proactive_outputs_per_day
 - 功能关闭时与当前官方行为完全一致。
 - tap 不修改 `event.is_at_or_wake_command`、`event.is_wake` 或插件激活结果。
 - 同一 burst 最多形成一次 Policy 判断和一次 Persona 表达。
-- 明确唤醒仍走当前 Router / Persona 低延迟路径。
+- 明确唤醒仍走当前 Personal Response Plan / Persona 低延迟路径。
 
 ### Phase 6：插件 Sensor API
 
@@ -781,7 +786,7 @@ coalesce/correlation 标识和不可变结构化 payload。Lifecycle dispatcher 
 | `interaction/personal_runtime.py` | 1-2 | Runtime 保留、state、Inbox、evaluation 所有权 | Prompt 拼装、人格文案 |
 | `interaction/observation.py`、`interaction/observation_inbox.py` | 2 | Observation / Batch / admission / Inbox 契约 | 平台发送、模型决策 |
 | 新的 Personal State 模块 | 1 | State、Feedback 类型 | Conversation / Memory |
-| 新的 Personal Policy 模块 | 2-3 | Gate、Features、Decision、fail-closed Policy | Router、Planner、Tool loop |
+| 新的 Personal Policy 模块 | 2-3 | Gate、Features、Decision、fail-closed Policy | Personal Response Plan、Planner、Tool loop |
 | `interaction/turn_state.py` | 1 | 只提供 completion 事实读取 | 持续状态主存储 |
 | `interaction/middleware.py` | 1、4 | 复用 Persona / Output action 边界 | Observation Inbox、后台 Core 执行 |
 | `pipeline/process_stage/stage.py` | 5 | 官方过滤后的只读环境观察 tap | 新 Pipeline、wake 改写 |
@@ -845,7 +850,7 @@ Phase 1A、Phase 1B、Phase 2A、Phase 2B、Phase 3 和 Phase 4 已完成：
    和 diagnostics，不调用模型或输出，hold batch 不会丢失。
 9. `evaluate` batch 已可进入默认关闭的 Personal Policy；独立 Provider、严格 tool-call、
    timeout、temperature、每日预算和 fail-closed diagnostics 已接线。
-10. Policy 只读取受限 Prompt 投影，不取得 ToolSet、Skills、知识库、effect、Router、Planner、Core
+10. Policy 只读取受限 Prompt 投影，不取得 ToolSet、Skills、知识库、effect、Personal Response Plan、Planner、Core
     或工具；`express` 经 ActionIntent 进入 Persona 输出，`defer` 保留 batch 并写截止时间。
 11. 独立 Personal State Repository 已持久化最近表达、冷却、静音和每日用量。Policy 请求前先
     持久化调用计数；写入失败时 fail closed 且零 Provider 请求。

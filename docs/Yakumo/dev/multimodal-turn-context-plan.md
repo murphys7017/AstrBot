@@ -9,22 +9,24 @@
   - [目标态](../target-state.md)
   - [消息处理流程详解](../消息处理流程详解.md)
   - [人格架构重构计划](../persona-architecture-refactor-plan.md)
-  - [Personal / Router / Plugin 三线并行设计计划](./parallel-plugin-runtime-plan.md)
+  - [Personal Response Plan / Plugin 并行设计计划](./parallel-plugin-runtime-plan.md)
 
 ## 1. 结论与整改目标
 
-2026-09 修订：本计划中关于独立 Router 的文字记录的是已完成的旧实施阶段。当前普通对话由同一次 Personal Response Plan 决定 `reply / delegate / silent`；媒体目标投影仍分别服务 Personal、Planner、Persona 与 Core，不再提供 Router view。
+2026-09 修订：本计划中关于独立 Router 的文字记录的是已完成的旧实施阶段。当前普通对话由同一次 Personal Response Plan 决定 `reply / delegate / silent`；媒体目标投影分别服务 Personal Response Plan、Planner、Persona 与 Core，不再提供 Router view。
 
-当前系统已经具备“一个 `InteractionContextMaterial` 被多条分支复用”的雏形，但它并不是纯事实快照：基础 `InputCollector` 会在上下文构建期间根据一个尚未绑定到实际消费者 Provider 的 `provider_request` 判断图片能力，并可能调用图片转述 Provider 或文件提取服务。于是 Router、统一 Persona Expression 的直接表达调用和 Planner 虽然逻辑上并行，仍可能共同等待与自身无关的媒体工作。
-
-同时，直接表达调用沿用的压缩白名单显式排除了原始图片槽位；Planner 投影也没有图片槽位。结果是：实际选中的 Persona Provider 即使支持图片，也看不到图片；而需要处理截图的 Planner 只能依据附件计数猜测任务，进而把视觉理解错误描述为 `workspace_io`，将 Core 带入读文件工具路径。
+当前实现已完成本计划的主整改：基础 `InputCollector` 只收集原始媒体与附件事实，不在
+Interaction base 阶段调用图片转述或文件提取服务；实际 Provider 绑定后才派生分支局部的媒体
+事实，并在发送前统一检查 contexts 与额外 content parts。支持图片的 Persona、Planner 和 Core
+可消费原始图片；非视觉消费者仅在确实需要时使用受控文本降级。Persona 的 `progress` 与
+`proactive` Context View 明确不派生媒体。下文原先描述这些缺口的段落与表格保留为整改前基线。
 
 整改后的目标不是为四个 Agent 各造一份完整 Prompt，也不是在 Interaction 中另建一套上下文系统；应复用既有 Prompt Pipeline 的**事实收集 -> 派生快照 -> 目标投影 -> Profile -> Renderer -> Apply**主链。需要做的是让每回合的基础事实快照不可变且无 Provider 调用，再根据目标和实际 Provider 能力构造独立视图：
 
 ```text
 平台 Event
   -> Turn Input Facts（文本、引用、原始媒体引用、身份、时间、历史、记忆、人格快照）
-  -> Router View       （严格纯文本）
+  -> Personal Response Plan View（严格纯文本）
   -> Persona View      （Provider 支持图片时直接传图）
   -> Planner View      （混合任务需要视觉证据时直接传图）
   -> Core View         （执行时保留原始媒体）
@@ -41,16 +43,16 @@
 | --- | --- | --- |
 | Collector | 将运行时输入输出为命名 `ContextSlot`。 | `InputCollector` 只采集原始媒体事实，不在 Interaction base 阶段做转述或文件提取。 |
 | Builder | `build(base=...)` 生成版本化、深拷贝的派生 `ContextPack`。 | 非视觉消费者确实需要文字降级时，由显式媒体解析 collector 形成一个分支局部派生包。 |
-| Target Projection | 为 Router、Planner、Persona、Core 做确定性、隔离的角色投影。 | 决定某个目标“原则上能否看到原始图片”；Router 始终不能，Persona/Planner/Core 可以。 |
+| Target Projection | 为 Personal Response Plan、Planner、Persona、Core 做确定性、隔离的角色投影。 | 决定某个目标“原则上能否看到原始图片”；Personal Response Plan 始终不能，Persona/Planner/Core 可以。 |
 | Media capability projection | 当前尚未成为显式 Prompt 步骤。 | 在目标投影之后、Profile/Renderer 之前，以实际 Provider modalities 决定保留原图还是使用已解析的文字事实；该步骤不调用 LLM。 |
 | Profile | 注入局部指令、输出契约与精确隐藏。 | 继续处理直接 Persona 表达的历史预算和表达契约，不再用静态硬隐藏替代媒体能力判断。 |
 | Renderer / Apply | 将已经选定的图片编译为 content parts，并写入 `ProviderRequest`。 | 继续作为唯一媒体序列化入口；最终安全门覆盖 request、extra parts 与 contexts。 |
 
-因此，媒体转述本身是按需产生的**派生事实**，而“原图还是转述进入此 Provider”是确定性的**能力投影**；两者都不属于 Router 决策、Profile 指令或 Provider Renderer 的业务选择。
+因此，媒体转述本身是按需产生的**派生事实**，而“原图还是转述进入此 Provider”是确定性的**能力投影**；两者都不属于 Personal Response Plan 决策、Profile 指令或 Provider Renderer 的业务选择。
 
-## 2. 已核实的现状
+## 2. 2026-09 整改前基线（历史）
 
-下列内容来自当前源码与运行日志，不是本计划的假设。
+下列内容来自整改前源码与运行日志，不是当前实现。
 
 | 位置 | 当前行为 | 问题 |
 | --- | --- | --- |

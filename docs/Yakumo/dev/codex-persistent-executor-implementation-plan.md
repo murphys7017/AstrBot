@@ -1,8 +1,13 @@
 # Codex 长期 Core 执行器实施计划
 
 日期：2026-09-23
-状态：待 5.6 分批执行
-前置：`internal-executor-replacement-plan.md` 的 R1-R7 已完成；当前 Native 基线已接受，真实第二 Body 尚未接入。
+状态：主体实现已落地，真实平台验收待完成
+前置：`internal-executor-replacement-plan.md` 的 R1-R7 已完成；Codex CLI 已作为真实外部
+Executor Body 进入普通 Interaction 与主动任务路径。Native 仍保留专用可见输出路径，外部增量
+输出、资产交付及 OLV/Cron/Live 真实验收尚未完成。
+
+> 下文保留原始实施计划与验收条目。凡表述“尚未接入第二 Body”或“待开始”的内容，均是
+> 2026-09-23 的历史计划，不是当前代码状态。
 
 ## 1. 目标
 

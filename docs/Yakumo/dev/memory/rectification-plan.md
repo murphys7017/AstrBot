@@ -5,7 +5,7 @@
 把 Memory 调整为 Personal Expression 可直接消费、但不拖慢首回复的异步记忆系统：
 
 - 精确对话继续由 Conversation 保存；Memory 只保存短期状态和模糊语义事实。
-- Personal 使用 Short-Term Memory 与长期记忆；Router 默认只使用轻量的 Short-Term Memory。
+- Persona 表达使用 Short-Term Memory 与长期记忆；Personal Response Plan 只使用轻量的 Short-Term Memory。
 - 长期检索由 Short-Term Memory 的 `revision`/`fingerprint` 驱动，不再以每轮当前消息直接触发完整检索。
 - 长期读取使用 Recall Snapshot，采用 stale-while-revalidate：优先复用旧快照，后台刷新，首次没有快照时不等待。
 - 支持 `USER`、`GROUP`、`GLOBAL` 作用域；群聊可同时贡献当前用户记忆和群组记忆。
@@ -16,7 +16,7 @@
 内部标识可以保存，也必须保留在结构化存储和 provenance 中，用于更新、合并、去重、回溯和向量同步，例如：
 `memory_id`、`conversation_id`、`turn_id`、`source_refs`、`scope_id`。
 
-正常的 Personal/Router 语义 Prompt 默认不携带这些字段，避免技术标识干扰模型表达；但在明确的诊断、管理、精确引用或内部调试场景，可以按需显式携带。Memory Markdown 的语义正文和模型侧长期记忆卡片默认只投影语义字段；诊断、管理接口和内部存储继续保留完整元数据。
+正常的 Persona / Personal Response Plan 语义 Prompt 默认不携带这些字段，避免技术标识干扰模型表达；但在明确的诊断、管理、精确引用或内部调试场景，可以按需显式携带。Memory Markdown 的语义正文和模型侧长期记忆卡片默认只投影语义字段；诊断、管理接口和内部存储继续保留完整元数据。
 
 ## 实施阶段
 
@@ -37,7 +37,7 @@ Phase 1 的验收重点是：配置隔离、超时可控、并发首次检索不
 
 ### Phase 3：Recall Snapshot 与 Personal 接入
 
-按 `(scope set, short_term revision, retrieval profile)` 缓存长期检索结果。Personal 读取 Short-Term 和最新可用 Snapshot；Snapshot 过期时后台刷新，刷新期间继续使用旧结果。Router 不等待长期向量检索。移除当前消息直接驱动长期检索的默认路径。
+按 `(scope set, short_term revision, retrieval profile)` 缓存长期检索结果。Persona 表达读取 Short-Term 和最新可用 Snapshot；Snapshot 过期时后台刷新，刷新期间继续使用旧结果。Personal Response Plan 不等待长期向量检索。移除当前消息直接驱动长期检索的默认路径。
 
 ### Phase 4：群聊长期记忆
 
@@ -53,7 +53,7 @@ Phase 4 已同时完成读取与写入：`memory.recall.scope_priority` 控制�
 
 ### Phase 6：删除旧路径并更新文档
 
-移除 USER 硬编码、按当前消息逐轮长期检索和同步写入的旧旁路；更新 Memory 架构、进度、配置和 Personal Prompt 文档，明确 Router/Personal 的读取边界及 ID 脱敏规则。
+移除 USER 硬编码、按当前消息逐轮长期检索和同步写入的旧旁路；更新 Memory 架构、进度、配置和 Persona Prompt 文档，明确 Personal Response Plan/Persona 的读取边界及 ID 脱敏规则。
 
 ## 非目标
 

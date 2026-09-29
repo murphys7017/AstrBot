@@ -1,10 +1,14 @@
 # Personal Runtime 前置主链清理计划
 
-当前复核基线：2026-09-21。Phase 0 至 Phase 8 的主要前置边界已落地或进入真实验收；
-Phase 9 已建立 Core Head、CoreExecutionSession、NativeExecutorAdapter、
-NativeExecutionLoop 和 NativeExecutionOutputBridge 的进程内 Native 主链。当前尚未
-证明第二个 Executor Body 可在不修改 Personal 主链的前提下接入，因此不能称为“执行器
-已可替换”。本文的“已完成”只表示源码中已经存在的边界，不表示后续目标已经实现。
+> 2026-09-28 状态校准：Native 与 Codex CLI 已分别接入注册、选择、运行协调和最终
+> 结果桥；Codex CLI 已进入普通 Interaction 与主动任务的外部执行路径。Native 仍保留
+> 专用可见输出链，外部增量输出/资产与真实 OLV、Cron、Live 验收仍未完成，因此不能将
+> 现状描述为“所有执行器已完全等价”。下文以 2026-09-21 为基线，未特别修订的阶段文字
+> 是当时的计划或历史记录。
+
+历史复核基线：2026-09-21。Phase 0 至 Phase 8 的主要前置边界已落地或进入真实验收；
+当时 Phase 9 已建立 Core Head、CoreExecutionSession、NativeExecutorAdapter、
+NativeExecutionLoop 和 NativeExecutionOutputBridge 的进程内 Native 主链。
 
 本文记录 Yakumo 下一阶段的总体实施计划。当前优先级不是实现可替换 Executor Body，
 而是把执行阶段之前仍然存在的过渡结构清理为稳定的 Personal Runtime 主链。只有这些
@@ -28,7 +32,7 @@ NativeExecutionLoop 和 NativeExecutionOutputBridge 的进程内 Native 主链�
 | --- | --- | --- |
 | Personal / Core 职责 | 普通对话已由 Personal Response Plan 决定 `reply / delegate / silent`；仅 `delegate` 进入 Planner 和 Core | 已建立主边界 |
 | Core / Native 执行 | 已有 Core Head、Session、事件、取消、Ledger 结算、Native Adapter、Loop 与 Output Bridge | 已建立第一条 Native 实现链 |
-| 可替换 Executor | 尚无第二个独立 Executor Body 通过同一输入、控制、事件和终态契约 | 未完成，不能提前宣称 |
+| 可替换 Executor | **2026-09-21 时**尚无第二个独立 Executor Body 通过同一输入、控制、事件和终态契约 | 历史基线；后续已接入 Codex CLI，但输出和真实平台验收仍有缺口 |
 
 因此，接下来的工作不再是继续泛化 Core Head，也不是直接接入 Claude Code、OpenCode
 或远程协议；重点是证明当前边界真的允许替换执行实现。

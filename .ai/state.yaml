@@ -1976,3 +1976,27 @@ prompt_contract_boundary_closure:
     skipped before a model call, progress has only its declared bounded facts
     plus one acknowledgement, and OnLLMRequest hooks cannot reintroduce
     prompt or media material.
+
+documentation_refresh_and_dashboard_plan_retirement:
+  date: '2026-09-29'
+  class: maintenance
+  risk: high
+  status: validated
+  scope: >-
+    Refresh the tracked AG99 documentation to match the current Persona,
+    Prompt, provider-fallback, and executor boundaries; rewrite the root
+    README as a product-facing entry point; and remove the completed,
+    unreferenced Dashboard workspace migration plan bundle.
+  deletion_decision: >-
+    The four files under docs/Yakumo/dashboard-refactor-plan described the
+    pre-migration workspace and metadata-registry design. Current Dashboard
+    navigation, routes, and ConfigPage workspace projection implement that
+    direction, and no tracked Markdown reference remains.
+  non_goals: >-
+    Modify AG99 plugin code, remove historical architecture and audit records
+    that still provide traceability, redesign Dashboard behavior, or commit
+    the documentation changes.
+  validation: >-
+    VitePress documentation build passed. Root README targets were checked,
+    no Markdown reference to the deleted plan remains, and git diff --check
+    passed with line-ending warnings only.

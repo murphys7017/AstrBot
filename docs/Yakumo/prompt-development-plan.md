@@ -18,8 +18,8 @@ collect facts
 
 已经确认：
 
-- Router、Core Planner、Persona 和 Core 使用同一事实模型与隔离投影。
-- Router 与 Planner 独立，不共享模型决策。
+- Personal Response Plan、Core Planner、Persona 和 Core 使用同一事实模型与隔离投影。
+- Personal Response Plan 与 Planner 不共享模型决策。
 - Interaction 跨阶段 enrichment 使用 `PromptContextBuilder(base=...)`，不直接修改共享 Pack。
 - 目标 system/request prompt、输出契约和隐藏规则由 `PromptRenderProfile` 提供。
 - `PromptTreeBuilder` 不再依赖选中的 Provider Renderer 决定布局。
@@ -85,6 +85,6 @@ Catalog 当前主要用于声明和未知 slot 告警，required、multiple、li
 
 - 不重新引入 LLM Selector。
 - 不让业务模块或插件绕过 Collector 直接拼模型 Prompt。
-- 不针对单个插件修改 Router、Planner 或通用输出契约。
+- 不针对单个插件修改 Personal Response Plan、Planner 或通用输出契约。
 - 不让 Prompt 系统写 memory、执行工具、发送消息或理解 Motion/Live2D 语义。
 - 不删除官方插件钩子；只明确它们与统一事实管线的先后和适用范围。

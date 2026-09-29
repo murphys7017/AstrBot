@@ -8,6 +8,10 @@
 - [`execution-backend-preparation-plan.md`](execution-backend-preparation-plan.md)
 - [`.ai/index.md`](../../../.ai/index.md)
 
+> 2026-09-28 状态校准：R1-R7 和 Codex CLI 外部执行器已进入代码与生产装配路径。
+> 本手册保留逐批实施时的操作记录，不能在不复核当前源码、现有测试与
+> `internal-executor-replacement-plan.md` 状态的前提下重复执行其中的历史切片。
+
 这不是新的架构提案，而是把既定方案翻译成可以逐批执行的编码指令。每次只完成一个批次，跑完本批验证后停止，等待审阅，不要自动进入下一批。
 
 ## 0. 总规则
