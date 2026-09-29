@@ -4,10 +4,10 @@
 
 <h1 align="center">AG99</h1>
 
-<p align="center"><strong>让 AI 不止会回答，而是以一个人格持续地理解、陪伴与行动。</strong></p>
+<p align="center"><strong>Persona-first 多平台对话 Runtime</strong></p>
 
 <p align="center">
-  由 YakumoAki 创建，基于 AstrBot 独立演进的 Persona-first 多平台对话 Runtime。
+  由 YakumoAki 创建，基于 AstrBot 独立演进，为连续对话、复杂执行与受控主动性提供统一运行时。
 </p>
 
 <p align="center">
@@ -23,70 +23,58 @@
 
 ---
 
-## 从一条消息，到一段关系
+## 核心定位
 
-多数 AI Bot 擅长给出答案，却很难让人感到正在和同一个对象说话。每条消息都是一次新的推理，
-每个任务又像换了一个人：闲聊很自然，查资料时变成机械播报，工具跑完后口吻彻底断裂。
+AG99 把 Persona 作为所有用户可见输出的统一边界。即时回复、插件材料、任务进度和 Core 最终
+结果均由同一表达层处理；工具、检索、定时任务和其他复杂执行留在 Core 中完成。
 
-AG99 从一开始就把 **Persona** 放在中心。
+它的目标不是再增加一套 Agent，而是在 AstrBot 的平台、Provider、插件、Dashboard 与 CLI 基础
+设施上，为交互状态、上下文投影、执行回流和主动表达建立清晰的运行时职责。
 
-它让一个持续存在的交互主体处理对话：理解这段关系正在发生什么，记住当下的脉络，维持自己的
-表达方式，并在需要深入处理时，把复杂工作交给幕后能力。你看到的始终是同一个 Persona；它不必
-把检索、工具、任务排程和执行过程原样摊在对话里。
+## 运行模型
 
-> 不是“向模型发一条消息，得到一条回答”，而是“和一个知道何时回应、何时行动、何时安静的人格持续相处”。
+```text
+Platform message
+  -> Personal Response Plan
+      -> reply ---------------------> Persona Expression -> Output
+      -> delegate -> Core execution -> Persona Expression -> Output
+      -> silent (eligible group only)
+```
 
-<p align="center"><strong>能聊天，也能做事；更重要的是，它始终是它。</strong></p>
-
-## 当对话需要真的去做事
-
-你说一句“帮我查一下，整理好了告诉我”。AG99 不会把这句简单地扔给一个工具循环。
-
-1. **Persona 先接住你。** 它判断此刻应该直接回应、委派复杂工作，还是在合适的群聊场景保持安静。
-2. **复杂留在幕后。** 需要检索、工具调用、定时处理或更长执行过程时，Core 负责把任务真正完成。
-3. **过程仍有温度。** 任务进行中，Persona 可以给出符合当前关系和语境的进度反馈，而不是一串生硬状态码。
-4. **结果回到同一个人手里。** Core 的事实结果不会直接冲到平台上，而是回到 Persona，由它组织成自然、准确的最终表达。
-
-这意味着轻量对话不必为复杂任务付出同样的等待；复杂任务也不必牺牲身份感和连续性。
-
-## 你能感受到的不同
-
-| 你在意的事 | AG99 的处理方式 |
+| 层级 | 职责 |
 | --- | --- |
-| **它还是原来的它吗？** | 即时回复、插件输出、任务进度和最终结果都经过同一 Persona Expression，减少口吻跳变、重复回答和“工具人格”突然出现。 |
-| **它知道什么时候该认真做事吗？** | Personal Response Plan 先选择 `reply`、`delegate` 或允许场景下的 `silent`；只有真正需要时才把任务交给 Core。 |
-| **它会不会为了主动而打扰？** | 主动表达先经过 Observation、Gate、Policy 和 ActionIntent；后台事实不会直接发送消息，也不会直接调用工具。 |
-| **我能把它放进现有环境吗？** | AG99 复用 AstrBot 的平台适配器、Provider、插件、Dashboard 与 CLI 基础设施，在熟悉的多平台生态中运行。 |
-| **复杂能力会不会淹没对话？** | 工具、执行状态和结构化上下文在 Core 与 Prompt 边界内管理；对话窗口只保留真正应该被看见的内容。 |
+| **Personal Response Plan** | 为当前消息选择 `reply`、`delegate` 或允许场景下的 `silent`。 |
+| **Core** | 执行已委派的工具、检索、计划任务与其他复杂工作。 |
+| **Persona Expression** | 统一生成所有用户可见的自然语言与结构化表现。 |
+| **Prompt Runtime** | 按调用阶段投影所需事实，避免轻量表达携带完整执行上下文。 |
+| **Observation Runtime** | 通过 Gate、Policy 与 ActionIntent 约束可选的主动表达。 |
+
+## 主要能力
+
+| 能力 | 说明 |
+| --- | --- |
+| **统一表达** | 即时回复、插件 Persona 输出、任务进度与最终结果共用 Persona Expression。 |
+| **分层执行** | 轻量表达不必进入 Core；仅已委派的任务才进入 Planner 与执行链。 |
+| **阶段化上下文** | Persona 在计划、进度、最终结果和主动表达阶段使用不同的 Context View。 |
+| **受控主动性** | Observation 不能直接调用工具或发送消息，必须经过确定性的 Gate 与 Policy。 |
+| **兼容基础设施** | 继续复用 AstrBot 的平台适配器、Provider、插件、Dashboard 与 CLI。 |
 
 ## 与官方 AstrBot：同一生态，不同重心
 
-AG99 不是把 AstrBot 推倒重来，也不把上游当作对立面。它继续使用 AstrBot 成熟的平台接入、
-Provider、插件、Dashboard 和 CLI 基础设施；区别在于，AG99 选择把持续 Persona 作为运行时的
-第一原则，并重写了围绕它的交互、表达、上下文和任务回流边界。
+AG99 不是 AstrBot 的替代品，也不以复制上游为目标。它保留 AstrBot 的生态与基础能力，并将
+持续 Persona、统一表达和 Core 回流作为独立的运行时设计重点。
 
 | 对比维度 | 官方 AstrBot | AG99 |
 | --- | --- | --- |
 | **公开定位** | 面向个人与群聊的 Agentic AI 助手，强调 IM 接入、插件扩展与通用 Agent 能力编排。 | Persona-first 多平台对话 Runtime，把“持续存在的交互主体”作为产品体验的起点。 |
 | **AI 能力组织** | Chat Provider 负责模型回复，Agent Runner 负责多轮规划、工具调用与执行。 | 保留并复用这些能力，但由 Personal Response Plan 决定何时直接表达、何时委派 Core；Core 结果必须回到 Persona。 |
-| **Persona 的位置** | 内置 Agent Runner 可以使用 Persona 功能。 | Persona 是所有用户可见表达的统一入口，并跨即时回复、任务进度、最终结果和受控主动表达维持连续性。 |
+| **Persona 的位置** | 内置 Agent Runner 可以使用 Persona 功能。 | Persona 是所有用户可见表达的统一入口，并覆盖即时回复、任务进度、最终结果和受控主动表达。 |
 | **主动与状态** | 提供可扩展的 Bot、插件和 Agent 基础能力。 | 将 Observation、Gate、Policy 与 ActionIntent 作为显式边界，让主动性在可检查的约束下发生。 |
-| **适合谁** | 想快速接入 IM、模型、插件和通用 Agent 能力的用户。 | 想在这些能力之上，打造有长期身份感、关系感和一致表达的 AI 的用户。 |
+| **适合谁** | 想快速接入 IM、模型、插件和通用 Agent 能力的用户。 | 想在这些能力之上，强化对话身份、状态边界和输出一致性的用户。 |
 
 官方 AstrBot 仍是 AG99 的兼容基础与上游参考。若你的目标是接入一个成熟、可扩展的 AI Bot，
 [AstrBot](https://docs.astrbot.app/) 已提供完整的平台、Provider、插件和 Agent 路径；若你更在意
-“它是否始终像同一个人”，AG99 选择继续沿着 Persona Runtime 这条路深入。
-
-## 为想要“角色感”的 AI 而生
-
-AG99 适合那些不满足于“一个能调用工具的 Bot”的人。
-
-- 想打造有稳定身份、长期语气和关系感的个人 AI。
-- 想把聊天、检索、执行、定时任务与插件能力放进同一段自然对话。
-- 想在多个消息平台上维持同一个 Persona，而不是维护一组彼此割裂的自动回复。
-- 想让主动性有边界：它可以在适当的时候开口，但不会绕过规则、凭空行动或把观察事实当成用户指令。
-
-AG99 的目标不是替你把每个流程自动化，而是给这些能力一个可信、可持续的对外人格。
+对话身份、状态边界和表达一致性的控制，AG99 提供了另一条实现路径。
 
 ## 快速开始
 
