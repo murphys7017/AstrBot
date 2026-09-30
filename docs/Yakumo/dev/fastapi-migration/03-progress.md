@@ -84,3 +84,12 @@ worktree's data root. HTTP login returned 200 and a JWT; the authenticated
 the check. Production ports 6185/6199 and the original worktree were not
 touched. This confirms native network serving only; WebSocket/SSE and browser
 acceptance are still separate pending checks.
+
+The same isolated host also accepted a JWT-authenticated WebSocket connection
+on `127.0.0.1:6286/api/live_chat/ws`; the client connected and closed cleanly.
+No chat payload or configured provider was invoked, so this is a transport and
+authentication smoke rather than a full live-chat acceptance.
+
+Frontend `pnpm typecheck` passed after installing the locked dependencies.
+`pnpm build` reached Vite transformation but failed in the Windows temporary
+esbuild cleanup with `Access is denied`; no TypeScript error was reported.

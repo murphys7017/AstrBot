@@ -19,8 +19,10 @@ dashboard_fastapi_migration:
     The migration branch now uses native FastAPI. Existing Dashboard (48),
     external API-Key (11), knowledge-base (5) and platform-response (2) tests
     passed. An isolated native network smoke on 127.0.0.1:6285 completed login
-    and an authenticated plugin request. Live socket, browser and configured-
-    platform acceptance is pending.
+    and an authenticated plugin request. An authenticated live-chat WebSocket
+    transport smoke also connected on 127.0.0.1:6286. Frontend typecheck passed;
+    Vite build hit a Windows esbuild temp cleanup Access Denied after transform.
+    Full chat payload, browser and configured-platform acceptance is pending.
     See docs/Yakumo/dev/fastapi-migration/03-progress.md for checkpoints.
 
 knowledge_base_cleaning_and_async_io_repair:
