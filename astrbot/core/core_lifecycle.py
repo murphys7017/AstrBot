@@ -603,9 +603,15 @@ class AstrBotCoreLifecycle:
             if self._stopped:
                 return
 
+            async def shutdown_step(name: str, action) -> None:
+                try:
+                    await action()
+                except Exception:
+                    logger.error("关闭生命周期组件失败: %s", name, exc_info=True)
+
             event_bus = getattr(self, "event_bus", None)
             if event_bus is not None:
-                await event_bus.stop()
+                await shutdown_step("event_bus", event_bus.stop)
 
             curr_tasks = list(getattr(self, "curr_tasks", []))
             for task in curr_tasks:
@@ -616,15 +622,30 @@ class AstrBotCoreLifecycle:
             await self._cancel_lifecycle_service_tasks()
 
             if self.temp_dir_cleaner:
-                await self.temp_dir_cleaner.stop()
+                await shutdown_step("temp_dir_cleaner", self.temp_dir_cleaner.stop)
             if self.cron_manager:
-                await self.cron_manager.shutdown()
+                await shutdown_step("cron_manager", self.cron_manager.shutdown)
 
-            await self.personal_runtime_wake_scheduler.shutdown()
-            await self.plugin_execution_runtime.shutdown()
-            await self.personal_runtime_manager.shutdown()
-            await self.external_executor_sessions.aclose()
-            await get_postprocess_manager().shutdown()
+            await shutdown_step(
+                "personal_runtime_wake_scheduler",
+                self.personal_runtime_wake_scheduler.shutdown,
+            )
+            await shutdown_step(
+                "plugin_execution_runtime",
+                self.plugin_execution_runtime.shutdown,
+            )
+            await shutdown_step(
+                "personal_runtime_manager",
+                self.personal_runtime_manager.shutdown,
+            )
+            await shutdown_step(
+                "external_executor_sessions",
+                self.external_executor_sessions.aclose,
+            )
+            await shutdown_step(
+                "postprocess_manager",
+                get_postprocess_manager().shutdown,
+            )
 
             plugin_manager = getattr(self, "plugin_manager", None)
             if plugin_manager is not None:
@@ -639,15 +660,18 @@ class AstrBotCoreLifecycle:
 
             provider_manager = getattr(self, "provider_manager", None)
             if provider_manager is not None:
-                await provider_manager.terminate()
+                await shutdown_step("provider_manager", provider_manager.terminate)
             platform_manager = getattr(self, "platform_manager", None)
             if platform_manager is not None:
-                await platform_manager.terminate()
+                await shutdown_step("platform_manager", platform_manager.terminate)
             kb_manager = getattr(self, "kb_manager", None)
             if kb_manager is not None:
-                await kb_manager.terminate()
-            reset_memory_postprocessor()
-            await shutdown_memory_service()
+                await shutdown_step("kb_manager", kb_manager.terminate)
+            try:
+                reset_memory_postprocessor()
+            except Exception:
+                logger.error("关闭 memory postprocessor 失败", exc_info=True)
+            await shutdown_step("memory_service", shutdown_memory_service)
 
             dashboard_shutdown_event = getattr(self, "dashboard_shutdown_event", None)
             if dashboard_shutdown_event is not None:

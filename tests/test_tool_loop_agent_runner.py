@@ -235,6 +235,16 @@ class MockAbortableStreamProvider(MockProvider):
         )
 
 
+class MockFailingStreamProvider(MockProvider):
+    async def text_chat_stream(self, **kwargs):
+        yield LLMResponse(
+            role="assistant",
+            completion_text="partial ",
+            is_chunk=True,
+        )
+        raise RuntimeError("stream interrupted")
+
+
 class MockToolCallProvider(MockProvider):
     def __init__(self, tool_name: str, tool_args: dict[str, str] | None = None):
         super().__init__()
@@ -1149,6 +1159,31 @@ async def test_fallback_provider_used_when_primary_raises(
     assert final_resp.completion_text == "这是我的最终回答"
     assert primary_provider.call_count == 1
     assert fallback_provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_after_output_does_not_switch_to_fallback(
+    runner, provider_request, mock_tool_executor, mock_hooks
+):
+    primary_provider = MockFailingStreamProvider()
+    fallback_provider = MockProvider()
+    fallback_provider.should_call_tools = False
+
+    await runner.reset(
+        provider=primary_provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=mock_tool_executor,
+        agent_hooks=mock_hooks,
+        streaming=True,
+        fallback_providers=[fallback_provider],
+    )
+
+    with pytest.raises(RuntimeError, match="stream interrupted"):
+        async for _ in runner.step_until_done(1):
+            pass
+
+    assert fallback_provider.call_count == 0
 
 
 @pytest.mark.asyncio

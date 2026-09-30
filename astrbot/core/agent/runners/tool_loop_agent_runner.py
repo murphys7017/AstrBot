@@ -643,6 +643,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     candidate_id,
                 )
             self.provider = candidate
+            candidate_has_stream_output = False
             try:
                 retrying = AsyncRetrying(
                     retry=retry_if_exception_type(EmptyModelOutputError),
@@ -664,6 +665,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                             ):
                                 if resp.is_chunk:
                                     has_stream_output = True
+                                    candidate_has_stream_output = True
                                     yield resp
                                     continue
 
@@ -704,8 +706,12 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             except TimeoutError as exc:
                 if self.deadline is not None and self.deadline.expired():
                     raise TurnDeadlineExceeded("provider_request") from exc
+                if candidate_has_stream_output:
+                    raise
                 last_exception = exc
             except Exception as exc:  # noqa: BLE001
+                if candidate_has_stream_output:
+                    raise
                 last_exception = exc
                 logger.warning(
                     "Chat Model %s request error: %s",

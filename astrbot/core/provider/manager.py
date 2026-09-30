@@ -888,39 +888,56 @@ class ProviderManager:
     def get_insts(self):
         return self.provider_insts
 
+    def _remove_instance_references(self, provider_inst: Providers) -> None:
+        for instances in (
+            self.provider_insts,
+            self.stt_provider_insts,
+            self.tts_provider_insts,
+            self.embedding_provider_insts,
+            self.rerank_provider_insts,
+        ):
+            instances[:] = [
+                instance for instance in instances if instance is not provider_inst
+            ]
+
+        if self.curr_provider_inst is provider_inst:
+            self.curr_provider_inst = None
+        if self.curr_stt_provider_inst is provider_inst:
+            self.curr_stt_provider_inst = None
+        if self.curr_tts_provider_inst is provider_inst:
+            self.curr_tts_provider_inst = None
+
     async def terminate_provider(self, provider_id: str) -> None:
-        if provider_id in self.inst_map:
-            logger.info(
-                f"终止 {provider_id} 提供商适配器({len(self.provider_insts)}, {len(self.stt_provider_insts)}, {len(self.tts_provider_insts)}) ...",
-            )
+        provider_inst = self.inst_map.get(provider_id)
+        if provider_inst is None:
+            return
 
-            if self.inst_map[provider_id] in self.provider_insts:
-                prov_inst = self.inst_map[provider_id]
-                if isinstance(prov_inst, Provider):
-                    self.provider_insts.remove(prov_inst)
-            if self.inst_map[provider_id] in self.stt_provider_insts:
-                prov_inst = self.inst_map[provider_id]
-                if isinstance(prov_inst, STTProvider):
-                    self.stt_provider_insts.remove(prov_inst)
-            if self.inst_map[provider_id] in self.tts_provider_insts:
-                prov_inst = self.inst_map[provider_id]
-                if isinstance(prov_inst, TTSProvider):
-                    self.tts_provider_insts.remove(prov_inst)
+        logger.info(
+            "终止 %s 提供商适配器(chat=%s, stt=%s, tts=%s, embedding=%s, rerank=%s) ...",
+            provider_id,
+            len(self.provider_insts),
+            len(self.stt_provider_insts),
+            len(self.tts_provider_insts),
+            len(self.embedding_provider_insts),
+            len(self.rerank_provider_insts),
+        )
+        self._remove_instance_references(provider_inst)
+        try:
+            terminate = getattr(provider_inst, "terminate", None)
+            if terminate:
+                await terminate()
+        finally:
+            self.inst_map.pop(provider_id, None)
 
-            if self.inst_map[provider_id] == self.curr_provider_inst:
-                self.curr_provider_inst = None
-            if self.inst_map[provider_id] == self.curr_stt_provider_inst:
-                self.curr_stt_provider_inst = None
-            if self.inst_map[provider_id] == self.curr_tts_provider_inst:
-                self.curr_tts_provider_inst = None
-
-            if getattr(self.inst_map[provider_id], "terminate", None):
-                await self.inst_map[provider_id].terminate()  # type: ignore
-
-            logger.info(
-                f"{provider_id} 提供商适配器已终止({len(self.provider_insts)}, {len(self.stt_provider_insts)}, {len(self.tts_provider_insts)})",
-            )
-            del self.inst_map[provider_id]
+        logger.info(
+            "提供商适配器 %s 已终止(chat=%s, stt=%s, tts=%s, embedding=%s, rerank=%s)",
+            provider_id,
+            len(self.provider_insts),
+            len(self.stt_provider_insts),
+            len(self.tts_provider_insts),
+            len(self.embedding_provider_insts),
+            len(self.rerank_provider_insts),
+        )
 
     async def delete_provider(
         self, provider_id: str | None = None, provider_source_id: str | None = None
@@ -1008,10 +1025,20 @@ class ProviderManager:
             except asyncio.CancelledError:
                 pass
 
-        for provider_inst in self.provider_insts:
-            if hasattr(provider_inst, "terminate"):
-                await provider_inst.terminate()  # type: ignore
+        termination_errors: list[Exception] = []
+        for provider_id in list(self.inst_map):
+            try:
+                await self.terminate_provider(provider_id)
+            except Exception as e:
+                termination_errors.append(e)
+                logger.error(
+                    "终止提供商适配器失败: provider_id=%s",
+                    provider_id,
+                    exc_info=True,
+                )
         try:
             await self.llm_tools.disable_mcp_server()
         except Exception:
             logger.error("Error while disabling MCP servers", exc_info=True)
+        if termination_errors:
+            raise termination_errors[0]
