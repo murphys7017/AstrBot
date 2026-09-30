@@ -21,7 +21,7 @@ from astrbot.core.platform.sources.webchat.message_parts_helper import (
 from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queue_mgr
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path, get_astrbot_temp_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
-from astrbot.dashboard.asgi_runtime import websocket
+from astrbot.dashboard.asgi_runtime import WebSocketDisconnect, websocket
 
 from .base import DashboardService, ServiceContext
 from .chat_service import (
@@ -97,6 +97,8 @@ class LiveChatSession:
             )
             return audio_path, time.time() - start_time
 
+        except WebSocketDisconnect:
+            logger.info("[Live Chat] WebSocket 客户端已断开")
         except Exception as e:
             logger.error(f"[Live Chat] 组装 WAV 文件失败: {e}", exc_info=True)
             return None, 0.0
