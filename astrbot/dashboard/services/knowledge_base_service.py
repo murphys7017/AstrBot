@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
-from quart import request
 
 from astrbot.core import logger
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.provider.provider import EmbeddingProvider, RerankProvider
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.dashboard.asgi_runtime import request
 
 from ..utils import generate_tsne_visualization
 from .base import DashboardService, Response, ServiceContext

@@ -1,6 +1,5 @@
-from quart import g, request
-
 from astrbot.core.db import BaseDatabase
+from astrbot.dashboard.asgi_runtime import g, request
 from astrbot.dashboard.services.chatui_project_service import (
     ChatUIProjectService,
     ChatUIProjectServiceError,

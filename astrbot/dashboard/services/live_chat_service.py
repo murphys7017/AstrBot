@@ -8,7 +8,6 @@ import wave
 from typing import Any
 
 import jwt
-from quart import websocket
 
 from astrbot import logger
 from astrbot.core import sp
@@ -22,6 +21,7 @@ from astrbot.core.platform.sources.webchat.message_parts_helper import (
 from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queue_mgr
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path, get_astrbot_temp_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
+from astrbot.dashboard.asgi_runtime import websocket
 
 from .base import DashboardService, ServiceContext
 from .chat_service import (

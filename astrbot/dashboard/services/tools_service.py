@@ -1,12 +1,11 @@
 import traceback
 
-from quart import request
-
 from astrbot.core import logger
 from astrbot.core.agent.mcp_client import MCPTool, validate_mcp_stdio_config
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.star import star_map
 from astrbot.core.tools.registry import get_builtin_tool_config_statuses
+from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 

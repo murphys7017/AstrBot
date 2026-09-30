@@ -4,12 +4,11 @@ from dataclasses import asdict
 from datetime import datetime
 from io import BytesIO
 
-from quart import request, send_file
-
 from astrbot.core import logger
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.umo_alias import build_umo_alias_map, parse_umo, serialize_umo_alias
+from astrbot.dashboard.asgi_runtime import request, send_file
 
 from .base import DashboardService, Response, ServiceContext
 

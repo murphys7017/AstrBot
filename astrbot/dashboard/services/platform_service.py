@@ -6,8 +6,6 @@
 import secrets
 import string
 
-from quart import request
-
 from astrbot.core import logger
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.platform import Platform
@@ -24,6 +22,7 @@ from astrbot.core.platform.sources.weixin_oc.login_registration import (
     poll_weixin_oc_login_once,
     request_weixin_oc_login_qr,
 )
+from astrbot.dashboard.asgi_runtime import call_request_view, g, request
 
 from .base import DashboardService, Response, ServiceContext
 
@@ -62,8 +61,16 @@ class PlatformService(DashboardService):
 
         # 调用平台适配器的 webhook_callback 方法
         try:
-            result = await platform_adapter.webhook_callback(request)
-            return result
+
+            async def callback():
+                return await platform_adapter.webhook_callback(request)
+
+            return await call_request_view(
+                request._get_current_object()._request,
+                self.app,
+                callback,
+                g_obj=g._get_current_object(),
+            )
         except NotImplementedError:
             logger.error(
                 f"平台 {platform_adapter.meta().name} 未实现 webhook_callback 方法"

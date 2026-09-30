@@ -1,6 +1,5 @@
-from quart import abort, send_file
-
 from astrbot.core import file_token_service
+from astrbot.dashboard.asgi_runtime import abort, send_file
 
 from .base import DashboardService, ServiceContext
 

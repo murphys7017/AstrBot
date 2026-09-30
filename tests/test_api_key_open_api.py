@@ -5,12 +5,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from quart import Quart, g, request
 from werkzeug.datastructures import FileStorage
 
 from astrbot.core import LogBroker
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db.sqlite import SQLiteDatabase
+from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter as Quart
+from astrbot.dashboard.asgi_runtime import g, request
 from astrbot.dashboard.password_state import set_dashboard_password_hashes
 from astrbot.dashboard.routes.route import Response
 from astrbot.dashboard.server import AstrBotDashboard
@@ -19,16 +20,7 @@ TEST_DASHBOARD_PASSWORD = "AstrbotTest123"
 
 
 def _get_open_api_route(app: Quart):
-    rule = next(
-        (
-            item
-            for item in app.url_map.iter_rules()
-            if item.rule == "/api/v1/chat" and "POST" in item.methods
-        ),
-        None,
-    )
-    assert rule is not None
-    return app.view_functions[rule.endpoint].__self__
+    return app._app.state.services["open_api_route"]
 
 
 async def _create_api_key(
@@ -83,12 +75,12 @@ def app(core_lifecycle_td: AstrBotCoreLifecycle):
 async def authenticated_header(app: Quart, core_lifecycle_td: AstrBotCoreLifecycle):
     test_client = app.test_client()
     response = await test_client.post(
-            "/api/auth/login",
-            json={
-                "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
-                "password": TEST_DASHBOARD_PASSWORD,
-            },
-        )
+        "/api/auth/login",
+        json={
+            "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
+            "password": TEST_DASHBOARD_PASSWORD,
+        },
+    )
     data = await response.get_json()
     token = data["data"]["token"]
     return {"Authorization": f"Bearer {token}"}

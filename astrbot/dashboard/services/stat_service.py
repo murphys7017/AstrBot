@@ -11,7 +11,6 @@ from pathlib import Path
 
 import aiohttp
 import psutil
-from quart import request
 from sqlmodel import col, select
 
 from astrbot.core import DEMO_MODE, logger
@@ -32,6 +31,7 @@ from astrbot.core.utils.auth_password import (
 from astrbot.core.utils.io import get_dashboard_version
 from astrbot.core.utils.storage_cleaner import StorageCleaner
 from astrbot.core.utils.version_comparator import VersionComparator
+from astrbot.dashboard.asgi_runtime import request
 from astrbot.dashboard.password_state import (
     get_dashboard_password_hash,
     is_password_change_required,

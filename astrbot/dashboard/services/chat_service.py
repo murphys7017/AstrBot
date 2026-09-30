@@ -9,9 +9,6 @@ from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from quart import Response as QuartResponse
-from quart import g, make_response, request, send_file
-
 from astrbot.core import logger, sp
 from astrbot.core.agent.message import get_checkpoint_id, is_checkpoint_message
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
@@ -27,6 +24,8 @@ from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queu
 from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
+from astrbot.dashboard.asgi_runtime import AdapterResponse as QuartResponse
+from astrbot.dashboard.asgi_runtime import g, make_response, request, send_file
 
 from .base import DashboardService, Response, ServiceContext
 

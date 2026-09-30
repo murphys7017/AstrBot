@@ -10,7 +10,8 @@ Upstream reference: `26ff7673f`. Production ports 6185 and 6199 are reserved.
   behavior remains owned by the existing handlers and will be retained.
 - P1: native ASGI infrastructure input/output smoke passed, including request
   identity, body-size rejection and malformed JSON; production entry unchanged.
-- P2-P5: pending.
+- P2: services wired to the native Dashboard host; existing HTTP tests passed.
+- P3-P5: platform host, Pages UI and network acceptance still pending.
 
 ## Acceptance rules
 
@@ -44,3 +45,21 @@ The independent environment initially had a Windows `crypto`/`Crypto` casing
 collision and a newer MCP major than production. Repaired only the migration
 virtual environment and aligned MCP/Quart/FastAPI to the installed production
 versions for comparable acceptance; the production environment was not changed.
+
+## Checkpoint 3: native Dashboard cutover
+
+The branch now serves an actual FastAPI application through Hypercorn. Its
+factory wires the existing Core and 25 service instances without initializing
+another Core. Dashboard handlers use the native request context. Former server
+attributes and route import aliases remain available to existing callers.
+Dynamic plugin APIs and unified platform callbacks retain a bounded Quart
+compatibility context; native and old response bodies still stream incrementally.
+The v1 prefix is matched at a path boundary and remains API-Key-only.
+
+Existing tests passed on the native host: Dashboard 48, external API-Key 11,
+knowledge-base request contracts 5, platform response contracts 2. Adapted only
+framework setup and old class monkeypatch targets, preserving assertions.
+Corrected legacy response cleanup to use the Quart body context manager, native
+query iteration/first multipart value, and lowercase ASGI test headers.
+Live socket streaming, WS and browser acceptance remain pending; these HTTP
+tests do not prove configured production platforms or AG99 delivery.

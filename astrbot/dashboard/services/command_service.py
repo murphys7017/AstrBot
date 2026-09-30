@@ -1,5 +1,3 @@
-from quart import request
-
 from astrbot.core.star.command_management import (
     is_command_effectively_enabled,
     list_command_conflicts,
@@ -14,6 +12,7 @@ from astrbot.core.star.command_management import (
 from astrbot.core.star.command_management import (
     update_command_permission as update_command_permission_service,
 )
+from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 

@@ -6,8 +6,6 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from quart import request, send_file
-
 from astrbot.core import DEMO_MODE, logger
 from astrbot.core.computer.computer_client import (
     _discover_bay_credentials,
@@ -16,6 +14,7 @@ from astrbot.core.computer.computer_client import (
 from astrbot.core.skills.neo_skill_sync import NeoSkillSyncManager
 from astrbot.core.skills.skill_manager import SkillManager
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.dashboard.asgi_runtime import request, send_file
 
 from .base import DashboardService, Response, ServiceContext
 

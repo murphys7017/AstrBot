@@ -2,10 +2,9 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from quart import g, request
-
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.datetime_utils import normalize_datetime_utc
+from astrbot.dashboard.asgi_runtime import g, request
 
 from .base import DashboardService, Response, ServiceContext
 

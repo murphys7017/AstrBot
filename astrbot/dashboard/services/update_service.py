@@ -5,8 +5,6 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from quart import request
-
 from astrbot.core import DEMO_MODE, logger, pip_installer
 from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
@@ -25,6 +23,7 @@ from astrbot.core.utils.io import (
     extract_dashboard,
     get_dashboard_version,
 )
+from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 

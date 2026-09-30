@@ -1,4 +1,3 @@
-from quart import request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -8,6 +7,7 @@ from astrbot.core.db import BaseDatabase
 from astrbot.core.db.po import ConversationV2, Preference
 from astrbot.core.provider.entities import ProviderType
 from astrbot.core.umo_alias import build_umo_alias_map, parse_umo, serialize_umo_alias
+from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 

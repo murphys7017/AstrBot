@@ -4,10 +4,9 @@ import time
 from collections.abc import AsyncGenerator
 from typing import cast
 
-from quart import Response as QuartResponse
-from quart import make_response, request
-
 from astrbot.core import LogBroker, logger
+from astrbot.dashboard.asgi_runtime import AdapterResponse as QuartResponse
+from astrbot.dashboard.asgi_runtime import make_response, request
 
 from .base import DashboardService, Response, ServiceContext
 

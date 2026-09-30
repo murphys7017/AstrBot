@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 import jwt
-from quart import request, send_file
 
 from astrbot.core import logger
 from astrbot.core.backup.exporter import AstrBotExporter
@@ -24,6 +23,7 @@ from astrbot.core.utils.astrbot_path import (
     get_astrbot_backups_path,
     get_astrbot_data_path,
 )
+from astrbot.dashboard.asgi_runtime import request, send_file
 
 from .base import DashboardService, Response, ServiceContext
 

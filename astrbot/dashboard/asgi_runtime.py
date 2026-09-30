@@ -54,13 +54,28 @@ class RequestArgs:
     def __getitem__(self, key: str):
         return self._values[key]
 
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def __contains__(self, key: str):
+        return key in self._values
+
+    def keys(self):
+        return self._values.keys()
+
+    def items(self):
+        return self._values.items()
+
 
 class RequestMultiDict:
     def __init__(self, pairs: list[tuple[str, Any]]) -> None:
         self._pairs = pairs
 
     def get(self, key: str, default: Any = None, type: Callable | None = None):
-        for item_key, item_value in reversed(self._pairs):
+        for item_key, item_value in self._pairs:
             if item_key != key:
                 continue
             if type is None:
@@ -273,6 +288,7 @@ class AdapterTestResponse:
         self.data = response.content
         self.content = response.content
         self.text = response.text
+        self.content_type = response.headers.get("content-type", "")
 
     async def get_json(self):
         return self._response.json()
@@ -385,6 +401,9 @@ class _ContextProxy:
 
     def __getattr__(self, key: str):
         return getattr(self._var.get(), key)
+
+    def _get_current_object(self):
+        return self._var.get()
 
     def __setattr__(self, key: str, value: Any) -> None:
         if key == "_var":
@@ -580,12 +599,9 @@ async def _quart_response_to_starlette(
     extra_headers: dict[str, str] | None = None,
 ) -> Response:
     async def stream():
-        try:
-            async with quart_response.response as body:
-                async for chunk in body:
-                    yield chunk
-        finally:
-            await quart_response.close()
+        async with quart_response.response as body:
+            async for chunk in body:
+                yield chunk
 
     response = StreamingResponse(
         stream(),
@@ -731,6 +747,8 @@ class FastAPIAppAdapter:
     ) -> None:
         route_path = _convert_rule(path)
         methods = methods or ["GET"]
+        if "GET" in methods and "HEAD" not in methods:
+            methods = [*methods, "HEAD"]
 
         async def endpoint_func(request_: Request):
             with bind_request_context(request_, self) as state:
@@ -816,7 +834,7 @@ class FastAPIAppAdapter:
             "raw_path": message.url.raw_path.split(b"?")[0],
             "query_string": message.url.query,
             "root_path": "",
-            "headers": message.headers.raw,
+            "headers": [(key.lower(), value) for key, value in message.headers.raw],
             "client": ("127.0.0.1", 1234),
             "server": ("testserver", 80),
             "app": self._app,

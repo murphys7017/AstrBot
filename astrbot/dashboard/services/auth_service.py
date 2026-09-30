@@ -3,7 +3,6 @@ import datetime
 import os
 
 import jwt
-from quart import current_app, g, jsonify, make_response, request
 
 from astrbot import logger
 from astrbot.core import DEMO_MODE
@@ -12,6 +11,13 @@ from astrbot.core.utils.auth_password import (
     is_legacy_dashboard_password,
     validate_dashboard_password,
     verify_dashboard_password,
+)
+from astrbot.dashboard.asgi_runtime import (
+    current_app,
+    g,
+    jsonify,
+    make_response,
+    request,
 )
 from astrbot.dashboard.password_state import (
     get_dashboard_password_hash,

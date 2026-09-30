@@ -6,8 +6,6 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from quart import request
-
 from astrbot.core import file_token_service, logger
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.config.default import (
@@ -30,6 +28,7 @@ from astrbot.core.utils.astrbot_path import (
 )
 from astrbot.core.utils.llm_metadata import LLM_METADATAS
 from astrbot.core.utils.webhook_utils import ensure_platform_webhook_config
+from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 from .util import (

@@ -3,8 +3,6 @@ import hashlib
 import json
 from uuid import uuid4
 
-from quart import g, request, websocket
-
 from astrbot.core import logger
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
@@ -16,6 +14,7 @@ from astrbot.core.platform.sources.webchat.message_parts_helper import (
 )
 from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queue_mgr
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
+from astrbot.dashboard.asgi_runtime import g, request, websocket
 
 from .api_key_service import ALL_OPEN_API_SCOPES
 from .base import DashboardService, Response, ServiceContext

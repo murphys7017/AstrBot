@@ -2,10 +2,9 @@ import asyncio
 import traceback
 from datetime import datetime, timezone
 
-from quart import jsonify, request
-
 from astrbot.core import logger
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
+from astrbot.dashboard.asgi_runtime import jsonify, request
 
 from .base import DashboardService, Response, ServiceContext
 
