@@ -38,6 +38,12 @@ const MainRoutes = {
       component: () => import('@/views/ExtensionPage.vue')
     },
     {
+      name: 'PluginPage',
+      path: '/plugin-page/:pluginName/:pageName',
+      component: () => import('@/views/PluginPagePage.vue'),
+      props: true
+    },
+    {
       name: 'Platforms',
       path: '/platforms',
       component: () => import('@/views/PlatformPage.vue')

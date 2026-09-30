@@ -63,3 +63,15 @@ Corrected legacy response cleanup to use the Quart body context manager, native
 query iteration/first multipart value, and lowercase ASGI test headers.
 Live socket streaming, WS and browser acceptance remain pending; these HTTP
 tests do not prove configured production platforms or AG99 delivery.
+
+## Checkpoint 4: standalone webhook host and Pages route
+
+Standalone Slack, QQ official, WeCom, WeCom AI and Weixin official-account
+servers now use the bounded native ASGI host. Their existing `route`,
+`add_url_rule`, `run_task` and request-body contracts remain available, while
+platform-specific signature and plaintext response behavior stays in each
+adapter. QQ signature/extra-data and platform response tests passed (8).
+
+The frontend now registers `/plugin-page/:pluginName/:pageName`, matching the
+existing embedded Pages view and sidebar links. The dashboard package build was
+not run because this isolated worktree has no `dashboard/node_modules`.
