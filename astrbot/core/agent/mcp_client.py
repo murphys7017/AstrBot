@@ -19,6 +19,7 @@ from tenacity import (
 
 from astrbot import logger
 from astrbot.core.agent.run_context import ContextWrapper
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.log_pipe import LogPipe
 
 from .run_context import TContext
@@ -92,6 +93,8 @@ _DENIED_DOCKER_ARGS = frozenset(
     }
 )
 _STDIO_ALLOWLIST_ENV = "ASTRBOT_MCP_STDIO_ALLOWED_COMMANDS"
+_UV_COMMAND_NAMES = frozenset({"uv", "uvx"})
+_UV_CACHE_DIR_ENV = "UV_CACHE_DIR"
 
 try:
     import anyio
@@ -238,12 +241,22 @@ def validate_mcp_stdio_config(config: dict) -> None:
 
 
 def _prepare_stdio_env(config: dict) -> dict:
-    """Preserve Windows executable resolution for stdio subprocesses."""
-    if sys.platform != "win32":
-        return config
+    """Prepare stdio subprocess environment and isolate uv caches from user state."""
     prepared = config.copy()
     env = dict(prepared.get("env") or {})
-    env = _merge_environment_variables(env)
+    if sys.platform == "win32":
+        env = _merge_environment_variables(env)
+
+    command = prepared.get("command")
+    if (
+        isinstance(command, str)
+        and _normalize_stdio_command_name(command) in _UV_COMMAND_NAMES
+        and not any(key.lower() == _UV_CACHE_DIR_ENV.lower() for key in env)
+    ):
+        cache_dir = os.path.join(get_astrbot_data_path(), "uv-cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        env[_UV_CACHE_DIR_ENV] = cache_dir
+
     prepared["env"] = env
     return prepared
 
