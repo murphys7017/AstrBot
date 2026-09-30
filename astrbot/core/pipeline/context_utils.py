@@ -1,7 +1,7 @@
 import inspect
 import traceback
 import typing as T
-from contextlib import aclosing
+from contextlib import aclosing, closing
 
 from astrbot import logger
 from astrbot.core.message.message_event_result import CommandResult, MessageEventResult
@@ -12,14 +12,24 @@ from astrbot.core.plugin_admission import (
     capability_allowed,
     capability_kind_for_event_type,
 )
-from astrbot.core.plugin_runtime import plugin_supports_runtime_target
+from astrbot.core.plugin_runtime import (
+    plugin_owner_module_path,
+    plugin_supports_runtime_target,
+)
 from astrbot.core.star.star import star_map
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
+
+_PLUGIN_EXECUTION_RUNTIME_EXTRA_KEY = "_plugin_execution_runtime"
 
 
 async def call_handler(
     event: AstrMessageEvent,
-    handler: T.Callable[..., T.Awaitable[T.Any] | T.AsyncGenerator[T.Any, None]],
+    handler: T.Callable[
+        ...,
+        T.Awaitable[T.Any]
+        | T.AsyncGenerator[T.Any, None]
+        | T.Generator[T.Any, None, None],
+    ],
     *args,
     **kwargs,
 ) -> T.AsyncGenerator[T.Any, None]:
@@ -37,7 +47,7 @@ async def call_handler(
         AsyncGenerator[None, None]: 异步生成器，用于在管道中传递控制流
 
     """
-    ready_to_call = None  # 一个协程或者异步生成器
+    ready_to_call = None  # 一个协程、异步生成器或者同步生成器
 
     trace_ = None
 
@@ -71,6 +81,22 @@ async def call_handler(
         except Exception as e:
             logger.error(f"Previous Error: {trace_}")
             raise e
+    elif inspect.isgenerator(ready_to_call):
+        _has_yielded = False
+        try:
+            with closing(ready_to_call):
+                for ret in ready_to_call:
+                    _has_yielded = True
+                    if isinstance(ret, MessageEventResult | CommandResult):
+                        event.set_result(ret)
+                        yield
+                    else:
+                        yield ret
+            if not _has_yielded:
+                yield
+        except Exception:
+            logger.error("同步生成器 handler 执行失败", exc_info=True)
+            raise
     elif inspect.iscoroutine(ready_to_call):
         # 如果只是一个协程, 直接执行
         ret = await ready_to_call
@@ -86,6 +112,7 @@ async def call_event_hook(
     hook_type: EventType,
     *args,
     execution_surface: str | None = None,
+    plugin_execution_runtime: T.Any = None,
     **kwargs,
 ) -> bool:
     """调用事件钩子函数
@@ -103,6 +130,11 @@ async def call_event_hook(
         only_activated=kind is CapabilityKind.MANAGEMENT_HOOK,
         plugins_name=None,
     )
+    runtime = plugin_execution_runtime
+    if runtime is None:
+        get_extra = getattr(event, "get_extra", None)
+        if callable(get_extra):
+            runtime = get_extra(_PLUGIN_EXECUTION_RUNTIME_EXTRA_KEY, None)
     for handler in handlers:
         if execution_surface is None and not capability_allowed(
             event,
@@ -117,21 +149,44 @@ async def call_event_hook(
             execution_surface,
         ):
             continue
+        owner_module_path = (
+            plugin_owner_module_path(handler.handler_module_path)
+            or handler.handler_module_path
+        )
         try:
             assert inspect.iscoroutinefunction(handler.handler)
-            plugin = star_map.get(handler.handler_module_path)
+            plugin = star_map.get(owner_module_path)
             plugin_name = (
                 plugin.name if plugin is not None else handler.handler_module_path
             )
             logger.debug(
                 f"hook({hook_type.name}) -> {plugin_name} - {handler.handler_name}",
             )
-            await handler.handler(event, *args, **kwargs)
+
+            def on_draining(_exc) -> None:
+                logger.warning(
+                    "DIAG plugin.hook_skipped: event=%s handler=%s "
+                    "reason=module_draining module_path=%s",
+                    hook_type.name,
+                    handler.handler_name,
+                    owner_module_path,
+                )
+
+            if runtime is not None and owner_module_path:
+                executed = await runtime.run_foreground_call(
+                    (owner_module_path,),
+                    lambda: handler.handler(event, *args, **kwargs),
+                    on_draining=on_draining,
+                )
+                if not executed:
+                    continue
+            else:
+                await handler.handler(event, *args, **kwargs)
         except Exception:
             logger.error(traceback.format_exc())
 
         if event.is_stopped():
-            plugin = star_map.get(handler.handler_module_path)
+            plugin = star_map.get(owner_module_path)
             plugin_name = (
                 plugin.name if plugin is not None else handler.handler_module_path
             )

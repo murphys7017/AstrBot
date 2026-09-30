@@ -234,12 +234,18 @@ def resolve_owner_metadata(owner_module_path: str | None):
     direct = star_map.get(owner_module_path)
     if direct is not None:
         return direct
+    candidates = []
     for candidate_path, metadata in star_map.items():
-        if owner_module_path == candidate_path or owner_module_path.startswith(
-            f"{candidate_path}."
-        ):
-            return metadata
-    return None
+        registered_path = getattr(metadata, "module_path", None)
+        if not isinstance(registered_path, str) or not registered_path:
+            registered_path = candidate_path
+        prefixes = {candidate_path, registered_path}
+        if registered_path.rpartition(".")[2] == "main":
+            prefixes.add(registered_path.rpartition(".")[0])
+        for prefix in prefixes:
+            if prefix and owner_module_path.startswith(f"{prefix}."):
+                candidates.append((len(prefix), metadata))
+    return max(candidates, key=lambda item: item[0], default=(0, None))[1]
 
 
 def resolve_capability_admission(
@@ -381,10 +387,18 @@ def _frozen_owner_state(
     direct = owner_states.get(owner_module_path)
     if direct is not None:
         return direct
+    candidates = []
     for candidate_path, state in owner_states.items():
-        if owner_module_path.startswith(f"{candidate_path}."):
-            return state
-    return None
+        registered_path = getattr(state.instance, "module_path", None)
+        if not isinstance(registered_path, str) or not registered_path:
+            registered_path = candidate_path
+        prefixes = {candidate_path, registered_path}
+        if registered_path.rpartition(".")[2] == "main":
+            prefixes.add(registered_path.rpartition(".")[0])
+        for prefix in prefixes:
+            if prefix and owner_module_path.startswith(f"{prefix}."):
+                candidates.append((len(prefix), state))
+    return max(candidates, key=lambda item: item[0], default=(0, None))[1]
 
 
 def resolve_event_plugins_name(runtime_config: Any) -> list[str] | None:

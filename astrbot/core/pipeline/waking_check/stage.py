@@ -33,6 +33,7 @@ from astrbot.core.plugin_admission import (
     capability_allowed,
     resolve_event_plugins_name,
 )
+from astrbot.core.plugin_runtime import plugin_owner_module_path
 from astrbot.core.star.filter.command_group import CommandGroupFilter
 from astrbot.core.star.filter.permission import PermissionTypeFilter
 from astrbot.core.star.star import star_map
@@ -53,6 +54,12 @@ UNIQUE_SESSION_ID_BUILDERS: dict[str, Callable[[AstrMessageEvent], str | None]] 
 }
 
 HANDLER_DISCOVERY_METRICS_EXTRA = "_interaction_handler_discovery_metrics"
+
+
+def _handler_plugin_name(handler) -> str:
+    owner_module_path = plugin_owner_module_path(handler.handler_module_path)
+    metadata = star_map.get(owner_module_path) if owner_module_path else None
+    return getattr(metadata, "name", None) or handler.handler_module_path
 
 
 def build_unique_session_id(event: AstrMessageEvent) -> str | None:
@@ -155,7 +162,9 @@ async def _discover_activated_handlers(
             except Exception as exc:
                 await event.send(
                     MessageEventResult()
-                    .message(f"插件 {star_map[handler.handler_module_path].name}: {exc}")
+                    .message(
+                        f"插件 {_handler_plugin_name(handler)}: {exc}"
+                    )
                     .use_markdown(False),
                 )
                 event.stop_event()
@@ -173,7 +182,7 @@ async def _discover_activated_handlers(
                     )
                 logger.info(
                     "触发 %s 时, 用户(ID=%s) 权限不足。",
-                    star_map[handler.handler_module_path].name,
+                    _handler_plugin_name(handler),
                     event.get_sender_id(),
                 )
                 event.stop_event()

@@ -62,6 +62,7 @@ from astrbot.core.pipeline.respond.stage import RespondStage
 from astrbot.core.plugin_runtime import (
     PLUGIN_RUNTIME_TARGET_CORE,
     PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+    plugin_owner_module_path,
     tool_supports_runtime_target,
 )
 from astrbot.core.star.base import Star
@@ -109,6 +110,27 @@ def test_tool_stage_observer_classifies_research_tools_without_user_arguments():
         )
         is None
     )
+
+
+def test_plugin_owner_module_path_normalizes_handler_submodule_for_draining(
+    monkeypatch,
+):
+    plugin_module = "data.plugins.lifecycle_plugin.main"
+    monkeypatch.setitem(
+        star_map,
+        plugin_module,
+        StarMetadata(
+            name="lifecycle",
+            module_path=plugin_module,
+            root_dir_name="lifecycle_plugin",
+        ),
+    )
+
+    assert (
+        plugin_owner_module_path("data.plugins.lifecycle_plugin.services.handlers")
+        == plugin_module
+    )
+    assert plugin_owner_module_path("astrbot.core.builtin") is None
 
 
 @pytest.mark.asyncio

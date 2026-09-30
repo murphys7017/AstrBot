@@ -44,6 +44,7 @@ from astrbot.core.persona_error_reply import (
     extract_persona_custom_error_message_from_event,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.plugin_runtime import plugin_owner_module_path
 from astrbot.core.star.star import star_map
 from astrbot.core.star.star_handler import StarHandlerMetadata, star_handlers_registry
 
@@ -115,7 +116,8 @@ class ProcessStage(Stage):
             registered = star_handlers_registry.get_handler_by_full_name(
                 handler.handler_full_name,
             )
-            plugin = star_map.get(handler.handler_module_path)
+            owner_module_path = plugin_owner_module_path(handler.handler_module_path)
+            plugin = star_map.get(owner_module_path)
             if registered is not handler or plugin is None or not plugin.activated:
                 stale_count += 1
                 continue
@@ -376,15 +378,9 @@ class ProcessStage(Stage):
                 branch_event=branch_event,
                 result=branch_result,
                 run_job=run_plugin_job,
-                module_paths=tuple(
-                    sorted(
-                        {
-                            handler.handler_module_path
-                            for handler in activated_handlers
-                            if handler.handler_module_path
-                        }
-                    )
-                ),
+                # Each Handler acquires its own foreground lease. A Job-level
+                # lease here would make one draining plugin block every owner.
+                module_paths=(),
                 completion_handler=complete_plugin_job,
             )
 
@@ -598,13 +594,17 @@ class ProcessStage(Stage):
                 middleware.output_controller if middleware is not None else None
             )
             execution_result = PluginBranchResult()
-            plugin_source = self._get_plugin_handler_executor().process(
-                event,
-                output_controller=output_controller,
-                submission=submission,
-                run_agent_turn=self._run_agent_turn,
-                result=execution_result,
-            )
+
+            def run_handler():
+                return self._get_plugin_handler_executor().process(
+                    event,
+                    output_controller=output_controller,
+                    submission=submission,
+                    run_agent_turn=self._run_agent_turn,
+                    result=execution_result,
+                )
+
+            plugin_source = run_handler()
             async with aclosing(plugin_source):
                 async for _ in plugin_source:
                     yield
@@ -973,13 +973,16 @@ class ProcessStage(Stage):
             middleware.output_controller if middleware is not None else None
         )
         execution_result = PluginBranchResult()
-        plugin_source = self._get_plugin_handler_executor().process(
-            event,
-            output_controller=output_controller,
-            submission=submission,
-            run_agent_turn=self._run_core_agent_only,
-            result=execution_result,
-        )
+        def run_handler():
+            return self._get_plugin_handler_executor().process(
+                event,
+                output_controller=output_controller,
+                submission=submission,
+                run_agent_turn=self._run_core_agent_only,
+                result=execution_result,
+            )
+
+        plugin_source = run_handler()
         async with aclosing(plugin_source):
             async for item in plugin_source:
                 yield item

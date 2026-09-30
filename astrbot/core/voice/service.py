@@ -7,7 +7,11 @@ from typing import Any, Literal
 from astrbot.core import file_token_service, logger
 from astrbot.core.message.components import Record
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
-from astrbot.core.star.star_handler import EventType, star_handlers_registry
+from astrbot.core.plugin_admission import (
+    CapabilityKind,
+    build_plugin_admission_snapshot,
+    capability_allowed,
+)
 
 
 class VoiceServiceError(RuntimeError):
@@ -105,13 +109,65 @@ def build_tts_delivery_metadata(
 
 
 async def _emit_tts_state(event: AstrMessageEvent, state: TTSState) -> None:
+    from astrbot.core.plugin_runtime import plugin_owner_module_path
+    from astrbot.core.star.star_handler import EventType, star_handlers_registry
+
+    try:
+        await build_plugin_admission_snapshot(event=event)
+    except Exception:  # noqa: BLE001
+        # Listener admission must fail closed without breaking the TTS request.
+        logger.warning(
+            "TTS state listener admission unavailable; skipping plugin listeners",
+            exc_info=True,
+        )
+        return
+
     handlers = star_handlers_registry.get_handlers_by_event_type(
         EventType.OnTTSStateChangedEvent,
         plugins_name=event.plugins_name,
     )
+    runtime = event.get_extra("_plugin_execution_runtime", None)
     for handler in handlers:
         try:
-            await handler.handler(event, state)
+            owner_module_path = (
+                plugin_owner_module_path(handler.handler_module_path)
+                or handler.handler_module_path
+            )
+            if isinstance(owner_module_path, str) and owner_module_path:
+                if not capability_allowed(
+                    event,
+                    kind=CapabilityKind.OUTPUT_HOOK,
+                    owner_module_path=owner_module_path,
+                    item_name=handler.handler_name,
+                ):
+                    continue
+            hook_skipped = False
+
+            def on_draining(_exc) -> None:
+                nonlocal hook_skipped
+                hook_skipped = True
+                logger.warning(
+                    "DIAG plugin.hook_skipped: event=%s handler=%s "
+                    "reason=module_draining module_path=%s",
+                    EventType.OnTTSStateChangedEvent.name,
+                    handler.handler_name,
+                    owner_module_path,
+                )
+
+            if (
+                runtime is not None
+                and isinstance(owner_module_path, str)
+                and owner_module_path
+            ):
+                await runtime.run_foreground_call(
+                    (owner_module_path,),
+                    lambda: handler.handler(event, state),
+                    on_draining=on_draining,
+                )
+            else:
+                await handler.handler(event, state)
+            if hook_skipped:
+                continue
         except Exception:  # noqa: BLE001
             logger.error(
                 "TTS state listener failed: handler=%s request_id=%s status=%s",

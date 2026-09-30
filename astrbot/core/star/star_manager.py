@@ -905,6 +905,7 @@ class PluginManager:
         specified_plugin_name=None,
         *,
         pre_drained_module_path: str | None = None,
+        defer_load: bool = False,
     ):
         specified_module_path = None
         if specified_plugin_name:
@@ -963,6 +964,9 @@ class PluginManager:
                             smd.name,
                             specified_module_path,
                         )
+
+        if defer_load:
+            return None
 
         result = await self.load(specified_module_path)
 
@@ -1355,10 +1359,33 @@ class PluginManager:
                 )
                 for handler in handlers:
                     try:
-                        logger.info(
-                            f"hook(on_plugin_loaded) -> {star_map[handler.handler_module_path].name} - {handler.handler_name}",
+                        from astrbot.core.plugin_runtime import (
+                            plugin_owner_module_path,
                         )
-                        await handler.handler(metadata)
+
+                        owner_module_path = (
+                            plugin_owner_module_path(handler.handler_module_path)
+                            or handler.handler_module_path
+                        )
+                        owner = star_map.get(owner_module_path)
+                        logger.info(
+                            f"hook(on_plugin_loaded) -> {owner.name if owner is not None else owner_module_path} - {handler.handler_name}",
+                        )
+                        runtime = getattr(self, "plugin_execution_runtime", None)
+                        if runtime is not None and owner_module_path:
+                            await runtime.run_foreground_call(
+                                (owner_module_path,),
+                                lambda: handler.handler(metadata),
+                                on_draining=lambda _exc: logger.warning(
+                                    "DIAG plugin.hook_skipped: event=%s handler=%s "
+                                    "reason=module_draining module_path=%s",
+                                    EventType.OnPluginLoadedEvent.name,
+                                    handler.handler_name,
+                                    owner_module_path,
+                                ),
+                            )
+                        else:
+                            await handler.handler(metadata)
                     except Exception:
                         logger.error(traceback.format_exc())
 
@@ -1786,9 +1813,17 @@ class PluginManager:
                 plugin = p
                 del star_registry[i]
                 break
-        for handler in star_handlers_registry.get_handlers_by_module_name(
-            plugin_module_path,
-        ):
+        module_prefix = ".".join(plugin_module_path.split(".")[:-1])
+        handlers_to_remove = [
+            handler
+            for handler in star_handlers_registry
+            if handler.handler_module_path == plugin_module_path
+            or (
+                module_prefix
+                and handler.handler_module_path.startswith(f"{module_prefix}.")
+            )
+        ]
+        for handler in handlers_to_remove:
             logger.info(
                 f"移除了插件 {plugin_name} 的处理函数 {handler.handler_name} ({len(star_handlers_registry)})",
             )
@@ -1800,11 +1835,6 @@ class PluginManager:
             if k.startswith(plugin_module_path)
         ]:
             del star_handlers_registry.star_handlers_map[k]
-
-        # Derived once, before it is first used: the tool-matching loop below
-        # needs the parent package prefix, and a partial teardown must never
-        # abort midway and leave the plugin half-unbound.
-        module_prefix = ".".join(plugin_module_path.split(".")[:-1])
 
         # Remove this plugin's tools from the LLM tool manager. Matching covers
         # the resolved handler module path and the live handler definition, so a
@@ -1896,6 +1926,13 @@ class PluginManager:
                 )
 
         self.context.remove_prompt_extension_collectors_by_module_prefix(module_prefix)
+        remove_prompt_contributors = getattr(
+            self.context,
+            "remove_interaction_prompt_contributors_by_module_prefix",
+            None,
+        )
+        if callable(remove_prompt_contributors):
+            remove_prompt_contributors(module_prefix)
         self.context.remove_interaction_result_contributors_by_module_prefix(
             module_prefix
         )
@@ -1936,7 +1973,9 @@ class PluginManager:
                 await self._reload_locked(
                     plugin_name,
                     pre_drained_module_path=plugin_module_path,
+                    defer_load=True,
                 )
+            await self.load(plugin_module_path)
 
     async def turn_off_plugin(self, plugin_name: str) -> None:
         """禁用一个插件。
@@ -1977,8 +2016,7 @@ class PluginManager:
             await sp.global_put("inactivated_plugins", inactivated_plugins)
             await sp.global_put("inactivated_llm_tools", inactivated_llm_tools)
 
-    @staticmethod
-    async def _terminate_plugin(star_metadata: StarMetadata) -> None:
+    async def _terminate_plugin(self, star_metadata: StarMetadata) -> None:
         """终止插件，调用插件的 terminate() 和 __del__() 方法"""
         logger.info(f"正在终止插件 {star_metadata.name} ...")
 
@@ -2019,10 +2057,35 @@ class PluginManager:
         )
         for handler in handlers:
             try:
-                logger.info(
-                    f"hook(on_plugin_unloaded) -> {star_map[handler.handler_module_path].name} - {handler.handler_name}",
+                from astrbot.core.plugin_runtime import plugin_owner_module_path
+
+                owner_module_path = (
+                    plugin_owner_module_path(handler.handler_module_path)
+                    or handler.handler_module_path
                 )
-                await handler.handler(star_metadata)
+                owner = star_map.get(owner_module_path)
+                logger.info(
+                    f"hook(on_plugin_unloaded) -> {owner.name if owner is not None else owner_module_path} - {handler.handler_name}",
+                )
+                runtime = getattr(self, "plugin_execution_runtime", None)
+                if (
+                    runtime is not None
+                    and not runtime.is_closed
+                    and owner_module_path
+                ):
+                    await runtime.run_foreground_call(
+                        (owner_module_path,),
+                        lambda: handler.handler(star_metadata),
+                        on_draining=lambda _exc: logger.warning(
+                            "DIAG plugin.hook_skipped: event=%s handler=%s "
+                            "reason=module_draining module_path=%s",
+                            EventType.OnPluginUnloadedEvent.name,
+                            handler.handler_name,
+                            owner_module_path,
+                        ),
+                    )
+                else:
+                    await handler.handler(star_metadata)
             except Exception:
                 logger.error(traceback.format_exc())
 

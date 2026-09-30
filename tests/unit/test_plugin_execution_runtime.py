@@ -43,8 +43,15 @@ from astrbot.core.interaction.visible_message_fingerprint import (
 )
 from astrbot.core.message.components import Image, Plain
 from astrbot.core.message.message_event_result import MessageChain
+from astrbot.core.pipeline.process_stage.method.star_request import StarRequestSubStage
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.star.star import StarMetadata, star_map
+from astrbot.core.star.star_handler import (
+    EventType,
+    StarHandlerMetadata,
+    star_handlers_registry,
+)
 
 
 class _CoordinatorEvent:
@@ -180,6 +187,180 @@ async def test_plugin_module_drain_timeout_aborts_management_without_releasing_j
 
     release_job.set()
     await job.wait_completed()
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_foreground_plugin_execution_releases_module_lease_after_completion():
+    runtime = PluginExecutionRuntime()
+    module_path = "data.plugins.demo.main"
+    callback_called = False
+
+    async def run_handler():
+        nonlocal callback_called
+        callback_called = True
+        yield "result"
+
+    source = runtime.run_foreground((module_path,), run_handler)
+    values = [item async for item in source]
+
+    assert values == ["result"]
+    assert callback_called
+    await runtime.begin_module_draining(module_path, timeout_seconds=0.01)
+    runtime.end_module_draining(module_path)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_foreground_plugin_execution_skips_callback_while_draining():
+    runtime = PluginExecutionRuntime()
+    module_path = "data.plugins.demo.main"
+    callback_called = False
+    await runtime.begin_module_draining(module_path)
+
+    async def run_handler():
+        nonlocal callback_called
+        callback_called = True
+        yield "unexpected"
+
+    with pytest.raises(PluginModuleDrainingError):
+        async for _ in runtime.run_foreground((module_path,), run_handler):
+            pass
+
+    assert not callback_called
+    runtime.end_module_draining(module_path)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_foreground_draining_one_module_does_not_block_another():
+    runtime = PluginExecutionRuntime()
+    draining_module = "data.plugins.draining.main"
+    healthy_module = "data.plugins.healthy.main"
+    skipped: list[str] = []
+    await runtime.begin_module_draining(draining_module)
+
+    async def run_draining_handler():
+        raise AssertionError("draining Handler must not be called")
+        yield
+
+    async def run_healthy_handler():
+        yield "healthy"
+
+    draining_source = runtime.run_foreground(
+        (draining_module,),
+        run_draining_handler,
+        on_draining=lambda exc: skipped.append(exc.module_path),
+    )
+    assert [item async for item in draining_source] == []
+    assert [item async for item in runtime.run_foreground(
+        (healthy_module,),
+        run_healthy_handler,
+    )] == ["healthy"]
+    assert skipped == [draining_module]
+
+    runtime.end_module_draining(draining_module)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_star_request_skips_only_the_draining_handler(monkeypatch):
+    draining_module = "data.plugins.draining.main"
+    healthy_module = "data.plugins.healthy.main"
+    draining_handler_module = "data.plugins.draining.handlers"
+    healthy_handler_module = "data.plugins.healthy.handlers"
+    monkeypatch.setitem(
+        star_map,
+        draining_module,
+        StarMetadata(name="draining", module_path=draining_module),
+    )
+    monkeypatch.setitem(
+        star_map,
+        healthy_module,
+        StarMetadata(name="healthy", module_path=healthy_module),
+    )
+    runtime = PluginExecutionRuntime()
+    await runtime.begin_module_draining(draining_module)
+
+    async def draining_handler(_event):
+        raise AssertionError("draining Handler must not be called")
+        yield
+
+    async def healthy_handler(_event):
+        yield "healthy result"
+
+    handlers = [
+        StarHandlerMetadata(
+            event_type=EventType.AdapterMessageEvent,
+            handler_full_name=f"{draining_handler_module}_handler",
+            handler_name="draining_handler",
+            handler_module_path=draining_handler_module,
+            handler=draining_handler,
+            event_filters=[],
+        ),
+        StarHandlerMetadata(
+            event_type=EventType.AdapterMessageEvent,
+            handler_full_name=f"{healthy_handler_module}_handler",
+            handler_name="healthy_handler",
+            handler_module_path=healthy_handler_module,
+            handler=healthy_handler,
+            event_filters=[],
+        ),
+    ]
+    handlers_by_name = {
+        handler.handler_full_name: handler for handler in handlers
+    }
+    monkeypatch.setattr(
+        star_handlers_registry,
+        "get_handler_by_full_name",
+        handlers_by_name.get,
+    )
+    extras = {"activated_handlers": handlers, "handlers_parsed_params": {}}
+
+    class Event:
+        session_id = "session-1"
+
+        def get_extra(self, key=None, default=None):
+            return extras if key is None else extras.get(key, default)
+
+        def set_extra(self, key, value):
+            extras[key] = value
+
+        def is_stopped(self):
+            return False
+
+        def get_platform_id(self):
+            return "platform-1"
+
+        def clear_result(self):
+            return None
+
+    stage = StarRequestSubStage()
+    stage.ctx = SimpleNamespace(plugin_execution_runtime=runtime)
+    result = [item async for item in stage.process(Event())]
+
+    assert result == ["healthy result"]
+    assert extras["_interaction_plugin_handler_skipped_reason"] is None
+
+    runtime.end_module_draining(draining_module)
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_foreground_plugin_execution_releases_module_lease_on_failure():
+    runtime = PluginExecutionRuntime()
+    module_path = "data.plugins.demo.main"
+
+    async def run_handler():
+        yield "before failure"
+        raise RuntimeError("handler failed")
+
+    with pytest.raises(RuntimeError, match="handler failed"):
+        async for _ in runtime.run_foreground((module_path,), run_handler):
+            pass
+
+    await runtime.begin_module_draining(module_path, timeout_seconds=0.01)
+    runtime.end_module_draining(module_path)
     await runtime.shutdown()
 
 

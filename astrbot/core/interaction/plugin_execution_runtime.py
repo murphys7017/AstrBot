@@ -4,8 +4,8 @@ import asyncio
 import contextvars
 import time
 import uuid
-from collections.abc import Awaitable, Callable
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import aclosing, contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +23,9 @@ PluginGatePublisher = Callable[[PluginGateResolution], PluginGateResolution]
 PluginJobRunner = Callable[[PluginGatePublisher], Awaitable[None]]
 PluginLeaseReleaser = Callable[[], Awaitable[None]]
 PluginJobCompletionHandler = Callable[["PluginExecutionJob"], Awaitable[None]]
+PluginForegroundRunner = Callable[[], AsyncGenerator[Any, None]]
+PluginForegroundCall = Callable[[], Awaitable[Any]]
+PluginForegroundDrainingHandler = Callable[["PluginModuleDrainingError"], None]
 
 DEFAULT_PLUGIN_MODULE_DRAIN_TIMEOUT_SECONDS = 15.0
 
@@ -207,6 +210,69 @@ class PluginExecutionRuntime:
                 self._module_lease_counts.get(module_path, 0) + 1
             )
         return PluginModuleLease(self, unique_paths)
+
+    @property
+    def is_closed(self) -> bool:
+        """Whether the runtime has completed its shutdown transition."""
+        return self._closed
+
+    async def run_foreground(
+        self,
+        module_paths: list[str] | tuple[str, ...],
+        run: PluginForegroundRunner,
+        *,
+        on_draining: PluginForegroundDrainingHandler | None = None,
+    ) -> AsyncGenerator[Any, None]:
+        """Run one legacy foreground Handler invocation under a module lease.
+
+        The lease is acquired before the callback is invoked and is released
+        whenever the returned async stream is exhausted, failed, or closed.
+        Callers can therefore use the same ``aclosing`` pattern as the
+        underlying Handler source without managing reload/disable admission
+        themselves. ``on_draining`` handles admission rejection separately from
+        errors raised by the Handler itself.
+        """
+
+        try:
+            lease = self.acquire_module_lease(module_paths)
+        except PluginModuleDrainingError as exc:
+            if on_draining is None:
+                raise
+            on_draining(exc)
+            return
+        try:
+            source = run()
+            async with aclosing(source):
+                async for item in source:
+                    yield item
+        finally:
+            await lease.release()
+
+    async def run_foreground_call(
+        self,
+        module_paths: list[str] | tuple[str, ...],
+        run: PluginForegroundCall,
+        *,
+        on_draining: PluginForegroundDrainingHandler | None = None,
+    ) -> bool:
+        """Run one non-streaming plugin callback under a module lease.
+
+        Returns ``False`` when admission was rejected because the owner module
+        is draining and an ``on_draining`` callback handled that rejection.
+        """
+
+        try:
+            lease = self.acquire_module_lease(module_paths)
+        except PluginModuleDrainingError as exc:
+            if on_draining is None:
+                raise
+            on_draining(exc)
+            return False
+        try:
+            await run()
+            return True
+        finally:
+            await lease.release()
 
     def _bind_module_lease_job(
         self,

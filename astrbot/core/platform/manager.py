@@ -13,6 +13,7 @@ from astrbot.core.config.domains import (
     RuntimeResourceRegistry,
     materialize_config_value,
 )
+from astrbot.core.plugin_runtime import plugin_owner_module_path
 from astrbot.core.star.star_handler import EventType, star_handlers_registry, star_map
 from astrbot.core.utils.webhook_utils import ensure_platform_webhook_config
 
@@ -37,6 +38,7 @@ class PlatformManager:
         event_queue: Queue,
         resource_registry: RuntimeResourceRegistry | None = None,
         config_manager: AstrBotConfigManager | None = None,
+        plugin_execution_runtime=None,
     ) -> None:
         self.platform_insts: list[Platform] = []
         """加载的 Platform 的实例"""
@@ -55,6 +57,7 @@ class PlatformManager:
         这个配置中的 unique_session 需要特殊处理，
         约定整个项目中对 unique_session 的引用都从 default 的配置中获取"""
         self.event_queue = event_queue
+        self.plugin_execution_runtime = plugin_execution_runtime
 
     def _apply_resource_registry(
         self, resource_registry: RuntimeResourceRegistry | None
@@ -309,10 +312,29 @@ class PlatformManager:
         )
         for handler in handlers:
             try:
-                logger.info(
-                    f"hook(on_platform_loaded) -> {star_map[handler.handler_module_path].name} - {handler.handler_name}",
+                owner_module_path = (
+                    plugin_owner_module_path(handler.handler_module_path)
+                    or handler.handler_module_path
                 )
-                await handler.handler()
+                plugin = star_map.get(owner_module_path)
+                logger.info(
+                    f"hook(on_platform_loaded) -> {plugin.name if plugin is not None else owner_module_path} - {handler.handler_name}",
+                )
+                runtime = getattr(self, "plugin_execution_runtime", None)
+                if runtime is not None and owner_module_path:
+                    await runtime.run_foreground_call(
+                        (owner_module_path,),
+                        handler.handler,
+                        on_draining=lambda _exc: logger.warning(
+                            "DIAG plugin.hook_skipped: event=%s handler=%s "
+                            "reason=module_draining module_path=%s",
+                            EventType.OnPlatformLoadedEvent.name,
+                            handler.handler_name,
+                            owner_module_path,
+                        ),
+                    )
+                else:
+                    await handler.handler()
             except Exception:
                 logger.error(traceback.format_exc())
 

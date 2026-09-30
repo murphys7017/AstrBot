@@ -31,6 +31,7 @@ from astrbot.core.plugin_admission import (
     build_plugin_admission_snapshot,
     capability_allowed,
 )
+from astrbot.core.plugin_runtime import plugin_owner_module_path
 from astrbot.core.postprocess import dispatch_postprocess, get_postprocess_manager
 from astrbot.core.postprocess.types import PostProcessTrigger
 from astrbot.core.provider.entities import ProviderRequest
@@ -111,6 +112,7 @@ class PreOutputProcessor:
             only_activated=False,
             plugins_name=None,
         )
+        runtime = event.get_extra("_plugin_execution_runtime", None)
         for handler in handlers:
             if not capability_allowed(
                 event,
@@ -119,7 +121,11 @@ class PreOutputProcessor:
                 item_name=handler.handler_name,
             ):
                 continue
-            plugin = star_map.get(handler.handler_module_path)
+            owner_module_path = (
+                plugin_owner_module_path(handler.handler_module_path)
+                or handler.handler_module_path
+            )
+            plugin = star_map.get(owner_module_path)
             plugin_name = (
                 plugin.name if plugin is not None else handler.handler_module_path
             )
@@ -133,7 +139,29 @@ class PreOutputProcessor:
                     logger.warning(
                         "启用流式输出时，依赖发送消息前事件钩子的插件可能无法正常工作"
                     )
-                await handler.handler(event)
+                hook_skipped = False
+
+                def on_draining(_exc) -> None:
+                    nonlocal hook_skipped
+                    hook_skipped = True
+                    logger.warning(
+                        "DIAG plugin.hook_skipped: event=%s handler=%s "
+                        "reason=module_draining module_path=%s",
+                        EventType.OnDecoratingResultEvent.name,
+                        handler.handler_name,
+                        owner_module_path,
+                    )
+
+                if runtime is not None and owner_module_path:
+                    await runtime.run_foreground_call(
+                        (owner_module_path,),
+                        lambda: handler.handler(event),
+                        on_draining=on_draining,
+                    )
+                else:
+                    await handler.handler(event)
+                if hook_skipped:
+                    continue
                 result = event.get_result()
                 if result is None or not result.chain:
                     logger.debug(

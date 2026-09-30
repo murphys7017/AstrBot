@@ -48,6 +48,7 @@ from astrbot.core.pipeline.scheduler import PipelineContext, PipelineScheduler
 from astrbot.core.platform.manager import PlatformManager
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform_message_history_mgr import PlatformMessageHistoryManager
+from astrbot.core.plugin_runtime import plugin_owner_module_path
 from astrbot.core.postprocess import get_postprocess_manager
 from astrbot.core.provider.manager import ProviderManager
 from astrbot.core.star.context import Context
@@ -347,6 +348,7 @@ class AstrBotCoreLifecycle:
             self.event_queue,
             resource_registry=self.astrbot_config_mgr.get_resource_registry(),
             config_manager=self.astrbot_config_mgr,
+            plugin_execution_runtime=self.plugin_execution_runtime,
         )
 
         # 初始化对话管理器
@@ -585,12 +587,31 @@ class AstrBotCoreLifecycle:
         handlers = star_handlers_registry.get_handlers_by_event_type(
             EventType.OnAstrBotLoadedEvent,
         )
+        runtime = self.plugin_execution_runtime
         for handler in handlers:
             try:
-                logger.info(
-                    f"hook(on_astrbot_loaded) -> {star_map[handler.handler_module_path].name} - {handler.handler_name}",
+                owner_module_path = (
+                    plugin_owner_module_path(handler.handler_module_path)
+                    or handler.handler_module_path
                 )
-                await handler.handler()
+                plugin = star_map.get(owner_module_path)
+                logger.info(
+                    f"hook(on_astrbot_loaded) -> {plugin.name if plugin is not None else owner_module_path} - {handler.handler_name}",
+                )
+                def on_draining(_exc) -> None:
+                    logger.warning(
+                        "DIAG plugin.hook_skipped: event=%s handler=%s "
+                        "reason=module_draining module_path=%s",
+                        EventType.OnAstrBotLoadedEvent.name,
+                        handler.handler_name,
+                        owner_module_path,
+                    )
+
+                await runtime.run_foreground_call(
+                    (owner_module_path,),
+                    handler.handler,
+                    on_draining=on_draining,
+                )
             except BaseException:
                 logger.error(traceback.format_exc())
 

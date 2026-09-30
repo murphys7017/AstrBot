@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING
 from astrbot.core import logger
 from astrbot.core.db import BaseDatabase
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.plugin_admission import (
+    CapabilityKind,
+    build_plugin_admission_snapshot,
+    capability_allowed,
+)
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.skills.skill_manager import SkillInfo, SkillManager
 from astrbot.core.star.context import Context
@@ -44,9 +49,10 @@ class SkillsCollector(ContextCollectorInterface):
         runtime = self._resolve_runtime(config)
 
         try:
+            await build_plugin_admission_snapshot(event=event)
             skills = self._filter_skills_for_current_config(
                 self._load_active_skills(runtime),
-                config.provider_settings,
+                event,
             )
             workspace_skills = await self._load_workspace_skills(
                 event,
@@ -85,15 +91,8 @@ class SkillsCollector(ContextCollectorInterface):
     def _filter_skills_for_current_config(
         self,
         skills: list[SkillInfo],
-        provider_settings: object,
+        event: AstrMessageEvent,
     ) -> list[SkillInfo]:
-        settings = provider_settings if isinstance(provider_settings, dict) else {}
-        plugin_set = settings.get("plugin_set", ["*"])
-        allowed_plugins = (
-            None
-            if not isinstance(plugin_set, list) or "*" in plugin_set
-            else {str(name) for name in plugin_set}
-        )
         plugin_by_root_dir = {
             metadata.root_dir_name: metadata
             for metadata in star_registry
@@ -107,10 +106,13 @@ class SkillsCollector(ContextCollectorInterface):
             plugin = plugin_by_root_dir.get(skill.plugin_name)
             if not plugin or not plugin.activated:
                 continue
-            if plugin.reserved or allowed_plugins is None:
-                filtered.append(skill)
-                continue
-            if plugin.name is not None and plugin.name in allowed_plugins:
+            if capability_allowed(
+                event,
+                kind=CapabilityKind.PROMPT_EXTENSION,
+                owner_module_path=plugin.module_path,
+                owner_plugin_name=plugin.name,
+                item_name=skill.name,
+            ):
                 filtered.append(skill)
         return filtered
 

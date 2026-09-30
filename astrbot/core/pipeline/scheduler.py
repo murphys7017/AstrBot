@@ -99,6 +99,11 @@ class PipelineScheduler:
         if get_interaction_turn_runtime_config(event) is None:
             event.set_extra("_astrbot_config", self.ctx.astrbot_config)
             event.set_extra("_astrbot_config_id", self.ctx.astrbot_config_id)
+        if self.ctx.plugin_execution_runtime is not None:
+            event.set_extra(
+                "_plugin_execution_runtime",
+                self.ctx.plugin_execution_runtime,
+            )
         active_event_registry.register(event)
         try:
             await self._process_stages(event)

@@ -1,3 +1,68 @@
+knowledge_base_cleaning_and_async_io_repair:
+  date: '2026-09-30'
+  class: performance
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Bound knowledge-base content-cleaning task fan-out to a fixed worker pool
+    with a bounded queue while preserving chunk order and fallback behavior.
+    Replace synchronous audio/TTS/download file operations in async paths with
+    aiofiles or thread offloading. Reuse one query embedding per shared
+    provider during multi-knowledge-base dense retrieval and search indexes
+    concurrently. Coalesce FAISS index checkpoints for single-item mutations
+    and flush pending writes during vector-store shutdown. Bound file-extract
+    workers per input and reuse one HTTP session across web-search key
+    failover attempts. Batch long-term memory index hydration and offload
+    Markdown/YAML body parsing from the event loop.
+  non_goals: >-
+    Do not change EventBus admission policy, provider request contracts,
+    download response semantics, or the user's unrelated dirty worktree.
+  validation: >-
+    Targeted RateLimiter, file-download, file-component, and knowledge-base
+    retrieval tests passed; modified files passed Ruff, compileall, and git
+    diff --check. An in-memory shared-provider smoke confirmed one embedding
+    request for two knowledge bases. FAISS deferred persistence passed its
+    reload smoke test. The modified attachment/web-search files passed Ruff,
+    compileall, and diff checks; high-level test collection is currently
+    blocked by pre-existing plugin_runtime/voice circular-import changes in
+    the dirty worktree. Focused memory document-search tests passed.
+  followup: >-
+    After restart, run one cleaned URL ingestion with enough chunks to confirm
+    bounded worker behavior and verify audio/TTS/download flows under normal
+    traffic.
+
+plugin_compatibility_lifecycle_admission_repair:
+  date: '2026-09-30'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Preserve synchronous generator Handler compatibility, make the default
+    serial Handler paths participate in PluginExecutionRuntime foreground
+    execution and module leases, skip a draining plugin without re-entering its
+    old Handler path, normalize Handler submodule paths to the registered
+    plugin root for reload safety, and make Skills use the shared per-turn
+    plugin admission snapshot.
+  non_goals: >-
+    Do not enable parallel plugin execution by default, move synchronous
+    Handlers to a thread pool, change OnCallingFuncToolEvent dispatch, or
+    alter Personal/Core output policy.
+  validation: >-
+    Focused plugin runtime, Handler compatibility, waking-check race,
+    interaction-runtime, and context-utils validation passed 60 tests.
+    Coverage includes synchronous generators, foreground lease release,
+    multi-Handler draining, sibling-module ownership, and an unloaded-plugin
+    filter-error regression. Plugin-manager validation passed 42 tests with one
+    pre-existing failure in the runtime-extension cleanup fixture (the source
+    does not call the expected prompt-contributor cleanup hook). Ruff,
+    compileall, and git diff checks passed. No live reload or platform
+    acceptance was performed.
+  followup: >-
+    After restart, reload or disable a plugin with a Handler in a child module
+    while a turn is active; confirm the old Handler is drained, no duplicate
+    plugin output appears, and Personal/Core continues. Verify plugin_set and
+    Skills inventory agree in one real Profile.
+
 minimax_preview_strict_contract_boundary:
   date: '2026-09-30'
   class: bugfix

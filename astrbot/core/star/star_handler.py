@@ -161,6 +161,10 @@ class StarHandlerRegistry(Generic[T]):
         only_activated=True,
         plugins_name: list[str] | None = None,
     ) -> list[StarHandlerMetadata]:
+        # Resolve plugin ownership from the registered root module so handlers
+        # declared in plugin submodules remain subject to the same lifecycle.
+        from astrbot.core.plugin_runtime import plugin_owner_module_path
+
         handlers = []
         for handler in self._handlers:
             # 过滤事件类型
@@ -170,12 +174,20 @@ class StarHandlerRegistry(Generic[T]):
                 continue
             # 过滤启用状态
             if only_activated:
-                plugin = star_map.get(handler.handler_module_path)
+                owner_module_path = (
+                    plugin_owner_module_path(handler.handler_module_path)
+                    or handler.handler_module_path
+                )
+                plugin = star_map.get(owner_module_path)
                 if not (plugin and plugin.activated):
                     continue
             # 过滤插件白名单
             if plugins_name is not None and plugins_name != ["*"]:
-                plugin = star_map.get(handler.handler_module_path)
+                owner_module_path = (
+                    plugin_owner_module_path(handler.handler_module_path)
+                    or handler.handler_module_path
+                )
+                plugin = star_map.get(owner_module_path)
                 if not plugin:
                     continue
                 if (

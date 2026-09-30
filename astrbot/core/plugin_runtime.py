@@ -180,3 +180,33 @@ def tool_owner_module(tool: object) -> str:
         or getattr(getattr(tool, "handler", None), "__module__", None)
         or type(tool).__module__
     )
+
+
+def plugin_owner_module_path(module_path: str | None) -> str | None:
+    """Return the registered plugin root for a handler or tool module path."""
+    if not isinstance(module_path, str) or not module_path:
+        return None
+    from astrbot.core.star.star import star_map
+
+    metadata = star_map.get(module_path)
+    if metadata is not None:
+        owner_module_path = getattr(metadata, "module_path", None)
+        return (
+            owner_module_path
+            if isinstance(owner_module_path, str) and owner_module_path
+            else module_path
+        )
+    candidates = []
+    for candidate_path, metadata in star_map.items():
+        owner_module_path = getattr(metadata, "module_path", None)
+        if not isinstance(owner_module_path, str) or not owner_module_path:
+            owner_module_path = candidate_path
+        prefixes = {candidate_path, owner_module_path}
+        # Plugin entry modules are commonly ``<plugin package>.main`` while
+        # handlers may be declared in sibling modules in the same package.
+        if owner_module_path.rpartition(".")[2] == "main":
+            prefixes.add(owner_module_path.rpartition(".")[0])
+        for prefix in prefixes:
+            if prefix and module_path.startswith(f"{prefix}."):
+                candidates.append((len(prefix), owner_module_path))
+    return max(candidates, key=lambda item: item[0], default=(0, None))[1]
