@@ -1,3 +1,31 @@
+provider_persona_capability_and_diagnostics_repair:
+  date: '2026-09-30'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Repair Persona image normalization so bounded provider media cannot crash
+    the expression path; distinguish a strict-capability preflight skip from an
+    actual Persona provider fallback; keep DeepSeek tool_choice in both
+    thinking modes while excluding thinking and /beta endpoints from strict
+    Persona candidates; and compress expected Memory analyzer failures into
+    correlated diagnostics without changing timeout or retry behavior.
+  non_goals: >-
+    Do not modify AG99, local runtime configuration, MCP configuration,
+    credentials, MiniMax CLI plugin files, or external filesystem permissions.
+    Do not add automatic Memory retries in this change.
+  validation: >-
+    Focused image/provider and DeepSeek tests passed (22), the complete
+    InteractionExpressionAgent test file passed (46), and the Memory analyzer
+    tests passed (11). Ruff, compileall, and git diff --check passed.
+  followup: >-
+    After restart, verify a Persona request with one or more images, a
+    MiniMax-M3/M3.1 strict preflight skip, DeepSeek reasoning=false and /beta
+    selection, and an actual primary-provider failure followed by fallback.
+    Confirm only the actual failure marks interaction fallback state. Trigger
+    one Memory analyzer timeout and confirm the log contains analyzer, stage,
+    reason, and attempt without a full traceback.
+
 provider_fallback_prompt_continuity:
   date: '2026-09-28'
   class: bugfix
