@@ -19,7 +19,10 @@ from tenacity import (
 
 from astrbot import logger
 from astrbot.core.agent.run_context import ContextWrapper
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.utils.astrbot_path import (
+    get_astrbot_data_path,
+    get_astrbot_temp_path,
+)
 from astrbot.core.utils.log_pipe import LogPipe
 
 from .run_context import TContext
@@ -96,6 +99,8 @@ _STDIO_ALLOWLIST_ENV = "ASTRBOT_MCP_STDIO_ALLOWED_COMMANDS"
 _UV_COMMAND_NAMES = frozenset({"uv", "uvx"})
 _UV_CACHE_DIR_ENV = "UV_CACHE_DIR"
 _UV_TOOL_DIR_ENV = "UV_TOOL_DIR"
+_WINDOWS_TEMP_ENV_NAMES = ("TEMP", "TMP")
+_POSIX_TEMP_ENV_NAME = "TMPDIR"
 
 try:
     import anyio
@@ -244,7 +249,8 @@ def validate_mcp_stdio_config(config: dict) -> None:
 def _prepare_stdio_env(config: dict) -> dict:
     """Prepare stdio subprocess environment and isolate uv caches from user state."""
     prepared = config.copy()
-    env = dict(prepared.get("env") or {})
+    configured_env = dict(prepared.get("env") or {})
+    env = configured_env.copy()
     if sys.platform == "win32":
         env = _merge_environment_variables(env)
 
@@ -262,6 +268,22 @@ def _prepare_stdio_env(config: dict) -> dict:
             tool_dir = os.path.join(data_dir, "uv-tools")
             os.makedirs(tool_dir, exist_ok=True)
             env[_UV_TOOL_DIR_ENV] = tool_dir
+        configured_keys = {key.lower() for key in configured_env}
+        if sys.platform == "win32":
+            missing_temp_names = [
+                env_name
+                for env_name in _WINDOWS_TEMP_ENV_NAMES
+                if env_name.lower() not in configured_keys
+            ]
+            if missing_temp_names:
+                temp_dir = os.path.join(get_astrbot_temp_path(), "mcp-uv")
+                os.makedirs(temp_dir, exist_ok=True)
+                for env_name in missing_temp_names:
+                    env[env_name] = temp_dir
+        elif _POSIX_TEMP_ENV_NAME.lower() not in configured_keys:
+            temp_dir = os.path.join(get_astrbot_temp_path(), "mcp-uv")
+            os.makedirs(temp_dir, exist_ok=True)
+            env[_POSIX_TEMP_ENV_NAME] = temp_dir
 
     prepared["env"] = env
     return prepared
