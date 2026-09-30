@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import aiofiles
 from anthropic.types import Message as AnthropicMessage
 from google.genai.types import GenerateContentResponse
 from openai.types.chat.chat_completion import ChatCompletion
@@ -313,9 +314,10 @@ class ProviderRequest:
         if audio_path.startswith("base64://"):
             return audio_path.replace("base64://", f"data:{mime_type};base64,", 1)
 
-        with open(audio_path, "rb") as f:
-            audio_bs64 = base64.b64encode(f.read()).decode("utf-8")
-            return f"data:{mime_type};base64," + audio_bs64
+        async with aiofiles.open(audio_path, "rb") as f:
+            audio_data = await f.read()
+        audio_bs64 = base64.b64encode(audio_data).decode("utf-8")
+        return f"data:{mime_type};base64," + audio_bs64
 
 
 @dataclass

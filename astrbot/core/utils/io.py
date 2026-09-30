@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import inspect
 import logging
@@ -11,6 +12,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
+import aiofiles
 import aiohttp
 import certifi
 import psutil
@@ -20,6 +22,14 @@ from .astrbot_path import get_astrbot_data_path, get_astrbot_path, get_astrbot_t
 from .version_comparator import VersionComparator
 
 logger = logging.getLogger("astrbot")
+
+
+async def _save_downloaded_bytes(data: bytes, path: str | None) -> str:
+    if not path:
+        return await asyncio.to_thread(save_temp_img, data)
+    async with aiofiles.open(path, "wb") as file_obj:
+        await file_obj.write(data)
+    return path
 
 
 def on_error(func, path, exc_info) -> None:
@@ -108,18 +118,10 @@ async def download_image_by_url(
         ) as session:
             if post:
                 async with session.post(url, json=post_data) as resp:
-                    if not path:
-                        return save_temp_img(await resp.read())
-                    with open(path, "wb") as f:
-                        f.write(await resp.read())
-                    return path
+                    return await _save_downloaded_bytes(await resp.read(), path)
             else:
                 async with session.get(url) as resp:
-                    if not path:
-                        return save_temp_img(await resp.read())
-                    with open(path, "wb") as f:
-                        f.write(await resp.read())
-                    return path
+                    return await _save_downloaded_bytes(await resp.read(), path)
     except (aiohttp.ClientConnectorSSLError, aiohttp.ClientConnectorCertificateError):
         # 关闭SSL验证（仅在证书验证失败时作为fallback）
         logger.warning(
@@ -134,18 +136,10 @@ async def download_image_by_url(
         async with aiohttp.ClientSession() as session:
             if post:
                 async with session.post(url, json=post_data, ssl=ssl_context) as resp:
-                    if not path:
-                        return save_temp_img(await resp.read())
-                    with open(path, "wb") as f:
-                        f.write(await resp.read())
-                    return path
+                    return await _save_downloaded_bytes(await resp.read(), path)
             else:
                 async with session.get(url, ssl=ssl_context) as resp:
-                    if not path:
-                        return save_temp_img(await resp.read())
-                    with open(path, "wb") as f:
-                        f.write(await resp.read())
-                    return path
+                    return await _save_downloaded_bytes(await resp.read(), path)
     except Exception as e:
         raise e
 
@@ -195,7 +189,7 @@ async def _download_response_to_file(
         chunk = await resp.content.read(8192)
         if not chunk:
             break
-        file_obj.write(chunk)
+        await file_obj.write(chunk)
         downloaded_size += len(chunk)
         elapsed_time = max(time.time() - start_time, 1)
         speed = downloaded_size / 1024 / elapsed_time
@@ -256,7 +250,7 @@ async def download_file(
         ) as session:
             async with session.get(url, timeout=1800) as resp:
                 _raise_for_download_status(resp)
-                with open(path, "wb") as f:
+                async with aiofiles.open(path, "wb") as f:
                     await _download_response_to_file(
                         resp,
                         f,
@@ -281,7 +275,7 @@ async def download_file(
         async with aiohttp.ClientSession() as session:
             async with session.get(url, ssl=ssl_context, timeout=120) as resp:
                 _raise_for_download_status(resp)
-                with open(path, "wb") as f:
+                async with aiofiles.open(path, "wb") as f:
                     await _download_response_to_file(
                         resp,
                         f,

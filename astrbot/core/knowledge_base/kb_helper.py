@@ -743,16 +743,51 @@ class KBHelper:
             initial_chunks = await text_splitter.chunk(content)
             logger.info(f"初步分块完成，生成 {len(initial_chunks)} 个块用于修复。")
 
-            # 并发处理所有块
+            # Use a bounded worker pool so large documents do not retain one
+            # coroutine per chunk while waiting for the rate limiter/provider.
             rate_limiter = RateLimiter(repair_max_rpm)
-            tasks = [
-                _repair_and_translate_chunk_with_retry(
-                    chunk, llm_provider, rate_limiter
-                )
-                for chunk in initial_chunks
-            ]
+            worker_count = min(8, max(1, len(initial_chunks)))
+            work_queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue(
+                maxsize=worker_count * 2
+            )
+            repaired_results: list[list[str] | Exception | None] = [
+                None
+            ] * len(initial_chunks)
 
-            repaired_results = await asyncio.gather(*tasks, return_exceptions=True)
+            async def worker() -> None:
+                while True:
+                    work_item = await work_queue.get()
+                    try:
+                        if work_item is None:
+                            return
+
+                        index, chunk = work_item
+                        try:
+                            repaired_results[index] = (
+                                await _repair_and_translate_chunk_with_retry(
+                                    chunk, llm_provider, rate_limiter
+                                )
+                            )
+                        except Exception as exc:
+                            repaired_results[index] = exc
+                    finally:
+                        work_queue.task_done()
+
+            workers = [
+                asyncio.create_task(worker())
+                for _ in range(worker_count)
+            ]
+            try:
+                for index, chunk in enumerate(initial_chunks):
+                    await work_queue.put((index, chunk))
+                for _ in workers:
+                    await work_queue.put(None)
+                await work_queue.join()
+                await asyncio.gather(*workers)
+            finally:
+                for task in workers:
+                    task.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
 
             final_chunks = []
             for i, result in enumerate(repaired_results):
