@@ -1,0 +1,1911 @@
+{
+  "baseline": "ffa462d10",
+  "upstream": "26ff7673f",
+  "note": "Static compatibility inventory; handler-level payload and response contracts remain authoritative.",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/apikey/create",
+      "handler": "self.create_api_key",
+      "source": "astrbot/dashboard/routes/api_key.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/apikey/delete",
+      "handler": "self.delete_api_key",
+      "source": "astrbot/dashboard/routes/api_key.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/apikey/list",
+      "handler": "self.list_api_keys",
+      "source": "astrbot/dashboard/routes/api_key.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/apikey/revoke",
+      "handler": "self.revoke_api_key",
+      "source": "astrbot/dashboard/routes/api_key.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/account/edit",
+      "handler": "self.edit_account",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "handler": "self.login",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "public_handler_checks",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "handler": "self.logout",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "public_handler_checks",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/setup",
+      "handler": "self.setup",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "public_handler_checks",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/setup-authenticated",
+      "handler": "self.setup_authenticated",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/setup-status",
+      "handler": "self.setup_status",
+      "source": "astrbot/dashboard/routes/auth.py",
+      "auth": "public_handler_checks",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/check",
+      "handler": "self.check_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/delete",
+      "handler": "self.delete_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/backup/download",
+      "handler": "self.download_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "backup_token",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/export",
+      "handler": "self.export_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/import",
+      "handler": "self.import_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/backup/list",
+      "handler": "self.list_backups",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/backup/progress",
+      "handler": "self.get_progress",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/rename",
+      "handler": "self.rename_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/upload",
+      "handler": "self.upload_backup",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/upload/abort",
+      "handler": "self.upload_abort",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/upload/chunk",
+      "handler": "self.upload_chunk",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/upload/complete",
+      "handler": "self.upload_complete",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/backup/upload/init",
+      "handler": "self.upload_init",
+      "source": "astrbot/dashboard/routes/backup.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/batch_delete_sessions",
+      "handler": "self.batch_delete_sessions",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/delete_session",
+      "handler": "self.delete_webchat_session",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/get_attachment",
+      "handler": "self.get_attachment",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/get_file",
+      "handler": "self.get_file",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/get_session",
+      "handler": "self.get_session",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/message/edit",
+      "handler": "self.update_message",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/message/regenerate",
+      "handler": "self.regenerate_message",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/new_session",
+      "handler": "self.new_session",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/post_file",
+      "handler": "self.post_file",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/send",
+      "handler": "self.chat",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/sessions",
+      "handler": "self.get_sessions",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/stop",
+      "handler": "self.stop_session",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/thread/create",
+      "handler": "self.create_thread",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/thread/delete",
+      "handler": "self.delete_thread",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chat/thread/get",
+      "handler": "self.get_thread",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/thread/send",
+      "handler": "self.send_thread_message",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/update_session_display_name",
+      "handler": "self.update_session_display_name",
+      "source": "astrbot/dashboard/routes/chat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chatui_project/add_session",
+      "handler": "self.add_session_to_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chatui_project/create",
+      "handler": "self.create_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chatui_project/delete",
+      "handler": "self.delete_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chatui_project/get",
+      "handler": "self.get_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chatui_project/get_sessions",
+      "handler": "self.get_project_sessions",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/chatui_project/list",
+      "handler": "self.list_projects",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chatui_project/remove_session",
+      "handler": "self.remove_session_from_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/chatui_project/update",
+      "handler": "self.update_chatui_project",
+      "source": "astrbot/dashboard/routes/chatui_project.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands",
+      "handler": "self.get_commands",
+      "source": "astrbot/dashboard/routes/command.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/conflicts",
+      "handler": "self.get_conflicts",
+      "source": "astrbot/dashboard/routes/command.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/commands/permission",
+      "handler": "self.update_permission",
+      "source": "astrbot/dashboard/routes/command.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/commands/rename",
+      "handler": "self.rename_command",
+      "source": "astrbot/dashboard/routes/command.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/commands/toggle",
+      "handler": "self.toggle_command",
+      "source": "astrbot/dashboard/routes/command.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/abconf",
+      "handler": "self.get_abconf",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/abconf/delete",
+      "handler": "self.delete_abconf",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/abconf/new",
+      "handler": "self.create_abconf",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/abconf/update",
+      "handler": "self.update_abconf",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/abconfs",
+      "handler": "self.get_abconf_list",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/astrbot/update",
+      "handler": "self.post_astrbot_configs",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/default",
+      "handler": "self.get_default_config",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/file/delete",
+      "handler": "self.delete_config_file",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/file/get",
+      "handler": "self.get_config_file_list",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/file/upload",
+      "handler": "self.upload_config_file",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/get",
+      "handler": "self.get_configs",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/platform/delete",
+      "handler": "self.post_delete_platform",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/platform/list",
+      "handler": "self.get_platform_list",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/platform/new",
+      "handler": "self.post_new_platform",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/platform/update",
+      "handler": "self.post_update_platform",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/plugin/update",
+      "handler": "self.post_plugin_configs",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/provider/check_one",
+      "handler": "self.check_one_provider_status",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider/delete",
+      "handler": "self.post_delete_provider",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider/get_embedding_dim",
+      "handler": "self.get_embedding_dim",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/provider/list",
+      "handler": "self.get_provider_config_list",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/provider/model_list",
+      "handler": "self.get_provider_model_list",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider/new",
+      "handler": "self.post_new_provider",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/provider/template",
+      "handler": "self.get_provider_template",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider/update",
+      "handler": "self.post_update_provider",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider_sources/delete",
+      "handler": "self.delete_provider_source",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/provider_sources/models",
+      "handler": "self.get_provider_source_models",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/provider_sources/update",
+      "handler": "self.update_provider_source",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/umo_abconf_route/delete",
+      "handler": "self.delete_ucr",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/umo_abconf_route/update",
+      "handler": "self.update_ucr",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/umo_abconf_route/update_all",
+      "handler": "self.update_ucr_all",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/umo_abconf_routes",
+      "handler": "self.get_uc_table",
+      "source": "astrbot/dashboard/routes/config.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversation/delete",
+      "handler": "self.del_conv",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversation/detail",
+      "handler": "self.get_conv_detail",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversation/export",
+      "handler": "self.export_conversations",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversation/list",
+      "handler": "self.list_conversations",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversation/update",
+      "handler": "self.upd_conv",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/conversation/update_history",
+      "handler": "self.update_history",
+      "source": "astrbot/dashboard/routes/conversation.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/cron/jobs",
+      "handler": "self.list_jobs",
+      "source": "astrbot/dashboard/routes/cron.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/cron/jobs",
+      "handler": "self.create_job",
+      "source": "astrbot/dashboard/routes/cron.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cron/jobs/<job_id>",
+      "handler": "self.delete_job",
+      "source": "astrbot/dashboard/routes/cron.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cron/jobs/<job_id>",
+      "handler": "self.update_job",
+      "source": "astrbot/dashboard/routes/cron.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/cron/jobs/<job_id>/run",
+      "handler": "self.run_job_now",
+      "source": "astrbot/dashboard/routes/cron.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/file/<file_token>",
+      "handler": "self.serve_file",
+      "source": "astrbot/dashboard/routes/file.py",
+      "auth": "file_token",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/chunk/delete",
+      "handler": "self.delete_chunk",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/chunk/list",
+      "handler": "self.list_chunks",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/create",
+      "handler": "self.create_kb",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/delete",
+      "handler": "self.delete_kb",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/document/delete",
+      "handler": "self.delete_document",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/document/get",
+      "handler": "self.get_document",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/document/import",
+      "handler": "self.import_documents",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/document/list",
+      "handler": "self.list_documents",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/document/upload",
+      "handler": "self.upload_document",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/document/upload/progress",
+      "handler": "self.get_upload_progress",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/document/upload/url",
+      "handler": "self.upload_document_from_url",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/get",
+      "handler": "self.get_kb",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/list",
+      "handler": "self.list_kbs",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/retrieve",
+      "handler": "self.retrieve",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/kb/stats",
+      "handler": "self.get_kb_stats",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/kb/update",
+      "handler": "self.update_kb",
+      "source": "astrbot/dashboard/routes/knowledge_base.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/live-log",
+      "handler": "self.log",
+      "source": "astrbot/dashboard/routes/log.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "WS",
+      "path": "/api/live_chat/ws",
+      "handler": "websocket_handler",
+      "source": "astrbot/dashboard/routes/live_chat.py",
+      "auth": "dashboard_jwt_query",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/log-history",
+      "handler": "self.log_history",
+      "source": "astrbot/dashboard/routes/log.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/create",
+      "handler": "self.create_persona",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/delete",
+      "handler": "self.delete_persona",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/detail",
+      "handler": "self.get_persona_detail",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/folder/create",
+      "handler": "self.create_folder",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/folder/delete",
+      "handler": "self.delete_folder",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/folder/detail",
+      "handler": "self.get_folder_detail",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/persona/folder/list",
+      "handler": "self.list_folders",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/persona/folder/tree",
+      "handler": "self.get_folder_tree",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/folder/update",
+      "handler": "self.update_folder",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/persona/list",
+      "handler": "self.list_personas",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/move",
+      "handler": "self.move_persona",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/reorder",
+      "handler": "self.reorder_items",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/persona/update",
+      "handler": "self.update_persona",
+      "source": "astrbot/dashboard/routes/persona.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/registration/<platform_type>",
+      "handler": "self.handle_platform_registration",
+      "source": "astrbot/dashboard/routes/platform.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/stats",
+      "handler": "self.get_platform_stats",
+      "source": "astrbot/dashboard/routes/platform.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/webhook/<webhook_uuid>",
+      "handler": "self.unified_webhook_callback",
+      "source": "astrbot/dashboard/routes/platform.py",
+      "auth": "platform_callback_checks",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/webhook/<webhook_uuid>",
+      "handler": "self.unified_webhook_callback",
+      "source": "astrbot/dashboard/routes/platform.py",
+      "auth": "platform_callback_checks",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plug/<path:subpath>",
+      "handler": "self.srv_plug_route",
+      "source": "astrbot/dashboard/server.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plug/<path:subpath>",
+      "handler": "self.srv_plug_route",
+      "source": "astrbot/dashboard/server.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/capabilities",
+      "handler": "self.get_plugin_capabilities",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/changelog",
+      "handler": "self.get_plugin_changelog",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/check-compat",
+      "handler": "self.check_plugin_compatibility",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/detail",
+      "handler": "self.get_plugin_detail",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/get",
+      "handler": "self.get_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/install",
+      "handler": "self.install_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/install-upload",
+      "handler": "self.install_plugin_upload",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/market_list",
+      "handler": "self.get_online_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/off",
+      "handler": "self.off_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/on",
+      "handler": "self.on_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/page/bridge-sdk.js",
+      "handler": "self.get_plugin_page_bridge_sdk",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt_or_scoped_asset",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/page/content/<plugin_name>/<page_name>/",
+      "handler": "self.get_plugin_page_entry",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt_or_scoped_asset",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/page/content/<plugin_name>/<page_name>/<path:asset_path>",
+      "handler": "self.get_plugin_page_asset",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt_or_scoped_asset",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/page/entry",
+      "handler": "self.get_plugin_page_entry_config",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/readme",
+      "handler": "self.get_plugin_readme",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/reload",
+      "handler": "self.reload_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/reload-failed",
+      "handler": "self.reload_failed_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/source/get",
+      "handler": "self.get_custom_source",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugin/source/get-failed-plugins",
+      "handler": "self.get_failed_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/source/save",
+      "handler": "self.save_custom_source",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/uninstall",
+      "handler": "self.uninstall_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/uninstall-failed",
+      "handler": "self.uninstall_failed_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/update",
+      "handler": "self.update_plugin",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugin/update-all",
+      "handler": "self.update_all_plugins",
+      "source": "astrbot/dashboard/routes/plugin.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/active-umos",
+      "handler": "self.list_umos",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/batch-delete-rule",
+      "handler": "self.batch_delete_session_rule",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/batch-update-provider",
+      "handler": "self.batch_update_provider",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/batch-update-service",
+      "handler": "self.batch_update_service",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/delete-rule",
+      "handler": "self.delete_session_rule",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/group/create",
+      "handler": "self.create_group",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/group/delete",
+      "handler": "self.delete_group",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/group/update",
+      "handler": "self.update_group",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/groups",
+      "handler": "self.list_groups",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/list-all-with-status",
+      "handler": "self.list_all_umos_with_status",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/list-rule",
+      "handler": "self.list_session_rule",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/update-rule",
+      "handler": "self.update_session_rule",
+      "source": "astrbot/dashboard/routes/session_management.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills",
+      "handler": "self.get_skills",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/batch-upload",
+      "handler": "self.batch_upload_skills",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/delete",
+      "handler": "self.delete_skill",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/download",
+      "handler": "self.download_skill",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/file",
+      "handler": "self.get_skill_file",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/file",
+      "handler": "self.update_skill_file",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/files",
+      "handler": "self.list_skill_files",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/neo/candidates",
+      "handler": "self.get_neo_candidates",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/delete-candidate",
+      "handler": "self.delete_neo_candidate",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/delete-release",
+      "handler": "self.delete_neo_release",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/evaluate",
+      "handler": "self.evaluate_neo_candidate",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/neo/payload",
+      "handler": "self.get_neo_payload",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/promote",
+      "handler": "self.promote_neo_candidate",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/neo/releases",
+      "handler": "self.get_neo_releases",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/rollback",
+      "handler": "self.rollback_neo_release",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/neo/sync",
+      "handler": "self.sync_neo_release",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/update",
+      "handler": "self.update_skill",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/upload",
+      "handler": "self.upload_skill",
+      "source": "astrbot/dashboard/routes/skills.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/changelog",
+      "handler": "self.get_changelog",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/changelog/list",
+      "handler": "self.list_changelog_versions",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/first-notice",
+      "handler": "self.get_first_notice",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/get",
+      "handler": "self.get_stat",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/personal-runtime",
+      "handler": "self.get_personal_runtime",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/provider-tokens",
+      "handler": "self.get_provider_token_stats",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/stat/restart-core",
+      "handler": "self.restart_core",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/start-time",
+      "handler": "self.get_start_time",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "public_handler_checks",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/storage",
+      "handler": "self.get_storage_status",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/stat/storage/cleanup",
+      "handler": "self.cleanup_storage",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/stat/test-ghproxy-connection",
+      "handler": "self.test_ghproxy_connection",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/stat/version",
+      "handler": "self.get_version",
+      "source": "astrbot/dashboard/routes/stat.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/subagent/available-tools",
+      "handler": "self.get_available_tools",
+      "source": "astrbot/dashboard/routes/subagent.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/subagent/config",
+      "handler": "self.get_config",
+      "source": "astrbot/dashboard/routes/subagent.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/subagent/config",
+      "handler": "self.update_config",
+      "source": "astrbot/dashboard/routes/subagent.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/t2i/templates",
+      "handler": "self.list_templates",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/t2i/templates/<name>",
+      "handler": "self.delete_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/t2i/templates/<name>",
+      "handler": "self.get_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/t2i/templates/<name>",
+      "handler": "self.update_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/t2i/templates/active",
+      "handler": "self.get_active_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/t2i/templates/create",
+      "handler": "self.create_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/t2i/templates/reset_default",
+      "handler": "self.reset_default_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/t2i/templates/set_active",
+      "handler": "self.set_active_template",
+      "source": "astrbot/dashboard/routes/t2i.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools/list",
+      "handler": "self.get_tool_list",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/mcp/add",
+      "handler": "self.add_mcp_server",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/mcp/delete",
+      "handler": "self.delete_mcp_server",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools/mcp/servers",
+      "handler": "self.get_mcp_servers",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/mcp/sync-provider",
+      "handler": "self.sync_provider",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/mcp/test",
+      "handler": "self.test_mcp_connection",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/mcp/update",
+      "handler": "self.update_mcp_server",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/permission",
+      "handler": "self.update_tool_permission",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/toggle-tool",
+      "handler": "self.toggle_tool",
+      "source": "astrbot/dashboard/routes/tools.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/trace/settings",
+      "handler": "self.get_trace_settings",
+      "source": "astrbot/dashboard/routes/log.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/trace/settings",
+      "handler": "self.update_trace_settings",
+      "source": "astrbot/dashboard/routes/log.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "WS",
+      "path": "/api/unified_chat/ws",
+      "handler": "websocket_handler",
+      "source": "astrbot/dashboard/routes/live_chat.py",
+      "auth": "dashboard_jwt_query",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/update/check",
+      "handler": "self.check_update",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/update/dashboard",
+      "handler": "self.update_dashboard",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/update/do",
+      "handler": "self.update_project",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/update/migration",
+      "handler": "self.do_migration",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/update/pip-install",
+      "handler": "self.install_pip_package",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/update/progress",
+      "handler": "self.get_update_progress",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/update/releases",
+      "handler": "self.get_releases",
+      "source": "astrbot/dashboard/routes/update.py",
+      "auth": "dashboard_jwt",
+      "scope": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat",
+      "handler": "self.chat_send",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/sessions",
+      "handler": "self.get_chat_sessions",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "chat"
+    },
+    {
+      "method": "WS",
+      "path": "/api/v1/chat/ws",
+      "handler": "websocket_handler",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/configs",
+      "handler": "self.get_chat_configs",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file",
+      "handler": "self.openapi_get_file",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "file"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file",
+      "handler": "self.openapi_upload_file",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "file"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/im/bots",
+      "handler": "self.get_bots",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "im"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/im/message",
+      "handler": "self.send_message",
+      "source": "astrbot/dashboard/routes/open_api.py",
+      "auth": "api_key",
+      "scope": "im"
+    }
+  ]
+}
