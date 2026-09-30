@@ -1,3 +1,5 @@
+import re
+
 import httpx
 
 from astrbot import logger
@@ -18,6 +20,15 @@ MINIMAX_TOKEN_PLAN_MODELS = [
 ]
 
 MINIMAX_STRICT_UNSUPPORTED_MODELS = frozenset({"minimax-m3", "minimax-m3.1"})
+
+_MINIMAX_STRICT_UNSUPPORTED_MODEL_RE = re.compile(
+    r"^minimax-m3(?:\.1)?(?:[-_].*)?$"
+)
+
+
+def _is_minimax_strict_unsupported_model(model_name: object) -> bool:
+    normalized_name = str(model_name or "").strip().casefold()
+    return bool(_MINIMAX_STRICT_UNSUPPORTED_MODEL_RE.fullmatch(normalized_name))
 
 
 @register_provider_adapter(
@@ -60,9 +71,8 @@ class ProviderMiniMaxTokenPlan(ProviderAnthropic):
         # M3/M3.1 accept normal tool_choice=auto calls, but their
         # Anthropic-compatible endpoint does not reliably honor the required/any
         # selection used by the Persona strict output contract.
-        model_name = str(self.get_model() or "").strip().casefold()
-        return strategy == "protocol_tool_call" and model_name not in (
-            MINIMAX_STRICT_UNSUPPORTED_MODELS
+        return strategy == "protocol_tool_call" and not (
+            _is_minimax_strict_unsupported_model(self.get_model())
         )
 
     async def get_models(self) -> list[str]:

@@ -1267,7 +1267,7 @@ async def test_persona_expression_rejects_prompt_only_contract_before_model_call
     assert provider.calls == []
 
 
-def test_minimax_token_plan_excludes_m3_and_m31_from_persona_strict_contract():
+def test_minimax_token_plan_excludes_m3_family_from_persona_strict_contract():
     from astrbot.core.provider.sources.minimax_token_plan_source import (
         ProviderMiniMaxTokenPlan,
     )
@@ -1283,10 +1283,18 @@ def test_minimax_token_plan_excludes_m3_and_m31_from_persona_strict_contract():
     )
 
     assert provider.supports_output_contract_strategy("protocol_tool_call")
-    provider.set_model("MiniMax-M3")
-    assert not provider.supports_output_contract_strategy("protocol_tool_call")
-    provider.set_model(" minimax-m3.1 ")
-    assert not provider.supports_output_contract_strategy("protocol_tool_call")
+    for model_name in (
+        "MiniMax-M3",
+        " minimax-m3.1 ",
+        "MiniMax-M3.1-Flash-Preview",
+        "MiniMax-M3-highspeed",
+    ):
+        provider.set_model(model_name)
+        assert not provider.supports_output_contract_strategy("protocol_tool_call")
+
+    for model_name in ("MiniMax-M2.7", "MiniMax-M2.7-highspeed"):
+        provider.set_model(model_name)
+        assert provider.supports_output_contract_strategy("protocol_tool_call")
 
 
 @pytest.mark.asyncio

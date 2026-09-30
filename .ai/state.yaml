@@ -1,3 +1,26 @@
+minimax_preview_strict_contract_boundary:
+  date: '2026-09-30'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Correct MiniMax Token Plan capability detection so MiniMax M3/M3.1 model
+    families, including suffix variants such as MiniMax-M3.1-Flash-Preview,
+    are excluded from strict protocol_tool_call Persona contracts before any
+    provider request. Preserve protocol tool calls for MiniMax M2.7 variants.
+  non_goals: >-
+    Do not switch the user's configured model, change credentials, broaden
+    provider fallback behavior, or claim the MiniMax service itself is fixed.
+  validation: >-
+    Focused Persona capability/preflight tests passed (2), focused prompt
+    renderer tests passed (2), Ruff, compileall, and git diff checks passed.
+    No live MiniMax request was made during this change.
+  followup: >-
+    After restart, verify MiniMax-M3.1-Flash-Preview reaches prompt_only or a
+    compatible fallback without an HTTP 400 tool/result mismatch, while M2.7
+    still uses protocol_tool_call. Rotate credentials only if external logs
+    confirm exposure; no credential was printed by this change.
+
 provider_persona_capability_and_diagnostics_repair:
   date: '2026-09-30'
   class: bugfix
