@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
 
 
+_CURRENT_CONVERSATION_HISTORY_CACHE_EXTRA_KEY = (
+    "_prompt_current_conversation_history_cache"
+)
+
+
 class ConversationHistoryCollector(ContextCollectorInterface):
     """Collect the current conversation history as normalized turn pairs."""
 
@@ -51,6 +56,7 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         conversation_payload = await self._load_current_conversation_history(
             event,
             plugin_context,
+            provider_request,
         )
         if conversation_payload is not None:
             return conversation_payload
@@ -76,6 +82,7 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         self,
         event: AstrMessageEvent,
         plugin_context: Context,
+        provider_request: ProviderRequest | None,
     ) -> dict[str, Any] | None:
         conversation_manager = getattr(plugin_context, "conversation_manager", None)
         if conversation_manager is None:
@@ -87,6 +94,44 @@ class ConversationHistoryCollector(ContextCollectorInterface):
             )
             if not conversation_id:
                 return None
+            cache = event.get_extra(
+                _CURRENT_CONVERSATION_HISTORY_CACHE_EXTRA_KEY,
+                {},
+            )
+            if isinstance(cache, dict):
+                cached_conversation_id = cache.get("conversation_id")
+                cached_payload = cache.get("payload")
+                if (
+                    cached_conversation_id == conversation_id
+                    and isinstance(cached_payload, dict)
+                    and cache.get("provider_request") is provider_request
+                ):
+                    return cached_payload
+
+            # The request normally carries the same conversation object that
+            # was used to resolve the current ID. Reuse its already-loaded
+            # history while keeping the manager's ID as the authority.
+            request_conversation = getattr(provider_request, "conversation", None)
+            if (
+                request_conversation is not None
+                and getattr(request_conversation, "cid", None) == conversation_id
+            ):
+                payload = self._load_conversation_history(
+                    raw_history=getattr(request_conversation, "history", None),
+                    source_name="conversation_manager.current_conversation.history",
+                )
+                if payload is not None:
+                    payload["conversation_id"] = conversation_id
+                    event.set_extra(
+                        _CURRENT_CONVERSATION_HISTORY_CACHE_EXTRA_KEY,
+                        {
+                            "conversation_id": conversation_id,
+                            "provider_request": provider_request,
+                            "payload": payload,
+                        },
+                    )
+                    return payload
+
             conversation = await conversation_manager.get_conversation(
                 event.unified_msg_origin,
                 conversation_id,
@@ -108,6 +153,14 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         )
         if payload is not None:
             payload["conversation_id"] = getattr(conversation, "cid", conversation_id)
+            event.set_extra(
+                _CURRENT_CONVERSATION_HISTORY_CACHE_EXTRA_KEY,
+                {
+                    "conversation_id": conversation_id,
+                    "provider_request": provider_request,
+                    "payload": payload,
+                },
+            )
         return payload
 
     def _load_conversation_history(

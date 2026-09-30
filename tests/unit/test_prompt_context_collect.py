@@ -2413,6 +2413,58 @@ async def test_collect_context_pack_collects_conversation_history_from_conversat
 
 
 @pytest.mark.asyncio
+async def test_conversation_history_reuses_current_request_snapshot_before_database_read():
+    event, _ = _make_event()
+    context = _make_context()
+    context.conversation_manager.get_curr_conversation_id = AsyncMock(
+        return_value="conv-id"
+    )
+    context.conversation_manager.get_conversation = AsyncMock(
+        side_effect=AssertionError("database lookup should be skipped")
+    )
+    req = ProviderRequest(prompt="hello")
+    req.conversation = _make_conversation()
+    req.conversation.history = (
+        '[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]'
+    )
+
+    slots = await ConversationHistoryCollector().collect(
+        event,
+        context,
+        ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=req,
+    )
+
+    assert slots[0].source == "conversation_manager.current_conversation.history"
+    assert slots[0].value["conversation_id"] == "conv-id"
+    context.conversation_manager.get_conversation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_conversation_history_caches_manager_fallback_for_one_event():
+    event, _ = _make_event()
+    context = _make_context()
+    context.conversation_manager.get_curr_conversation_id = AsyncMock(
+        return_value="conv-id"
+    )
+    conversation = _make_conversation()
+    conversation.history = (
+        '[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]'
+    )
+    context.conversation_manager.get_conversation = AsyncMock(
+        return_value=conversation
+    )
+    collector = ConversationHistoryCollector()
+    config = ama.MainAgentBuildConfig(tool_call_timeout=60)
+
+    first_slots = await collector.collect(event, context, config)
+    second_slots = await collector.collect(event, context, config)
+
+    assert first_slots[0].value == second_slots[0].value
+    context.conversation_manager.get_conversation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_conversation_history_does_not_fallback_to_memory_turn_records():
     event, _ = _make_event()
     context = _make_context()
