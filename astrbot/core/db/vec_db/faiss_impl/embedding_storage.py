@@ -4,8 +4,12 @@ import threading
 
 import numpy as np
 
+from astrbot import logger
+
 
 class EmbeddingStorage:
+    _CHECKPOINT_DELAY_SECONDS = 1.0
+
     def __init__(self, dimension: int, path: str | None = None) -> None:
         try:
             import faiss
@@ -18,6 +22,9 @@ class EmbeddingStorage:
         self.path = path
         self.index = None
         self._io_lock = threading.Lock()
+        self._dirty = False
+        self._mutation_generation = 0
+        self._checkpoint_task: asyncio.Task | None = None
         if path and os.path.exists(path):
             self.index = faiss.read_index(path)
         else:
@@ -45,6 +52,7 @@ class EmbeddingStorage:
                 f"向量维度不匹配, 期望: {self.dimension}, 实际: {vector.shape[0]}",
             )
         await self._run_io(self._insert_sync, vector, id)
+        self._mark_dirty()
 
     async def insert_batch(self, vectors: np.ndarray, ids: list[int]) -> None:
         """批量插入向量
@@ -62,6 +70,7 @@ class EmbeddingStorage:
                 f"向量维度不匹配, 期望: {self.dimension}, 实际: {vectors.shape[1]}",
             )
         await self._run_io(self._insert_batch_sync, vectors, ids)
+        self._mark_dirty()
 
     async def search(self, vector: np.ndarray, k: int) -> tuple:
         """搜索最相似的向量
@@ -86,6 +95,7 @@ class EmbeddingStorage:
         assert self.index is not None, "FAISS index is not initialized."
         id_array = np.array(ids, dtype=np.int64)
         await self._run_io(self._delete_sync, id_array)
+        self._mark_dirty()
 
     async def save_index(self) -> None:
         """保存索引
@@ -96,7 +106,20 @@ class EmbeddingStorage:
         """
         if self.index is None:
             return
+        generation = self._mutation_generation
         await self._run_io(self._save_index_locked_sync)
+        if generation == self._mutation_generation:
+            self._dirty = False
+
+    async def flush(self) -> None:
+        """Persist pending index mutations before the owning store closes."""
+        checkpoint_task = self._checkpoint_task
+        if checkpoint_task is not None and checkpoint_task is not asyncio.current_task():
+            checkpoint_task.cancel()
+            await asyncio.gather(checkpoint_task, return_exceptions=True)
+            self._checkpoint_task = None
+        if self._dirty:
+            await self.save_index()
 
     async def _run_io(self, func, *args):
         """Let synchronous FAISS work finish before propagating cancellation."""
@@ -112,17 +135,37 @@ class EmbeddingStorage:
                 pass
             raise
 
+    def _mark_dirty(self) -> None:
+        self._dirty = True
+        self._mutation_generation += 1
+        if self._checkpoint_task is None:
+            self._checkpoint_task = asyncio.create_task(self._checkpoint())
+
+    async def _checkpoint(self) -> None:
+        completed = False
+        try:
+            await asyncio.sleep(self._CHECKPOINT_DELAY_SECONDS)
+            if self._dirty:
+                try:
+                    await self.save_index()
+                except Exception:
+                    logger.error("FAISS 索引延迟写盘失败", exc_info=True)
+            completed = True
+        finally:
+            if self._checkpoint_task is asyncio.current_task():
+                self._checkpoint_task = None
+            if completed and self._dirty:
+                self._checkpoint_task = asyncio.create_task(self._checkpoint())
+
     def _insert_sync(self, vector: np.ndarray, id: int) -> None:
         with self._io_lock:
             assert self.index is not None
             self.index.add_with_ids(vector.reshape(1, -1), np.array([id]))
-            self._save_index_sync()
 
     def _insert_batch_sync(self, vectors: np.ndarray, ids: list[int]) -> None:
         with self._io_lock:
             assert self.index is not None
             self.index.add_with_ids(vectors, np.array(ids))
-            self._save_index_sync()
 
     def _search_sync(self, vector: np.ndarray, k: int) -> tuple:
         with self._io_lock:
@@ -134,13 +177,12 @@ class EmbeddingStorage:
         with self._io_lock:
             assert self.index is not None
             self.index.remove_ids(ids)
-            self._save_index_sync()
 
     def _save_index_locked_sync(self) -> None:
         with self._io_lock:
             self._save_index_sync()
 
     def _save_index_sync(self) -> None:
-        if self.index is None:
+        if self.index is None or not self.path:
             return
         self._faiss.write_index(self.index, self.path)

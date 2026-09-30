@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+import numpy as np
 import pytest
 
 from astrbot.core.db.vec_db.faiss_impl.embedding_storage import EmbeddingStorage
@@ -92,3 +93,21 @@ async def test_get_embeddings_batch_preserves_input_order_when_batches_finish_ou
     )
 
     assert embeddings == [[0.0], [1.0], [2.0], [3.0]]
+
+
+@pytest.mark.asyncio
+async def test_embedding_storage_flush_persists_deferred_mutations(tmp_path) -> None:
+    index_path = tmp_path / "index.faiss"
+    storage = EmbeddingStorage(2, str(index_path))
+
+    await storage.insert(np.array([1.0, 0.0], dtype=np.float32), 42)
+    assert not index_path.exists()
+
+    await storage.flush()
+
+    reloaded = EmbeddingStorage(2, str(index_path))
+    _, indices = await reloaded.search(
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        k=1,
+    )
+    assert indices[0][0] == 42

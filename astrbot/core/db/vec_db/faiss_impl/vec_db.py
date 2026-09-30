@@ -274,7 +274,10 @@ class FaissVecDB(BaseVecDB):
         await self.embedding_storage.delete([int_id])
 
     async def close(self) -> None:
-        await self.document_storage.close()
+        try:
+            await self.embedding_storage.flush()
+        finally:
+            await self.document_storage.close()
 
     async def count_documents(self, metadata_filter: dict | None = None) -> int:
         """计算文档数量
