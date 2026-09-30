@@ -18,10 +18,10 @@ from astrbot.api.platform import (
     PlatformMetadata,
     register_platform_adapter,
 )
-from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform.group_reply_candidate import (
     mark_group_conversation_explicit_trigger,
 )
+from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.star.filter.command import CommandFilter
 from astrbot.core.star.filter.command_group import CommandGroupFilter
 from astrbot.core.star.star import star_map
@@ -130,7 +130,11 @@ class DiscordPlatformAdapter(Platform):
 
         # 初始化回调函数
         async def on_received(message_data) -> None:
-            logger.debug(f"[Discord] Message received: {message_data}")
+            logger.debug(
+                "[Discord] Message received: payload_type=%s payload_keys=%s",
+                type(message_data).__name__,
+                sorted(message_data) if isinstance(message_data, dict) else [],
+            )
             if self.bot_self_id is None:
                 self.bot_self_id = message_data.get("bot_id")
             abm = await self.convert_message(data=message_data)
@@ -473,17 +477,20 @@ class DiscordPlatformAdapter(Platform):
                 return
 
             # 将平台特定的前缀'/'剥离，以适配通用的CommandFilter
-            logger.debug(f"[Discord] Callback triggered: {cmd_name}")
-            logger.debug(f"[Discord] Callback context: {ctx}")
-            logger.debug(f"[Discord] Callback params: {params}")
+            logger.debug(
+                "[Discord] Slash command callback: command=%s params_present=%s params_length=%s",
+                cmd_name,
+                bool(params),
+                len(params or ""),
+            )
             message_str_for_filter = cmd_name
             if params:
                 message_str_for_filter += f" {params}"
 
             logger.debug(
-                f"[Discord] Slash command '{cmd_name}' triggered. "
-                f"Raw params: '{params}'. "
-                f"Built command string: '{message_str_for_filter}'",
+                "[Discord] Slash command prepared for filter: command=%s command_length=%s",
+                cmd_name,
+                len(message_str_for_filter),
             )
 
             # 2. 构建 AstrBotMessage

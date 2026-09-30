@@ -86,7 +86,10 @@ class WeixinOfficialAccountServer:
         Returns:
             验证响应
         """
-        logger.info(f"验证请求有效性: {request.args}")
+        logger.debug(
+            "Weixin official callback validation started: argument_keys=%s",
+            sorted(request.args),
+        )
 
         args = request.args
         if not args.get("signature", None):
@@ -148,7 +151,11 @@ class WeixinOfficialAccountServer:
             if not msg:
                 logger.error("解析失败。msg为None。")
                 raise
-            logger.info(f"解析成功: {msg}")
+            logger.debug(
+                "Weixin official callback parsed: message_type=%s message_id_present=%s",
+                type(msg).__name__,
+                bool(getattr(msg, "id", None)),
+            )
 
             if not self.callback:
                 return "success"
@@ -375,7 +382,11 @@ class WeixinOfficialAccountPlatformAdapter(Platform):
                         asyncio.shield(future),
                         180,
                     )  # wait for 180s
-                logger.debug(f"Got future result: {result}")
+                logger.debug(
+                    "Weixin official callback completed: result_present=%s result_length=%s",
+                    result is not None,
+                    len(str(result)) if result is not None else 0,
+                )
                 return result
             except asyncio.TimeoutError:
                 logger.info(f"callback 处理消息超时: message_id={msg.id}")

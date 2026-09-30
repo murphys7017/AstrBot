@@ -2493,7 +2493,7 @@ class InteractionOutputController:
                     event, "tts"
                 )
                 message_id = None
-                logger.info("Interaction TTS request: %s", comp.text)
+                logger.debug("Interaction TTS request: text_length=%s", len(comp.text))
                 result = await synthesize_text(
                     self.plugin_context,
                     event,
@@ -2505,7 +2505,10 @@ class InteractionOutputController:
                     turn_id=str(event.get_extra("_turn_id", "") or ""),
                     message_id=current_message_id,
                 )
-                logger.info("Interaction TTS result: %s", result.audio_path)
+                logger.debug(
+                    "Interaction TTS completed: audio_available=%s",
+                    bool(result.audio_path),
+                )
                 new_chain.append(
                     Record(
                         file=result.delivered_file,
@@ -2673,7 +2676,7 @@ class InteractionOutputController:
             return None
         token = await file_token_service.register_file(url)
         registered_url = f"{callback_api_base}/api/file/{token}"
-        logger.debug("Interaction t2i file registered: %s", registered_url)
+        logger.debug("Interaction t2i file registered")
         return registered_url
 
     @staticmethod

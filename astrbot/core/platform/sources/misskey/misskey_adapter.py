@@ -325,10 +325,16 @@ class MisskeyPlatformAdapter(Platform):
                 )
 
                 message = await self.convert_room_message(data)
-                logger.info(f"[Misskey] 处理群聊消息: {message.message_str[:50]}...")
+                logger.debug(
+                    "[Misskey] Group message received: text_length=%s",
+                    len(message.message_str),
+                )
             else:
                 message = await self.convert_chat_message(data)
-                logger.info(f"[Misskey] 处理私聊消息: {message.message_str[:50]}...")
+                logger.debug(
+                    "[Misskey] Direct message received: text_length=%s",
+                    len(message.message_str),
+                )
 
             event = MisskeyPlatformEvent(
                 message_str=message.message_str,

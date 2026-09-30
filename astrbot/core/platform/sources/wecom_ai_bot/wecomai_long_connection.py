@@ -60,7 +60,7 @@ class WecomAIBotLongConnectionClient:
         timeout = aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=None)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             self._session = session
-            logger.info("[WecomAI][LongConn] 正在连接: %s", self.ws_url)
+            logger.info("[WecomAI][LongConn] Connecting")
             async with session.ws_connect(
                 self.ws_url, heartbeat=None, autoping=True
             ) as ws:
@@ -126,7 +126,10 @@ class WecomAIBotLongConnectionClient:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("[WecomAI][LongConn] 收到非 JSON 消息: %s", text)
+            logger.warning(
+                "[WecomAI][LongConn] Received non-JSON message: text_length=%s",
+                len(text),
+            )
             return
 
         headers = payload.get("headers") or {}

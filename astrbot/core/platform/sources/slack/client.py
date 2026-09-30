@@ -90,7 +90,11 @@ class SlackWebhookClient:
             if not hmac.compare_digest(my_signature, signature):
                 logger.warning("Slack request signature verification failed")
                 return Response("Invalid signature", status=400)
-            logger.info(f"Received Slack event: {event_data}")
+            logger.debug(
+                "Slack event received: event_type=%s payload_keys=%s",
+                event_data.get("type", "unknown"),
+                sorted(event_data),
+            )
 
             # 处理 URL 验证事件
             if event_data.get("type") == "url_verification":

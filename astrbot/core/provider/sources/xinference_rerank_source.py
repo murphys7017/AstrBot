@@ -95,11 +95,16 @@ class XinferenceRerankProvider(RerankProvider):
         try:
             response = await self.model.rerank(documents, query, top_n)
             results = response.get("results", [])
-            logger.debug(f"Rerank API response: {response}")
+            logger.debug(
+                "Xinference rerank completed: result_count=%s response_keys=%s",
+                len(results),
+                sorted(response) if isinstance(response, dict) else [],
+            )
 
             if not results:
                 logger.warning(
-                    f"Rerank API returned an empty list. Original response: {response}",
+                    "Xinference rerank returned no results: response_keys=%s",
+                    sorted(response) if isinstance(response, dict) else [],
                 )
 
             return [

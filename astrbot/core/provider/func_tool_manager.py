@@ -609,7 +609,11 @@ class FunctionToolManager:
                         f"Connected to MCP server {name} timeout ({timeout_display} seconds)"
                     )
                 else:
-                    logger.error(f"Failed to initialize MCP server {name}: {result}")
+                    logger.error(
+                        "Failed to initialize MCP server %s: error_type=%s",
+                        name,
+                        type(result).__name__,
+                    )
                 self._log_safe_mcp_debug_config(cfg)
                 failed_services.append(name)
                 async with self._runtime_lock:
@@ -671,7 +675,7 @@ class FunctionToolManager:
             nonlocal connect_error
             try:
                 await mcp_client.connect_to_server(cfg, name)
-                tools_res = await mcp_client.list_tools_and_save()
+                await mcp_client.list_tools_and_save()
             except asyncio.CancelledError:
                 logger.debug(f"MCP client {name} task was cancelled")
                 try:
@@ -688,7 +692,11 @@ class FunctionToolManager:
                 connect_done.set()
                 return
 
-            logger.debug(f"MCP server {name} list tools response: {tools_res}")
+            logger.debug(
+                "MCP tools listed: server=%s tool_count=%s",
+                name,
+                len(getattr(mcp_client, "tools", []) or []),
+            )
             self.func_list = [
                 f
                 for f in self.func_list
@@ -856,7 +864,12 @@ class FunctionToolManager:
 
         mcp_client = MCPClient()
         try:
-            logger.debug(f"testing MCP server connection with config: {config}")
+            logger.debug(
+                "Testing MCP server connection: config_keys=%s has_url=%s transport=%s",
+                sorted(config),
+                bool(config.get("url")),
+                config.get("transport", "unknown"),
+            )
             await mcp_client.connect_to_server(config, "test")
             tools_res = await mcp_client.list_tools_and_save()
             tool_names = [tool.name for tool in tools_res.tools]

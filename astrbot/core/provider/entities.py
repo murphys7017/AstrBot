@@ -232,7 +232,10 @@ class ProviderRequest:
                 try:
                     image_data = (await materialize_image_ref(image_url)).to_data_url()
                 except ImageMaterializationError as exc:
-                    logger.warning("图片 %s 预处理失败，将忽略。错误: %s", image_url, exc)
+                    logger.warning(
+                        "Image preprocessing failed and will be ignored: error_type=%s",
+                        type(exc).__name__,
+                    )
                     continue
                 content_blocks.append(
                     {"type": "image_url", "image_url": {"url": image_data}},
@@ -276,7 +279,7 @@ class ProviderRequest:
                         source_ref=audio_url,
                     )
                 if not audio_data:
-                    logger.warning(f"音频 {audio_url} 得到的结果为空，将忽略。")
+                    logger.warning("Audio preprocessing returned no data and will be ignored.")
                     continue
                 content_blocks.append(
                     {"type": "audio_url", "audio_url": {"url": audio_data}},

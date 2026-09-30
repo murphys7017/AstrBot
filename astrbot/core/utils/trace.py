@@ -34,6 +34,55 @@ def _get_trace_logger():
     return _trace_logger
 
 
+def prompt_trace_enabled() -> bool:
+    """Return whether detailed prompt records should be persisted."""
+    return bool(astrbot_config.get("trace_log_enable", False))
+
+
+def record_prompt_trace(
+    event: Any | None,
+    action: str,
+    **fields: Any,
+) -> None:
+    """Write detailed prompt diagnostics only to the trace file channel."""
+    if not prompt_trace_enabled():
+        return
+
+    trace_logger = _get_trace_logger()
+    trace = getattr(event, "trace", None) if event is not None else None
+    get_extra = getattr(event, "get_extra", None) if event is not None else None
+    turn_id = ""
+    if callable(get_extra):
+        try:
+            turn_id = str(get_extra("_turn_id", "") or "")
+        except Exception:
+            turn_id = ""
+    platform_id = None
+    get_platform_id = (
+        getattr(event, "get_platform_id", None) if event is not None else None
+    )
+    if callable(get_platform_id):
+        try:
+            platform_id = get_platform_id()
+        except Exception:
+            platform_id = None
+
+    payload = {
+        "type": "prompt_trace",
+        "level": "TRACE",
+        "time": time.time(),
+        "span_id": getattr(trace, "span_id", None),
+        "turn_id": turn_id,
+        "platform_id": platform_id,
+        "session_id": getattr(event, "session_id", None)
+        if event is not None
+        else None,
+        "action": action,
+        "fields": fields,
+    }
+    trace_logger.info(json.dumps(payload, ensure_ascii=False, default=str))
+
+
 class TraceSpan:
     def __init__(
         self,
@@ -69,8 +118,6 @@ class TraceSpan:
         log_broker = _get_log_broker()
         if log_broker:
             log_broker.publish(payload)
-        else:
-            logger.info(f"[trace] {payload}")
 
         trace_logger = _get_trace_logger()
         if trace_logger and trace_logger.handlers:

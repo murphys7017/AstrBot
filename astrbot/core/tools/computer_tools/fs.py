@@ -823,8 +823,12 @@ class FileUploadTool(FunctionTool):
 
             # Upload file to sandbox
             result = await sb.upload_file(local_path, remote_path)
-            logger.debug(f"Upload result: {result}")
             success = result.get("success", False)
+            logger.debug(
+                "Sandbox file upload completed: success=%s result_keys=%s",
+                success,
+                sorted(result),
+            )
 
             if not success:
                 return f"Error uploading file: {result.get('message', 'Unknown error')}"

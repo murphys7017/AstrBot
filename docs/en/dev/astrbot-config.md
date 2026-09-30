@@ -636,6 +636,10 @@ Log level. Default is `INFO`. Can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`,
 
 Whether to enable trace recording. Default is `false`. When enabled, AstrBot records execution traces, which can be viewed on the Trace page of the admin panel.
 
+### `trace_log_enable`
+
+Whether to persist Trace records to a separate file. Default is `false`. When enabled, records are written to `trace_log_path`; full Prompt structure, context slots, and value previews are written only to this channel, never to the console or normal runtime log. Trace files can contain user content and model-request material, so enable them only in a controlled troubleshooting environment and protect the file accordingly.
+
 ### `pip_install_arg`
 
 Arguments for `pip install`. E.g., `-i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple`.

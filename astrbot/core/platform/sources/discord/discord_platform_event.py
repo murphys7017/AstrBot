@@ -166,14 +166,14 @@ class DiscordPlatformEvent(AstrMessageEvent):
 
                     # 1. URL
                     if file_content.startswith("http"):
-                        logger.debug(f"[Discord] 处理 URL 图片: {file_content}")
+                        logger.debug("[Discord] Processing image input: source=url")
                         embed = discord.Embed().set_image(url=file_content)
                         embeds.append(embed)
                         continue
 
                     # 2. File URI
                     if file_content.startswith("file:"):
-                        logger.debug(f"[Discord] 处理 File URI: {file_content}")
+                        logger.debug("[Discord] Processing image input: source=file_uri")
                         path = Path(file_uri_to_path(file_content))
                         if await asyncio.to_thread(path.exists):
                             file_bytes = await asyncio.to_thread(path.read_bytes)

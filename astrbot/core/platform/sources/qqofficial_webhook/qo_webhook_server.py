@@ -108,7 +108,7 @@ class QQOfficialWebhook:
     async def initialize(self) -> None:
         logger.info("正在登录到 QQ 官方机器人...")
         self.user = await self.http.login(self.token)
-        logger.info(f"已登录 QQ 官方机器人账号: {self.user}")
+        logger.info("QQ official bot login completed")
         # 直接注入到 botpy 的 Client，移花接木！
         self.client.api = self.api
         self.client.http = self.http
@@ -177,16 +177,24 @@ class QQOfficialWebhook:
         if not isinstance(msg, dict):
             return {"error": "Invalid JSON"}, 400
 
-        logger.debug(f"收到 qq_official_webhook 回调: {msg}")
-
         event = msg.get("t")
         opcode = msg.get("op")
         data = msg.get("d")
+        logger.debug(
+            "QQ official webhook received: opcode=%s event=%s body_length=%s payload_keys=%s",
+            opcode,
+            event,
+            len(body),
+            sorted(msg),
+        )
 
         if opcode == 13:
             # validation
             signed = await self.webhook_validation(cast(dict, data))
-            logger.debug(f"webhook validation response: {signed}")
+            logger.debug(
+                "QQ official webhook validation completed: response_keys=%s",
+                sorted(signed),
+            )
             return signed
 
         if not _verify_qq_webhook_signature(

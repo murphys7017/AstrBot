@@ -133,7 +133,11 @@ def safe_json_loads(json_str: str, default: Any = None) -> Any:
     try:
         return json.loads(json_str)
     except (json.JSONDecodeError, TypeError) as e:
-        logger.warning(f"JSON 解析失败: {e}, 原始字符串: {json_str}")
+        logger.warning(
+            "WeCom AI JSON parse failed: error_type=%s payload_length=%s",
+            type(e).__name__,
+            len(json_str),
+        )
         return default
 
 
@@ -167,7 +171,7 @@ async def process_encrypted_image(
 
     """
     # 1. 下载加密图片
-    logger.info("开始下载加密图片: %s", image_url)
+    logger.debug("WeCom AI encrypted image download started")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url, timeout=15) as response:

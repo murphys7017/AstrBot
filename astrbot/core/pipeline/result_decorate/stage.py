@@ -323,7 +323,11 @@ class ResultDecorateStage(Stage):
                 for index, comp in enumerate(result.chain, start=1):
                     if isinstance(comp, Plain) and len(comp.text) > 1:
                         try:
-                            logger.info(f"TTS 请求: {comp.text}")
+                            logger.debug(
+                                "TTS request: stage=pipeline.result_decorate_tts "
+                                "text_length=%s",
+                                len(comp.text),
+                            )
                             tts_result = await synthesize_text(
                                 self.ctx.plugin_manager.context,
                                 event,
@@ -336,10 +340,11 @@ class ResultDecorateStage(Stage):
                                     f"{turn_id}::pipeline_tts::{index:04d}"
                                 ),
                             )
-                            logger.info(f"TTS 结果: {tts_result.audio_path}")
-                            if tts_result.audio_url:
-                                logger.debug(f"已注册：{tts_result.audio_url}")
-
+                            logger.debug(
+                                "TTS completed: stage=pipeline.result_decorate_tts "
+                                "audio_present=%s",
+                                bool(tts_result.audio_path),
+                            )
                             new_chain.append(
                                 Record(
                                     file=tts_result.delivered_file,
@@ -426,7 +431,7 @@ class ResultDecorateStage(Stage):
                         ):
                             token = await file_token_service.register_file(url)
                             url = f"{policy.callback_api_base}/api/file/{token}"
-                            logger.debug(f"已注册：{url}")
+                            logger.debug("Text-to-image file registered")
                             result.chain = [Image.fromURL(url)]
                         else:
                             result.chain = [Image.fromFileSystem(url)]

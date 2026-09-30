@@ -102,7 +102,7 @@ class WecomServer:
         Returns:
             验证响应
         """
-        logger.info(f"验证请求有效性: {request.args}")
+        logger.debug("WeCom callback validation started: argument_keys=%s", sorted(request.args))
         args = request.args
         try:
             echo_str = self.crypto.check_signature(
@@ -141,7 +141,11 @@ class WecomServer:
             raise
         else:
             msg = cast(BaseMessage, parse_message(xml))
-            logger.info(f"解析成功: {msg}")
+            logger.debug(
+                "WeCom callback parsed: message_type=%s message_id_present=%s",
+                type(msg).__name__,
+                bool(getattr(msg, "id", None)),
+            )
 
             if self.callback:
                 await self.callback(msg)
@@ -485,7 +489,10 @@ class WecomPlatformAdapter(Platform):
         elif msgtype == "file":
             media_id = msg.get("file", {}).get("media_id", "")
             if not media_id:
-                logger.warning(f"微信客服文件消息缺少 media_id: {msg}")
+                logger.warning(
+                    "WeCom customer-service file message missing media_id: message_type=%s",
+                    type(msg).__name__,
+                )
                 return
 
             resp: Response = await asyncio.get_running_loop().run_in_executor(
@@ -506,7 +513,10 @@ class WecomPlatformAdapter(Platform):
 
             abm.message = [File(name=file_name, file=str(file_path))]
         else:
-            logger.warning(f"未实现的微信客服消息事件: {msg}")
+            logger.warning(
+                "WeCom customer-service event is not implemented: message_type=%s",
+                type(msg).__name__,
+            )
             return
         await self.handle_msg(abm)
 

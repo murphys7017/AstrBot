@@ -222,7 +222,11 @@ class WebChatAdapter(Platform):
         message_parts = payload.get("message", [])
         abm.message, message_str_parts = await self._parse_message_parts(message_parts)
 
-        logger.debug(f"WebChatAdapter: {abm.message}")
+        logger.debug(
+            "WebChat message parsed: component_count=%s text_length=%s",
+            len(abm.message),
+            sum(len(part) for part in message_str_parts),
+        )
 
         abm.timestamp = int(time.time())
         abm.message_str = "".join(message_str_parts)

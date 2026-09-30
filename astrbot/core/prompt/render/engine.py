@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import logging
 from copy import deepcopy
 
-from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.provider.register import provider_cls_map
 from astrbot.core.star.context import Context
+from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
 from ..context_types import ContextPack, ContextSlot
 from ..context_views import (
@@ -378,7 +377,7 @@ class PromptRenderEngine:
         event: AstrMessageEvent | None = None,
         provider_request: ProviderRequest | None = None,
     ) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
+        if not prompt_trace_enabled():
             return
 
         payload = {
@@ -399,9 +398,10 @@ class PromptRenderEngine:
             "tool_names": self._extract_tool_names(result.tool_schema),
             "metadata": result.metadata,
         }
-        logger.debug(
-            "Prompt render result: %s",
-            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        record_prompt_trace(
+            event,
+            "prompt.render_result",
+            **payload,
         )
 
     @staticmethod

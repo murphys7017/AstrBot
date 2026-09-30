@@ -21,10 +21,10 @@ from astrbot.api.platform import (
     Platform,
     PlatformMetadata,
 )
-from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform.group_reply_candidate import (
     mark_group_conversation_explicit_trigger,
 )
+from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.utils.webhook_utils import log_webhook_info
 
 from ...register import register_platform_adapter
@@ -202,7 +202,11 @@ class WecomAIBotAdapter(Platform):
             return None
         msgtype = message_data.get("msgtype")
         if not msgtype:
-            logger.warning(f"消息类型未知，忽略: {message_data}")
+            logger.warning(
+                "WeCom AI message ignored: payload_type=%s payload_keys=%s",
+                type(message_data).__name__,
+                sorted(message_data) if isinstance(message_data, dict) else [],
+            )
             return None
         session_id = self._extract_session_id(message_data)
         if msgtype in ("text", "image", "mixed"):
@@ -525,7 +529,10 @@ class WecomAIBotAdapter(Platform):
                 if success:
                     image_base64.append(result)
                 else:
-                    logger.error(f"处理加密图片失败: {result}")
+                    logger.error(
+                        "WeCom AI encrypted image processing failed: error_length=%s",
+                        len(str(result)),
+                    )
 
         # 构建 AstrBotMessage
         abm = AstrBotMessage()
@@ -561,7 +568,10 @@ class WecomAIBotAdapter(Platform):
             for img_b64 in image_base64:
                 abm.message.append(Image.fromBase64(img_b64))
 
-        logger.debug(f"WecomAIAdapter: {abm.message}")
+        logger.debug(
+            "WecomAIAdapter message accepted: text_length=%s",
+            len(abm.message or ""),
+        )
         return abm
 
     async def send_by_session(

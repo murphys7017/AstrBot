@@ -79,7 +79,11 @@ class DingtalkPlatformAdapter(Platform):
 
         class AstrCallbackClient(dingtalk_stream.ChatbotHandler):
             async def process(self, message: dingtalk_stream.CallbackMessage):
-                logger.debug(f"dingtalk: {message.data}")
+                logger.debug(
+                    "DingTalk callback received: payload_type=%s payload_keys=%s",
+                    type(message.data).__name__,
+                    sorted(message.data) if isinstance(message.data, dict) else [],
+                )
                 im = dingtalk_stream.ChatbotMessage.from_dict(message.data)
                 abm = await outer_self.convert_msg(im)
                 await outer_self.handle_msg(abm)
@@ -373,8 +377,11 @@ class DingtalkPlatformAdapter(Platform):
             ) as resp,
         ):
             if resp.status != 200:
+                response_text = await resp.text()
                 logger.error(
-                    f"下载钉钉文件失败: {resp.status}, {await resp.text()}",
+                    "DingTalk file download failed: status=%s response_length=%s",
+                    resp.status,
+                    len(response_text),
                 )
                 return ""
             resp_data = await resp.json()
@@ -387,7 +394,10 @@ class DingtalkPlatformAdapter(Platform):
                 ),
             )
             if not download_url:
-                logger.error(f"下载钉钉文件失败: 未找到 downloadUrl, 响应: {resp_data}")
+                logger.error(
+                    "DingTalk file download response missing download URL: response_keys=%s",
+                    sorted(resp_data) if isinstance(resp_data, dict) else [],
+                )
                 return ""
             await download_file(download_url, str(f_path))
         return str(f_path)
@@ -492,8 +502,11 @@ class DingtalkPlatformAdapter(Platform):
                 json=payload,
             ) as resp:
                 if resp.status != 200:
+                    response_text = await resp.text()
                     logger.error(
-                        f"钉钉私聊消息发送失败: {resp.status}, {await resp.text()}",
+                        "DingTalk direct message send failed: status=%s response_length=%s",
+                        resp.status,
+                        len(response_text),
                     )
 
     def _safe_remove_file(self, file_path: str | None) -> None:
@@ -504,7 +517,10 @@ class DingtalkPlatformAdapter(Platform):
             if p.exists() and p.is_file():
                 p.unlink()
         except Exception as e:
-            logger.warning(f"清理临时文件失败: {file_path}, {e}")
+            logger.warning(
+                "Failed to clean temporary file: error_type=%s",
+                type(e).__name__,
+            )
 
     async def _prepare_voice_for_dingtalk(self, input_path: str) -> tuple[str, bool]:
         """优先转换为 OGG(Opus)，不可用时回退 AMR。"""
@@ -540,13 +556,20 @@ class DingtalkPlatformAdapter(Platform):
                 data=form,
             ) as resp:
                 if resp.status != 200:
+                    response_text = await resp.text()
                     logger.error(
-                        f"钉钉媒体上传失败: {resp.status}, {await resp.text()}"
+                        "DingTalk media upload failed: status=%s response_length=%s",
+                        resp.status,
+                        len(response_text),
                     )
                     return ""
                 data = await resp.json()
                 if data.get("errcode") != 0:
-                    logger.error(f"钉钉媒体上传失败: {data}")
+                    logger.error(
+                        "DingTalk media upload rejected: error_code=%s response_keys=%s",
+                        data.get("errcode"),
+                        sorted(data),
+                    )
                     return ""
                 return cast(str, data.get("media_id", ""))
 

@@ -1519,7 +1519,7 @@ class InteractionMiddleware:
                         exc_info=True,
                     )
                 raise
-            logger.info("Interaction inbound STT result: %s", result.text)
+            logger.debug("Interaction inbound STT result: text_length=%s", len(result.text))
             message_chain[idx] = Plain(result.text)
             event.message_str = f"{event.message_str or ''}{result.text}"
             event.message_obj.message_str = (

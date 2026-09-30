@@ -389,7 +389,11 @@ class GroupChatContext(PromptExtensionCollectorInterface):
             event.set_extra(GROUP_CONTEXT_RECORD_ID_EXTRA, record.record_id)
             event.set_extra(GROUP_CONTEXT_RAW_IDX_EXTRA, len(records) - 1)
 
-        logger.debug("group_chat_context | %s | %s", umo, final_message)
+        logger.debug(
+            "DIAG group_context.capture: umo=%s text_length=%s",
+            umo,
+            len(final_message),
+        )
         if cfg["image_caption"] and _image_caption_allowed(event, cfg):
             await self._enrich_record_image_captions(
                 event,

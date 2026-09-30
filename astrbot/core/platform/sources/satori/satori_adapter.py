@@ -135,12 +135,16 @@ class SatoriPlatformAdapter(Platform):
             await self.session.close()
 
     async def connect_websocket(self) -> None:
-        logger.info(f"Satori 适配器正在连接到 WebSocket: {self.endpoint}")
-        logger.info(f"Satori 适配器 HTTP API 地址: {self.api_base_url}")
+        logger.info("Satori adapter connecting to WebSocket")
+        logger.debug(
+            "Satori connection configuration: websocket_configured=%s api_configured=%s",
+            bool(self.endpoint),
+            bool(self.api_base_url),
+        )
 
         if not self.endpoint.startswith(("ws://", "wss://")):
-            logger.error(f"无效的WebSocket URL: {self.endpoint}")
-            raise ValueError(f"WebSocket URL必须以ws://或wss://开头: {self.endpoint}")
+            logger.error("Satori WebSocket URL is invalid")
+            raise ValueError("WebSocket URL必须以ws://或wss://开头")
 
         try:
             websocket = await connect(
@@ -253,7 +257,11 @@ class SatoriPlatformAdapter(Platform):
                         user_id = user.get("id", "")
                         user_name = user.get("name", "")
                         logger.info(
-                            f"Satori 连接成功 - Bot {i + 1}: platform={platform}, user_id={user_id}, user_name={user_name}",
+                            "Satori connected: bot_index=%s platform=%s user_id_present=%s user_name_present=%s",
+                            i + 1,
+                            platform,
+                            bool(user_id),
+                            bool(user_name),
                         )
 
                 if "sn" in body:
@@ -272,7 +280,11 @@ class SatoriPlatformAdapter(Platform):
                     self.sequence = body["sn"]
 
         except json.JSONDecodeError as e:
-            logger.error(f"解析 WebSocket 消息失败: {e}, 消息内容: {message}")
+            logger.error(
+                "Satori WebSocket message parse failed: error_type=%s message_length=%s",
+                type(e).__name__,
+                len(message),
+            )
         except Exception as e:
             logger.error(f"处理 WebSocket 消息异常: {e}")
 
@@ -359,7 +371,11 @@ class SatoriPlatformAdapter(Platform):
                         quote = quote_info["quote"]
                         content_for_parsing = quote_info["content_without_quote"]
                 except Exception as e:
-                    logger.error(f"解析<quote>标签时发生错误: {e}, 错误内容: {content}")
+                    logger.error(
+                        "Failed to parse Satori quote tag: error=%s content_length=%s",
+                        e,
+                        len(content),
+                    )
 
             if quote:
                 # 引用消息
@@ -621,7 +637,11 @@ class SatoriPlatformAdapter(Platform):
             root = ET.fromstring(processed_content)
             await self._parse_xml_node(root, elements)
         except ET.ParseError as e:
-            logger.warning(f"解析 Satori 元素时发生解析错误: {e}, 错误内容: {content}")
+            logger.warning(
+                "Failed to parse Satori elements: error=%s content_length=%s",
+                e,
+                len(content),
+            )
             # 如果解析失败，将整个内容当作纯文本
             if content.strip():
                 elements.append(Plain(text=content))

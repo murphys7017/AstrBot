@@ -313,6 +313,8 @@ class InteractionTurnCoordinator:
         phase: str,
         control: InteractionControlResolution | None,
     ) -> None:
+        if phase != "t1_settled":
+            return
         turn_state = ensure_interaction_turn_state(turn.event)
         route = control.route if control is not None else turn_state.route_decision
         route_mode = getattr(route, "route_mode", None)

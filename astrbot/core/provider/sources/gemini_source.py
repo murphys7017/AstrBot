@@ -570,7 +570,10 @@ class ProviderGoogleGenAI(Provider):
     ) -> MessageChain:
         """处理内容部分并构建消息链"""
         if not candidate.content:
-            logger.warning(f"收到的 candidate.content 为空: {candidate}")
+            logger.warning(
+                "Gemini candidate content is empty: finish_reason=%s",
+                candidate.finish_reason,
+            )
             if validate_output:
                 raise EmptyModelOutputError(
                     "Gemini candidate content is empty. "
@@ -598,7 +601,10 @@ class ProviderGoogleGenAI(Provider):
                 raise Exception("模型生成内容违反 Gemini 平台政策")
 
         if not result_parts:
-            logger.warning(f"收到的 candidate.content.parts 为空: {candidate}")
+            logger.warning(
+                "Gemini candidate content parts are empty: finish_reason=%s",
+                candidate.finish_reason,
+            )
             if validate_output:
                 raise EmptyModelOutputError(
                     "Gemini candidate content parts are empty. "
@@ -709,10 +715,17 @@ class ProviderGoogleGenAI(Provider):
                         contents=cast(types.ContentListUnion, conversation),
                         config=config,
                     )
-                logger.debug(f"genai result: {result}")
+                logger.debug(
+                    "Gemini completion received: model=%s candidate_count=%s",
+                    model,
+                    len(result.candidates or []),
+                )
 
                 if not result.candidates:
-                    logger.error(f"请求失败, 返回的 candidates 为空: {result}")
+                    logger.error(
+                        "Gemini completion contains no candidates: model=%s",
+                        model,
+                    )
                     raise Exception("请求失败, 返回的 candidates 为空。")
 
                 if result.candidates[0].finish_reason == types.FinishReason.RECITATION:
@@ -834,10 +847,13 @@ class ProviderGoogleGenAI(Provider):
             llm_response = LLMResponse("assistant", is_chunk=True)
 
             if not chunk.candidates:
-                logger.warning(f"收到的 chunk 中 candidates 为空: {chunk}")
+                logger.warning("Gemini stream chunk contains no candidates")
                 continue
             if not chunk.candidates[0].content:
-                logger.warning(f"收到的 chunk 中 content 为空: {chunk}")
+                logger.warning(
+                    "Gemini stream chunk content is empty: finish_reason=%s",
+                    chunk.candidates[0].finish_reason,
+                )
                 continue
 
             if chunk.candidates[0].content.parts and any(
@@ -1101,7 +1117,10 @@ class ProviderGoogleGenAI(Provider):
             try:
                 image_data = (await materialize_image_ref(image_url)).to_data_url()
             except ImageMaterializationError as exc:
-                logger.warning("图片 %s 预处理失败，将忽略。错误: %s", image_url, exc)
+                logger.warning(
+                    "Image preprocessing failed and will be ignored: error_type=%s",
+                    type(exc).__name__,
+                )
                 return None
             return {
                 "type": "image_url",

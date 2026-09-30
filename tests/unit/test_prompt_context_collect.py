@@ -416,7 +416,7 @@ async def test_build_main_agent_stores_prompt_context_pack_in_event_extra():
 
 
 @pytest.mark.asyncio
-async def test_log_context_pack_logs_summary_at_info_and_slots_at_debug():
+async def test_log_context_pack_records_details_only_to_prompt_trace():
     event, extras = _make_event()
     context = _make_context()
     req = ProviderRequest(prompt="hello")
@@ -448,28 +448,26 @@ async def test_log_context_pack_logs_summary_at_info_and_slots_at_debug():
         provider_request=req,
     )
 
-    with patch("astrbot.core.prompt.context_collect.logger") as mock_logger:
+    with (
+        patch(
+            "astrbot.core.prompt.context_collect.prompt_trace_enabled",
+            return_value=True,
+        ),
+        patch(
+            "astrbot.core.prompt.context_collect.record_prompt_trace"
+        ) as trace_mock,
+    ):
         log_context_pack(pack, event=event)
 
-    info_messages = [
-        call.args[0] % call.args[1:] if call.args else ""
-        for call in mock_logger.info.call_args_list
-    ]
-    debug_messages = [
-        call.args[0] % call.args[1:] if call.args else ""
-        for call in mock_logger.debug.call_args_list
-    ]
-
-    assert any("Prompt context pack collected:" in message for message in info_messages)
-    assert not any("Prompt persona loaded:" in message for message in info_messages)
-    assert any(
-        "Prompt context slot: name=persona.prompt" in message
-        for message in debug_messages
-    )
-    assert any(
-        "Prompt context slot: name=persona.tools_whitelist" in message
-        for message in debug_messages
-    )
+    trace_mock.assert_called_once()
+    trace_event, action = trace_mock.call_args.args
+    fields = trace_mock.call_args.kwargs
+    assert trace_event is event
+    assert action == "prompt.context_pack"
+    assert fields["slot_count"] == len(pack.slots)
+    slot_names = {slot["name"] for slot in fields["slots"]}
+    assert "persona.prompt" in slot_names
+    assert "persona.tools_whitelist" in slot_names
 
 
 @pytest.mark.asyncio

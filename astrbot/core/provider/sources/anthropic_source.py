@@ -506,9 +506,8 @@ class ProviderAnthropic(Provider):
             image = await materialize_image_ref(url)
         except ImageMaterializationError as exc:
             logger.warning(
-                "Failed to load Anthropic context image: url=%s error=%s",
-                url[:80],
-                exc,
+                "Failed to load Anthropic context image: error_type=%s",
+                type(exc).__name__,
             )
             return None
 
@@ -602,7 +601,12 @@ class ProviderAnthropic(Provider):
             raise
 
         assert isinstance(completion, Message)
-        logger.debug(f"completion: {completion}")
+        logger.debug(
+            "Anthropic completion received: id=%s content_blocks=%s stop_reason=%s",
+            getattr(completion, "id", None),
+            len(getattr(completion, "content", None) or []),
+            getattr(completion, "stop_reason", None),
+        )
 
         if len(completion.content) == 0:
             raise EmptyModelOutputError(

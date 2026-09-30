@@ -2355,17 +2355,70 @@ class PersonalRuntimeManager:
                 turn.turn_id,
                 exc_info=True,
             )
+
+        stage_elapsed: dict[str, float] = {}
+        for stage in snapshot.get("stages", []):
+            if not isinstance(stage, dict):
+                continue
+            name = str(stage.get("name", "unknown"))
+            stage_elapsed[name] = stage_elapsed.get(name, 0.0) + float(
+                stage.get("elapsed_seconds", 0.0)
+            )
+
+        turn_state = getattr(turn.event, "_interaction_turn_state", None)
+        route = getattr(turn_state, "route_decision", None)
+        route_mode = getattr(getattr(route, "route_mode", None), "value", "none")
+        completion = getattr(turn_state, "completion_state", None)
+        turn_status = getattr(getattr(completion, "status", None), "value", "unknown")
+        emitted_at = getattr(turn_state, "personal_emitted_monotonic", None)
+        personal_elapsed_ms = (
+            f"{max(0.0, emitted_at - deadline.started_at) * 1000:.0f}"
+            if isinstance(emitted_at, int | float)
+            else "none"
+        )
+        failures = getattr(turn_state, "failures", []) or []
+        failure_stages = ",".join(
+            dict.fromkeys(str(item.stage) for item in failures if item.stage)
+        ) or "none"
+        receipts = getattr(turn_state, "output_delivery_receipts", []) or []
+        personal_receipts = [
+            item
+            for item in receipts
+            if str(item.get("message_kind", "")).startswith("immediate_reply")
+        ]
+        delivery = (
+            ",".join(str(item.get("status", "unknown")) for item in personal_receipts)
+            or "none"
+        )
+        elapsed_seconds = float(snapshot.get("elapsed_seconds", 0.0))
+        remaining_seconds = snapshot.get("remaining_seconds")
+        remaining_ms = (
+            f"{float(remaining_seconds) * 1000:.0f}"
+            if isinstance(remaining_seconds, int | float)
+            else "none"
+        )
         logger.debug(
-            "DIAG interaction.deadline: turn_id=%s session_id=%s "
-            "total_seconds=%.3f elapsed_seconds=%.3f remaining_seconds=%.3f "
-            "expired=%s stages=%s",
+            "DIAG interaction.turn: phase=settled turn_id=%s session_id=%s status=%s route=%s "
+            "personal_first_output_ms=%s turn_total_ms=%.0f persona_ms=%.0f provider_ms=%.0f "
+            "plugin_enrichment_ms=%.0f planner_ms=%.0f core_executor_ms=%.0f "
+            "deadline_remaining_ms=%s deadline_expired=%s delivery=%s failures=%s",
             turn.turn_id,
             turn.session.session_id,
-            snapshot["total_seconds"],
-            snapshot["elapsed_seconds"],
-            snapshot["remaining_seconds"],
-            snapshot["expired"],
-            snapshot["stages"],
+            turn_status,
+            route_mode,
+            personal_elapsed_ms,
+            elapsed_seconds * 1000,
+            stage_elapsed.get("persona_expression", 0.0) * 1000,
+            stage_elapsed.get("provider_request", 0.0) * 1000,
+            stage_elapsed.get("plugin_enrichment", 0.0) * 1000,
+            stage_elapsed.get("core_planner", 0.0) * 1000,
+            stage_elapsed.get("core_executor_run", 0.0)
+            * 1000
+            + stage_elapsed.get("proactive_core_execution", 0.0) * 1000,
+            remaining_ms,
+            snapshot.get("expired", "none"),
+            delivery,
+            failure_stages,
         )
 
     def _settle(self, reservation: PendingTurnReservation) -> None:

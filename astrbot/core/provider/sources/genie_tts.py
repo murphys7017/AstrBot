@@ -122,7 +122,10 @@ class GenieTTSProvider(TTSProvider):
                     except OSError:
                         pass
                 else:
-                    logger.error(f"Genie TTS failed to generate audio for: {text}")
+                    logger.error(
+                        "Genie TTS failed to generate audio: text_length=%s",
+                        len(text),
+                    )
 
             except Exception as e:
                 logger.error(f"Genie TTS stream error: {e}")

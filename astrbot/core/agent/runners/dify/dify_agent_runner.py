@@ -131,10 +131,16 @@ class DifyAgentRunner(BaseAgentRunner[TContext]):
                     mime_type=image.mime_type,
                     file_name=image_filename(image, index=index),
                 )
-                logger.debug(f"Dify 上传图片响应：{file_response}")
+                logger.debug(
+                    "Dify image upload completed: has_id=%s response_keys=%s",
+                    "id" in file_response,
+                    sorted(file_response),
+                )
                 if "id" not in file_response:
                     logger.warning(
-                        f"上传图片后得到未知的 Dify 响应：{file_response}，图片将忽略。"
+                        "Dify image upload returned no file ID: response_keys=%s; "
+                        "image will be ignored.",
+                        sorted(file_response),
                     )
                     continue
                 files_payload.append(
@@ -145,7 +151,10 @@ class DifyAgentRunner(BaseAgentRunner[TContext]):
                     }
                 )
             except Exception as e:
-                logger.warning(f"上传图片失败：{e}")
+                logger.warning(
+                    "Dify image upload failed: error_type=%s",
+                    type(e).__name__,
+                )
                 continue
 
         # 获得会话变量

@@ -123,7 +123,11 @@ class LarkMessageEvent(AstrMessageEvent):
             response = await lark_client.im.v1.message.acreate(request)
 
         if not response.success():
-            logger.error(f"[Lark] 发送飞书消息失败({response.code}): {response.msg}")
+            logger.error(
+                "[Lark] Message send failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
+            )
             return False
 
         return True
@@ -175,7 +179,9 @@ class LarkMessageEvent(AstrMessageEvent):
 
                 if not response.success():
                     logger.error(
-                        f"[Lark] 无法上传文件({response.code}): {response.msg}"
+                        "[Lark] File upload failed: status=%s response_message_length=%s",
+                        response.code,
+                        len(response.msg or ""),
                     )
                     return None
 
@@ -250,7 +256,11 @@ class LarkMessageEvent(AstrMessageEvent):
 
                 response = await lark_client.im.v1.image.acreate(request)
                 if not response.success():
-                    logger.error(f"无法上传飞书图片({response.code}): {response.msg}")
+                    logger.error(
+                        "[Lark] Image upload failed: status=%s response_message_length=%s",
+                        response.code,
+                        len(response.msg or ""),
+                    )
                     continue
 
                 if response.data is None:
@@ -258,7 +268,7 @@ class LarkMessageEvent(AstrMessageEvent):
                     continue
 
                 image_key = response.data.image_key
-                logger.debug(image_key)
+                logger.debug("[Lark] Image upload completed: image_key_received=%s", bool(image_key))
                 if _stage:
                     ret.append(_stage.copy())
                     _stage.clear()
@@ -390,7 +400,11 @@ class LarkMessageEvent(AstrMessageEvent):
             return False
 
         if not response.success():
-            logger.error(f"[Lark] 创建卡片失败({response.code}): {response.msg}")
+            logger.error(
+                "[Lark] Card creation failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
+            )
             return False
         if response.data is None or not response.data.card_id:
             logger.error("[Lark] 创建卡片成功但未返回 card_id")
@@ -776,7 +790,11 @@ class LarkMessageEvent(AstrMessageEvent):
 
         response = await self.bot.im.v1.message_reaction.acreate(request)
         if not response.success():
-            logger.error(f"发送飞书表情回应失败({response.code}): {response.msg}")
+            logger.error(
+                "[Lark] Reaction send failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
+            )
             return
 
     async def _create_streaming_card(self) -> str | None:
@@ -829,7 +847,9 @@ class LarkMessageEvent(AstrMessageEvent):
 
         if not response.success():
             logger.error(
-                f"[Lark] 创建流式卡片实体失败({response.code}): {response.msg}"
+                "[Lark] Streaming card creation failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
             )
             return None
 
@@ -838,7 +858,7 @@ class LarkMessageEvent(AstrMessageEvent):
             return None
 
         card_id = response.data.card_id
-        logger.debug(f"[Lark] 创建流式卡片实体成功: {card_id}")
+        logger.debug("[Lark] Streaming card created: card_id_received=%s", bool(card_id))
         return card_id
 
     async def _send_card_message(
@@ -894,7 +914,11 @@ class LarkMessageEvent(AstrMessageEvent):
             return False
 
         if not response.success():
-            logger.debug(f"[Lark] 流式更新文本失败({response.code}): {response.msg}")
+            logger.debug(
+                "[Lark] Streaming card update failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
+            )
             return False
 
         return True
@@ -934,9 +958,13 @@ class LarkMessageEvent(AstrMessageEvent):
             return
 
         if not response.success():
-            logger.error(f"[Lark] 关闭流式模式失败({response.code}): {response.msg}")
+            logger.error(
+                "[Lark] Streaming mode close failed: status=%s response_message_length=%s",
+                response.code,
+                len(response.msg or ""),
+            )
         else:
-            logger.debug(f"[Lark] 流式模式已关闭: {card_id}")
+            logger.debug("[Lark] Streaming mode closed: card_id_present=%s", bool(card_id))
 
     async def _fallback_send_streaming(self, generator, use_fallback: bool = False):
         """回退到非流式发送：缓冲全部文本后一次性发送，并保留父类副作用。"""

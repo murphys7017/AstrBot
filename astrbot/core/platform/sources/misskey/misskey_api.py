@@ -441,7 +441,10 @@ class MisskeyAPI:
             try:
                 error_text = await response.text()
                 logger.error(
-                    f"[Misskey API] 请求失败: {endpoint} - HTTP {response.status}, 响应: {error_text}",
+                    "[Misskey API] Request failed: endpoint=%s status=%s response_length=%s",
+                    endpoint,
+                    response.status,
+                    len(error_text),
                 )
             except Exception:
                 logger.error(
@@ -557,7 +560,7 @@ class MisskeyAPI:
             try:
                 f = open(file_path, "rb")
             except FileNotFoundError as e:
-                logger.error(f"[Misskey API] 本地文件不存在: {file_path}")
+                logger.error("[Misskey API] Local upload input file was not found")
                 raise APIError(f"File not found: {file_path}") from e
 
             try:
@@ -878,11 +881,14 @@ class MisskeyAPI:
                 result = await self.upload_and_find_file(url)
                 if result and result.get("id"):
                     file_ids.append(result["id"])
-                    logger.debug(f"[Misskey API] URL媒体上传成功: {result['id']}")
+                    logger.debug("[Misskey API] URL media upload completed")
                 else:
-                    logger.error(f"[Misskey API] URL媒体上传失败: {url}")
+                    logger.error("[Misskey API] URL media upload did not return a file ID")
             except Exception as e:
-                logger.error(f"[Misskey API] URL媒体处理失败 {url}: {e}")
+                logger.error(
+                    "[Misskey API] URL media processing failed: error_type=%s",
+                    type(e).__name__,
+                )
                 # 继续处理其他文件，不中断整个流程
                 continue
         return file_ids
@@ -895,11 +901,14 @@ class MisskeyAPI:
                 result = await self.upload_file(file_path)
                 if result and result.get("id"):
                     file_ids.append(result["id"])
-                    logger.debug(f"[Misskey API] 本地文件上传成功: {result['id']}")
+                    logger.debug("[Misskey API] Local media upload completed")
                 else:
-                    logger.error(f"[Misskey API] 本地文件上传失败: {file_path}")
+                    logger.error("[Misskey API] Local media upload did not return a file ID")
             except Exception as e:
-                logger.error(f"[Misskey API] 本地文件处理失败 {file_path}: {e}")
+                logger.error(
+                    "[Misskey API] Local media processing failed: error_type=%s",
+                    type(e).__name__,
+                )
                 continue
         return file_ids
 

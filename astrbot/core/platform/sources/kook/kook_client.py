@@ -80,22 +80,28 @@ class KookClient:
         try:
             async with self._http_client.get(url) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
                     logger.error(
-                        f"[KOOK] 获取机器人账号信息失败，状态码: {resp.status} , {await resp.text()}"
+                        "[KOOK] Failed to fetch bot account: status=%s response_length=%s",
+                        resp.status,
+                        len(body),
                     )
                     return
                 try:
                     resp_content = KookUserMeResponse.from_dict(await resp.json())
                 except pydantic.ValidationError as e:
                     logger.error(
-                        f"[KOOK] 获取机器人账号信息失败, 响应数据格式错误: \n{e}"
+                        "[KOOK] Bot account response validation failed: error=%s",
+                        e,
                     )
-                    logger.error(f"[KOOK] 响应内容: {await resp.text()}")
                     return
 
                 if not resp_content.success():
                     logger.error(
-                        f"[KOOK] 获取机器人账号信息失败: {resp_content.model_dump_json()}"
+                        "[KOOK] Bot account API rejected request: code=%s "
+                        "message_length=%s",
+                        resp_content.code,
+                        len(resp_content.message),
                     )
                     return
 
@@ -129,7 +135,11 @@ class KookClient:
 
                 resp_content = KookGatewayIndexResponse.from_dict(await resp.json())
                 if not resp_content.success():
-                    logger.error(f"[KOOK] 获取gateway失败: {resp_content}")
+                    logger.error(
+                        "[KOOK] Gateway API rejected request: code=%s message_length=%s",
+                        resp_content.code,
+                        len(resp_content.message),
+                    )
                     return None
 
                 gateway_url: str = resp_content.data.url
@@ -137,8 +147,7 @@ class KookClient:
                 return gateway_url
 
         except pydantic.ValidationError as e:
-            logger.error(f"[KOOK] 获取gateway失败, 响应数据格式错误: \n{e}")
-            logger.error(f"[KOOK] 原始响应内容: {await resp.text()}")
+            logger.error("[KOOK] Gateway response validation failed: error=%s", e)
             return None
 
         except Exception as e:
@@ -212,8 +221,12 @@ class KookClient:
                     await self._handle_signal(event)
 
                 except pydantic.ValidationError as e:
-                    logger.error(f"[KOOK] 解析WebSocket事件数据格式失败: \n{e}")
-                    logger.error(f"[KOOK] 原始响应内容: {msg}")
+                    logger.error(
+                        "[KOOK] WebSocket event validation failed: error=%s "
+                        "message_length=%s",
+                        e,
+                        len(msg),
+                    )
                     continue
 
                 except asyncio.TimeoutError:
@@ -450,17 +463,25 @@ class KookClient:
             async with self._http_client.post(url, data=data) as resp:
                 if resp.status == 200:
                     result: dict = await resp.json()
-                    logger.debug(f"[KOOK] 上传文件响应: {result}")
+                    logger.debug(
+                        "[KOOK] File upload response received: code=%s keys=%s",
+                        result.get("code"),
+                        sorted(result),
+                    )
                     if result.get("code") == 0:
                         logger.info("[KOOK] 上传文件到kook服务器成功")
                         remote_url = result["data"]["url"]
-                        logger.debug(f"[KOOK] 文件远端URL: {remote_url}")
                         return remote_url
                     else:
-                        raise RuntimeError(f"上传文件到kook服务器失败: {result}")
+                        raise RuntimeError(
+                            "上传文件到kook服务器失败: "
+                            f"response_code={result.get('code', 'unknown')}"
+                        )
                 else:
+                    body = await resp.text()
                     raise RuntimeError(
-                        f"上传文件到kook服务器 HTTP错误: {resp.status} , {await resp.text()}"
+                        "上传文件到kook服务器 HTTP错误: "
+                        f"status={resp.status}, response_length={len(body)}"
                     )
         except RuntimeError:
             raise

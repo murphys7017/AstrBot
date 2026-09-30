@@ -212,6 +212,10 @@ export default defineConfig({
                 text: "兼容配置文件",
                 link: "/astrbot-config",
               },
+              {
+                text: "日志规范",
+                link: "/logging",
+              },
             ],
           },
           {
@@ -455,6 +459,10 @@ export default defineConfig({
               {
                 text: "Compatible Configuration",
                 link: "/astrbot-config",
+              },
+              {
+                text: "Logging Guidelines",
+                link: "/logging",
               },
             ],
           },

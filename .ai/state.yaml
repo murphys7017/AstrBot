@@ -2000,3 +2000,29 @@ documentation_refresh_and_dashboard_plan_retirement:
     VitePress documentation build passed. Root README targets were checked,
     no Markdown reference to the deleted plan remains, and git diff --check
     passed with line-ending warnings only.
+
+logging_channel_consolidation:
+  date: '2026-09-30'
+  class: refactor
+  risk: high
+  status: validated_with_known_fixture_and_environment_gaps
+  scope: >-
+    Route detailed Prompt structure and context values to the opt-in Trace file
+    channel, make normal provider, tool, Personal, platform, and media logs
+    compact and correlated, and document the three logging channels.
+  non_goals: >-
+    Modify AG99, read or write ignored local configuration or credentials,
+    change request, tool, provider, or platform behavior, or start AstrBot.
+  validation: >-
+    Ruff and Python compilation passed for every modified Python file; git diff
+    --check passed. Focused log, Personal-turn, and Prompt-render tests passed
+    56 cases. The broader four-file run passed 143 cases and retained six
+    existing Prompt capability-fixture failures: their tools resolve as
+    plugin_not_selected before the logging code is exercised. VitePress was
+    invoked twice, including once with a dedicated temporary directory, but
+    Windows denied esbuild permission to remove its own temporary binary;
+    documentation content was not reported invalid.
+  followup: >-
+    After restart, confirm ordinary console/file logs contain only compact
+    diagnostics, and with trace_log_enable=true confirm Prompt context and
+    render previews appear only in the configured Trace file.

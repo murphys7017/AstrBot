@@ -100,14 +100,15 @@ class ProviderXinferenceSTT(STTProvider):
                             audio_bytes = await resp.read()
                         else:
                             logger.error(
-                                f"Failed to download audio from {audio_url}, status: {resp.status}",
+                                "Audio download failed: status=%s",
+                                resp.status,
                             )
                             return ""
             elif os.path.exists(audio_url):
                 with open(audio_url, "rb") as f:
                     audio_bytes = f.read()
             else:
-                logger.error(f"File not found: {audio_url}")
+                logger.error("Audio input file was not found.")
                 return ""
 
             if not audio_bytes:
@@ -184,17 +185,23 @@ class ProviderXinferenceSTT(STTProvider):
                 if resp.status == 200:
                     result = await resp.json()
                     text = result.get("text", "")
-                    logger.debug(f"Xinference STT result: {text}")
+                    logger.debug("Xinference STT completed: text_length=%s", len(text))
                     return text
                 error_text = await resp.text()
                 logger.error(
-                    f"Xinference STT transcription failed with status {resp.status}: {error_text}",
+                    "Xinference STT transcription failed: status=%s error_length=%s",
+                    resp.status,
+                    len(error_text),
                 )
                 return ""
 
         except Exception as e:
-            logger.error(f"Xinference STT failed: {e}")
-            logger.debug(f"Xinference STT failed with exception: {e}", exc_info=True)
+            logger.error("Xinference STT failed: error_type=%s", type(e).__name__)
+            logger.debug(
+                "Xinference STT failed with exception: error_type=%s",
+                type(e).__name__,
+                exc_info=True,
+            )
             return ""
         finally:
             # 5. Cleanup
@@ -202,9 +209,12 @@ class ProviderXinferenceSTT(STTProvider):
                 try:
                     if os.path.exists(temp_file):
                         os.remove(temp_file)
-                        logger.debug(f"Removed temporary file: {temp_file}")
+                        logger.debug("Removed temporary STT file")
                 except Exception as e:
-                    logger.error(f"Failed to remove temporary file {temp_file}: {e}")
+                    logger.error(
+                        "Failed to remove temporary STT file: error_type=%s",
+                        type(e).__name__,
+                    )
 
     async def terminate(self) -> None:
         """关闭客户端会话"""

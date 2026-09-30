@@ -20,6 +20,7 @@ from astrbot.core.capabilities import (
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.plugin_admission import build_plugin_admission_snapshot
 from astrbot.core.star.context import Context
+from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
 from .collectors.conversation_history_collector import ConversationHistoryCollector
 from .collectors.core_execution_history_collector import CoreExecutionHistoryCollector
@@ -965,26 +966,28 @@ async def collect_context_pack(
 def log_context_pack(
     pack: ContextPack, *, event: AstrMessageEvent | None = None
 ) -> None:
-    """Log a compact summary of the collected context pack."""
-    umo = getattr(event, "unified_msg_origin", None) if event else None
-    logger.info(
-        "Prompt context pack collected: umo=%s catalog=%s collectors=%s slot_count=%s",
-        umo,
-        pack.meta.get("catalog_version"),
-        pack.meta.get("collectors"),
-        pack.meta.get("slot_count", len(pack.slots)),
-    )
-
-    if not pack.slots:
+    """Write the complete context pack only to the opt-in trace channel."""
+    if event is None or not prompt_trace_enabled():
         return
 
+    slots = []
     for slot_name in sorted(pack.slots):
         slot: ContextSlot = pack.slots[slot_name]
-        logger.debug(
-            "Prompt context slot: name=%s category=%s source=%s meta=%s value=%s",
-            slot.name,
-            slot.category,
-            slot.source,
-            slot.meta,
-            _stringify_value_preview(slot.value),
+        slots.append(
+            {
+                "name": slot.name,
+                "category": slot.category,
+                "source": slot.source,
+                "meta": slot.meta,
+                "value_preview": _stringify_value_preview(slot.value),
+            }
         )
+
+    record_prompt_trace(
+        event,
+        "prompt.context_pack",
+        catalog_version=pack.meta.get("catalog_version"),
+        collectors=pack.meta.get("collectors", []),
+        slot_count=pack.meta.get("slot_count", len(pack.slots)),
+        slots=slots,
+    )

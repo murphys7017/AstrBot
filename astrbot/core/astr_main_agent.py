@@ -1341,7 +1341,13 @@ async def build_main_agent(
 
     If apply_reset is False, will not call reset on the agent runner.
     """
-    logger.debug(f"req received in build_main_agent: {req}")
+    logger.debug(
+        "DIAG provider.request: stage=build prompt_length=%s image_count=%s audio_count=%s contexts_type=%s",
+        len(getattr(req, "prompt", "") or ""),
+        len(getattr(req, "image_urls", []) or []),
+        len(getattr(req, "audio_urls", []) or []),
+        type(getattr(req, "contexts", None)).__name__,
+    )
     interaction_core = should_use_interaction_core_profile(event)
     provider = provider or _select_provider(event, plugin_context)
     if provider is None:
@@ -1379,8 +1385,13 @@ async def build_main_agent(
             conversation = await _get_session_conv(event, plugin_context)
             req.conversation = conversation
             event.set_extra("provider_request", req)
-    logger.debug(f"image_urls extracted for build_main_agent: {req.image_urls}")
-    logger.debug(f"Constructed provider request: {req}")
+    logger.debug(
+        "DIAG provider.request: stage=prepared prompt_length=%s image_count=%s audio_count=%s has_conversation=%s",
+        len(req.prompt or ""),
+        len(req.image_urls or []),
+        len(req.audio_urls or []),
+        bool(req.conversation),
+    )
     if isinstance(req.contexts, str):
         req.contexts = json.loads(req.contexts)
     req.image_urls = normalize_and_dedupe_strings(req.image_urls)

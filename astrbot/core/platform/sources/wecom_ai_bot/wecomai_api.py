@@ -66,10 +66,17 @@ class WecomAIBotAPIClient:
             if decrypted_msg:
                 try:
                     message_data = json.loads(decrypted_msg)
-                    logger.debug(f"解密成功，消息内容: {message_data}")
+                    logger.debug(
+                        "WeCom AI message decrypted: payload_keys=%s",
+                        sorted(message_data),
+                    )
                     return WecomAIBotConstants.SUCCESS, message_data
                 except json.JSONDecodeError as e:
-                    logger.error(f"JSON 解析失败: {e}, 原始消息: {decrypted_msg}")
+                    logger.error(
+                        "WeCom AI message JSON parse failed: error_type=%s payload_length=%s",
+                        type(e).__name__,
+                        len(decrypted_msg),
+                    )
                     return WecomAIBotConstants.PARSE_XML_ERROR, None
             else:
                 logger.error("解密消息为空")
@@ -165,7 +172,7 @@ class WecomAIBotAPIClient:
         """
         try:
             # 下载图片
-            logger.info(f"开始下载加密图片: {image_url}")
+            logger.debug("WeCom AI encrypted image download started")
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(image_url, timeout=15) as response:

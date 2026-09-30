@@ -167,7 +167,10 @@ class LarkWebhookServer:
         if "encrypt" in event_data:
             try:
                 event_data = self.decrypt_event(event_data["encrypt"])
-                logger.debug(f"[Lark Webhook] 解密后的事件: {event_data}")
+                logger.debug(
+                    "[Lark Webhook] Encrypted event decrypted: payload_keys=%s",
+                    sorted(event_data) if isinstance(event_data, dict) else [],
+                )
             except Exception as e:
                 logger.error(f"[Lark Webhook] 解密事件失败: {e}")
                 return {"error": "Decryption failed"}, 400

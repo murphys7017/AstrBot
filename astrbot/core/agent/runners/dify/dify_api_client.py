@@ -19,7 +19,10 @@ async def _stream_sse(resp: ClientResponse) -> AsyncGenerator[dict, None]:
                 try:
                     yield json.loads(block[5:])
                 except json.JSONDecodeError:
-                    logger.warning(f"Drop invalid dify json data: {block[5:]}")
+                    logger.warning(
+                        "Drop invalid Dify SSE data: payload_length=%s",
+                        len(block[5:]),
+                    )
                     continue
     # flush any remaining text
     buffer += decoder.decode(b"", final=True)
@@ -27,7 +30,10 @@ async def _stream_sse(resp: ClientResponse) -> AsyncGenerator[dict, None]:
         try:
             yield json.loads(buffer[5:])
         except json.JSONDecodeError:
-            logger.warning(f"Drop invalid dify json data: {buffer[5:]}")
+            logger.warning(
+                "Drop invalid Dify SSE data: payload_length=%s",
+                len(buffer[5:]),
+            )
 
 
 class DifyAPIClient:
@@ -55,7 +61,15 @@ class DifyAPIClient:
         payload = locals()
         payload.pop("self")
         payload.pop("timeout")
-        logger.info(f"chat_messages payload: {payload}")
+        logger.debug(
+            "Dify chat request prepared: response_mode=%s conversation_id_present=%s "
+            "file_count=%s query_length=%s user_present=%s",
+            response_mode,
+            bool(conversation_id),
+            len(files),
+            len(query),
+            bool(user),
+        )
         async with self.session.post(
             url,
             json=payload,
@@ -65,7 +79,8 @@ class DifyAPIClient:
             if resp.status != 200:
                 text = await resp.text()
                 raise Exception(
-                    f"Dify /chat-messages 接口请求失败：{resp.status}. {text}",
+                    "Dify /chat-messages 接口请求失败："
+                    f"{resp.status}. response_length={len(text)}",
                 )
             async for event in _stream_sse(resp):
                 yield event
@@ -84,7 +99,14 @@ class DifyAPIClient:
         payload = locals()
         payload.pop("self")
         payload.pop("timeout")
-        logger.info(f"workflow_run payload: {payload}")
+        logger.debug(
+            "Dify workflow request prepared: response_mode=%s input_count=%s "
+            "file_count=%s user_present=%s",
+            response_mode,
+            len(inputs),
+            len(files),
+            bool(user),
+        )
         async with self.session.post(
             url,
             json=payload,
@@ -94,7 +116,8 @@ class DifyAPIClient:
             if resp.status != 200:
                 text = await resp.text()
                 raise Exception(
-                    f"Dify /workflows/run 接口请求失败：{resp.status}. {text}",
+                    "Dify /workflows/run 接口请求失败："
+                    f"{resp.status}. response_length={len(text)}",
                 )
             async for event in _stream_sse(resp):
                 yield event

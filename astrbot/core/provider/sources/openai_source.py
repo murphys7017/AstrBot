@@ -277,7 +277,7 @@ class ProviderOpenAIOfficial(Provider):
     ) -> dict | None:
         image_data = await self._image_ref_to_data_url(image_url, mode="safe")
         if not image_data:
-            logger.warning(f"图片 {image_url} 得到的结果为空，将忽略。")
+            logger.warning("Image preprocessing returned no data and will be ignored.")
             return None
         image_payload = {"url": image_data}
 
@@ -659,7 +659,11 @@ class ProviderOpenAIOfficial(Provider):
                 f"API 返回的 completion 类型错误：{type(completion)}: {completion}。",
             )
 
-        logger.debug(f"completion: {completion}")
+        logger.debug(
+            "OpenAI completion received: id=%s choices=%s",
+            getattr(completion, "id", None),
+            len(getattr(completion, "choices", None) or []),
+        )
 
         llm_response = await self._parse_openai_completion(completion, tools)
 
@@ -769,7 +773,7 @@ class ProviderOpenAIOfficial(Provider):
             llm_response = await self._parse_openai_completion(final_completion, tools)
             yield llm_response
         except Exception as e:
-            logger.error("get_final_completion error: " + str(e))
+            logger.error("get_final_completion failed: error_type=%s", type(e).__name__)
             return
 
     def _extract_reasoning_content(
@@ -837,7 +841,10 @@ class ProviderOpenAIOfficial(Provider):
                 text_val = raw_content.get("text", "")
                 return str(text_val) if text_val is not None else ""
             # For other dict formats, return empty string and log
-            logger.warning(f"Unexpected dict format content: {raw_content}")
+            logger.warning(
+                "Unexpected OpenAI content mapping format: keys=%s",
+                sorted(str(key) for key in raw_content),
+            )
             return ""
 
         if isinstance(raw_content, list):
@@ -1014,7 +1021,11 @@ class ProviderOpenAIOfficial(Provider):
             and not has_reasoning_output
             and not llm_response.tools_call_args
         ):
-            logger.error(f"OpenAI completion has no usable output: {completion}.")
+            logger.error(
+                "OpenAI completion has no usable output: id=%s finish_reason=%s",
+                completion.id,
+                choice.finish_reason,
+            )
             raise EmptyModelOutputError(
                 "OpenAI completion has no usable output. "
                 f"response_id={completion.id}, finish_reason={choice.finish_reason}"

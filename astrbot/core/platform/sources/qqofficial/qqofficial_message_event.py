@@ -472,7 +472,10 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                         plain_text=plain_text,
                         stream=stream,
                     )
-                logger.debug(f"Message sent to C2C: {ret}")
+                logger.debug(
+                    "QQOfficial message sent: channel=c2c response_type=%s",
+                    type(ret).__name__ if ret is not None else "none",
+                )
 
             case botpy.message.Message():
                 if image_path:
@@ -597,12 +600,16 @@ class QQOfficialMessageEvent(AstrMessageEvent):
         try:
             result = await _do_upload()
         except APIReturnNoneError:
-            logger.warning(f"上传图片API返回None，共尝试5次后放弃: {payload}")
+            logger.warning(
+                "QQOfficial media upload returned no response after retries: media_type=image payload_keys=%s",
+                sorted(payload),
+            )
             raise
 
         if not isinstance(result, dict):
             raise RuntimeError(
-                f"Failed to upload image, response is not dict: {result}"
+                "Failed to upload image: response_type="
+                f"{type(result).__name__}"
             )
 
         return Media(
@@ -660,10 +667,16 @@ class QQOfficialMessageEvent(AstrMessageEvent):
         try:
             result = await _do_upload()
         except APIReturnNoneError:
-            logger.warning("Media upload API returned None after retries: %s", file_source)
+            logger.warning(
+                "Media upload API returned no response after retries: file_source_present=%s",
+                bool(file_source),
+            )
             raise
         except (botpy.errors.ServerError, botpy.errors.SequenceNumberError):
-            logger.error("Media upload failed after retries: %s", file_source)
+            logger.error(
+                "Media upload failed after retries: file_source_present=%s",
+                bool(file_source),
+            )
             raise
         except Exception as exc:
             logger.error("Media upload request failed: %s", exc)
@@ -724,7 +737,10 @@ class QQOfficialMessageEvent(AstrMessageEvent):
             return None
 
         if not isinstance(result, dict):
-            logger.error(f"[QQOfficial] post_c2c_message: 响应不是 dict: {result}")
+            logger.error(
+                "[QQOfficial] post_c2c_message: response is not a dict: response_type=%s",
+                type(result).__name__,
+            )
             return None
 
         return message.Message(**result)

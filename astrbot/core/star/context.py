@@ -380,7 +380,18 @@ class Context:
         prov = await self.provider_manager.get_provider_by_id(chat_provider_id)
         if not prov or not isinstance(prov, Provider):
             raise ProviderNotFoundError(f"Provider {chat_provider_id} not found")
-        logger.debug(f"contexts received in llm_generate: {contexts}")
+        logger.debug(
+            "LLM request prepared: entry=llm_generate provider_id=%s "
+            "context_message_count=%s prompt_length=%s system_prompt_length=%s "
+            "image_count=%s audio_count=%s tool_count=%s",
+            chat_provider_id,
+            len(contexts or []),
+            len(prompt or ""),
+            len(system_prompt or ""),
+            len(image_urls or []),
+            len(audio_urls or []),
+            len(tools or ToolSet()),
+        )
         llm_resp = await prov.text_chat(
             prompt=prompt,
             image_urls=image_urls,
@@ -456,7 +467,19 @@ class Context:
         agent_context = kwargs.get("agent_context")
 
         context_ = []
-        logger.debug(f"contexts received in tool_loop_agent: {contexts}")
+        logger.debug(
+            "LLM request prepared: entry=tool_loop_agent provider_id=%s "
+            "context_message_count=%s prompt_length=%s system_prompt_length=%s "
+            "image_count=%s audio_count=%s extra_part_count=%s tool_count=%s",
+            chat_provider_id,
+            len(contexts or []),
+            len(prompt or ""),
+            len(system_prompt or ""),
+            len(image_urls or []),
+            len(audio_urls or []),
+            len(extra_user_content_parts or []),
+            len(tools or ToolSet()),
+        )
         for msg in contexts or []:
             if isinstance(msg, Message):
                 context_.append(msg.model_dump())

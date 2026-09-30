@@ -110,7 +110,10 @@ class WeixinOfficialAccountPlatformEvent(AstrMessageEvent):
                             MessageChain().message(f"微信公众平台上传图片失败: {e}"),
                         )
                         return
-                    logger.debug(f"微信公众平台上传图片返回: {response}")
+                    logger.debug(
+                        "Weixin official media upload succeeded: media_type=image response_keys=%s",
+                        sorted(response),
+                    )
 
                     if active_send_mode:
                         self.client.message.send_image(
@@ -143,7 +146,10 @@ class WeixinOfficialAccountPlatformEvent(AstrMessageEvent):
                                 ),
                             )
                             return
-                        logger.info(f"微信公众平台上传语音返回: {response}")
+                        logger.debug(
+                            "Weixin official media upload succeeded: media_type=voice response_keys=%s",
+                            sorted(response),
+                        )
 
                         if active_send_mode:
                             self.client.message.send_voice(

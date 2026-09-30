@@ -607,6 +607,10 @@ AstrBot WebUI 配置。
 
 是否启用追踪记录。默认为 `false`。启用后，AstrBot 会记录运行追踪信息，可以在管理面板的 Trace 页面查看。
 
+### `trace_log_enable`
+
+是否将 Trace 写入独立文件。默认为 `false`。开启后会写入 `trace_log_path` 指定的文件；Prompt 的完整结构、上下文槽位和值预览仅写入此通道，不会进入控制台或普通运行日志。Trace 文件可能包含用户内容和模型请求材料，应仅在受控的排障环境中开启并妥善保管。
+
 ### `pip_install_arg`
 
 `pip install` 的参数。如 `-i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple`。

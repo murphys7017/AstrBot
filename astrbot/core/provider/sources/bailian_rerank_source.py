@@ -170,7 +170,10 @@ class BailianRerankProvider(RerankProvider):
             results = data.get("output", {}).get("results", [])
 
         if not results:
-            logger.warning(f"百炼 Rerank 返回空结果: {data}")
+            logger.warning(
+                "Bailian rerank returned no results: response_keys=%s",
+                sorted(data) if isinstance(data, dict) else [],
+            )
             return []
 
         # 转换为RerankResult对象，使用.get()避免KeyError
@@ -189,7 +192,12 @@ class BailianRerankProvider(RerankProvider):
                 )
                 rerank_results.append(rerank_result)
             except Exception as e:
-                logger.warning(f"解析结果 {idx} 时出错: {e}, result={result}")
+                logger.warning(
+                    "Bailian rerank result parse failed: index=%s keys=%s error=%s",
+                    idx,
+                    sorted(result) if isinstance(result, dict) else [],
+                    e,
+                )
                 continue
 
         return rerank_results

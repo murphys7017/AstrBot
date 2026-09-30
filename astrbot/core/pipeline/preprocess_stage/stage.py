@@ -140,8 +140,12 @@ class PreProcessStage(Stage):
                             provider=stt_provider,
                             stage="pipeline.preprocess_stt",
                         )
-                        suffix = "(引用消息)" if is_reply else ""
-                        logger.info(f"语音转文本{suffix}结果: " + result.text)
+                        logger.debug(
+                            "STT completed: stage=pipeline.preprocess_stt "
+                            "is_reply=%s text_length=%s",
+                            is_reply,
+                            len(result.text),
+                        )
                         return Plain(result.text)
                     except VoiceServiceError as e:
                         if e.reason != "source_unavailable":

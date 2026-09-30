@@ -70,24 +70,30 @@ class CozeAPIClient:
 
                 response_text = await response.text()
                 logger.debug(
-                    f"文件上传响应状态: {response.status}, 内容: {response_text}",
+                    "Coze file upload response: status=%s response_length=%s",
+                    response.status,
+                    len(response_text),
                 )
 
                 if response.status != 200:
                     raise Exception(
-                        f"文件上传失败，状态码: {response.status}, 响应: {response_text}",
+                        "文件上传失败，状态码: "
+                        f"{response.status}，响应长度: {len(response_text)}",
                     )
 
                 try:
                     result = await response.json()
                 except json.JSONDecodeError:
-                    raise Exception(f"文件上传响应解析失败: {response_text}")
+                    raise Exception(
+                        "文件上传响应解析失败，响应长度: "
+                        f"{len(response_text)}"
+                    )
 
                 if result.get("code") != 0:
                     raise Exception(f"文件上传失败: {result.get('msg', '未知错误')}")
 
                 file_id = result["data"]["id"]
-                logger.debug(f"[Coze] 图片上传成功，file_id: {file_id}")
+                logger.debug("[Coze] Image upload completed: file_id_received=%s", bool(file_id))
                 return file_id
 
         except asyncio.TimeoutError:
@@ -117,7 +123,7 @@ class CozeAPIClient:
                 return image_data
 
         except Exception as e:
-            logger.error(f"下载图片失败 {image_url}: {e!s}")
+            logger.error("Coze image download failed: error_type=%s", type(e).__name__)
             raise Exception(f"下载图片失败: {e!s}")
 
     async def chat_messages(
@@ -159,7 +165,14 @@ class CozeAPIClient:
         if conversation_id:
             params["conversation_id"] = conversation_id
 
-        logger.debug(f"Coze chat_messages payload: {payload}, params: {params}")
+        logger.debug(
+            "Coze chat request prepared: stream=%s auto_save_history=%s "
+            "additional_message_count=%s conversation_id_present=%s",
+            stream,
+            auto_save_history,
+            len(additional_messages or []),
+            bool(conversation_id),
+        )
 
         try:
             async with session.post(

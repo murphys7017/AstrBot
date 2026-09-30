@@ -52,13 +52,19 @@ class SlackMessageEvent(AstrMessageEvent):
                 filename=Path(path).name,
             )
             if not response["ok"]:
-                logger.error(f"Slack file upload failed: {response['error']}")
+                logger.error(
+                    "Slack image upload failed: error=%s",
+                    response.get("error", "unknown"),
+                )
                 return {
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": "图片上传失败"},
                 }
             image_url = cast(list, response["files"])[0]["url_private"]
-            logger.debug(f"Slack file upload response: {response}")
+            logger.debug(
+                "Slack image upload completed: file_count=%s",
+                len(cast(list, response.get("files", []))),
+            )
             return {
                 "type": "image",
                 "slack_file": {
@@ -74,7 +80,10 @@ class SlackMessageEvent(AstrMessageEvent):
                 filename=segment.name or "file",
             )
             if not response["ok"]:
-                logger.error(f"Slack file upload failed: {response['error']}")
+                logger.error(
+                    "Slack file upload failed: error=%s",
+                    response.get("error", "unknown"),
+                )
                 return {
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": "文件上传失败"},

@@ -1205,7 +1205,11 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
     ) -> T.AsyncGenerator[_HandleFunctionToolsResult, None]:
         """处理函数工具调用。"""
         tool_call_result_blocks: list[ToolCallMessageSegment] = []
-        logger.info(f"Agent 使用工具: {llm_response.tools_call_name}")
+        logger.debug(
+            "Agent tool calls: count=%s names=%s",
+            len(llm_response.tools_call_name),
+            list(llm_response.tools_call_name),
+        )
 
         def _append_tool_call_result(tool_call_id: str, content: str) -> None:
             tool_call_result_blocks.append(
@@ -1258,7 +1262,17 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 # Some API may return None for tools with no parameters
                 if func_tool_args is None:
                     func_tool_args = {}
-                logger.info(f"使用工具：{func_tool_name}，参数：{func_tool_args}")
+                arg_keys = (
+                    sorted(func_tool_args)
+                    if isinstance(func_tool_args, dict)
+                    else []
+                )
+                logger.debug(
+                    "Tool call started: name=%s arg_count=%s arg_keys=%s",
+                    func_tool_name,
+                    len(func_tool_args) if isinstance(func_tool_args, dict) else 0,
+                    arg_keys,
+                )
 
                 if not func_tool:
                     logger.warning(f"未找到指定的工具: {func_tool_name}，将跳过。")
@@ -1273,7 +1287,13 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 # 获取实际的 handler 函数
                 if func_tool.handler:
                     logger.debug(
-                        f"工具 {func_tool_name} 期望的参数: {func_tool.parameters}",
+                        "Tool schema selected: name=%s parameter_count=%s",
+                        func_tool_name,
+                        len(
+                            (func_tool.parameters or {}).get("properties", {})
+                            if isinstance(func_tool.parameters, dict)
+                            else {}
+                        ),
                     )
                     if func_tool.parameters and func_tool.parameters.get("properties"):
                         expected_params = set(func_tool.parameters["properties"].keys())
@@ -1457,7 +1477,11 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                         ],
                     )
                 )
-                logger.info(f"Tool `{func_tool_name}` Result: {tool_result_content}")
+                logger.debug(
+                    "Tool call completed: name=%s result_length=%s",
+                    func_tool_name,
+                    len(tool_result_content),
+                )
 
         # 处理函数调用响应
         if tool_call_result_blocks:

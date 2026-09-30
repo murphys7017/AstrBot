@@ -82,7 +82,10 @@ class NvidiaRerankProvider(RerankProvider):
         """解析响应数据"""
         results = response_data.get("rankings", [])
         if not results:
-            logger.warning(f"[NVIDIA Rerank] Empty response: {response_data}")
+            logger.warning(
+                "[NVIDIA Rerank] Empty response: response_keys=%s",
+                sorted(response_data),
+            )
             return []
 
         rerank_results = []
@@ -95,7 +98,10 @@ class NvidiaRerankProvider(RerankProvider):
                 )
             except Exception as e:
                 logger.warning(
-                    f"[NVIDIA Rerank] Result parsing error: {e}, Data={item}"
+                    "[NVIDIA Rerank] Result parsing error: index=%s keys=%s error=%s",
+                    idx,
+                    sorted(item) if isinstance(item, dict) else [],
+                    e,
                 )
 
         rerank_results.sort(key=lambda x: x.relevance_score, reverse=True)
@@ -143,11 +149,21 @@ class NvidiaRerankProvider(RerankProvider):
                         error_detail = await response.text()
                         response_data = {"message": error_detail}
 
-                    logger.error(f"[NVIDIA Rerank] API Error Response: {response_data}")
+                    logger.error(
+                        "[NVIDIA Rerank] API error: status=%s response_keys=%s "
+                        "error_length=%s",
+                        response.status,
+                        sorted(response_data),
+                        len(str(error_detail)),
+                    )
                     raise Exception(f"HTTP {response.status} - {error_detail}")
 
                 response_data = await response.json()
-                logger.debug(f"[NVIDIA Rerank] API Response: {response_data}")
+                logger.debug(
+                    "[NVIDIA Rerank] Completed: ranking_count=%s response_keys=%s",
+                    len(response_data.get("rankings", [])),
+                    sorted(response_data),
+                )
                 results = self._parse_results(response_data, top_n)
                 self._log_usage(response_data)
                 return results

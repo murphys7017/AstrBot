@@ -115,7 +115,11 @@ class SlackAdapter(Platform):
         await super().send_by_session(session, message_chain)
 
     async def convert_message(self, event: dict) -> AstrBotMessage:
-        logger.debug(f"[slack] RawMessage {event}")
+        logger.debug(
+            "[Slack] Message received: event_type=%s payload_keys=%s",
+            event.get("type", "unknown"),
+            sorted(event),
+        )
 
         abm = AstrBotMessage()
         abm.self_id = cast(str, self.bot_self_id)

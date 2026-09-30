@@ -2,7 +2,6 @@ import asyncio
 import base64
 import json
 import os
-import traceback
 import uuid
 
 import aiohttp
@@ -69,9 +68,12 @@ class ProviderVolcengineTTS(TTSProvider):
 
         payload = self._build_request_payload(text)
 
-        logger.debug(f"请求头: {headers}")
-        logger.debug(f"请求 URL: {self.api_base}")
-        logger.debug(f"请求体: {json.dumps(payload, ensure_ascii=False)[:100]}...")
+        logger.debug(
+            "Volcengine TTS request prepared: endpoint=%s payload_keys=%s text_length=%s",
+            self.api_base,
+            sorted(payload),
+            len(text),
+        )
 
         try:
             async with (
@@ -83,10 +85,13 @@ class ProviderVolcengineTTS(TTSProvider):
                     timeout=self.timeout,
                 ) as response,
             ):
-                logger.debug(f"响应状态码: {response.status}")
+                logger.debug("Volcengine TTS response status: status=%s", response.status)
 
                 response_text = await response.text()
-                logger.debug(f"响应内容: {response_text[:200]}...")
+                logger.debug(
+                    "Volcengine TTS response received: body_length=%s",
+                    len(response_text),
+                )
 
                 if response.status == 200:
                     resp_data = json.loads(response_text)
@@ -108,13 +113,19 @@ class ProviderVolcengineTTS(TTSProvider):
                         )
 
                         return file_path
-                    error_msg = resp_data.get("message", "未知错误")
-                    raise Exception(f"火山引擎 TTS API 返回错误: {error_msg}")
+                    raise Exception(
+                        "火山引擎 TTS API 返回错误: response_keys="
+                        f"{sorted(resp_data)}"
+                    )
                 raise Exception(
-                    f"火山引擎 TTS API 请求失败: {response.status}, {response_text}",
+                    "火山引擎 TTS API 请求失败: "
+                    f"status={response.status}, response_length={len(response_text)}",
                 )
 
         except Exception as e:
-            error_details = traceback.format_exc()
-            logger.debug(f"火山引擎 TTS 异常详情: {error_details}")
-            raise Exception(f"火山引擎 TTS 异常: {e!s}")
+            logger.debug(
+                "Volcengine TTS request failed: error_type=%s",
+                type(e).__name__,
+                exc_info=True,
+            )
+            raise Exception(f"火山引擎 TTS 异常: {type(e).__name__}") from e

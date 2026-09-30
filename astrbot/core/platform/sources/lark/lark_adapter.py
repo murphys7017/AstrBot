@@ -577,14 +577,28 @@ class LarkPlatformAdapter(Platform):
         try:
             content_json_b = json.loads(message.content)
         except json.JSONDecodeError:
-            logger.error(f"[Lark] 解析消息内容失败: {message.content}")
+            logger.error(
+                "[Lark] Failed to parse message content: message_type=%s "
+                "content_length=%s",
+                message.message_type or "unknown",
+                len(message.content),
+            )
             return
 
         if not isinstance(content_json_b, dict):
-            logger.error(f"[Lark] 消息内容不是 JSON Object: {message.content}")
+            logger.error(
+                "[Lark] Message content is not a JSON object: message_type=%s "
+                "content_type=%s",
+                message.message_type or "unknown",
+                type(content_json_b).__name__,
+            )
             return
 
-        logger.debug(f"[Lark] 解析消息内容: {content_json_b}")
+        logger.debug(
+            "[Lark] Message content parsed: message_type=%s keys=%s",
+            message.message_type or "unknown",
+            sorted(content_json_b),
+        )
         parsed_components = await self._parse_message_components(
             message_id=message.message_id,
             message_type=message.message_type or "unknown",

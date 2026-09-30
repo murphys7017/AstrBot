@@ -77,22 +77,33 @@ class KookRolesRecord:
                 timeout=USER_VIEW_REQUEST_TIMEOUT,
             ) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
                     logger.error(
-                        f'[KOOK] 获取机器人在频道"{guild_id}"的角色id信息失败，状态码: {resp.status} , {await resp.text()}'
+                        "[KOOK] Failed to fetch bot channel roles: guild_id=%s "
+                        "status=%s response_length=%s",
+                        guild_id,
+                        resp.status,
+                        len(body),
                     )
                     return
                 try:
                     resp_content = KookUserViewResponse.from_dict(await resp.json())
                 except pydantic.ValidationError as e:
                     logger.error(
-                        f'[KOOK] 获取机器人在频道"{guild_id}"的角色id信息失败, 响应数据格式错误: \n{e}'
+                        "[KOOK] Bot channel roles response validation failed: "
+                        "guild_id=%s error=%s",
+                        guild_id,
+                        e,
                     )
-                    logger.error(f"[KOOK] 响应内容: {await resp.text()}")
                     return
 
                 if not resp_content.success():
                     logger.error(
-                        f'[KOOK] 获取机器人在频道"{guild_id}"的角色id信息失败: {resp_content.model_dump_json()}'
+                        "[KOOK] Bot channel roles API rejected request: guild_id=%s "
+                        "code=%s message_length=%s",
+                        guild_id,
+                        resp_content.code,
+                        len(resp_content.message),
                     )
                     return
 

@@ -143,7 +143,10 @@ class TelegramPlatformAdapter(Platform):
         )
         self.application.add_handler(message_handler)
         self.client = self.application.bot
-        logger.debug(f"Telegram base url: {self.client.base_url}")
+        logger.debug(
+            "Telegram client configured: base_url_present=%s",
+            bool(self.client.base_url),
+        )
 
     async def _start_application(self) -> None:
         await self.application.initialize()
@@ -433,7 +436,11 @@ class TelegramPlatformAdapter(Platform):
     async def message_handler(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        logger.debug(f"Telegram message: {update.message}")
+        logger.debug(
+            "Telegram message received: present=%s media_group=%s",
+            update.message is not None,
+            bool(update.message and update.message.media_group_id),
+        )
 
         # Handle media group messages
         if update.message and update.message.media_group_id:

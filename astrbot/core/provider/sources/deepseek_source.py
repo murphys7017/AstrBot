@@ -155,7 +155,11 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
                 f"API 返回的 completion 类型错误：{type(completion)}: {completion}。",
             )
 
-        logger.debug(f"completion: {completion}")
+        logger.debug(
+            "DeepSeek completion received: id=%s choices=%s",
+            getattr(completion, "id", None),
+            len(getattr(completion, "choices", None) or []),
+        )
 
         return await self._parse_openai_completion(completion, tools)
 
@@ -223,5 +227,5 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             llm_response = await self._parse_openai_completion(final_completion, tools)
             yield llm_response
         except Exception as e:
-            logger.error("get_final_completion error: " + str(e))
+            logger.error("get_final_completion failed: error_type=%s", type(e).__name__)
             return

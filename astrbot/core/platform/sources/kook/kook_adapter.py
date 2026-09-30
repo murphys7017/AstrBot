@@ -343,7 +343,10 @@ class KookPlatformAdapter(Platform):
             logger.error(
                 f'[KOOK] 无法转换"{KookMessageType.KMARKDOWN.name}"消息, 消息中找不到kmarkdown字段'
             )
-            logger.error(f"[KOOK] 原始消息内容: {data.to_json()}")
+            logger.error(
+                "[KOOK] KMarkdown message missing required field: message_id_present=%s",
+                bool(data.msg_id),
+            )
             return [], ""
 
         raw_content = kmarkdown.raw_content or content
@@ -480,8 +483,10 @@ class KookPlatformAdapter(Platform):
             try:
                 abm.message, abm.message_str = await self._parse_card_message(data)
             except Exception as exp:
-                logger.error(f"[KOOK] 卡片消息解析失败: {exp}")
-                logger.error(f"[KOOK] 原始消息内容: {data.to_json()}")
+                logger.error(
+                    "[KOOK] Card message parsing failed: error_type=%s",
+                    type(exp).__name__,
+                )
                 abm.message_str = "[卡片消息解析失败]"
                 abm.message = [Plain(text="[卡片消息解析失败]")]
         else:

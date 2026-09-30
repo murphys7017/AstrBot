@@ -261,8 +261,6 @@ class Record(BaseMessageComponent):
 
         token = await file_token_service.register_file(file_path)
 
-        logger.debug(f"已注册：{callback_host}/api/file/{token}")
-
         return f"{callback_host}/api/file/{token}"
 
 
@@ -327,8 +325,6 @@ class Video(BaseMessageComponent):
 
         token = await file_token_service.register_file(file_path)
 
-        logger.debug(f"已注册：{callback_host}/api/file/{token}")
-
         return f"{callback_host}/api/file/{token}"
 
     async def to_dict(self):
@@ -340,7 +336,6 @@ class Video(BaseMessageComponent):
             callback_host = str(callback_host).removesuffix("/")
             token = await file_token_service.register_file(url_or_path)
             payload_file = f"{callback_host}/api/file/{token}"
-            logger.debug(f"Generated video file callback link: {payload_file}")
         else:
             payload_file = url_or_path
         return {
@@ -546,8 +541,6 @@ class Image(BaseMessageComponent):
         file_path = await self.convert_to_file_path()
 
         token = await file_token_service.register_file(file_path)
-
-        logger.debug(f"已注册：{callback_host}/api/file/{token}")
 
         return f"{callback_host}/api/file/{token}"
 
@@ -864,8 +857,6 @@ class File(BaseMessageComponent):
 
         token = await file_token_service.register_file(file_path)
 
-        logger.debug(f"已注册：{callback_host}/api/file/{token}")
-
         return f"{callback_host}/api/file/{token}"
 
     async def to_dict(self):
@@ -877,7 +868,6 @@ class File(BaseMessageComponent):
             callback_host = str(callback_host).removesuffix("/")
             token = await file_token_service.register_file(url_or_path)
             payload_file = f"{callback_host}/api/file/{token}"
-            logger.debug(f"Generated file callback link: {payload_file}")
         else:
             payload_file = url_or_path
         return {

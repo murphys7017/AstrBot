@@ -128,7 +128,10 @@ class ProviderOpenAIWhisperAPI(STTProvider):
             try:
                 os.remove(audio_url)
             except Exception as e:
-                logger.error(f"Failed to remove temp file {audio_url}: {e}")
+                logger.error(
+                    "Failed to remove temporary audio file: error_type=%s",
+                    type(e).__name__,
+                )
         return result.text
 
     async def terminate(self):

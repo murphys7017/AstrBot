@@ -19,7 +19,6 @@ from astrbot.core.prompt.render import (
     PromptRenderProfile,
     SerializedRenderValue,
 )
-from astrbot.core.prompt.render.engine import logger as render_logger
 from astrbot.core.provider.entities import ProviderMetaData
 from astrbot.core.provider.register import provider_cls_map
 from astrbot.core.provider.sources.kimi_code_source import ProviderKimiCode
@@ -1985,7 +1984,7 @@ def test_render_engine_renders_visible_reply_material_as_native_input_context():
     assert "extensions" not in material_text
 
 
-def test_render_engine_emits_debug_log_for_render_result():
+def test_render_engine_writes_render_details_to_prompt_trace():
     pack = ContextPack(
         slots={
             "persona.prompt": ContextSlot(
@@ -2005,18 +2004,52 @@ def test_render_engine_emits_debug_log_for_render_result():
 
     engine = PromptRenderEngine()
     with (
-        patch.object(render_logger, "isEnabledFor", return_value=True),
-        patch.object(render_logger, "debug") as debug_mock,
+        patch(
+            "astrbot.core.prompt.render.engine.prompt_trace_enabled",
+            return_value=True,
+        ),
+        patch(
+            "astrbot.core.prompt.render.engine.record_prompt_trace"
+        ) as trace_mock,
     ):
         engine.render(pack, target="persona")
 
-    debug_mock.assert_called_once()
-    message_template, payload = debug_mock.call_args.args
-    assert message_template == "Prompt render result: %s"
-    assert '"renderer": "base"' in payload
-    assert '"system_prompt_preview": "<system>' in payload
-    assert '"message_count": 1' in payload
-    assert '"content_preview": "Hello there"' in payload
+    trace_mock.assert_called_once()
+    event, action = trace_mock.call_args.args
+    fields = trace_mock.call_args.kwargs
+    assert event is None
+    assert action == "prompt.render_result"
+    assert fields["renderer"] == "base"
+    assert fields["system_prompt_preview"].startswith("<system>")
+    assert fields["message_count"] == 1
+    assert fields["message_previews"][0]["content_preview"] == "Hello there"
+
+
+def test_render_engine_skips_prompt_preview_when_trace_is_disabled():
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Hello there",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+    engine = PromptRenderEngine()
+
+    with (
+        patch(
+            "astrbot.core.prompt.render.engine.prompt_trace_enabled",
+            return_value=False,
+        ),
+        patch.object(
+            engine,
+            "_preview_text",
+            side_effect=AssertionError("prompt previews must not be built"),
+        ),
+    ):
+        engine.render(pack, target="persona")
 
 
 def test_render_engine_respects_layout_disabled_groups():

@@ -67,23 +67,36 @@ class ProviderGSVTTS(TTSProvider):
     ) -> bytes | None:
         """发起请求"""
         for attempt in range(retries):
-            logger.debug(f"[GSV TTS] 请求地址：{endpoint}，参数：{params}")
+            logger.debug(
+                "[GSV TTS] Request prepared: endpoint_present=%s param_keys=%s attempt=%s/%s",
+                bool(endpoint),
+                sorted(params) if isinstance(params, dict) else [],
+                attempt + 1,
+                retries,
+            )
             try:
                 async with self.get_session().get(endpoint, params=params) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         raise Exception(
-                            f"[GSV TTS] Request to {endpoint} failed with status {response.status}: {error_text}",
+                            "[GSV TTS] Request failed: "
+                            f"status={response.status} response_length={len(error_text)}",
                         )
                     return await response.read()
             except Exception as e:
                 if attempt < retries - 1:
                     logger.warning(
-                        f"[GSV TTS] 请求 {endpoint} 第 {attempt + 1} 次失败：{e}，重试中...",
+                        "[GSV TTS] Request failed and will retry: attempt=%s/%s error_type=%s",
+                        attempt + 1,
+                        retries,
+                        type(e).__name__,
                     )
                     await asyncio.sleep(1)
                 else:
-                    logger.error(f"[GSV TTS] 请求 {endpoint} 最终失败：{e}")
+                    logger.error(
+                        "[GSV TTS] Request failed permanently: error_type=%s",
+                        type(e).__name__,
+                    )
                     raise
 
     async def _set_model_weights(self) -> None:
@@ -126,14 +139,21 @@ class ProviderGSVTTS(TTSProvider):
         os.makedirs(temp_dir, exist_ok=True)
         path = os.path.join(temp_dir, f"gsv_tts_{generate_timestamp_id()}.wav")
 
-        logger.debug(f"[GSV TTS] 正在调用语音合成接口，参数：{params}")
+        logger.debug(
+            "[GSV TTS] Synthesis request prepared: text_length=%s param_keys=%s",
+            len(text),
+            sorted(params),
+        )
 
         result = await self._make_request(endpoint, params)
         if isinstance(result, bytes):
             with open(path, "wb") as f:
                 f.write(result)
             return path
-        raise Exception(f"[GSV TTS] 合成失败，输入文本：{text}，错误信息：{result}")
+        raise Exception(
+            "[GSV TTS] Synthesis failed: "
+            f"text_length={len(text)}, result_type={type(result).__name__}"
+        )
 
     def build_synthesis_params(self, text: str) -> dict:
         """构建语音合成所需的参数字典。
