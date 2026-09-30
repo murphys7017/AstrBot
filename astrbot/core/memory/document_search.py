@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+
 from .document_loader import DocumentLoader
 from .types import (
     DocumentSearchRequest,
     DocumentSearchResult,
     LongTermMemoryIndex,
+    VectorSearchHit,
 )
 from .vector_index import MemoryVectorIndex
 
@@ -31,28 +34,47 @@ class DocumentSearchService:
             top_k=max(1, req.top_k),
             metadata_filters=metadata_filters,
         )
-        hydrated: list[tuple[DocumentSearchResult, float]] = []
+        indexes = await self._load_indexes([hit.memory_id for hit in hits])
+        index_by_id = {index.memory_id: index for index in indexes}
+        matched: list[tuple[VectorSearchHit, LongTermMemoryIndex, float]] = []
         for hit in hits:
-            index = await self.store.get_long_term_memory_index(hit.memory_id)
+            index = index_by_id.get(hit.memory_id)
             if index is None:
                 continue
             if not self._matches_request_scope(index, req):
                 continue
-            body_text = None
-            if req.include_body:
-                document = self.document_loader.load_long_term_document(index.doc_path)
-                body_text = self.document_loader.extract_body_text(document)
+            matched.append((hit, index, hit.score))
+
+        body_texts: dict[str, str] = {}
+        if req.include_body and matched:
+            loaded_bodies = await asyncio.gather(
+                *(
+                    self._load_body_text(index)
+                    for _, index, _ in matched
+                )
+            )
+            body_texts = {
+                index.memory_id: body_text
+                for (_, index, _), body_text in zip(
+                    matched,
+                    loaded_bodies,
+                    strict=True,
+                )
+            }
+
+        hydrated: list[tuple[DocumentSearchResult, float]] = []
+        for hit, index, score in matched:
             hydrated.append(
                 (
                     DocumentSearchResult(
                         memory_id=index.memory_id,
-                        score=hit.score,
+                        score=score,
                         title=index.title,
                         summary=index.summary,
                         category=index.category,
                         tags=list(index.tags),
                         doc_path=index.doc_path,
-                        body_text=body_text,
+                        body_text=body_texts.get(index.memory_id),
                         updated_at=index.updated_at,
                     ),
                     index.importance,
@@ -68,6 +90,22 @@ class DocumentSearchService:
             reverse=True,
         )
         return [item[0] for item in hydrated]
+
+    async def _load_indexes(self, memory_ids: list[str]) -> list[LongTermMemoryIndex]:
+        batch_loader = getattr(self.store, "get_long_term_memory_indexes", None)
+        if callable(batch_loader):
+            return await batch_loader(memory_ids)
+        indexes = await asyncio.gather(
+            *(self.store.get_long_term_memory_index(memory_id) for memory_id in memory_ids)
+        )
+        return [index for index in indexes if index is not None]
+
+    async def _load_body_text(self, index: LongTermMemoryIndex) -> str:
+        document = await asyncio.to_thread(
+            self.document_loader.load_long_term_document,
+            index.doc_path,
+        )
+        return self.document_loader.extract_body_text(document)
 
     def _matches_request_scope(
         self,

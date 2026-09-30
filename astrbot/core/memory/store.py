@@ -789,6 +789,23 @@ class MemoryStore:
             entity = result.scalar_one_or_none()
             return self._to_long_term_memory_index(entity) if entity else None
 
+    async def get_long_term_memory_indexes(
+        self,
+        memory_ids: list[str],
+    ) -> list[LongTermMemoryIndex]:
+        if not memory_ids:
+            return []
+        async with self.get_db() as session:
+            result = await session.execute(
+                select(MemoryLongTermMemoryIndex).where(
+                    col(MemoryLongTermMemoryIndex.memory_id).in_(memory_ids)
+                )
+            )
+            return [
+                self._to_long_term_memory_index(item)
+                for item in result.scalars().all()
+            ]
+
     async def list_long_term_memory_indexes(
         self,
         canonical_user_id: str | None,
