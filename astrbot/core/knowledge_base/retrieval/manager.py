@@ -3,6 +3,7 @@
 协调稠密检索、稀疏检索和 Rerank,提供统一的检索接口
 """
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -12,7 +13,7 @@ from astrbot.core.db.vec_db.base import Result
 from astrbot.core.knowledge_base.kb_db_sqlite import KBSQLiteDatabase
 from astrbot.core.knowledge_base.retrieval.rank_fusion import RankFusion
 from astrbot.core.knowledge_base.retrieval.sparse_retriever import SparseRetriever
-from astrbot.core.provider.provider import RerankProvider
+from astrbot.core.provider.provider import EmbeddingProvider, RerankProvider
 
 from ..kb_helper import KBHelper
 
@@ -212,26 +213,77 @@ class RetrievalManager:
 
         """
         all_results: list[Result] = []
+        requests: list[tuple[str, FaissVecDB, int, EmbeddingProvider]] = []
         for kb_id in kb_ids:
             if kb_id not in kb_options:
                 continue
+            vec_db: FaissVecDB = kb_options[kb_id]["vec_db"]
+            embedding_provider = getattr(vec_db, "embedding_provider", None)
+            if not isinstance(embedding_provider, EmbeddingProvider):
+                # Keep compatibility with custom vector stores that do not
+                # expose the optional precomputed-embedding path.
+                try:
+                    dense_k = int(kb_options[kb_id]["top_k_dense"])
+                    vec_results = await vec_db.retrieve(
+                        query=query,
+                        k=dense_k,
+                        fetch_k=dense_k * 2,
+                        rerank=False,
+                        metadata_filters={"kb_id": kb_id},
+                    )
+                    all_results.extend(vec_results)
+                except Exception as e:
+                    logger.error(
+                        f"知识库 {kb_id} 稠密检索失败: {type(e).__name__}: {e}",
+                        exc_info=True,
+                    )
+                continue
+            requests.append(
+                (
+                    kb_id,
+                    vec_db,
+                    int(kb_options[kb_id]["top_k_dense"]),
+                    embedding_provider,
+                )
+            )
+
+        embedding_tasks: dict[int, asyncio.Task[list[float]]] = {}
+        for _, _, _, embedding_provider in requests:
+            provider_key = id(embedding_provider)
+            if provider_key not in embedding_tasks:
+                embedding_tasks[provider_key] = asyncio.create_task(
+                    embedding_provider.get_embedding(query)
+                )
+
+        async def retrieve_one(
+            kb_id: str,
+            vec_db: "FaissVecDB",
+            dense_k: int,
+            embedding_provider: EmbeddingProvider,
+        ) -> list[Result]:
             try:
-                vec_db: FaissVecDB = kb_options[kb_id]["vec_db"]
-                dense_k = int(kb_options[kb_id]["top_k_dense"])
-                vec_results = await vec_db.retrieve(
+                embedding = await embedding_tasks[id(embedding_provider)]
+                return await vec_db.retrieve(
                     query=query,
                     k=dense_k,
                     fetch_k=dense_k * 2,
                     rerank=False,  # 稠密检索阶段不进行 rerank
                     metadata_filters={"kb_id": kb_id},
+                    query_embedding=embedding,
                 )
-
-                all_results.extend(vec_results)
-            except Exception as e:
+            except Exception as exc:
                 logger.error(
-                    f"知识库 {kb_id} 稠密检索失败: {type(e).__name__}: {e}",
+                    f"知识库 {kb_id} 稠密检索失败: {type(exc).__name__}: {exc}",
                     exc_info=True,
                 )
+                return []
+
+        retrieval_tasks = [
+            asyncio.create_task(retrieve_one(*request)) for request in requests
+        ]
+        retrieval_results = await asyncio.gather(*retrieval_tasks)
+        for result in retrieval_results:
+            all_results.extend(result)
 
         # 按相似度排序并返回 top_k
         all_results.sort(key=lambda x: x.similarity, reverse=True)

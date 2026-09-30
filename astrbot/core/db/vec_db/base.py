@@ -49,11 +49,13 @@ class BaseVecDB:
         fetch_k: int = 20,
         rerank: bool = False,
         metadata_filters: dict | None = None,
+        query_embedding: list[float] | None = None,
     ) -> list[Result]:
         """搜索最相似的文档。
         Args:
             query (str): 查询文本
             top_k (int): 返回的最相似文档的数量
+            query_embedding (list[float] | None): 可选的预计算查询向量
         Returns:
             List[Result]: 查询结果
         """
