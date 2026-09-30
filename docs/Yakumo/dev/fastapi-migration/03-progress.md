@@ -29,3 +29,18 @@ before acceptance, and incoming HTTP bodies are bounded while being read.
 Ruff and an isolated native HTTP smoke passed. No production process was
 started, stopped or modified. The repository ignores `uv.lock`; it was resolved
 locally without adding the entire dependency lock as unrelated metadata.
+
+## Checkpoint 2: routing/service extraction
+
+Moved 25 business modules to `services/` and all their route declarations to
+`api/`. Former `routes/` imports remain compatibility aliases, not duplicate
+business implementations. The existing project-workspace DB service was kept.
+Compared every moved Handler AST before formatting; only class/import names
+and registration ownership changed. Six existing public boundary tests passed
+on the still-Quart host: login, dynamic plugin API, scoped Pages assets and
+non-default Profile SubAgent behavior. Ruff and whitespace checks passed.
+
+The independent environment initially had a Windows `crypto`/`Crypto` casing
+collision and a newer MCP major than production. Repaired only the migration
+virtual environment and aligned MCP/Quart/FastAPI to the installed production
+versions for comparable acceptance; the production environment was not changed.

@@ -1,5 +1,5 @@
 dashboard_fastapi_migration:
-  date: '2026-10-01'
+  date: '2026-09-30'
   class: refactor
   risk: high
   status: in_progress
