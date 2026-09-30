@@ -10,6 +10,7 @@ from astrbot import logger
 from astrbot.core.agent.message import ImageURLPart, TextPart
 from astrbot.core.utils.image_materializer import (
     ImageMaterializationError,
+    MaterializedImage,
     materialize_image_ref,
 )
 
@@ -22,6 +23,9 @@ class ProviderRequestImageStats:
     discovered: int = 0
     normalized: int = 0
     dropped: int = 0
+    optimized: int = 0
+    original_bytes: int = 0
+    normalized_bytes: int = 0
 
     @property
     def changed(self) -> bool:
@@ -30,8 +34,24 @@ class ProviderRequestImageStats:
 
 async def normalize_provider_request_images(
     request: ProviderRequest,
+    *,
+    max_images: int | None = None,
+    max_total_bytes: int | None = None,
+    max_dimension: int | None = None,
 ) -> ProviderRequestImageStats:
-    """Validate all request image references and replace them with data URLs."""
+    """Validate request images and replace them with bounded data URLs.
+
+    The limits are optional so existing provider behavior remains unchanged.
+    Persona passes them explicitly because its prompt is latency-sensitive and
+    must not carry unbounded base64 material from the canonical context.
+    """
+    if max_images is not None and max_images <= 0:
+        raise ValueError("max_images must be positive")
+    if max_total_bytes is not None and max_total_bytes <= 0:
+        raise ValueError("max_total_bytes must be positive")
+    if max_dimension is not None and max_dimension <= 0:
+        raise ValueError("max_dimension must be positive")
+
     references = _collect_image_references(request)
     if not references:
         return ProviderRequestImageStats()
@@ -39,11 +59,19 @@ async def normalize_provider_request_images(
     unique_references = list(dict.fromkeys(references))
     semaphore = asyncio.Semaphore(4)
 
-    async def materialize(reference: str) -> tuple[str, str | None]:
+    async def materialize(
+        reference: str,
+    ) -> tuple[str, MaterializedImage | None, bool, int]:
         try:
             async with semaphore:
                 image = await materialize_image_ref(reference)
-            return reference, image.to_data_url()
+            original_bytes = len(image.data)
+            optimized = False
+            if max_dimension is not None:
+                prepared = image.prepare_for_provider(max_dimension=max_dimension)
+                optimized = prepared.data != image.data
+                image = prepared
+            return reference, image, optimized, original_bytes
         except ImageMaterializationError as exc:
             logger.warning(
                 "ProviderRequest image rejected after plugin mutation: ref=%s error=%s",
@@ -57,25 +85,62 @@ async def normalize_provider_request_images(
                 exc,
                 exc_info=True,
             )
-        return reference, None
+        return reference, None, False, 0
 
-    resolved = dict(await asyncio.gather(*(materialize(ref) for ref in unique_references)))
+    materialized_results = await asyncio.gather(
+        *(materialize(ref) for ref in unique_references)
+    )
+    resolved = {
+        reference: (image, optimized, original_bytes)
+        for reference, image, optimized, original_bytes in materialized_results
+    }
+    kept_bytes = 0
+    kept_images = 0
+    selected: dict[str, str | None] = {}
+    optimized_count = 0
+    original_bytes = 0
+    normalized_bytes = 0
+    for reference in unique_references:
+        image, optimized, image_original_bytes = resolved[reference]
+        if image is None:
+            selected[reference] = None
+            continue
+        image_bytes = len(image.data)
+        original_bytes += image_original_bytes
+        if max_images is not None and kept_images >= max_images:
+            selected[reference] = None
+            continue
+        if (
+            max_total_bytes is not None
+            and kept_bytes + image_bytes > max_total_bytes
+        ):
+            selected[reference] = None
+            continue
+        selected[reference] = image.to_data_url()
+        kept_images += 1
+        kept_bytes += image_bytes
+        normalized_bytes += image_bytes
+        optimized_count += int(optimized)
+
     request.image_urls = [
         normalized
         for reference in _string_items(request.image_urls)
-        if (normalized := resolved.get(reference)) is not None
+        if (normalized := selected.get(reference)) is not None
     ]
     request.extra_user_content_parts = _normalize_extra_content_parts(
         request.extra_user_content_parts,
-        resolved,
+        selected,
     )
-    request.contexts = _normalize_context_images(request.contexts, resolved)
+    request.contexts = _normalize_context_images(request.contexts, selected)
 
-    normalized_count = sum(value is not None for value in resolved.values())
+    normalized_count = sum(value is not None for value in selected.values())
     return ProviderRequestImageStats(
         discovered=len(unique_references),
         normalized=normalized_count,
         dropped=len(unique_references) - normalized_count,
+        optimized=optimized_count,
+        original_bytes=original_bytes,
+        normalized_bytes=normalized_bytes,
     )
 
 

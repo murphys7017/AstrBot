@@ -163,6 +163,34 @@ async def test_normalize_provider_request_images_revalidates_plugin_mutations(
 
 
 @pytest.mark.asyncio
+async def test_normalize_provider_request_images_can_bound_persona_media(monkeypatch):
+    first = MaterializedImage(PNG_BYTES, "image/png", "first")
+    second = MaterializedImage(PNG_BYTES, "image/png", "second")
+    first_for_provider = first.prepare_for_provider(max_dimension=1)
+
+    async def materialize(reference):
+        return first if reference.endswith("1") else second
+
+    monkeypatch.setattr(request_media, "materialize_image_ref", materialize)
+    request = ProviderRequest(
+        prompt="look",
+        image_urls=["https://example/image-1", "https://example/image-2"],
+    )
+
+    stats = await normalize_provider_request_images(
+        request,
+        max_images=1,
+        max_total_bytes=len(first_for_provider.data),
+        max_dimension=1,
+    )
+
+    assert stats.discovered == 2
+    assert stats.normalized == 1
+    assert stats.dropped == 1
+    assert request.image_urls == [first_for_provider.to_data_url()]
+
+
+@pytest.mark.asyncio
 async def test_agent_runner_request_material_projects_extensions_and_verified_images():
     image_ref = "base64://" + base64.b64encode(PNG_BYTES).decode("ascii")
     request = ProviderRequest(

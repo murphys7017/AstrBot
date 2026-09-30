@@ -1248,16 +1248,25 @@ class InteractionExpressionAgent:
         if not isinstance(provider_config, dict):
             provider_config = {}
         _remember_fallback_image_refs(provider_request)
-        image_stats = await normalize_provider_request_images(provider_request)
+        image_stats = await normalize_provider_request_images(
+            provider_request,
+            max_images=4,
+            max_total_bytes=4 * 1024 * 1024,
+            max_dimension=1536,
+        )
         if image_stats.changed:
             logger.debug(
                 "Persona ProviderRequest images normalized: platform_id=%s "
-                "session_id=%s discovered=%s normalized=%s dropped=%s",
+                "session_id=%s discovered=%s normalized=%s dropped=%s optimized=%s "
+                "original_bytes=%s normalized_bytes=%s",
                 event.get_platform_id(),
                 event.session_id,
                 image_stats.discovered,
                 image_stats.normalized,
                 image_stats.dropped,
+                image_stats.optimized,
+                image_stats.original_bytes,
+                image_stats.normalized_bytes,
             )
         logger.debug(
             "DIAG expression.contract: platform_id=%s session_id=%s phase=%s lifecycle_id=%s provider_type=%s model=%s renderer=%s contract_mode=%s strategy=%s degraded=%s tool_name=%s",

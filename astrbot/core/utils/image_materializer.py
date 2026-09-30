@@ -24,13 +24,15 @@ import aiohttp
 import certifi
 from aiohttp.abc import AbstractResolver
 from PIL import Image as PILImage
-from PIL import UnidentifiedImageError
+from PIL import ImageOps, UnidentifiedImageError
 
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.path_util import file_uri_to_path
 
 DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 20
+DEFAULT_PROVIDER_IMAGE_MAX_DIMENSION = 1536
+DEFAULT_PROVIDER_IMAGE_JPEG_QUALITY = 82
 
 _FORMAT_MIME_TYPES = {
     "AVIF": "image/avif",
@@ -58,6 +60,65 @@ class MaterializedImage:
     def to_data_url(self) -> str:
         encoded = base64.b64encode(self.data).decode("ascii")
         return f"data:{self.mime_type};base64,{encoded}"
+
+    def prepare_for_provider(
+        self,
+        *,
+        max_dimension: int = DEFAULT_PROVIDER_IMAGE_MAX_DIMENSION,
+        jpeg_quality: int = DEFAULT_PROVIDER_IMAGE_JPEG_QUALITY,
+    ) -> MaterializedImage:
+        """Resize and re-encode one image for a model-facing request.
+
+        This is intentionally opt-in.  The general materializer preserves the
+        original verified bytes because callers such as file tools may need
+        byte fidelity.  Persona requests only need visual semantics, so they
+        can use a bounded representation instead.
+        """
+        if max_dimension <= 0:
+            raise ValueError("max_dimension must be positive")
+        if not 1 <= jpeg_quality <= 100:
+            raise ValueError("jpeg_quality must be between 1 and 100")
+
+        try:
+            with PILImage.open(BytesIO(self.data)) as source:
+                image = ImageOps.exif_transpose(source)
+                image.thumbnail(
+                    (max_dimension, max_dimension),
+                    resample=PILImage.Resampling.LANCZOS,
+                )
+                has_alpha = (
+                    "A" in image.getbands() or "transparency" in image.info
+                )
+                if has_alpha:
+                    output_format = "PNG"
+                    output_mime = "image/png"
+                    prepared = image.convert("RGBA")
+                    save_kwargs = {"optimize": True}
+                else:
+                    output_format = "JPEG"
+                    output_mime = "image/jpeg"
+                    prepared = image.convert("RGB")
+                    save_kwargs = {
+                        "quality": jpeg_quality,
+                        "optimize": True,
+                        "progressive": True,
+                    }
+
+                buffer = BytesIO()
+                prepared.save(buffer, format=output_format, **save_kwargs)
+                data = buffer.getvalue()
+        except (OSError, ValueError, UnidentifiedImageError) as exc:
+            raise ImageMaterializationError(
+                "image could not be prepared for provider request"
+            ) from exc
+
+        if not data:
+            raise ImageMaterializationError("prepared image data is empty")
+        return MaterializedImage(
+            data=data,
+            mime_type=output_mime,
+            sha256=hashlib.sha256(data).hexdigest(),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +386,8 @@ def _detect_image_mime_type(image_bytes: bytes) -> str:
 __all__ = [
     "DEFAULT_IMAGE_TIMEOUT_SECONDS",
     "DEFAULT_MAX_IMAGE_BYTES",
+    "DEFAULT_PROVIDER_IMAGE_JPEG_QUALITY",
+    "DEFAULT_PROVIDER_IMAGE_MAX_DIMENSION",
     "ImageMaterializationError",
     "MaterializedImage",
     "materialize_image_ref",
