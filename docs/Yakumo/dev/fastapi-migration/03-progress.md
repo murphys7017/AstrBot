@@ -75,3 +75,12 @@ adapter. QQ signature/extra-data and platform response tests passed (8).
 The frontend now registers `/plugin-page/:pluginName/:pageName`, matching the
 existing embedded Pages view and sidebar links. The dashboard package build was
 not run because this isolated worktree has no `dashboard/node_modules`.
+
+## Checkpoint 5: isolated network smoke
+
+An isolated Core and native Dashboard started on `127.0.0.1:6285` with this
+worktree's data root. HTTP login returned 200 and a JWT; the authenticated
+`/api/plugin/get` request returned 200. The temporary process was stopped after
+the check. Production ports 6185/6199 and the original worktree were not
+touched. This confirms native network serving only; WebSocket/SSE and browser
+acceptance are still separate pending checks.
