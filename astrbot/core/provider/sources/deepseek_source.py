@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from typing import Any
+from urllib.parse import urlsplit
 
 from openai.lib.streaming.chat._completions import ChatCompletionStreamState
 from openai.types.chat.chat_completion import ChatCompletion
@@ -24,9 +25,22 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
     def supports_output_contract_strategy(self, strategy: str) -> bool:
         if strategy == "prompt_only":
             return True
-        return strategy == "protocol_tool_call" and not self._is_thinking_enabled(
-            {},
+        return (
+            strategy == "protocol_tool_call"
+            and not self._is_thinking_enabled({})
+            and not self._is_beta_endpoint()
         )
+
+    def _is_beta_endpoint(self) -> bool:
+        api_base = self.provider_config.get("api_base")
+        if not api_base:
+            api_base = getattr(
+                getattr(self, "client", None),
+                "base_url",
+                "",
+            )
+        path = urlsplit(str(api_base)).path.rstrip("/").casefold()
+        return path.endswith("/beta")
 
     @staticmethod
     def _parse_reasoning_enabled(value: Any) -> bool | None:
@@ -113,12 +127,12 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
                 "type": "enabled" if thinking_enabled else "disabled"
             }
 
-        # DeepSeek thinking requests cannot rely on forced tool selection on
-        # every compatible endpoint. The output contract remains enforced by
-        # AstrBot after the model response is parsed.
-        if thinking_enabled:
-            payloads.pop("tool_choice", None)
-        extra_body.pop("tool_choice", None)
+        # DeepSeek supports tool calls in both thinking modes. Keep the caller's
+        # tool_choice unchanged; strict Persona contracts are filtered before
+        # the request when this provider is not eligible for that contract.
+        configured_tool_choice = extra_body.pop("tool_choice", None)
+        if "tool_choice" not in payloads and configured_tool_choice is not None:
+            payloads["tool_choice"] = configured_tool_choice
         self._sanitize_assistant_messages(payloads)
         return payloads, extra_body, tools
 

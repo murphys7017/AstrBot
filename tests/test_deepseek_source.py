@@ -84,7 +84,7 @@ def test_deepseek_non_thinking_mode_allows_strict_tool_call_contract():
         asyncio.run(provider.terminate())
 
 
-def test_deepseek_reasoning_enabled_maps_to_thinking_and_omits_tool_choice():
+def test_deepseek_reasoning_enabled_maps_to_thinking_and_keeps_tool_choice():
     provider = _make_provider(
         {
             "reasoning": True,
@@ -103,7 +103,7 @@ def test_deepseek_reasoning_enabled_maps_to_thinking_and_omits_tool_choice():
 
         normalized_payloads, extra_body, _ = provider._prepare_request(payloads, None)
 
-        assert "tool_choice" not in normalized_payloads
+        assert normalized_payloads["tool_choice"] == "required"
         assert "tool_choice" not in extra_body
         assert extra_body["thinking"]["type"] == "enabled"
     finally:
@@ -134,6 +134,29 @@ def test_deepseek_reasoning_disabled_maps_to_thinking_and_keeps_tool_choice():
         asyncio.run(provider.terminate())
 
 
+def test_deepseek_custom_tool_choice_is_promoted_when_request_has_none():
+    provider = _make_provider(
+        {
+            "reasoning": True,
+            "custom_extra_body": {
+                "tool_choice": "required",
+            },
+        }
+    )
+    try:
+        payloads = {
+            "model": "deepseek-v4-flash",
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+
+        normalized_payloads, extra_body, _ = provider._prepare_request(payloads, None)
+
+        assert normalized_payloads["tool_choice"] == "required"
+        assert "tool_choice" not in extra_body
+    finally:
+        asyncio.run(provider.terminate())
+
+
 def test_deepseek_legacy_thinking_config_is_used_without_reasoning_setting():
     provider = _make_provider(
         {
@@ -157,7 +180,7 @@ def test_deepseek_legacy_thinking_config_is_used_without_reasoning_setting():
         asyncio.run(provider.terminate())
 
 
-def test_deepseek_default_thinking_mode_omits_tool_choice():
+def test_deepseek_default_thinking_mode_keeps_tool_choice():
     provider = _make_provider()
     try:
         payloads = {
@@ -169,8 +192,31 @@ def test_deepseek_default_thinking_mode_omits_tool_choice():
         normalized_payloads, extra_body, _ = provider._prepare_request(payloads, None)
 
         assert provider._is_thinking_enabled(normalized_payloads, extra_body) is True
-        assert "tool_choice" not in normalized_payloads
+        assert normalized_payloads["tool_choice"] == "required"
+
         assert "tool_choice" not in extra_body
+    finally:
+        asyncio.run(provider.terminate())
+
+
+def test_deepseek_beta_endpoint_rejects_strict_tool_call_contract():
+    provider = _make_provider(
+        {
+            "api_base": "https://api.deepseek.com/beta",
+            "reasoning": False,
+        }
+    )
+    contract = OutputContract(
+        mode="tool_call",
+        strict=True,
+        schema={"type": "object", "properties": {}},
+        preferred_tool_name="persona_expression",
+        allow_text_fallback=False,
+    )
+
+    try:
+        assert not provider.supports_output_contract_strategy("protocol_tool_call")
+        assert not supports_strict_tool_call_output_contract(provider, contract)
     finally:
         asyncio.run(provider.terminate())
 
