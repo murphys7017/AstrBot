@@ -138,7 +138,10 @@ class MemoryAnalyzerManager:
         except asyncio.TimeoutError as exc:
             raise MemoryAnalyzerExecutionError(
                 f"memory analyzer `{analyzer_name}` timed out after "
-                f"{request.timeout_seconds}s"
+                f"{request.timeout_seconds}s",
+                analyzer_name=analyzer_name,
+                stage=stage,
+                reason="timeout",
             ) from exc
         logger.info(
             "memory analyzer execution finished: analyzer=%s keys=%s provider_id=%s",

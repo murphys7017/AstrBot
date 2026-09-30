@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from astrbot.core import logger
 
+from .analyzers.base import MemoryAnalyzerExecutionError
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryScopeJob:
@@ -126,6 +128,20 @@ class MemoryJobScheduler:
                         await self._runner(job)
                     except asyncio.CancelledError:
                         raise
+                    except MemoryAnalyzerExecutionError as exc:
+                        self._failed += 1
+                        logger.warning(
+                            "memory analyzer job failed: kind=%s scope=%s "
+                            "queue_key=%s analyzer=%s stage=%s reason=%s attempt=1 "
+                            "detail=%s",
+                            job.kind,
+                            scope_key,
+                            job.queue_key,
+                            exc.analyzer_name or "<unknown>",
+                            exc.stage or "<unknown>",
+                            exc.reason or "execution",
+                            str(exc),
+                        )
                     except Exception as exc:  # noqa: BLE001
                         self._failed += 1
                         logger.error(

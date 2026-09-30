@@ -27,6 +27,19 @@ class MemoryAnalyzerPromptError(MemoryAnalyzerError):
 class MemoryAnalyzerExecutionError(MemoryAnalyzerError):
     """Raised when analyzer execution fails."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        analyzer_name: str | None = None,
+        stage: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.analyzer_name = analyzer_name
+        self.stage = stage
+        self.reason = reason
+
 
 @dataclass(slots=True)
 class MemoryAnalyzerRequest:
