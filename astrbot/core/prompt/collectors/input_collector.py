@@ -48,6 +48,7 @@ from ..runtime_cache import (
 )
 
 _FILE_EXTRACT_PROVIDER = "moonshotai"
+_FILE_EXTRACT_MAX_WORKERS = 4
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -1012,19 +1013,48 @@ class InputCollector(ContextCollectorInterface):
         if not file_components:
             return []
 
-        tasks = [
-            self._extract_single_file_record(
-                event=event,
-                file_component=file_component,
-                source=source,
-                reply_id=reply_id,
-                annotation=annotation,
-                provider=_FILE_EXTRACT_PROVIDER,
-                api_key=config.file_extract_msh_api_key,
-            )
-            for file_component, source, reply_id, annotation in file_components
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        worker_count = min(_FILE_EXTRACT_MAX_WORKERS, len(file_components))
+        work_queue: asyncio.Queue[tuple[int, File, str, str | int | None, dict] | None] = (
+            asyncio.Queue(maxsize=worker_count * 2)
+        )
+        results: list[dict[str, Any] | Exception | None] = [None] * len(
+            file_components
+        )
+
+        async def worker() -> None:
+            while True:
+                work_item = await work_queue.get()
+                try:
+                    if work_item is None:
+                        return
+                    index, file_component, source, reply_id, annotation = work_item
+                    try:
+                        results[index] = await self._extract_single_file_record(
+                            event=event,
+                            file_component=file_component,
+                            source=source,
+                            reply_id=reply_id,
+                            annotation=annotation,
+                            provider=_FILE_EXTRACT_PROVIDER,
+                            api_key=config.file_extract_msh_api_key,
+                        )
+                    except Exception as exc:
+                        results[index] = exc
+                finally:
+                    work_queue.task_done()
+
+        workers = [asyncio.create_task(worker()) for _ in range(worker_count)]
+        try:
+            for index, item in enumerate(file_components):
+                await work_queue.put((index, *item))
+            for _ in workers:
+                await work_queue.put(None)
+            await work_queue.join()
+            await asyncio.gather(*workers)
+        finally:
+            for task in workers:
+                task.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
 
         extracts: list[dict[str, Any]] = []
         for result in results:
