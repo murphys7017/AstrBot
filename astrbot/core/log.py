@@ -15,6 +15,7 @@ from astrbot.core.config.default import VERSION
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 CACHED_SIZE = 500
+_SAFE_LOGURU_SINK_OPTIONS = {"backtrace": False, "diagnose": False}
 
 if TYPE_CHECKING:
     from loguru import Record
@@ -230,6 +231,7 @@ class LogManager:
             colorize=True,
             filter=lambda record: not record["extra"].get("is_trace", False),
             format=_format_console_record,
+            **_SAFE_LOGURU_SINK_OPTIONS,
         )
         cls._configured = True
 
@@ -337,6 +339,7 @@ class LogManager:
                 retention=retention,
                 enqueue=True,
                 filter=lambda record: record["extra"].get("is_trace", False),
+                **_SAFE_LOGURU_SINK_OPTIONS,
             )
 
         logging_level_name = logging.getLevelName(level)
@@ -351,6 +354,7 @@ class LogManager:
             retention=retention,
             enqueue=True,
             filter=lambda record: not record["extra"].get("is_trace", False),
+            **_SAFE_LOGURU_SINK_OPTIONS,
         )
 
     @classmethod
@@ -382,6 +386,7 @@ class LogManager:
                             "is_trace", False
                         ),
                         format=_format_console_record,
+                        **_SAFE_LOGURU_SINK_OPTIONS,
                     )
                     cls._remove_sink(cls._console_sink_id)
                     cls._console_sink_id = new_sink_id

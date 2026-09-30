@@ -1,6 +1,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +14,52 @@ from astrbot.core.tools.web_search_tools import (
     FirecrawlExtractWebPageTool,
     FirecrawlWebSearchTool,
 )
+
+
+@pytest.mark.asyncio
+async def test_mcp_init_failure_logs_redacted_error_detail(monkeypatch, tmp_path):
+    config_path = tmp_path / "mcp_server.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "broken": {
+                        "active": True,
+                        "command": "uvx",
+                        "args": [],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = FunctionToolManager()
+    fake_logger = MagicMock()
+
+    async def fail_start(**_kwargs):
+        raise RuntimeError("api_key=top-secret")
+
+    monkeypatch.setattr(ftm, "get_astrbot_data_path", lambda: str(tmp_path))
+    monkeypatch.setattr(ftm, "logger", fake_logger)
+    monkeypatch.setattr(manager, "_start_mcp_server", fail_start)
+
+    summary = await manager.init_mcp_clients()
+
+    assert summary.total == 1
+    assert summary.success == 0
+    assert summary.failed == ["broken"]
+    failure_calls = [
+        call
+        for call in fake_logger.error.call_args_list
+        if call.args and str(call.args[0]).startswith("Failed to initialize MCP server")
+    ]
+    assert len(failure_calls) == 1
+    assert failure_calls[0].args == (
+        "Failed to initialize MCP server %s: error_type=%s detail=%s",
+        "broken",
+        "RuntimeError",
+        "api_key=[REDACTED]",
+    )
 
 
 def test_get_builtin_tool_by_class_returns_cached_instance():

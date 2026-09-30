@@ -30,6 +30,7 @@ from astrbot.core.tools.registry import (
     iter_builtin_tool_classes,
 )
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.utils.error_redaction import safe_error
 
 DEFAULT_MCP_CONFIG = {"mcpServers": {}}
 
@@ -42,6 +43,25 @@ TOOL_PERMISSIONS_KEY = "tool_permissions"
 TOOL_PERMISSION_ADMIN = "admin"
 TOOL_PERMISSION_MEMBER = "member"
 TOOL_PERMISSION_VALUES = {TOOL_PERMISSION_ADMIN, TOOL_PERMISSION_MEMBER}
+_MAX_MCP_ERROR_DETAIL_CHARS = 500
+
+
+def _safe_mcp_error_detail(error: BaseException) -> str:
+    """Return a compact, redacted summary of an exception chain."""
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        detail = " ".join(safe_error("", current).split())
+        if detail and detail not in parts:
+            parts.append(detail)
+        current = current.__cause__ or current.__context__
+
+    summary = " <- ".join(parts) or "<no detail>"
+    if len(summary) > _MAX_MCP_ERROR_DETAIL_CHARS:
+        return summary[: _MAX_MCP_ERROR_DETAIL_CHARS - 3] + "..."
+    return summary
 
 
 class MCPInitError(Exception):
@@ -610,9 +630,10 @@ class FunctionToolManager:
                     )
                 else:
                     logger.error(
-                        "Failed to initialize MCP server %s: error_type=%s",
+                        "Failed to initialize MCP server %s: error_type=%s detail=%s",
                         name,
                         type(result).__name__,
+                        _safe_mcp_error_detail(result),
                     )
                 self._log_safe_mcp_debug_config(cfg)
                 failed_services.append(name)
@@ -759,7 +780,6 @@ class FunctionToolManager:
             async with self._runtime_lock:
                 self._mcp_starting.discard(name)
                 self._mcp_server_runtime.pop(name, None)
-            logger.error(f"Failed to initialize MCP client {name}", exc_info=True)
             raise connect_error
 
     async def _shutdown_runtimes(
