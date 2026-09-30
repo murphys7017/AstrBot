@@ -1267,7 +1267,7 @@ async def test_persona_expression_rejects_prompt_only_contract_before_model_call
     assert provider.calls == []
 
 
-def test_minimax_token_plan_only_supports_required_output_tool_call_before_m3():
+def test_minimax_token_plan_excludes_m3_and_m31_from_persona_strict_contract():
     from astrbot.core.provider.sources.minimax_token_plan_source import (
         ProviderMiniMaxTokenPlan,
     )
@@ -1284,6 +1284,8 @@ def test_minimax_token_plan_only_supports_required_output_tool_call_before_m3():
 
     assert provider.supports_output_contract_strategy("protocol_tool_call")
     provider.set_model("MiniMax-M3")
+    assert not provider.supports_output_contract_strategy("protocol_tool_call")
+    provider.set_model(" minimax-m3.1 ")
     assert not provider.supports_output_contract_strategy("protocol_tool_call")
 
 
@@ -1362,8 +1364,9 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
         lambda *_args: [fallback],
     )
 
+    event = Event()
     result = await agent.generate_expression(
-        Event(),
+        event,
         SimpleNamespace(
             get_provider_by_id=lambda _provider_id: primary,
             get_config=lambda **_kwargs: {},
@@ -1375,6 +1378,7 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
     assert primary.calls == []
     assert len(fallback.calls) == 1
     assert result.spoken_reply == "由兼容回退完成"
+    assert not event.get_extra("_interaction_expression_fallback_used", False)
 
 
 @pytest.mark.asyncio

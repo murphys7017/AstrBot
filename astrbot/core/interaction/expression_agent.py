@@ -900,10 +900,19 @@ class InteractionExpressionAgent:
                 "primary Persona provider does not support the required "
                 "protocol_tool_call output contract",
             )
+            logger.info(
+                "Persona expression provider skipped before request: "
+                "platform_id=%s session_id=%s provider_id=%s reason=%s",
+                event.get_platform_id(),
+                event.session_id,
+                str(provider.provider_config.get("id", "<unknown>")),
+                primary_error.reason,
+            )
         candidates = compatible_candidates
 
         last_error: InteractionExpressionError | None = primary_error
         prepared: _PreparedPersonaExpression | None = None
+        primary_request_error: InteractionExpressionError | None = None
         fallback_request_error = (
             primary_error
             if primary_error is not None
@@ -920,13 +929,13 @@ class InteractionExpressionAgent:
                 )
             else:
                 candidate_request = req
-            if primary_error is not None:
+            if index > 0 and primary_request_error is not None:
                 fallback_provider_id = str(
                     candidate.provider_config.get("id", "<unknown>")
                 )
                 record_interaction_turn_expression_fallback(
                     event,
-                    primary_failure_reason=str(primary_error),
+                    primary_failure_reason=str(primary_request_error),
                     provider_id=fallback_provider_id,
                 )
                 logger.warning(
@@ -935,7 +944,7 @@ class InteractionExpressionAgent:
                     event.session_id,
                     prepared.lifecycle.lifecycle_id if prepared is not None else "",
                     fallback_provider_id,
-                    primary_error,
+                    primary_request_error,
                 )
             try:
                 result = await self._generate_expression_with_provider(
@@ -983,6 +992,8 @@ class InteractionExpressionAgent:
                 )
                 if primary_error is None:
                     primary_error = exc
+                if candidate is provider:
+                    primary_request_error = exc
                 if exc.reason != "unsupported_output_contract":
                     fallback_request_error = exc
                 if exc.tool_execution_count > 0:

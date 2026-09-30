@@ -7,6 +7,7 @@ from ..register import register_provider_adapter
 
 MINIMAX_TOKEN_PLAN_MODELS = [
     "MiniMax-M3",
+    "MiniMax-M3.1",
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
     "MiniMax-M2.5",
@@ -15,6 +16,8 @@ MINIMAX_TOKEN_PLAN_MODELS = [
     "MiniMax-M2.1-highspeed",
     "MiniMax-M2",
 ]
+
+MINIMAX_STRICT_UNSUPPORTED_MODELS = frozenset({"minimax-m3", "minimax-m3.1"})
 
 
 @register_provider_adapter(
@@ -54,11 +57,13 @@ class ProviderMiniMaxTokenPlan(ProviderAnthropic):
     def supports_output_contract_strategy(self, strategy: str) -> bool:
         if strategy == "prompt_only":
             return True
-        # M3 accepts normal tool_choice=auto calls, but its Anthropic-compatible
-        # endpoint does not reliably honor the required/any selection used by
-        # strict output contracts. Keep protocol contracts for the older models.
+        # M3/M3.1 accept normal tool_choice=auto calls, but their
+        # Anthropic-compatible endpoint does not reliably honor the required/any
+        # selection used by the Persona strict output contract.
         model_name = str(self.get_model() or "").strip().casefold()
-        return strategy == "protocol_tool_call" and model_name != "minimax-m3"
+        return strategy == "protocol_tool_call" and model_name not in (
+            MINIMAX_STRICT_UNSUPPORTED_MODELS
+        )
 
     async def get_models(self) -> list[str]:
         key = self.chosen_api_key
