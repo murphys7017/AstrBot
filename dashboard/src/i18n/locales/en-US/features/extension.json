@@ -99,6 +99,7 @@
   },
   "detail": {
     "capabilityConfig": "Capability inventory configuration",
+    "pages": "Plugin Pages",
     "contents": "Plugin Handlers",
     "noContents": "No handlers",
     "notFound": "Plugin not found",

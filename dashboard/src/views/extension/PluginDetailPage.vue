@@ -86,6 +86,11 @@ const detailPageRef = ref(null);
 const isHeaderStuck = ref(false);
 const configOptions = ref([]);
 const selectedConfigId = ref("default");
+const pluginPages = computed(() =>
+  (Array.isArray(props.plugin?.pages) ? props.plugin.pages : []).filter(
+    (page) => typeof page === "string" && page.trim().length > 0,
+  ),
+);
 
 const displayName = computed(() => pluginName(props.plugin));
 const detailSourceTab = computed(() =>
@@ -446,6 +451,13 @@ const openExternal = (url) => {
   window.open(url, "_blank", "noopener,noreferrer");
 };
 
+const openPluginPage = (pageName) => {
+  router.push({
+    name: "PluginPage",
+    params: { pluginName: props.plugin.name, pageName },
+  });
+};
+
 const goBack = () => {
   router.push({ name: "Extensions", hash: `#${detailSourceTab.value}` });
 };
@@ -603,6 +615,21 @@ onBeforeUnmount(() => {
         </p>
       </v-card-text>
     </v-card>
+
+    <section v-if="pluginPages.length" class="detail-section">
+      <h3 class="detail-section__title">{{ tm("detail.pages") }}</h3>
+      <div class="plugin-pages-list">
+        <v-btn
+          v-for="pageName in pluginPages"
+          :key="pageName"
+          variant="outlined"
+          prepend-icon="mdi-open-in-new"
+          @click="openPluginPage(pageName)"
+        >
+          {{ pageName }}
+        </v-btn>
+      </div>
+    </section>
 
     <section class="detail-section">
       <v-card class="rounded-lg" variant="outlined">
@@ -908,6 +935,12 @@ onBeforeUnmount(() => {
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0 0 12px;
+}
+
+.plugin-pages-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .handler-row__desc {
