@@ -11,7 +11,11 @@ Upstream reference: `26ff7673f`. Production ports 6185 and 6199 are reserved.
 - P1: native ASGI infrastructure input/output smoke passed, including request
   identity, body-size rejection and malformed JSON; production entry unchanged.
 - P2: services wired to the native Dashboard host; existing HTTP tests passed.
-- P3-P5: platform host, Pages UI and network acceptance still pending.
+- P3: plugin Pages route and standalone platform host implemented.
+- P4: native HTTP/WS transport and compatibility checks passed; full provider,
+  SSE payload and configured-platform acceptance remains environment-dependent.
+- P5: migration branch entry is FastAPI; production cutover/merge is intentionally
+  not performed while the original service is running.
 
 ## Acceptance rules
 
@@ -72,9 +76,10 @@ servers now use the bounded native ASGI host. Their existing `route`,
 platform-specific signature and plaintext response behavior stays in each
 adapter. QQ signature/extra-data and platform response tests passed (8).
 
-The frontend now registers `/plugin-page/:pluginName/:pageName`, matching the
-existing embedded Pages view and sidebar links. The dashboard package build was
-not run because this isolated worktree has no `dashboard/node_modules`.
+The frontend now registers `/plugin-page/:pluginName/:pageName`, exposes all
+plugin Pages from the extension detail view, and matches the existing embedded
+Pages view and sidebar links. Locked frontend dependencies were installed in
+the migration worktree; typecheck passed.
 
 ## Checkpoint 5: isolated network smoke
 
