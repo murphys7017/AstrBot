@@ -95,6 +95,7 @@ _DENIED_DOCKER_ARGS = frozenset(
 _STDIO_ALLOWLIST_ENV = "ASTRBOT_MCP_STDIO_ALLOWED_COMMANDS"
 _UV_COMMAND_NAMES = frozenset({"uv", "uvx"})
 _UV_CACHE_DIR_ENV = "UV_CACHE_DIR"
+_UV_TOOL_DIR_ENV = "UV_TOOL_DIR"
 
 try:
     import anyio
@@ -251,11 +252,16 @@ def _prepare_stdio_env(config: dict) -> dict:
     if (
         isinstance(command, str)
         and _normalize_stdio_command_name(command) in _UV_COMMAND_NAMES
-        and not any(key.lower() == _UV_CACHE_DIR_ENV.lower() for key in env)
     ):
-        cache_dir = os.path.join(get_astrbot_data_path(), "uv-cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        env[_UV_CACHE_DIR_ENV] = cache_dir
+        data_dir = get_astrbot_data_path()
+        if not any(key.lower() == _UV_CACHE_DIR_ENV.lower() for key in env):
+            cache_dir = os.path.join(data_dir, "uv-cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            env[_UV_CACHE_DIR_ENV] = cache_dir
+        if not any(key.lower() == _UV_TOOL_DIR_ENV.lower() for key in env):
+            tool_dir = os.path.join(data_dir, "uv-tools")
+            os.makedirs(tool_dir, exist_ok=True)
+            env[_UV_TOOL_DIR_ENV] = tool_dir
 
     prepared["env"] = env
     return prepared
