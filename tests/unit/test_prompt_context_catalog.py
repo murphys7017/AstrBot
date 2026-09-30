@@ -85,6 +85,19 @@ def test_default_catalog_declares_visible_reply_material_slot():
     assert item.lifecycle == "ephemeral"
 
 
+def test_default_catalog_declares_pending_execution_continuity_slot():
+    catalog = ContextCatalogLoader.load(
+        Path("data/config/prompt/context_catalog.yaml"),
+        strict=True,
+    )
+
+    item = catalog.get("conversation.pending_execution_continuity")
+    assert item is not None
+    assert item.category == "conversation"
+    assert item.slots == ["history"]
+    assert item.lifecycle == "ephemeral"
+
+
 def test_context_catalog_loader_skips_invalid_items_fail_open(tmp_path: Path):
     catalog_path = tmp_path / "context_catalog.yaml"
     catalog_path.write_text(
