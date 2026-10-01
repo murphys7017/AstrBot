@@ -1,8 +1,8 @@
 import shutil
 import stat
 import tempfile
+from dataclasses import dataclass, field
 from enum import Enum
-from io import BytesIO
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from zipfile import ZipFile
 
@@ -20,15 +20,40 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"com{index}" for index in range(1, 10)),
     *(f"lpt{index}" for index in range(1, 10)),
 }
+_PLUGIN_ARCHIVE_MAX_ENTRIES = 20_000
+_PLUGIN_ARCHIVE_MAX_PATH_LENGTH = 4096
+_PLUGIN_ARCHIVE_MAX_PATH_DEPTH = 128
+_PLUGIN_ARCHIVE_MAX_TOTAL_PATH_LENGTH = 16 * 1024 * 1024
+_PLUGIN_ARCHIVE_MAX_PATH_NODES = 100_000
+_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE = 512 * 1024 * 1024
+_PLUGIN_ARCHIVE_MAX_FILE_SIZE = 128 * 1024 * 1024
+_PLUGIN_ARCHIVE_MAX_TOTAL_SIZE = 512 * 1024 * 1024
+_ARCHIVE_COPY_CHUNK_SIZE = 64 * 1024
+
+
+@dataclass(slots=True)
+class _ArchivePathNode:
+    kind: str | None = None
+    children: dict[str, "_ArchivePathNode"] = field(default_factory=dict)
 
 
 def _get_archive_root_dir(archive: ZipFile) -> str:
     roots: dict[str, str] = {}
-    explicit_paths: set[str] = set()
-    path_kinds: dict[str, str] = {}
+    path_tree = _ArchivePathNode()
+    path_node_count = 1
+    total_path_length = 0
+    members = archive.infolist()
+    if len(members) > _PLUGIN_ARCHIVE_MAX_ENTRIES:
+        raise ValueError("Plugin archive contains too many entries.")
 
-    for member in archive.infolist():
+    for member in members:
         name = member.filename
+        if len(name) > _PLUGIN_ARCHIVE_MAX_PATH_LENGTH:
+            raise ValueError(f"Plugin archive path is too long: {name!r}")
+        total_path_length += len(name)
+        if total_path_length > _PLUGIN_ARCHIVE_MAX_TOTAL_PATH_LENGTH:
+            raise ValueError("Plugin archive contains too much path data.")
+
         windows_path = PureWindowsPath(name)
         if (
             not name
@@ -43,12 +68,17 @@ def _get_archive_root_dir(archive: ZipFile) -> str:
         parts = name.split("/")
         if member.is_dir() and parts[-1] == "":
             parts.pop()
-        while parts and parts[0] == ".":
-            parts.pop(0)
+        first_part = 0
+        while first_part < len(parts) and parts[first_part] == ".":
+            first_part += 1
+        if first_part:
+            parts = parts[first_part:]
         if not parts and member.is_dir():
             continue
         if not parts or any(part in {"", ".", ".."} for part in parts):
             raise ValueError(f"Unsafe plugin archive path: {name!r}")
+        if len(parts) > _PLUGIN_ARCHIVE_MAX_PATH_DEPTH:
+            raise ValueError(f"Plugin archive path is too deep: {name!r}")
 
         for part in parts:
             windows_basename = part.split(".", 1)[0].casefold()
@@ -69,21 +99,25 @@ def _get_archive_root_dir(archive: ZipFile) -> str:
         if file_type and member.is_dir() != (file_type == stat.S_IFDIR):
             raise ValueError(f"Invalid plugin archive entry type: {name!r}")
 
-        normalized_path = "/".join(part.casefold() for part in parts)
-        if normalized_path in explicit_paths:
-            raise ValueError(f"Duplicate plugin archive path: {name!r}")
-        explicit_paths.add(normalized_path)
-
         kind = "directory" if member.is_dir() else "file"
-        for index in range(1, len(parts)):
-            parent = "/".join(part.casefold() for part in parts[:index])
-            if path_kinds.get(parent) == "file":
+        node = path_tree
+        for part in (part.casefold() for part in parts):
+            if node.kind == "file":
                 raise ValueError(f"Plugin archive path conflicts with a file: {name!r}")
-            path_kinds.setdefault(parent, "directory")
-        existing_kind = path_kinds.get(normalized_path)
-        if existing_kind and existing_kind != kind:
-            raise ValueError(f"Plugin archive path has conflicting types: {name!r}")
-        path_kinds[normalized_path] = kind
+            child = node.children.get(part)
+            if child is None:
+                if path_node_count >= _PLUGIN_ARCHIVE_MAX_PATH_NODES:
+                    raise ValueError("Plugin archive contains too many path nodes.")
+                child = _ArchivePathNode()
+                node.children[part] = child
+                path_node_count += 1
+            node = child
+
+        if node.kind is not None:
+            if node.kind != kind:
+                raise ValueError(f"Plugin archive path has conflicting types: {name!r}")
+            raise ValueError(f"Duplicate plugin archive path: {name!r}")
+        node.kind = kind
 
         root = parts[0]
         canonical_root = root.casefold()
@@ -97,6 +131,86 @@ def _get_archive_root_dir(archive: ZipFile) -> str:
     if len(roots) != 1:
         raise ValueError("Plugin archive must contain exactly one root directory.")
     return next(iter(roots.values()))
+
+
+def _save_plugin_archive(response: httpx.Response, archive_path: Path) -> None:
+    response.raise_for_status()
+    content_length = response.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError as exc:
+            raise ValueError("Plugin archive has an invalid content length.") from exc
+        if declared_size > _PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE:
+            raise ValueError("Plugin archive download exceeds the size limit.")
+
+    downloaded_size = 0
+    with archive_path.open("wb") as archive_file:
+        for chunk in response.iter_bytes(_ARCHIVE_COPY_CHUNK_SIZE):
+            downloaded_size += len(chunk)
+            if downloaded_size > _PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE:
+                raise ValueError("Plugin archive download exceeds the size limit.")
+            archive_file.write(chunk)
+
+
+def _extract_plugin_archive(archive: ZipFile, extract_dir: Path) -> str:
+    root_dir = _get_archive_root_dir(archive)
+    members = archive.infolist()
+    declared_total_size = 0
+    for member in members:
+        if member.file_size < 0:
+            raise ValueError(
+                f"Plugin archive member has an invalid size: {member.filename!r}"
+            )
+        if member.is_dir():
+            if member.file_size:
+                raise ValueError(
+                    f"Plugin archive directory is not empty: {member.filename!r}"
+                )
+            continue
+        if member.file_size > _PLUGIN_ARCHIVE_MAX_FILE_SIZE:
+            raise ValueError(
+                f"Plugin archive member exceeds the size limit: {member.filename!r}"
+            )
+        declared_total_size += member.file_size
+        if declared_total_size > _PLUGIN_ARCHIVE_MAX_TOTAL_SIZE:
+            raise ValueError("Plugin archive exceeds the total size limit.")
+
+    extract_root = extract_dir.resolve(strict=True)
+    total_written = 0
+    for member in members:
+        parts = PurePosixPath(member.filename).parts
+        if not parts:
+            continue
+        destination = extract_root.joinpath(*parts).resolve(strict=False)
+        if destination == extract_root or not destination.is_relative_to(extract_root):
+            raise ValueError(f"Unsafe plugin archive path: {member.filename!r}")
+        if member.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        member_written = 0
+        with (
+            archive.open(member, "r") as source,
+            destination.open("xb") as target,
+        ):
+            while chunk := source.read(_ARCHIVE_COPY_CHUNK_SIZE):
+                member_written += len(chunk)
+                total_written += len(chunk)
+                if member_written > _PLUGIN_ARCHIVE_MAX_FILE_SIZE:
+                    raise ValueError(
+                        f"Plugin archive member exceeds the size limit: {member.filename!r}"
+                    )
+                if total_written > _PLUGIN_ARCHIVE_MAX_TOTAL_SIZE:
+                    raise ValueError("Plugin archive exceeds the total size limit.")
+                target.write(chunk)
+        if member_written != member.file_size:
+            raise ValueError(
+                f"Plugin archive member size does not match its directory entry: {member.filename!r}"
+            )
+
+    return root_dir
 
 
 class PluginStatus(str, Enum):
@@ -141,28 +255,27 @@ def get_git_repo(url: str, target_path: Path, proxy: str | None = None) -> None:
         if proxy:
             download_url = f"{proxy}/{download_url}"
 
-        # Download and extract into an isolated directory before touching the target.
+        archive_path = temp_dir / "archive.zip"
         with httpx.Client(
             proxy=proxy if proxy else None,
             follow_redirects=True,
         ) as client:
-            resp = client.get(download_url)
-            if (
-                resp.status_code == 404
-                and "archive/refs/heads/master.zip" in download_url
-            ):
-                alt_url = download_url.replace("master.zip", "main.zip")
-                click.echo("Branch 'master' not found, trying 'main' branch")
-                resp = client.get(alt_url)
-                resp.raise_for_status()
-            else:
-                resp.raise_for_status()
-            zip_content = BytesIO(resp.content)
+            with client.stream("GET", download_url) as resp:
+                if (
+                    resp.status_code == 404
+                    and "archive/refs/heads/master.zip" in download_url
+                ):
+                    alt_url = download_url.replace("master.zip", "main.zip")
+                    click.echo("Branch 'master' not found, trying 'main' branch")
+                    with client.stream("GET", alt_url) as alt_resp:
+                        _save_plugin_archive(alt_resp, archive_path)
+                else:
+                    _save_plugin_archive(resp, archive_path)
+
         extract_dir = temp_dir / "extracted"
         extract_dir.mkdir()
-        with ZipFile(zip_content) as archive:
-            root_dir = _get_archive_root_dir(archive)
-            archive.extractall(extract_dir)
+        with ZipFile(archive_path) as archive:
+            root_dir = _extract_plugin_archive(archive, extract_dir)
 
         root_path = extract_dir / root_dir
         resolved_extract_dir = extract_dir.resolve(strict=True)
