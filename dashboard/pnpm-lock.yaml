@@ -15,6 +15,9 @@ importers:
       '@guolao/vue-monaco-editor':
         specifier: ^1.5.4
         version: 1.6.0(monaco-editor@0.52.2)(vue@3.3.4)
+      '@lucide/vue':
+        specifier: ^1.23.0
+        version: 1.23.0(vue@3.3.4)
       '@tiptap/starter-kit':
         specifier: 2.1.7
         version: 2.1.7(@tiptap/pm@2.27.2)
@@ -136,6 +139,9 @@ importers:
       '@vue/tsconfig':
         specifier: ^0.4.0
         version: 0.4.0
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       eslint:
         specifier: 8.48.0
         version: 8.48.0
@@ -150,7 +156,7 @@ importers:
         version: 1.66.1
       sass-loader:
         specifier: 13.3.2
-        version: 13.3.2(sass@1.66.1)(webpack@5.105.0)
+        version: 13.3.2(sass@1.66.1)(webpack@5.105.0(esbuild@0.25.12))
       subset-font:
         specifier: ^2.4.0
         version: 2.4.0
@@ -165,13 +171,13 @@ importers:
         version: 3.12.0(vite@6.4.1(@types/node@20.19.32)(sass@1.66.1)(terser@5.46.0))
       vue-cli-plugin-vuetify:
         specifier: 2.5.8
-        version: 2.5.8(sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0))(vue@3.3.4)(vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0))(webpack@5.105.0)
+        version: 2.5.8(sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0(esbuild@0.25.12)))(vue@3.3.4)(vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0(esbuild@0.25.12)))(webpack@5.105.0(esbuild@0.25.12))
       vue-tsc:
         specifier: 1.8.8
         version: 1.8.8(typescript@5.1.6)
       vuetify-loader:
         specifier: ^2.0.0-alpha.9
-        version: 2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0)
+        version: 2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0(esbuild@0.25.12))
 
 packages:
 
@@ -474,6 +480,11 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
+
+  '@lucide/vue@1.23.0':
+    resolution: {integrity: sha512-9SIYeY5K+R1iv8F8JUKMGSL7Pck/86BJ8djtZz/lnYsoHtKFUj1H2z6+PvKnC/8blZ8tqTDeDXAoTKobuX80hg==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   '@mdi/font@7.2.96':
     resolution: {integrity: sha512-e//lmkmpFUMZKhmCY9zdjRe4zNXfbOIJnn6xveHbaV2kSw5aJ5dLXUxcRt1Gxfi7ZYpFLUWlkG2MGSFAiqAu7w==}
@@ -3329,6 +3340,10 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
+  '@lucide/vue@1.23.0(vue@3.3.4)':
+    dependencies:
+      vue: 3.3.4
+
   '@mdi/font@7.2.96': {}
 
   '@mermaid-js/parser@0.6.3':
@@ -4787,11 +4802,11 @@ snapshots:
     dependencies:
       flat-cache: 3.2.0
 
-  file-loader@6.2.0(webpack@5.105.0):
+  file-loader@6.2.0(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
 
   fill-range@7.1.1:
     dependencies:
@@ -5254,11 +5269,11 @@ snapshots:
     dependencies:
       boolbase: 1.0.0
 
-  null-loader@4.0.1(webpack@5.105.0):
+  null-loader@4.0.1(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
 
   once@1.4.0:
     dependencies:
@@ -5594,10 +5609,10 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0):
+  sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
       neo-async: 2.6.2
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
     optionalDependencies:
       sass: 1.66.1
 
@@ -5763,13 +5778,15 @@ snapshots:
 
   tapable@2.3.0: {}
 
-  terser-webpack-plugin@5.4.0(webpack@5.105.0):
+  terser-webpack-plugin@5.4.0(esbuild@0.25.12)(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       jest-worker: 27.5.1
       schema-utils: 4.3.3
       terser: 5.46.0
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
+    optionalDependencies:
+      esbuild: 0.25.12
 
   terser@5.46.0:
     dependencies:
@@ -5935,16 +5952,16 @@ snapshots:
 
   vscode-uri@3.0.8: {}
 
-  vue-cli-plugin-vuetify@2.5.8(sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0))(vue@3.3.4)(vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0))(webpack@5.105.0):
+  vue-cli-plugin-vuetify@2.5.8(sass-loader@13.3.2(sass@1.66.1)(webpack@5.105.0(esbuild@0.25.12)))(vue@3.3.4)(vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0(esbuild@0.25.12)))(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
-      null-loader: 4.0.1(webpack@5.105.0)
+      null-loader: 4.0.1(webpack@5.105.0(esbuild@0.25.12))
       semver: 7.7.4
       shelljs: 0.8.5
       vue: 3.3.4
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
     optionalDependencies:
-      sass-loader: 13.3.2(sass@1.66.1)(webpack@5.105.0)
-      vuetify-loader: 2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0)
+      sass-loader: 13.3.2(sass@1.66.1)(webpack@5.105.0(esbuild@0.25.12))
+      vuetify-loader: 2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0(esbuild@0.25.12))
 
   vue-demi@0.14.10(vue@3.3.4):
     dependencies:
@@ -6004,19 +6021,19 @@ snapshots:
       '@vue/server-renderer': 3.3.4(vue@3.3.4)
       '@vue/shared': 3.3.4
 
-  vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0):
+  vuetify-loader@2.0.0-alpha.9(@vue/compiler-sfc@3.3.4)(vue@3.3.4)(vuetify@3.7.11)(webpack@5.105.0(esbuild@0.25.12)):
     dependencies:
       '@vue/compiler-sfc': 3.3.4
       '@vuetify/loader-shared': 1.7.1(vue@3.3.4)(vuetify@3.7.11)
       decache: 4.6.2
-      file-loader: 6.2.0(webpack@5.105.0)
+      file-loader: 6.2.0(webpack@5.105.0(esbuild@0.25.12))
       find-cache-dir: 3.3.2
       loader-utils: 2.0.4
-      null-loader: 4.0.1(webpack@5.105.0)
+      null-loader: 4.0.1(webpack@5.105.0(esbuild@0.25.12))
       querystring: 0.2.1
       upath: 2.0.1
       vuetify: 3.7.11(typescript@5.1.6)(vite-plugin-vuetify@2.1.3)(vue@3.3.4)
-      webpack: 5.105.0
+      webpack: 5.105.0(esbuild@0.25.12)
     transitivePeerDependencies:
       - vue
 
@@ -6040,7 +6057,7 @@ snapshots:
 
   webpack-sources@3.3.4: {}
 
-  webpack@5.105.0:
+  webpack@5.105.0(esbuild@0.25.12):
     dependencies:
       '@types/eslint-scope': 3.7.7
       '@types/estree': 1.0.8
@@ -6064,7 +6081,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 4.3.3
       tapable: 2.3.0
-      terser-webpack-plugin: 5.4.0(webpack@5.105.0)
+      terser-webpack-plugin: 5.4.0(esbuild@0.25.12)(webpack@5.105.0(esbuild@0.25.12))
       watchpack: 2.5.1
       webpack-sources: 3.3.4
     transitivePeerDependencies:

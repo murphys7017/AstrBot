@@ -2,9 +2,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from quart import Quart
+from fastapi import FastAPI
 
 from astrbot.core.provider.provider import EmbeddingProvider
+from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter
 from astrbot.dashboard.routes.knowledge_base import KnowledgeBaseRoute
 
 
@@ -47,7 +48,7 @@ def make_kb(kb_id: str = "kb-1", kb_name: str = "Docs"):
 
 @pytest.mark.asyncio
 async def test_list_kbs_applies_pagination():
-    app = Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     kb_manager = MagicMock()
     kb_manager.list_kbs = AsyncMock(
         return_value=[
@@ -72,7 +73,7 @@ async def test_list_kbs_applies_pagination():
 
 @pytest.mark.asyncio
 async def test_create_kb_accepts_legacy_name_field():
-    app = Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     kb = make_kb(kb_name="Legacy")
     kb_manager = MagicMock()
     kb_manager.provider_manager.get_provider_by_id = AsyncMock(
@@ -108,7 +109,7 @@ async def test_create_kb_accepts_legacy_name_field():
 
 @pytest.mark.asyncio
 async def test_update_kb_preserves_omitted_fields():
-    app = Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     kb = make_kb()
     kb_manager = MagicMock()
     kb_manager.get_kb = AsyncMock(return_value=SimpleNamespace(kb=kb))
@@ -139,7 +140,7 @@ async def test_update_kb_preserves_omitted_fields():
 
 @pytest.mark.asyncio
 async def test_update_kb_allows_explicit_rerank_provider_clear():
-    app = Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     kb = make_kb()
     kb_manager = MagicMock()
     kb_manager.get_kb = AsyncMock(return_value=SimpleNamespace(kb=kb))
@@ -158,7 +159,7 @@ async def test_update_kb_allows_explicit_rerank_provider_clear():
 
 @pytest.mark.asyncio
 async def test_list_documents_passes_search_and_returns_total():
-    app = Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     doc = SimpleNamespace(model_dump=lambda: {"doc_id": "doc-1"})
     kb_helper = SimpleNamespace(
         list_documents=AsyncMock(return_value=[doc]),

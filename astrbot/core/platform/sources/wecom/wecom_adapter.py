@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote
 
-import quart
 from requests import Response
 from wechatpy.enterprise import WeChatClient, parse_message
 from wechatpy.enterprise.crypto import WeChatCrypto
@@ -28,6 +27,11 @@ from astrbot.api.platform import (
 )
 from astrbot.core import logger
 from astrbot.core.platform.message_session import MessageSession
+from astrbot.core.platform.webhook_server import (
+    WebhookTextResponse,
+    create_webhook_app,
+    request,
+)
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.media_utils import convert_audio_to_wav
 from astrbot.core.utils.webhook_utils import log_webhook_info
@@ -65,7 +69,7 @@ def _extract_wecom_media_filename(disposition: str | None) -> str | None:
 
 class WecomServer:
     def __init__(self, event_queue: asyncio.Queue, config: dict) -> None:
-        self.server = quart.Quart(__name__)
+        self.server = create_webhook_app(__name__)
         self.port = int(cast(str, config.get("port")))
         self.callback_server_host = config.get("callback_server_host", "0.0.0.0")
         self.server.add_url_rule(
@@ -91,7 +95,7 @@ class WecomServer:
 
     async def verify(self):
         """内部服务器的 GET 验证入口"""
-        return await self.handle_verify(quart.request)
+        return await self.handle_verify(request)
 
     async def handle_verify(self, request) -> str:
         """处理验证请求，可被统一 webhook 入口复用
@@ -102,7 +106,9 @@ class WecomServer:
         Returns:
             验证响应
         """
-        logger.debug("WeCom callback validation started: argument_keys=%s", sorted(request.args))
+        logger.debug(
+            "WeCom callback validation started: argument_keys=%s", sorted(request.args)
+        )
         args = request.args
         try:
             echo_str = self.crypto.check_signature(
@@ -112,14 +118,14 @@ class WecomServer:
                 args.get("echostr"),
             )
             logger.info("验证请求有效性成功。")
-            return quart.Response(echo_str, content_type="text/plain")
+            return WebhookTextResponse(echo_str)
         except InvalidSignatureException:
             logger.error("验证请求有效性失败，签名异常，请检查配置。")
             raise
 
     async def callback_command(self):
         """内部服务器的 POST 回调入口"""
-        return await self.handle_callback(quart.request)
+        return await self.handle_callback(request)
 
     async def handle_callback(self, request) -> str:
         """处理回调请求，可被统一 webhook 入口复用

@@ -1,3 +1,43 @@
+dashboard_fastapi_migration:
+  date: '2026-10-01'
+  class: refactor
+  risk: high
+  status: merged_pending_runtime_cutover
+  scope: >-
+    Migrate the Dashboard HTTP and WebSocket host to FastAPI on the dedicated
+    codex/fastapi-migration worktree, preserve legacy public contracts and
+    local Profile/plugin/Personal/Core/output behavior, separate API routing
+    from services, and complete isolated acceptance before proposing a merge.
+  isolation: >-
+    The user stopped the original AstrBot instance before live migration
+    validation. The migration worktree now runs against a copied production
+    data directory on loopback ports 6185 and 6199; source data remains
+    read-only.
+    Transient data/temp and tmp_pytest folders were not mirrored due to local
+    ACLs, but tracked runtime configuration, database, plugins, plugin data,
+    memory, and Dashboard assets were verified copied. Do not start both
+    instances concurrently because their data directories will diverge.
+  commits: >-
+    The user explicitly requested small reviewed and validated migration
+    commits for traceability. Do not merge or push without a separate request.
+  validation: >-
+    The migration branch now uses native FastAPI. Existing Dashboard (48),
+    external API-Key (11), knowledge-base (5) and platform-response (2) tests
+    passed, as did the focused Plugin Manager and Dashboard run (92 tests),
+    frontend typecheck, and Vite build. The copied-data process was previously
+    exercised on ports 6185 and 6199. Both ports were still listening at the
+    final merge review; no service was stopped or restarted for this merge. A real
+    browser rendered the authenticated Iris plugin view: the iframe loaded its full
+    dashboard, exposed
+    AstrBotPluginView with AstrBotPluginPage as a compatibility alias, and
+    the legacy #/plugin-page route redirected to #/plugin-view. External
+    cloud.astrbot.app repository metadata remains blocked by local CORS/network
+    policy. The user authorized merging into master. The existing master SSE
+    pacing optimization is preserved in chat_service; focused chat tests passed
+    (3). Code is merged, while runtime data and frontend asset cutover remain
+    separate. Retain the migration worktree and its data until cutover is verified.
+    See docs/Yakumo/dev/fastapi-migration/03-progress.md for checkpoints.
+
 knowledge_base_cleaning_and_async_io_repair:
   date: '2026-09-30'
   class: performance

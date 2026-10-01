@@ -122,7 +122,9 @@ const viewChangelog = () => {
 };
 
 const pages = computed(() => {
-  const value = props.extension?.pages;
+  const value = Array.isArray(props.extension?.views)
+    ? props.extension.views
+    : props.extension?.pages;
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 });
 

@@ -1,9 +1,10 @@
 from types import SimpleNamespace
 
 import pytest
-import quart
+from fastapi import FastAPI
 
 from astrbot.core.platform.sources.wecom.wecom_adapter import WecomServer
+from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter
 from astrbot.dashboard.routes.platform import PlatformRoute
 from astrbot.dashboard.routes.route import RouteContext
 
@@ -23,7 +24,7 @@ class _FakePlatform:
 
 @pytest.mark.asyncio
 async def test_unified_webhook_preserves_adapter_plain_text_response():
-    app = quart.Quart(__name__)
+    app = FastAPIAppAdapter(FastAPI())
     core_lifecycle = SimpleNamespace(
         platform_manager=SimpleNamespace(platform_insts=[_FakePlatform()])
     )

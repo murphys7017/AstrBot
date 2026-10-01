@@ -5,7 +5,6 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any, cast
 
-import quart
 from requests import Response
 from wechatpy import WeChatClient, create_reply, parse_message
 from wechatpy.crypto import WeChatCrypto
@@ -25,6 +24,7 @@ from astrbot.api.platform import (
 )
 from astrbot.core import logger
 from astrbot.core.platform.message_session import MessageSession
+from astrbot.core.platform.webhook_server import create_webhook_app, request
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.media_utils import convert_audio_to_wav
 from astrbot.core.utils.webhook_utils import log_webhook_info
@@ -44,7 +44,7 @@ class WeixinOfficialAccountServer:
         config: dict,
         user_buffer: dict[Any, dict[str, Any]],
     ) -> None:
-        self.server = quart.Quart(__name__)
+        self.server = create_webhook_app(__name__)
         self.port = int(cast(int | str, config.get("port")))
         self.callback_server_host = config.get("callback_server_host", "0.0.0.0")
         self.token = config.get("token")
@@ -75,7 +75,7 @@ class WeixinOfficialAccountServer:
 
     async def verify(self):
         """内部服务器的 GET 验证入口"""
-        return await self.handle_verify(quart.request)
+        return await self.handle_verify(request)
 
     async def handle_verify(self, request) -> str:
         """处理验证请求，可被统一 webhook 入口复用
@@ -110,7 +110,7 @@ class WeixinOfficialAccountServer:
 
     async def callback_command(self):
         """内部服务器的 POST 回调入口"""
-        return await self.handle_callback(quart.request)
+        return await self.handle_callback(request)
 
     def _maybe_encrypt(self, xml: str, nonce: str | None, timestamp: str | None) -> str:
         if xml and "<Encrypt>" not in xml and nonce and timestamp:

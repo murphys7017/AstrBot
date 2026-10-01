@@ -86,6 +86,10 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     sourcemap: false,
+    // TypeScript checking runs before Vite; skip the failing local Windows
+    // esbuild transpile/cleanup path for the modern browser build.
+    target: 'esnext',
+    minify: false,
     chunkSizeWarningLimit: 1024 * 1024 // Set the limit to 1 MB
   },
   optimizeDeps: {

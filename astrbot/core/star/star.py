@@ -45,7 +45,6 @@ class StarMetadata:
     """插件的模块对象"""
     root_dir_name: str | None = None
     """插件的目录名称"""
-
     interaction_runtime_target: str | None = None
     """Optional default Interaction LLM lifecycle surface declared by the plugin."""
     reserved: bool = False
@@ -65,7 +64,6 @@ class StarMetadata:
 
     logo_path: str | None = None
     """插件 Logo 的路径"""
-
     icon: str | None = None
     """插件 WebUI 侧边栏图标，支持 mdi- 前缀图标名。"""
 
@@ -78,8 +76,23 @@ class StarMetadata:
     i18n: dict[str, dict] = field(default_factory=dict)
     """插件自带的国际化文案，按 locale 分组。"""
 
-    pages: list[dict] = field(default_factory=list)
-    """插件注册的 Pages 元数据。"""
+    views: list[dict] = field(default_factory=list)
+    """插件注册的 Views 元数据。"""
+
+    @property
+    def pages(self) -> list[dict]:
+        """Backward-compatible alias for the former Pages metadata field."""
+        return self.views
+
+    @pages.setter
+    def pages(self, value: list[dict]) -> None:
+        self.views = value
+
+    @property
+    def plugin_id(self) -> str:
+        p_name = (self.name or "unknown").lower().replace("/", "_")
+        p_author = (self.author or "unknown").lower().replace("/", "_")
+        return f"{p_author}/{p_name}"
 
     def __str__(self) -> str:
         return f"Plugin {self.name} ({self.version}) by {self.author}: {self.desc}"

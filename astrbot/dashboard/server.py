@@ -1,20 +1,16 @@
 import asyncio
 import hashlib
-import logging
 import mimetypes
 import os
 import socket
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 import jwt
 import psutil
-from flask.json.provider import DefaultJSONProvider
+from fastapi import FastAPI
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
-from quart import Quart, g, jsonify, request
-from quart.logging import default_handler
 from werkzeug.exceptions import MethodNotAllowed, NotFound
 from werkzeug.routing import Map, Rule
 
@@ -23,24 +19,18 @@ from astrbot.core.config.default import VERSION
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-from astrbot.core.utils.datetime_utils import to_utc_isoformat
 from astrbot.core.utils.io import (
     get_bundled_dashboard_dist_path,
     get_local_ip_addresses,
     should_use_bundled_dashboard_dist,
 )
 
+from .api.app import create_dashboard_app
+from .asgi_runtime import call_request_view, g, jsonify, request
 from .plugin_page_auth import PluginPageAuth
-from .routes import *
 from .routes.api_key import ALL_OPEN_API_SCOPES
 from .routes.auth import DASHBOARD_JWT_COOKIE_NAME
-from .routes.backup import BackupRoute
-from .routes.live_chat import LiveChatRoute
-from .routes.platform import PlatformRoute
-from .routes.route import Response, RouteContext
-from .routes.session_management import SessionManagementRoute
-from .routes.subagent import SubAgentRoute
-from .routes.t2i import T2iRoute
+from .routes.route import Response
 
 if os.name == "nt":
     mimetypes.add_type("image/svg+xml", ".svg", strict=True)
@@ -50,7 +40,7 @@ class _AddrWithPort(Protocol):
     port: int
 
 
-APP: Quart
+APP: FastAPI
 
 
 def _normalize_plugin_api_route(route: str) -> str:
@@ -96,13 +86,6 @@ def _parse_env_bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-class AstrBotJSONProvider(DefaultJSONProvider):
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return to_utc_isoformat(obj)
-        return super().default(obj)
-
-
 class AstrBotDashboard:
     def __init__(
         self,
@@ -136,75 +119,11 @@ class AstrBotDashboard:
                 # Fall back to expected user path (will fail gracefully later)
                 self.data_path = os.path.abspath(user_dist)
 
-        self.app = Quart("dashboard", static_folder=self.data_path, static_url_path="/")
-        APP = self.app  # noqa
-        self.app.config["MAX_CONTENT_LENGTH"] = (
-            128 * 1024 * 1024
-        )  # 将 Flask 允许的最大上传文件体大小设置为 128 MB
-        self.app.json = AstrBotJSONProvider(self.app)
-        self.app.json.sort_keys = False
-        self.app.before_request(self.auth_middleware)
-        # token 用于验证请求
-        logging.getLogger(self.app.name).removeHandler(default_handler)
-        self.context = RouteContext(self.config, self.app)
-        self.ur = UpdateRoute(
-            self.context,
-            core_lifecycle.astrbot_updator,
-            core_lifecycle,
-            dashboard_static_folder=self.data_path,
-        )
-        self.sr = StatRoute(
-            self.context,
-            db,
-            core_lifecycle,
-            dashboard_static_folder=self.data_path,
-        )
-        self.pr = PluginRoute(
-            self.context,
-            core_lifecycle,
-            core_lifecycle.plugin_manager,
-        )
-        self.command_route = CommandRoute(self.context, core_lifecycle)
-        self.cr = ConfigRoute(self.context, core_lifecycle)
-        self.lr = LogRoute(self.context, core_lifecycle.log_broker)
-        self.sfr = StaticFileRoute(self.context)
-        self.ar = AuthRoute(self.context, db)
-        self.api_key_route = ApiKeyRoute(self.context, db)
-        self.chat_route = ChatRoute(self.context, db, core_lifecycle)
-        self.open_api_route = OpenApiRoute(
-            self.context,
-            db,
-            core_lifecycle,
-            self.chat_route,
-        )
-        self.chatui_project_route = ChatUIProjectRoute(self.context, db)
-        self.tools_root = ToolsRoute(self.context, core_lifecycle)
-        self.subagent_route = SubAgentRoute(self.context, core_lifecycle)
-        self.skills_route = SkillsRoute(self.context, core_lifecycle)
-        self.conversation_route = ConversationRoute(self.context, db, core_lifecycle)
-        self.file_route = FileRoute(self.context)
-        self.session_management_route = SessionManagementRoute(
-            self.context,
-            db,
-            core_lifecycle,
-        )
-        self.persona_route = PersonaRoute(self.context, db, core_lifecycle)
-        self.cron_route = CronRoute(self.context, core_lifecycle)
-        self.t2i_route = T2iRoute(self.context, core_lifecycle)
-        self.kb_route = KnowledgeBaseRoute(self.context, core_lifecycle)
-        self.platform_route = PlatformRoute(self.context, core_lifecycle)
-        self.backup_route = BackupRoute(self.context, db, core_lifecycle)
-        self.live_chat_route = LiveChatRoute(self.context, db, core_lifecycle)
-
-        self.app.add_url_rule(
-            "/api/plug/<path:subpath>",
-            view_func=self.srv_plug_route,
-            methods=["GET", "POST"],
-        )
-
         self.shutdown_event = shutdown_event
-
         self._init_jwt_secret()
+        self.asgi_app = create_dashboard_app(self)
+        global APP
+        APP = self.asgi_app
 
     async def srv_plug_route(self, subpath, *args, **kwargs):
         """插件路由"""
@@ -216,13 +135,19 @@ class AstrBotDashboard:
         )
         if matched_api:
             view_handler, path_values = matched_api
-            return await view_handler(*args, **{**kwargs, **path_values})
+            return await call_request_view(
+                request._get_current_object()._request,
+                self.app,
+                view_handler,
+                {**kwargs, **path_values},
+                g._get_current_object(),
+            )
         return jsonify(Response().error("未找到该路由").__dict__)
 
     async def auth_middleware(self):
         if not request.path.startswith("/api"):
             return None
-        if request.path.startswith("/api/v1"):
+        if request.path == "/api/v1" or request.path.startswith("/api/v1/"):
             raw_key = self._extract_raw_api_key()
             if not raw_key:
                 r = jsonify(Response().error("Missing API key").__dict__)
@@ -274,7 +199,9 @@ class AstrBotDashboard:
             return None
         is_plugin_page_path = PluginPageAuth.is_protected_path(request.path)
         dashboard_token = self._extract_dashboard_jwt()
-        asset_token = PluginPageAuth.extract_asset_token() if is_plugin_page_path else None
+        asset_token = (
+            PluginPageAuth.extract_asset_token() if is_plugin_page_path else None
+        )
         token_candidates = []
         if dashboard_token:
             token_candidates.append(dashboard_token)
@@ -580,7 +507,7 @@ class AstrBotDashboard:
             config.accesslog = "-"
             config.access_log_format = "%(h)s %(r)s %(s)s %(b)s %(D)s"
 
-        return serve(self.app, config, shutdown_trigger=self.shutdown_trigger)
+        return serve(self.asgi_app, config, shutdown_trigger=self.shutdown_trigger)
 
     async def shutdown_trigger(self) -> None:
         await self.shutdown_event.wait()

@@ -2,22 +2,22 @@ import asyncio
 import hashlib
 import hmac
 import json
-import logging
 from collections.abc import Callable
 from typing import cast
 
-from quart import Quart, Response, request
 from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.async_client import AsyncBaseSocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web.async_client import AsyncWebClient
+from starlette.responses import Response
 
 from astrbot.api import logger
+from astrbot.core.platform.webhook_server import create_webhook_app, request
 
 
 class SlackWebhookClient:
-    """Slack Webhook 模式客户端，使用 Quart 作为 Web 服务器"""
+    """Slack Webhook 模式客户端，使用原生 ASGI Web 服务器"""
 
     def __init__(
         self,
@@ -35,12 +35,8 @@ class SlackWebhookClient:
         self.path = path
         self.event_handler = event_handler
 
-        self.app = Quart(__name__)
+        self.app = create_webhook_app(__name__)
         self._setup_routes()
-
-        # 禁用 Quart 的默认日志输出
-        logging.getLogger("quart.app").setLevel(logging.WARNING)
-        logging.getLogger("quart.serving").setLevel(logging.WARNING)
 
         self.shutdown_event = asyncio.Event()
 
@@ -75,7 +71,7 @@ class SlackWebhookClient:
             timestamp = req.headers.get("X-Slack-Request-Timestamp")
             signature = req.headers.get("X-Slack-Signature")
             if not timestamp or not signature:
-                return Response("Missing headers", status=400)
+                return Response("Missing headers", status_code=400)
             # Calculate the HMAC signature
             sig_basestring = f"v0:{timestamp}:{body.decode('utf-8')}"
             my_signature = (
@@ -89,7 +85,7 @@ class SlackWebhookClient:
             # Verify the signature
             if not hmac.compare_digest(my_signature, signature):
                 logger.warning("Slack request signature verification failed")
-                return Response("Invalid signature", status=400)
+                return Response("Invalid signature", status_code=400)
             logger.debug(
                 "Slack event received: event_type=%s payload_keys=%s",
                 event_data.get("type", "unknown"),
@@ -103,11 +99,11 @@ class SlackWebhookClient:
             if self.event_handler and event_data.get("type") == "event_callback":
                 await self.event_handler(event_data)
 
-            return Response("", status=200)
+            return Response("", status_code=200)
 
         except Exception as e:
             logger.error(f"处理 Slack 事件时出错: {e}")
-            return Response("Internal Server Error", status=500)
+            return Response("Internal Server Error", status_code=500)
 
     async def start(self) -> None:
         """启动 Webhook 服务器"""

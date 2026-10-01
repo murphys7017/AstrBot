@@ -53,6 +53,21 @@ export function usePluginI18n() {
     )
   }
 
+  const pluginPageTitle = (plugin, page, fallback = '') => {
+    const pageName = typeof page === 'string' ? page : page?.name
+    const i18nKey = typeof page === 'object' ? page?.i18n_key : null
+    const candidates = [
+      i18nKey,
+      pageName ? `views.${pageName}.title` : null,
+      pageName ? `pages.${pageName}.title` : null,
+    ].filter(Boolean)
+    for (const key of candidates) {
+      const value = resolve(plugin?.i18n, key, undefined)
+      if (value !== undefined && value !== null && value !== '') return value
+    }
+    return fallback || pageName || ''
+  }
+
   const configText = (i18n, path, attr, fallback = '') => {
     const key = path ? `config.${path}.${attr}` : `config.${attr}`
     return resolve(i18n, key, fallback)
@@ -64,6 +79,7 @@ export function usePluginI18n() {
     pluginName,
     pluginDesc,
     pluginShortDesc,
+    pluginPageTitle,
     configText,
   }
 }

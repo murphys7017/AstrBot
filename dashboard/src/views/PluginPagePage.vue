@@ -590,7 +590,7 @@ const loadPluginPage = async () => {
       return;
     }
 
-    const entryResponse = await axios.get("/api/plugin/page/entry", {
+    const entryResponse = await axios.get("/api/plugin/view/entry", {
       params: {
         name: pluginName.value,
         page: pageName.value,

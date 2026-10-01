@@ -155,11 +155,15 @@ const openPluginDetail = (extension) => {
 };
 
 const openPluginWebui = (extension) => {
-  const pages = Array.isArray(extension?.pages) ? extension.pages : [];
+  const pages = Array.isArray(extension?.views)
+    ? extension.views
+    : Array.isArray(extension?.pages)
+      ? extension.pages
+      : [];
   const pageName = pages.find((item) => typeof item === "string" && item.length);
   if (!extension?.name || !pageName) return;
   router.push({
-    name: "PluginPage",
+    name: "PluginView",
     params: {
       pluginName: extension.name,
       pageName,

@@ -13,6 +13,12 @@ export interface menu {
   type?: string;
   subCaption?: string;
   isRawTitle?: boolean;
+  pluginInfo?: {
+    id: string;
+    displayName?: string;
+    author?: string | null;
+    version?: string;
+  };
 }
 
 export const MORE_GROUP_KEY = 'core.navigation.groups.more';

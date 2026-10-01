@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import pytest
 import pytest_asyncio
-from quart import Quart, jsonify
+from quart import jsonify
 from werkzeug.datastructures import FileStorage
 
 from astrbot.core import LogBroker
@@ -27,6 +27,7 @@ from astrbot.core.utils.auth_password import (
     verify_dashboard_password,
 )
 from astrbot.core.utils.pip_installer import PipInstallError
+from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter as Quart
 from astrbot.dashboard.password_state import (
     is_password_storage_upgraded,
     set_dashboard_password_hashes,
@@ -34,8 +35,8 @@ from astrbot.dashboard.password_state import (
     set_password_storage_upgraded,
 )
 from astrbot.dashboard.routes.auth import DASHBOARD_JWT_COOKIE_NAME
-from astrbot.dashboard.routes.plugin import PluginRoute
 from astrbot.dashboard.server import AstrBotDashboard
+from astrbot.dashboard.services.plugin_service import PluginService as PluginRoute
 from tests.fixtures.helpers import (
     MockPluginBuilder,
     create_mock_updater_install,
@@ -244,7 +245,7 @@ async def core_lifecycle_td(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def app(core_lifecycle_td: AstrBotCoreLifecycle):
-    """Creates a Quart app instance for testing."""
+    """Creates a native dashboard app adapter for testing."""
     shutdown_event = asyncio.Event()
     # The db instance is already part of the core_lifecycle_td
     server = AstrBotDashboard(core_lifecycle_td, core_lifecycle_td.db, shutdown_event)
@@ -256,12 +257,12 @@ async def authenticated_header(app: Quart, core_lifecycle_td: AstrBotCoreLifecyc
     """Handles login and returns an authenticated header."""
     test_client = app.test_client()
     response = await test_client.post(
-            "/api/auth/login",
-            json={
-                "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
-                "password": TEST_DASHBOARD_PASSWORD,
-            },
-        )
+        "/api/auth/login",
+        json={
+            "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
+            "password": TEST_DASHBOARD_PASSWORD,
+        },
+    )
     data = await response.get_json()
     assert data["status"] == "ok"
     token = data["data"]["token"]
@@ -286,12 +287,12 @@ async def test_auth_login(
     assert data["status"] == "error"
 
     response = await test_client.post(
-            "/api/auth/login",
-            json={
-                "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
-                "password": TEST_DASHBOARD_PASSWORD,
-            },
-        )
+        "/api/auth/login",
+        json={
+            "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
+            "password": TEST_DASHBOARD_PASSWORD,
+        },
+    )
     data = await response.get_json()
     assert data["status"] == "ok" and "token" in data["data"]
     set_cookie_headers = response.headers.getlist("Set-Cookie")
@@ -387,12 +388,12 @@ async def test_auth_login_secure_cookie_override(
 
     test_client = app.test_client()
     response = await test_client.post(
-            "/api/auth/login",
-            json={
-                "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
-                "password": TEST_DASHBOARD_PASSWORD,
-            },
-        )
+        "/api/auth/login",
+        json={
+            "username": core_lifecycle_td.astrbot_config["dashboard"]["username"],
+            "password": TEST_DASHBOARD_PASSWORD,
+        },
+    )
     assert response.status_code == 200
 
     set_cookie_headers = response.headers.getlist("Set-Cookie")
@@ -571,6 +572,29 @@ async def test_plugin_page_entry_returns_signed_content_path(
     assert data["data"]["title"] == PLUGIN_PAGE_DEMO_PAGE_NAME
     assert data["data"]["content_path"].startswith(
         f"/api/plugin/page/content/{PLUGIN_PAGE_DEMO_NAME}/{PLUGIN_PAGE_DEMO_PAGE_NAME}/"
+    )
+    assert "asset_token=" in data["data"]["content_path"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_view_entry_returns_signed_content_path(
+    app: Quart,
+    authenticated_header: dict,
+    registered_plugin_page: StarMetadata,
+):
+    test_client = app.test_client()
+    response = await test_client.get(
+        (
+            f"/api/plugin/view/entry?name={PLUGIN_PAGE_DEMO_NAME}"
+            f"&page={PLUGIN_PAGE_DEMO_PAGE_NAME}"
+        ),
+        headers=authenticated_header,
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "ok"
+    assert data["data"]["content_path"].startswith(
+        f"/api/plugin/view/content/{PLUGIN_PAGE_DEMO_NAME}/{PLUGIN_PAGE_DEMO_PAGE_NAME}/"
     )
     assert "asset_token=" in data["data"]["content_path"]
 
@@ -1049,9 +1073,12 @@ async def test_subagent_config_is_scoped_to_selected_profile(
             ]["agents"][0]["name"]
             == "profile_planner"
         )
-        assert "conf_id" not in core_lifecycle_td.astrbot_config_mgr.confs[profile_id][
-            "subagent_orchestrator"
-        ]
+        assert (
+            "conf_id"
+            not in core_lifecycle_td.astrbot_config_mgr.confs[profile_id][
+                "subagent_orchestrator"
+            ]
+        )
         assert (
             core_lifecycle_td.astrbot_config_mgr.confs["default"].get(
                 "subagent_orchestrator", {}
@@ -1167,7 +1194,7 @@ async def test_batch_delete_sessions_masks_internal_error(
         raise RuntimeError("secret-internal-error")
 
     monkeypatch.setattr(
-        "astrbot.dashboard.routes.chat.ChatRoute._delete_session_internal",
+        "astrbot.dashboard.services.chat_service.ChatService._delete_session_internal",
         _raise_error,
     )
 

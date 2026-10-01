@@ -6,9 +6,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
-import quart
-
 from astrbot.api import logger
+from astrbot.core.platform.webhook_server import create_webhook_app, request
 
 from .wecomai_api import WecomAIBotAPIClient
 from .wecomai_utils import WecomAIBotConstants
@@ -38,14 +37,13 @@ class WecomAIBotServer:
         self.api_client = api_client
         self.message_handler = message_handler
 
-        self.app = quart.Quart(__name__)
+        self.app = create_webhook_app(__name__)
         self._setup_routes()
 
         self.shutdown_event = asyncio.Event()
 
     def _setup_routes(self) -> None:
-        """设置 Quart 路由"""
-        # 使用 Quart 的 add_url_rule 方法添加路由
+        """设置原生 ASGI 路由"""
         self.app.add_url_rule(
             "/webhook/wecom-ai-bot",
             view_func=self.verify_url,
@@ -60,7 +58,7 @@ class WecomAIBotServer:
 
     async def verify_url(self):
         """内部服务器的 GET 验证入口"""
-        return await self.handle_verify(quart.request)
+        return await self.handle_verify(request)
 
     async def handle_verify(self, request):
         """处理 URL 验证请求，可被统一 webhook 入口复用
@@ -93,7 +91,7 @@ class WecomAIBotServer:
 
     async def handle_message(self):
         """内部服务器的 POST 消息回调入口"""
-        return await self.handle_callback(quart.request)
+        return await self.handle_callback(request)
 
     async def handle_callback(self, request):
         """处理消息回调，可被统一 webhook 入口复用
@@ -186,5 +184,5 @@ class WecomAIBotServer:
         self.shutdown_event.set()
 
     def get_app(self):
-        """获取 Quart 应用实例"""
+        """获取 ASGI 应用实例"""
         return self.app
