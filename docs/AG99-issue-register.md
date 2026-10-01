@@ -28,7 +28,7 @@
 
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
-| A1 | △ partial | code-format workflow 无 fork 门控；234 个不合规文件和“每个 PR 必红”属于历史实跑结论。 | open |
+| A1 | ✓ resolved | 按用户决定删除 `.github/workflows/code-format.yml`，避免该格式门禁继续阻断 PR；当前没有替代 CI 格式检查。 | resolved |
 | A2 | ✓ confirmed | 7 个 workflow 共 10 处硬编码 `github.repository == 'AstrBotDevs/AstrBot'`。 | open |
 | A3 | △ partial | Dashboard、Docker、发布 job 被门控；coverage 测试仍运行，只有上传步骤被门控。 | open |
 | A4 | ✓ confirmed | 无 typecheck job；pyright 只有配置且不在 dev 依赖。 | open |
