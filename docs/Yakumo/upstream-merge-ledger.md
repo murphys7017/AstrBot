@@ -1811,3 +1811,20 @@ Validation:
 
 - Reviewed both environment-resolution branches and
   `AuthService._can_skip_default_password_auth`; `git diff --check` passed.
+
+## 2026-10-01 Config Test-Chat Theme Color
+
+Reviewed upstream reference: `553b10fa3` (`#10309`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- The local ConfigPage had already removed the upstream button's hard-coded
+  `secondary` color while simplifying the toolbar. The floating test-chat
+  action now explicitly uses the theme `primary` color so it follows the
+  configured accent alongside the other configuration actions.
+
+Validation:
+
+- Dashboard typecheck and production build passed. The button was not clicked
+  in a live browser.

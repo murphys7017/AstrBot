@@ -67,6 +67,7 @@
                 v-bind="props"
                 icon="mdi-chat-processing"
                 variant="text"
+                color="primary"
                 aria-label="测试当前配置"
                 @click="openTestChat"
               />
