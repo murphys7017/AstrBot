@@ -12,6 +12,17 @@ runtime_bootstrap.initialize_runtime_bootstrap()
 DASHBOARD_RESET_PASSWORD_ENV = "ASTRBOT_RESET_DASHBOARD_PASSWORD"
 
 
+def _has_dashboard_entrypoint(dist_path: str) -> bool:
+    """Reject incomplete dashboard downloads before serving an empty shell."""
+    index_path = Path(dist_path) / "index.html"
+    try:
+        return index_path.is_file() and "<script" in index_path.read_text(
+            encoding="utf-8", errors="ignore"
+        )[:4096].lower()
+    except OSError:
+        return False
+
+
 def _apply_startup_env_flags(argv: list[str]) -> None:
     """Apply startup flags that must take effect before core imports."""
 
@@ -96,7 +107,6 @@ async def check_dashboard_files(webui_dir: str | None = None):
 
     data_dist_path = os.path.join(get_astrbot_data_path(), "dist")
     if os.path.exists(data_dist_path):
-        v = await get_dashboard_version()
         if should_use_bundled_dashboard_dist(data_dist_path, VERSION):
             bundled_dist = get_bundled_dashboard_dist_path()
             logger.info(
@@ -104,15 +114,20 @@ async def check_dashboard_files(webui_dir: str | None = None):
                 VERSION,
             )
             return str(bundled_dist)
-        if v is not None:
-            # 存在文件
-            if v == f"v{VERSION}":
-                logger.info("WebUI 版本已是最新。")
-            else:
-                logger.warning(
-                    f"检测到 WebUI 版本 ({v}) 与当前 AstrBot 版本 (v{VERSION}) 不符。",
-                )
-        return data_dist_path
+
+        if _has_dashboard_entrypoint(data_dist_path):
+            v = await get_dashboard_version()
+            if v is not None:
+                # 存在文件
+                if v == f"v{VERSION}":
+                    logger.info("WebUI 版本已是最新。")
+                else:
+                    logger.warning(
+                        f"检测到 WebUI 版本 ({v}) 与当前 AstrBot 版本 (v{VERSION}) 不符。",
+                    )
+            return data_dist_path
+
+        logger.warning("检测到不完整的 WebUI 静态文件，将重新下载管理面板。")
 
     logger.info(
         "开始下载管理面板文件...高峰期（晚上）可能导致较慢的速度。如多次下载失败，请前往 https://github.com/AstrBotDevs/AstrBot/releases/latest 下载 dist.zip，并将其中的 dist 文件夹解压至 data 目录下。",

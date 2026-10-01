@@ -39,6 +39,8 @@ tests/astrbot_plugin_openai
 # Dashboard
 dashboard/node_modules/
 dashboard/dist/
+dashboard/build-tmp/
+.playwright-cli/
 .pnpm-store/
 package-lock.json
 yarn.lock

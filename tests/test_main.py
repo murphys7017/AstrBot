@@ -184,6 +184,7 @@ async def test_check_dashboard_files_exists_and_version_match(monkeypatch):
     """Tests that dashboard is not downloaded when it exists and version matches."""
     # Mock os.path.exists to return True
     monkeypatch.setattr(os.path, "exists", lambda x: True)
+    monkeypatch.setattr("main._has_dashboard_entrypoint", lambda x: True)
 
     # Mock get_dashboard_version to return the current version
     with mock.patch("main.get_dashboard_version") as mock_get_version:
@@ -202,6 +203,7 @@ async def test_check_dashboard_files_exists_and_version_match(monkeypatch):
 async def test_check_dashboard_files_exists_but_version_mismatch(monkeypatch):
     """Tests that a warning is logged when dashboard version mismatches."""
     monkeypatch.setattr(os.path, "exists", lambda x: True)
+    monkeypatch.setattr("main._has_dashboard_entrypoint", lambda x: True)
 
     with mock.patch(
         "main.get_dashboard_version",
@@ -291,6 +293,19 @@ async def test_check_dashboard_files_uses_bundled_dist_when_data_dist_is_stale(
 
     assert result == str(bundled_dist)
     mock_download.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_dashboard_files_redownloads_incomplete_entrypoint(tmp_path):
+    data_dist = tmp_path / "data" / "dist"
+    data_dist.mkdir(parents=True)
+    (data_dist / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    with mock.patch("main.get_astrbot_data_path", return_value=str(tmp_path / "data")):
+        with mock.patch("main.download_dashboard") as mock_download:
+            await check_dashboard_files()
+
+    mock_download.assert_called_once()
 
 
 @pytest.mark.asyncio
