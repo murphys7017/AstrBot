@@ -1,6 +1,6 @@
 [project]
 name = "AstrBot"
-version = "4.28.1"
+version = "4.29.0-beta.1"
 description = "AG99 persona-first multi-platform conversation runtime based on AstrBot"
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }

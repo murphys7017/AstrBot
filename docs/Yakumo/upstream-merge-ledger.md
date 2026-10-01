@@ -1828,3 +1828,22 @@ Validation:
 
 - Dashboard typecheck and production build passed. The button was not clicked
   in a live browser.
+
+## 2026-10-01 Version Sync to 4.29.0-beta.1
+
+Reviewed upstream reference: `f20fba64c` (`#10302`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- The package version is now `4.29.0-beta.1`. `astrbot.__version__` is the
+  runtime source of truth used by `astrbot.core.config.default.VERSION`, which
+  also feeds the CLI, provider user-agent, and backup metadata.
+- The upstream release changelog was not copied because it includes upstream
+  features that have not all been absorbed into this fork. No tag or release
+  was created.
+
+Validation:
+
+- Package, runtime, and exported version values matched; targeted provider
+  user-agent test, Python compilation, and `git diff --check` passed.
