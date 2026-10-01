@@ -22,6 +22,7 @@ from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queu
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path, get_astrbot_temp_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
 from astrbot.dashboard.asgi_runtime import WebSocketDisconnect, websocket
+from astrbot.dashboard.password_state import is_dashboard_auth_version_current
 
 from .base import DashboardService, ServiceContext
 from .chat_service import (
@@ -155,6 +156,13 @@ class LiveChatService(DashboardService):
         try:
             jwt_secret = self.config["dashboard"].get("jwt_secret")
             payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
+            if not is_dashboard_auth_version_current(
+                self.config,
+                jwt_secret,
+                payload,
+            ):
+                await websocket.close(1008, "Invalid token")
+                return
             username = payload["username"]
         except jwt.ExpiredSignatureError:
             await websocket.close(1008, "Token expired")

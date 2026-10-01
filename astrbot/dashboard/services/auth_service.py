@@ -20,6 +20,8 @@ from astrbot.dashboard.asgi_runtime import (
     request,
 )
 from astrbot.dashboard.password_state import (
+    DASHBOARD_AUTH_VERSION_CLAIM,
+    get_dashboard_auth_version,
     get_dashboard_password_hash,
     is_password_change_required,
     is_password_storage_upgraded,
@@ -236,6 +238,12 @@ class AuthService(DashboardService):
         jwt_token = self.config["dashboard"].get("jwt_secret", None)
         if not jwt_token:
             raise ValueError("JWT secret is not set in the cmd_config.")
+        auth_version = get_dashboard_auth_version(self.config, jwt_token)
+        if not auth_version:
+            raise ValueError(
+                "Dashboard credentials are not available for JWT issuance."
+            )
+        payload[DASHBOARD_AUTH_VERSION_CLAIM] = auth_version
         token = jwt.encode(payload, jwt_token, algorithm="HS256")
         return token
 

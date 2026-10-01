@@ -24,7 +24,9 @@ from astrbot.core.utils.astrbot_path import (
     get_astrbot_data_path,
 )
 from astrbot.dashboard.asgi_runtime import request, send_file
+from astrbot.dashboard.password_state import is_dashboard_auth_version_current
 
+from .auth_service import DASHBOARD_JWT_COOKIE_NAME
 from .base import DashboardService, Response, ServiceContext
 
 # 分片上传常量
@@ -940,14 +942,23 @@ class BackupService(DashboardService):
 
         Query 参数:
         - filename: 备份文件名 (必填)
-        - token: JWT token (必填，用于浏览器原生下载鉴权)
+        - token: JWT token (兼容旧链接)
 
         注意: 此路由已被添加到 auth_middleware 白名单中，
-              使用 URL 参数中的 token 进行鉴权，以支持浏览器原生下载。
+              支持 Dashboard cookie、Authorization: Bearer 和旧 URL 参数鉴权。
         """
         try:
             filename = request.args.get("filename")
-            token = request.args.get("token")
+            auth_header = request.headers.get("Authorization", "").strip()
+            scheme, separator, credentials = auth_header.partition(" ")
+            token = None
+            if separator and scheme.lower() == "bearer":
+                token = credentials.strip() or None
+            token = (
+                token
+                or request.cookies.get(DASHBOARD_JWT_COOKIE_NAME, "").strip()
+                or request.args.get("token")
+            )
 
             if not filename:
                 return Response().error("缺少参数 filename").__dict__
@@ -962,7 +973,7 @@ class BackupService(DashboardService):
                     return Response().error("服务器配置错误").__dict__
 
                 # Verify JWT token with strict security options
-                jwt.decode(
+                payload = jwt.decode(
                     token,
                     jwt_secret,
                     algorithms=["HS256"],
@@ -972,6 +983,12 @@ class BackupService(DashboardService):
                         "verify_exp": True,  # Verify expiration
                     },
                 )
+                if not is_dashboard_auth_version_current(
+                    self.config,
+                    jwt_secret,
+                    payload,
+                ):
+                    return Response().error("Token 无效").__dict__
             except jwt.ExpiredSignatureError:
                 return Response().error("Token 已过期，请刷新页面后重试").__dict__
             except jwt.InvalidTokenError:

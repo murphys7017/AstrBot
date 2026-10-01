@@ -27,6 +27,7 @@ from astrbot.core.utils.io import (
 
 from .api.app import create_dashboard_app
 from .asgi_runtime import call_request_view, g, jsonify, request
+from .password_state import is_dashboard_auth_version_current
 from .plugin_page_auth import PluginPageAuth
 from .routes.api_key import ALL_OPEN_API_SCOPES
 from .routes.auth import DASHBOARD_JWT_COOKIE_NAME
@@ -191,7 +192,7 @@ class AstrBotDashboard:
             "/api/file",
             "/api/platform/webhook",
             "/api/stat/start-time",
-            "/api/backup/download",  # 备份下载使用 URL 参数传递 token
+            "/api/backup/download",  # Handler checks the Dashboard cookie or token.
         ]
         if request.path in allowed_exact_endpoints or any(
             request.path.startswith(prefix) for prefix in allowed_endpoint_prefixes
@@ -241,9 +242,14 @@ class AstrBotDashboard:
         except jwt.InvalidTokenError:
             return None, "Token 无效"
 
-        if PluginPageAuth.is_asset_token(payload) and not PluginPageAuth.is_scope_valid(
+        is_asset_token = PluginPageAuth.is_asset_token(payload)
+        if is_asset_token and not PluginPageAuth.is_scope_valid(payload, path):
+            return None, "Token 无效"
+
+        if not is_asset_token and not is_dashboard_auth_version_current(
+            self.config,
+            self._jwt_secret,
             payload,
-            path,
         ):
             return None, "Token 无效"
 

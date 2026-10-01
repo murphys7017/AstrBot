@@ -29,18 +29,18 @@
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
 | A1 | ✓ resolved | 按用户决定删除 `.github/workflows/code-format.yml`，避免该格式门禁继续阻断 PR；当前没有替代 CI 格式检查。 | resolved |
-| A2 | ✓ confirmed | 7 个 workflow 共 10 处硬编码 `github.repository == 'AstrBotDevs/AstrBot'`。 | open |
-| A3 | △ partial | Dashboard、Docker、发布 job 被门控；coverage 测试仍运行，只有上传步骤被门控。 | open |
+| A2 | ? historical | 该历史统计在当前 HEAD 已不适用：`.github/workflows/` 下没有受跟踪 workflow，硬编码条件随 workflow 删除而消失；这不是修复门控。 | open |
+| A3 | ? historical | 当前没有受跟踪 workflow，Dashboard/coverage/Docker/release 自动化均不存在；原“被 repo 条件门控”描述已被整体删除取代。 | open |
 | A4 | ✓ confirmed | 无 typecheck job；pyright 只有配置且不在 dev 依赖。 | open |
-| A5 | △ partial | `build-docs.yml` 依赖上游 secrets；“每次 tag 必失败”取决于 fork 是否配置 secrets。 | open |
+| A5 | ✗ stale/incorrect | 当前 HEAD 不含 `.github/workflows/build-docs.yml`；原 secrets 依赖不再是当前可执行路径。 | open |
 | A6 | ✓ confirmed | `requires-python >=3.12` 与 Ruff `py310` 不一致。 | open |
-| A7 | ✓ confirmed | pre-commit Ruff `v0.14.1` 与 pyproject `>=0.15.0` 分裂。 | open |
-| A8 | △ partial | CI Ruff 排除 `tests`；“所有 lint/格式化都不管 tests”过于绝对。 | open |
+| A7 | ✓ resolved | 已按上游 `1240156f9` 统一到 Ruff `0.15.22`：pre-commit 与 dev 依赖使用同一精确版本。 | resolved |
+| A8 | △ partial | Ruff 配置排除 `tests`；当前 fork 已无 workflow，因此不只是 tests，仓库也没有 CI lint/format 执行入口。 | open |
 | A9 | ✓ confirmed | `uv.lock` 被忽略，未纳入版本控制。 | open |
-| A10 | ✓ confirmed | `requirements.txt` 与 `pyproject.toml` 双源并存，smoke workflow 使用前者。 | open |
+| A10 | △ partial | `requirements.txt` 与 `pyproject.toml` 双源并存；原 smoke workflow 已删除，当前没有 workflow 使用任一依赖源。 | open |
 | A11 | △ partial | `silero-vad` 当前源码无引用；权重/torch 安装成本需按依赖解析确认。 | open |
 | A12 | ✓ confirmed | `whisper`、`faiss-cpu`、Volcengine、MarkItDown 等是无条件依赖；是否 optional 属于设计决策。 | open |
-| A13 | △ partial | Hatch 使用 npm，Dashboard/文档 CI 使用 pnpm；存在工具链分裂但未必是错误。 | open |
+| A13 | △ partial | Hatch 构建 hook 调用 npm，而 Dashboard 提交的是 `pnpm-lock.yaml`；原 CI 使用 pnpm 的部分已随 workflow 删除。 | open |
 | A14 | ✗ stale/incorrect | 原引用不能证明“requirements.txt 被列为运行时依赖”；问题应并入 A10。 | open |
 
 ## B · 测试
@@ -52,7 +52,7 @@
 | B3 | ? historical | unit 层 39 个失败。 | open |
 | B4 | △ partial | EventBus 新配置选择契约与旧 fixture 存在静态不匹配；9 个失败同根因依赖原始日志。 | open |
 | B5 | ? historical | 根级至少还有两个失败。 | open |
-| B6 | ✓ confirmed | provider 重试 sleep 不可注入；Gemini 有固定 10 次重试。 | open |
+| B6 | △ partial | 上游 `dd36979ec` 加入 Tenacity provider-request retry，但当前本地 embedding 指数 sleep 与 Gemini 固定 10 次 key-retry 仍在；上游 Gemini 也仍保留该循环。 | open |
 | B7 | ? historical | 备份测试真压缩耗时较高；具体 62 用例/79.6 秒未重跑。 | open |
 | B8 | ? historical | mimo、provider user agent、dashboard、API key 文件较慢。 | open |
 | B9 | △ partial | integration 分支存在但没有 `tests/integration`；marker 也会由 conftest 动态添加。 | open |
@@ -64,14 +64,14 @@
 
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
-| C1 | △ partial | `.ai/state.yaml` 约 218KB/2084 行；是否违反治理规则属于判断。 | open |
-| C2 | △ partial | 大量 live acceptance pending；精确 35/63 和风险分布需固定统计口径。 | open |
+| C1 | △ partial | `.ai/state.yaml` 当前 222,093 bytes / 2,127 行 / 72 个顶层记录键；是否违反治理规则属于判断。 | open |
+| C2 | △ partial | 当前 72 个顶层记录键中，35 条 status 含 `pending_live_acceptance`；risk 字段计数为 38 high / 23 medium / 7 low，另有 4 条未匹配这三类。 | open |
 | C3 | △ partial | 离线验证不全依赖测试，也包含 compile/diff/静态检查。 | open |
 | C4 | △ partial | `current-state.md` 保留历史快照，是否过期需结合用途判断。 | open |
 | C5 | △ partial | Prompt 实现阶段比文档描述复杂；阶段数差异有依据但需明确文档口径。 | open |
 | C6 | △ partial | `event.extra` 使用远超“只读诊断”；精确调用数需统一统计规则。 | open |
 | C7 | ? historical | `set_extra/get_extra` 从 329 增至 451 属于历史统计。 | open |
-| C8 | △ partial | openspec、agents、claude 治理目录内容较少；“空壳”是评价。 | open |
+| C8 | △ partial | `openspec/` 仅有配置，`.agents/` 当前无受跟踪文件，`.claude/` 已在用户清理提交中删除；“空壳”仍是评价性结论。 | open |
 | C9 | ✓ confirmed | 既有审计文档存在，且与本清单有重叠。 | open |
 
 ## D · 双轨实现
@@ -87,15 +87,15 @@
 | D5 | ✓ confirmed | `get_conf` fallback 与新 `UmopConfigRouter` 同时存在。 | open |
 | D6 | ✓ confirmed | proactive/Cron 使用独立生命周期入口。 | open |
 | D7 | △ partial | pipeline voice 与 `core/voice` 并存；是否应合并需运行路径确认。 | open |
-| D8 | ✗ stale/incorrect | 原引用的 `astrbot/main.py` 当前不存在；实际入口为 InitialLoader/cmd_run。 | open |
-| D9 | △ partial | `prompt/render/interfaces.py` 与 `base_renderer.py` 包装并存；原路径已过时。 | open |
+| D8 | ✓ confirmed | 根目录 `main.py` 与 `cli/commands/cmd_run.py` 均各自创建 `InitialLoader` 并调用 `asyncio.run`；原登记误把根路径写成 `astrbot/main.py`。 | open |
+| D9 | ✓ confirmed | `render/interfaces.py` 定义 `BasePromptRenderer`，`base_renderer.py` 重新导出同一类；两个导入路径仍并存。 | open |
 | D10 | ✓ confirmed | admission/runtime/capability inventory 都遍历插件 registry。 | open |
 | D11 | ✓ confirmed | `_merge_runtime_config` 在两个模块各定义一次。 | open |
 | D12 | ✓ confirmed | skills 中存在针对测试 monkeypatch 的 TypeError 兼容分支。 | open |
 | D13 | ✓ confirmed | session management 同时返回旧格式和结构化格式。 | open |
 | D14 | ✓ confirmed | `provider/entities.py` 有兼容包装，当前未发现调用方。 | open |
 | D15 | ✓ confirmed | `CommandResult` 是旧名兼容别名。 | open |
-| D16 | ✓ confirmed | `chat.py` 有注释为临时用途的 `page_size=100`。 | open |
+| D16 | ✓ confirmed | `chat_service.py` 仍固定 `page_size=100` 并标注“暂时返回前100个”；上游 `2f7675140` 已增加渐进分页能力，本 fork 尚未吸收。 | open |
 | D17 | ✓ confirmed | 配置项保留兼容旧配置的注释。 | open |
 
 ## E · 补丁式实现
@@ -120,7 +120,7 @@
 | F4 | ? historical | satori 转换器相似度数据未本次复核。 | open |
 | F5 | △ partial | Provider text/stream 函数成对存在；相似度数字未复核。 | open |
 | F6 | ? historical | “三胞胎”函数簇及相似度未复核。 | open |
-| F7 | ✓/△ | 生产代码有 67 个 assert；`python -O` 会移除它们，但不代表每个都承担安全校验。 | open |
+| F7 | ✓/△ | 生产代码检索到约 69 行 `assert`；`python -O` 会移除它们，但不代表每个都承担安全校验。 | open |
 | F8 | ✓ confirmed | `Request is not set...` 文案在 5 个 runner 中重复。 | open |
 | F9 | ✓ confirmed | `except Exception` 当前约 1128 处。 | open |
 | F10 | △ partial | `getattr` 数量随匹配规则约 700–756，原数字不稳定。 | open |
@@ -136,13 +136,13 @@
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
 | G1 | ✓/△ | API key 使用静态 PBKDF2 salt；是盐复用问题，不是 salt 泄露。 | open |
-| G2 | ✓ confirmed | JWT 没有 iat/aud/吊销/version；改密码不会自动让旧 token 失效。 | open |
+| G2 | ✓ implementation / △ live pending | Dashboard JWT 新增凭据版本 claim，HTTP、Live Chat WebSocket 与备份下载校验；改密码或改用户名会令旧 JWT 失效。部署后无新 claim 的旧 token 需重新登录；真实运行验收待做。 | in_progress |
 | G3 | ✓ confirmed | JWT secret 首次启动生成后写回配置文件。 | open |
-| G4 | ✓ confirmed | backup download 在白名单中，token 通过 URL query。 | open |
+| G4 | ✓ implementation / △ live pending | 前端下载不再把 JWT 放 URL，使用现有 HttpOnly Dashboard cookie；后端保留 Bearer 与旧 query 兼容。真实浏览器下载验收待做。 | in_progress |
 | G5 | ✗ stale/incorrect | 当前默认 `secure` 是非 debug 且非 testing 时为 true。 | open |
-| G6 | △ partial | `zip_updator.py` 使用 `extractall`，但原报告路径错误；备份 importer 另有路径校验。 | open |
+| G6 | △ partial | 通用 `zip_updator.py` 与插件 `star/updator.py` 都有 `extractall`；插件安装入口可处理上传/下载压缩包。是否可利用仍需按来源和目标路径验证，不能仅凭调用定性；backup importer 另有成员路径校验。 | open |
 | G7 | ✓/△ | 插件可访问数据库和 provider registry；这是可信插件模型下的能力，非传统沙箱。 | open |
-| G8 | △ partial | 路由未见明显按用户隔离；是否是问题取决于产品是否单租户。 | open |
+| G8 | △ partial | `ChatService.get_session` 当前已校验 `session.creator == username`，与上游 `041fba4df` 的修复一致；其他 Dashboard 配置接口是否需要租户隔离仍取决于产品模型。 | open |
 | G9 | ✗/△ | registry 有 clear/remove 路径，不能称为完全不可注销。 | open |
 | G10 | △ partial | plugin page 使用通配 CORS，代码注释说明有 iframe 场景；需按威胁模型审查。 | open |
 
@@ -150,7 +150,7 @@
 
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
-| H1 | ? historical | fork 行数/提交差异依赖 upstream 基线，未本次重新计算。 | open |
+| H1 | △ partial | 当前提交图相对共同基点 `67c7445d` 为本地独有 986、上游独有 771；提交数不是代码量/自有代码占比的替代指标。 | open |
 | H2 | △ partial | `default.py` 确实约 5k 行；935 配置键需固定解析口径。 | open |
 | H3 | △ partial | 大文件事实成立，但报告中的多个行数已过时。 | open |
 | H4 | ✓/△ | interaction 配置面复杂；这是运维/架构风险，不是单一 bug。 | open |
@@ -165,19 +165,19 @@
 | I2 | ✓ confirmed | `filter_llm_exposed_context_pack` 当前未发现生产调用方。 | open |
 | I3 | △ partial | `_encode_image_bs64` 未发现生产调用方，动态调用仍不能完全排除。 | open |
 | I4 | △ partial | Persona runtime 三个方法未发现调用方，需排除反射/插件调用。 | open |
-| I5 | △ partial | 对应源码目录当前不可见；“只含 pycache”需排除忽略目录后确认。 | open |
-| I6 | ✓ confirmed | 0 字节 `test.db` 已被 git 跟踪。 | open |
+| I5 | ✗ stale/incorrect | `session_controller/`、`web_searcher/` 当前都不存在，也没有受跟踪源码；原“目录只含 pycache”不适用于当前工作区。 | open |
+| I6 | ✓ resolved | `test.db` 已由本地提交 `4731f970d` 删除，当前不再跟踪且文件不存在。 | resolved |
 | I7 | ✓ confirmed | `video-fix.patch` 已被 git 跟踪。 | open |
-| I8 | ✓ confirmed | 未跟踪的 `deepseek-tui-windows-x64.exe` 约 39MB。 | open |
-| I9 | ✓ confirmed | 工作区存在测试、tmp、cache 等本地产物。 | open |
+| I8 | ✗ stale/incorrect | 本次检查该 exe 当前不存在；原报告是工作区状态，不是仓库跟踪文件。 | open |
+| I9 | ? historical | 当前 `git status` 干净；忽略文件和所有本地缓存未做递归清理审计。 | open |
 | I10 | ✓ confirmed | `.gitignore` 忽略已被跟踪的 `AGENTS.md` 与 `pyproject.toml`。 | open |
-| I11 | △ partial | 治理目录内容较少；“空壳”是评价性结论。 | open |
+| I11 | △ partial | `openspec/config.yaml` 存在，`.agents/` 无受跟踪文件，`.claude/` 已删除；治理投入低的观察仍成立但不宜称为残留空目录。 | open |
 
 ## 建议处理批次
 
 ### Batch 1：先恢复可控门禁
 
-A2、A3、A4、A6、A7、A9、A10、A13、I9、I10。
+A4、A6、A9、A10、A13、I10。A2/A3/A5 已被 workflow 整体删除这一状态取代；是否恢复 CI 由用户另行决定。A7 已按上游版本统一。
 
 目标是让 fork 的 CI、依赖解析、格式化和构建入口先拥有清晰且可重复的边界。
 
@@ -207,10 +207,37 @@ B1-B3、B5-B12、C1-C9。
 
 ## 当前工作区说明
 
-本登记册不包含以下已有工作区内容，也不会替它们做决定：
+截至本次复核，`git status` 初始为干净；原先提到的 `chat.py` 改动、`jieba.cache`、`pytest-of-Administrator/` 不再出现在工作区。用户清理相关提交保留，不由本次审计改写。
 
-- `astrbot/dashboard/routes/chat.py` 的用户改动；
-- `jieba.cache`；
-- `pytest-of-Administrator/` 测试产物。
+## 上游对照与本轮优先级（2026-10-01）
 
-后续每个修复批次应只提交对应源文件、文档和必要的验收记录。
+对照基准为 `upstream/master` 的 `9d4f52346`（2026-10-01）。当前提交图共同基点为 `67c7445d`（2026-04-27）；分支两侧差异较大，避免整段合并，仅按具体修复判断可移植性。
+
+| 问题 | 上游证据 | 本 fork 现状与结论 |
+|---|---|---|
+| A1-A5 | 上游仍保留官方 workflows；当前 fork 的 workflows 已整体不在 HEAD。 | A1 格式 workflow 已删；A2/A3/A5 的旧描述不再适用，但 CI/build 自动化也不存在，不能视为功能修复。 |
+| A6-A13 | 上游仍有 `target-version = "py310"`、排除 tests、忽略 `uv.lock`、依赖双源及 npm/pnpm 并存；`silero-vad` 仍列依赖。 | 这些没有被上游解决；A7 已吸收 `1240156f9`，统一 Ruff `0.15.22`。A4 在当前 fork 更准确的问题是没有 CI workflow，pyright 只有配置。 |
+| B4 | 上游近期没有对应的 EventBus fixture 修复提交。 | 仍应按当前 config-selection 契约修 fixture；这是测试适配问题，不等同于证明生产路由错误。本轮未跑测试。 |
+| B6 | `dd36979ec` 新增 Tenacity 重试封装；当前上游 Gemini 仍保留 `retry = 10` 的 key 轮换。 | 属于部分重试体系更新，不解决本条的可注入 sleep/测试墙钟问题；不整体移植其 provider API 改造。 |
+| B7 | 上游 `astrbot/core/backup/exporter.py` 仍用 `ZIP_DEFLATED` 且不传 `compresslevel`。 | 未发现压缩快路径；测试耗时属性能优化而非生产行为缺陷。 |
+| B8 | `d524b8708` 统一 provider User-Agent。 | 与测试起真实 aiohttp server 的耗时原因不同，不能据此关闭慢测问题。 |
+| D8 | 上游 `main.py` 与 `cli/commands/cmd_run.py` 目前仍各自构造 `InitialLoader`。 | 本 fork 的重复入口属实；上一版登记的“`astrbot/main.py` 不存在”是路径误读，未发现上游已消除这项重复。 |
+| D16 | `2f7675140` 为 ChatUI sidebar 添加渐进加载和分页。 | 可解决固定首屏 100 条的产品限制，但依赖 API 与前端协同；不要只改后端返回形状。 |
+| G4 | `573367b7f` 在备份下载中接受 Bearer header。 | 已保留上游 Bearer 能力，并增加 HttpOnly cookie 下载鉴权；前端原生下载不再携带 query token，旧 query 仍兼容。 |
+| G1-G3 | 当前上游仍用固定 `b"astrbot_api_key"` 做 PBKDF2 salt；JWT 仍主要含 `username` 与 7 天 `exp`，JWT secret 仍写回 Dashboard config。 | 未发现上游提交解决静态 salt 或 secret 持久化；G2 已在本地增加凭据版本绑定及 HTTP/WebSocket/备份校验，需实际运行验收。TOTP 是额外认证，不等于 token 吊销。 |
+| G6 | `3d4c4ed01` 增加插件 archive 元数据/来源验证；`21f41c239` 重构 updater。当前上游通用 `zip_updater.py` 和 plugin updater 仍有 `extractall` 路径。 | 有插件包有效性校验改进，但未发现显式拒绝所有越界 archive member 的对应修复；不能把这些提交记作 G6 已解决。 |
+| G8 | `041fba4df` 增加 ChatUI session owner 校验。 | 当前本地 `ChatService.get_session` 已有同等 creator 校验；这条应限定到未明确租户边界的其他管理 API。 |
+| I6/I8/I9 | 非上游问题，属本地仓库/工作区状态。 | I6 已随 `4731f970d` 删除；I8 文件当前不存在；I9 的历史工作区产物本次不做清理。 |
+| C/D/E/F/H/I 其余项 | 未发现能直接消除 AG99 自有 Interaction/Persona 双轨、治理或结构问题的对应上游提交。 | 维持登记册的静态观察结论；D8/D9/I5 等路径错误已在本轮更正，逐项重构前仍要有具体运行场景和验收。 |
+
+建议的实际处理顺序：
+
+1. **G2/G4 Dashboard token 生命周期与传递**：代码路径已改；部署后确认旧会话要求重新登录，验证改密后 HTTP/WebSocket/备份旧 token 均失效，并实测 cookie 原生下载成功。
+2. **G6 ZIP 解包边界核验**：逐条确认上传/下载压缩包来源、目标目录和 Python 解包的实际路径约束；若来源可被不可信方控制，再增加显式成员路径校验并用真实插件/core 更新流程验收。
+3. **B4 EventBus fixture 契约**：修正测试构造，让它提供真实 config selection；随后用一条真实消息/实际运行路径确认事件能到对应 pipeline。
+4. **A4/A9/A10 与 CI 去留**：先由用户决定是否恢复最小 CI；再统一依赖解析来源。不得把“所有 workflow 删除”记成 CI 修复。
+5. **D16 分页**：参考 `2f7675140`，同步改后端兼容响应、前端按需加载和边界场景；这是有真实规模收益的功能修复，但不应压过安全核验。
+6. **G1/G3/G10 与插件权限边界**：按部署威胁模型处理；API key 是高熵随机值，静态盐值得改但优先级低于会话/下载边界。
+7. **D/E/F/H 结构债**：不按行数批量拆分，选一个具体行为边界逐个收敛，并用真实应用流程验收。
+
+验证边界：本轮不运行测试套件。G2/G4 已完成代码实现与静态复核；仍需启动后的账户改密/旧会话失效及真实浏览器备份下载验收，未验证前不标记 resolved。

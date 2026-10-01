@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.db import BaseDatabase
 from astrbot.core.utils.auth_password import (
@@ -9,6 +12,7 @@ from astrbot.core.utils.auth_password import (
 
 PASSWORD_STORAGE_UPGRADED_KEY = "password_storage_upgraded"
 PASSWORD_CHANGE_REQUIRED_KEY = "password_change_required"
+DASHBOARD_AUTH_VERSION_CLAIM = "dashboard_auth_version"
 
 
 def _set_dashboard_flag(config: AstrBotConfig, key: str, value: bool) -> None:
@@ -93,3 +97,41 @@ def get_dashboard_password_hash(config: AstrBotConfig, *, upgraded: bool) -> str
 def set_dashboard_password_hashes(config: AstrBotConfig, raw_password: str) -> None:
     config["dashboard"]["pbkdf2_password"] = hash_dashboard_password(raw_password)
     config["dashboard"]["password"] = hash_legacy_dashboard_password(raw_password)
+
+
+def get_dashboard_auth_version(config: AstrBotConfig, jwt_secret: str) -> str | None:
+    dashboard = config["dashboard"]
+    username = dashboard.get("username")
+    password_hash = (
+        dashboard.get("pbkdf2_password", "")
+        if _has_usable_pbkdf2_password(config)
+        else dashboard.get("password", "")
+    )
+    if (
+        not isinstance(username, str)
+        or not username
+        or not isinstance(password_hash, str)
+        or not password_hash
+    ):
+        return None
+
+    account_state = f"{username}\0{password_hash}".encode()
+    return hmac.new(
+        jwt_secret.encode(),
+        account_state,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def is_dashboard_auth_version_current(
+    config: AstrBotConfig,
+    jwt_secret: str,
+    payload: dict,
+) -> bool:
+    token_version = payload.get(DASHBOARD_AUTH_VERSION_CLAIM)
+    current_version = get_dashboard_auth_version(config, jwt_secret)
+    return (
+        isinstance(token_version, str)
+        and current_version is not None
+        and hmac.compare_digest(token_version, current_version)
+    )
