@@ -1944,6 +1944,8 @@ class SQLiteDatabase(BaseDatabase):
                 select(func.count()).select_from(base_query.subquery())
             )
             total = int(total_result.scalar_one() or 0)
+            if offset >= total:
+                return [], total
 
             result_query = (
                 base_query.order_by(
