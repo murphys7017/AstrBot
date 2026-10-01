@@ -81,9 +81,14 @@
         />
       </div>
 
-      <div v-if="!isSidebarCollapsed" class="session-list">
+      <div
+        v-if="!isSidebarCollapsed"
+        ref="sessionList"
+        class="session-list"
+        @scroll.passive="loadMoreSessions"
+      >
         <div
-          v-for="session in sessions"
+          v-for="session in sidebarSessions"
           :key="session.session_id"
           class="session-item"
           :class="{ active: !isProviderWorkspace && currSessionId === session.session_id }"
@@ -124,11 +129,28 @@
         </div>
 
         <div
-          v-if="!isSidebarCollapsed && !sessions.length && !loadingSessions"
+          v-if="!sidebarSessions.length && !loadingSessions && !sessionsPagination.error"
           class="empty-sessions"
         >
           {{ tm("conversation.noHistory") }}
         </div>
+        <v-progress-linear
+          v-if="sessionsPagination.loading"
+          color="primary"
+          height="2"
+          indeterminate
+          :aria-label="tm('loading')"
+        />
+        <v-btn
+          v-if="sessionsPagination.error"
+          class="session-list-retry"
+          size="small"
+          variant="text"
+          prepend-icon="mdi-refresh"
+          @click="getSessions(sessionsPagination.append)"
+        >
+          {{ tm("conversation.retryLoading") }}
+        </v-btn>
       </div>
 
       <div class="sidebar-footer">
@@ -559,6 +581,7 @@ const { languageOptions, currentLanguage, switchLanguage, locale } =
   useLanguageSwitcher();
 const {
   sessions,
+  sessionsPagination,
   currSessionId,
   getSessions,
   newSession,
@@ -610,6 +633,7 @@ const projectSessions = ref<Session[]>([]);
 const loadingSessions = ref(false);
 const draft = ref("");
 const messagesContainer = ref<HTMLElement | null>(null);
+const sessionList = ref<HTMLElement | null>(null);
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 const shouldStickToBottom = ref(true);
 const replyTarget = ref<ChatRecord | null>(null);
@@ -676,6 +700,7 @@ const {
   loadingMessages,
   sending,
   loadedSessions,
+  sessionDetails,
   sessionProjects,
   activeMessages,
   isSessionRunning,
@@ -732,11 +757,23 @@ const currentSession = computed(
     projectSessions.value.find(
       (session) => session.session_id === currSessionId.value,
     ) ||
+    sessionDetails[currSessionId.value] ||
     null,
 );
 const sessionProject = computed(() =>
   currSessionId.value ? sessionProjects[currSessionId.value] : null,
 );
+const sidebarSessions = computed(() => {
+  const current = currentSession.value;
+  if (
+    current &&
+    !sessionProject.value &&
+    !sessions.value.some((session) => session.session_id === current.session_id)
+  ) {
+    return [current, ...sessions.value];
+  }
+  return sessions.value;
+});
 const currentSessionTitle = computed(() =>
   currentSession.value ? sessionTitle(currentSession.value) : "",
 );
@@ -759,12 +796,18 @@ provide("isDark", isDark);
 
 const isTouchDevice = ref(false);
 let pointerMediaQuery: MediaQueryList | undefined;
+let sessionListResizeObserver: ResizeObserver | undefined;
 
 function syncTouchDevice() {
   isTouchDevice.value = pointerMediaQuery?.matches ?? false;
 }
 
 onMounted(async () => {
+  if (typeof ResizeObserver !== "undefined") {
+    sessionListResizeObserver = new ResizeObserver(loadMoreSessions);
+    if (sessionList.value) sessionListResizeObserver.observe(sessionList.value);
+  }
+
   if (typeof window.matchMedia === "function") {
     pointerMediaQuery = window.matchMedia("(pointer: coarse)");
     syncTouchDevice();
@@ -787,8 +830,27 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   pointerMediaQuery?.removeEventListener("change", syncTouchDevice);
+  sessionListResizeObserver?.disconnect();
   cleanupMediaCache();
 });
+
+watch(
+  [sessions, () => sessionsPagination.loading, projects, isSidebarCollapsed],
+  () => {
+    void nextTick(loadMoreSessions);
+  },
+  { flush: "post" },
+);
+
+watch(
+  sessionList,
+  (element, previousElement) => {
+    if (!sessionListResizeObserver) return;
+    if (previousElement) sessionListResizeObserver.unobserve(previousElement);
+    if (element) sessionListResizeObserver.observe(element);
+  },
+  { flush: "post" },
+);
 
 watch(
   () => route.params.conversationId,
@@ -818,6 +880,23 @@ watch(activeMessages, () => {
 function getRouteSessionId() {
   const raw = route.params.conversationId;
   return Array.isArray(raw) ? raw[0] : raw || "";
+}
+
+function loadMoreSessions() {
+  const container = sessionList.value;
+  if (
+    !container ||
+    container.clientHeight === 0 ||
+    !sessionsPagination.hasMore ||
+    sessionsPagination.loading ||
+    sessionsPagination.error
+  ) {
+    return;
+  }
+
+  if (container.scrollHeight - container.scrollTop - container.clientHeight <= 96) {
+    void getSessions(true);
+  }
 }
 
 function basePath() {
@@ -926,6 +1005,9 @@ async function saveSessionTitleDialog() {
       display_name: displayName,
     });
     updateSessionTitle(sessionId, displayName);
+    if (sessionDetails[sessionId]) {
+      sessionDetails[sessionId].display_name = displayName;
+    }
     const projectSession = projectSessions.value.find(
       (session) => session.session_id === sessionId,
     );
@@ -1085,8 +1167,11 @@ function buildOutgoingParts(text: string): MessagePart[] {
 
 function updateTitleFromText(sessionId: string, text: string) {
   const session = sessions.value.find((item) => item.session_id === sessionId);
-  if (!session || session.display_name || !text) return;
-  updateSessionTitle(sessionId, text.slice(0, 40));
+  const sessionDetail = sessionDetails[sessionId];
+  if (session?.display_name || sessionDetail?.display_name || !text) return;
+  const title = text.slice(0, 40);
+  updateSessionTitle(sessionId, title);
+  if (sessionDetail) sessionDetail.display_name = title;
 }
 
 function replyPreview(messageId?: string | number, fallback?: string) {
@@ -1591,6 +1676,10 @@ function toggleTheme() {
   padding: 12px;
   color: var(--chat-muted);
   font-size: 13px;
+}
+
+.session-list-retry {
+  align-self: center;
 }
 
 .sidebar-footer {

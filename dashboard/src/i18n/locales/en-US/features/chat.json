@@ -75,6 +75,7 @@
   "conversation": {
     "newConversation": "New Conversation",
     "noHistory": "No conversation history",
+    "retryLoading": "Retry loading conversations",
     "systemStatus": "System Status",
     "llmService": "LLM Service",
     "speechToText": "Speech to Text",

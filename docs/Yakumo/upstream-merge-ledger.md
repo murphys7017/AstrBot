@@ -7,17 +7,17 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-09-27
+Last updated: 2026-10-01
 
 Last recorded comparison baseline:
 
-- Local side: `master` at `f6e6c6845`; this AG99 fork is reviewed by behavior, not as an official upstream baseline.
+- Local side at review start: `master` at `1429bcef9`; this AG99 fork is reviewed by behavior, not as an official upstream baseline.
 - Upstream remote: `upstream` (`https://github.com/AstrBotDevs/AstrBot`)
-- Last local upstream snapshot checked: `upstream/master` at `26ff7673f53245043718d5121153bcd2a46b3a75` (2026-09-25).
-- Reference snapshot status: local history was checked against this SHA. A fetch attempted on 2026-09-26 failed because the GitHub connection was reset, so commits after this snapshot are not verified.
+- Last local upstream snapshot checked: `upstream/master` at `9d4f523464644554e0e8e50fa2a65f146e320cd1` (2026-10-01), refreshed from the remote for this review.
+- Reference snapshot status: local history was checked against this SHA; only topic-relevant updates were considered, not the full divergent upstream history.
 - Git-only divergence is not tracked as a decision signal for this fork; topic and behavioral
   review remain the source of truth.
-- The refreshed range contains 270 upstream commits after the previous `25cbd41e0` review baseline. Only the topics recorded below have been studied in this pass; unrecorded commits are reference material to inspect only when they relate to an AG99 need, not a backlog that must be cleared.
+- Only the topics recorded below have been studied in this pass; unrecorded commits are reference material to inspect only when they relate to an AG99 need, not a backlog that must be cleared.
 
 Important interpretation:
 
@@ -1672,3 +1672,34 @@ Validation:
 
 - Dashboard TypeScript typecheck and `git diff --check` passed. No live
   provider or WebChat session was invoked.
+
+## 2026-10-01 Dashboard Session Pagination Follow-Up
+
+Reviewed upstream reference: `2f7675140` (`#10279`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- The ChatUI sidebar now requests sessions in pages of 30 and loads the next
+  page as the session list approaches its scroll boundary. Failed page loads
+  retain existing rows and expose a retry action.
+- `/api/chat/sessions` returns pagination metadata only when `page` or
+  `page_size` is explicitly requested. Requests without those parameters
+  retain the legacy array response and 100-session limit.
+- Session pages use `updated_at` plus `session_id` for deterministic ordering,
+  and the detail response includes session metadata so a deep-linked older
+  conversation can remain visible and selected outside the loaded page range.
+- OpenAPI-key pagination and generated SDK contracts are unchanged; this
+  dashboard continues using its legacy-compatible session route.
+
+Validation:
+
+- Focused session pagination and metadata tests passed (3 cases), scoped Ruff
+  and Python compilation passed, and Dashboard typecheck plus production build
+  passed. ESLint could not start because this checkout has no discoverable ESLint
+  configuration. Live scroll behavior was not exercised in the already-running
+  application; no process was stopped or restarted.
+- Review on 2026-10-01 confirmed a residual offset-pagination race: an active
+  session can move across page boundaries while the list is being browsed and
+  remain absent until refresh. The timestamp tie-breaker stabilizes equal sort
+  values but does not provide a snapshot across page requests.

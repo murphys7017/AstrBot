@@ -75,6 +75,7 @@
   "conversation": {
     "newConversation": "Новый чат",
     "noHistory": "История диалогов пуста",
+    "retryLoading": "Повторить загрузку диалогов",
     "systemStatus": "Статус системы",
     "llmService": "Сервис LLM",
     "speechToText": "Преобразование речи",

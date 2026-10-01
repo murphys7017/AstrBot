@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, reactive, ref, type Ref } from "vue";
 import axios from "axios";
+import type { Session } from "./useSessions";
 
 export type TransportMode = "sse" | "websocket";
 
@@ -115,6 +116,7 @@ export function useMessages(options: UseMessagesOptions) {
   const sending = ref(false);
   const messagesBySession = reactive<Record<string, ChatRecord[]>>({});
   const loadedSessions = reactive<Record<string, boolean>>({});
+  const sessionDetails = reactive<Record<string, Session>>({});
   const activeConnections = reactive<Record<string, ActiveConnection>>({});
   const attachmentBlobCache = new Map<string, Promise<string>>();
   const sessionProjects = reactive<Record<string, ChatSessionProject | null>>(
@@ -220,12 +222,13 @@ export function useMessages(options: UseMessagesOptions) {
         params: { session_id: sessionId },
       });
       const payload = response.data?.data || {};
+      if (payload.session) sessionDetails[sessionId] = payload.session;
+      sessionProjects[sessionId] = normalizeSessionProject(payload.project);
       const history = payload.history || [];
       const records = history.map(normalizeHistoryRecord);
       attachThreads(records, payload.threads || []);
       await resolveRecordMedia(records);
       messagesBySession[sessionId] = records;
-      sessionProjects[sessionId] = normalizeSessionProject(payload.project);
       loadedSessions[sessionId] = true;
     } catch (error) {
       console.error("Failed to load session messages:", error);
@@ -730,6 +733,7 @@ export function useMessages(options: UseMessagesOptions) {
     sending,
     messagesBySession,
     loadedSessions,
+    sessionDetails,
     sessionProjects,
     activeMessages,
     isSessionRunning,

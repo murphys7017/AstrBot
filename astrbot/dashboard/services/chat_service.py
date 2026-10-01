@@ -1256,14 +1256,26 @@ class ChatService(DashboardService):
         """Get all Platform sessions for the current user."""
         username = g.get("username", "guest")
 
-        # 获取可选的 platform_id 参数
         platform_id = request.args.get("platform_id")
+        paginated = "page" in request.args or "page_size" in request.args
+        if paginated:
+            try:
+                page = int(request.args.get("page", 1))
+                page_size = int(request.args.get("page_size", 20))
+            except ValueError:
+                return Response().error("page and page_size must be integers").__dict__
 
-        sessions, _ = await self.db.get_platform_sessions_by_creator_paginated(
+            page = max(page, 1)
+            page_size = min(max(page_size, 1), 100)
+        else:
+            page = 1
+            page_size = 100
+
+        sessions, total = await self.db.get_platform_sessions_by_creator_paginated(
             creator=username,
             platform_id=platform_id,
-            page=1,
-            page_size=100,  # 暂时返回前100个
+            page=page,
+            page_size=page_size,
             exclude_project_sessions=True,
         )
 
@@ -1284,7 +1296,17 @@ class ChatService(DashboardService):
                 }
             )
 
-        return Response().ok(data=sessions_data).__dict__
+        data = (
+            {
+                "sessions": sessions_data,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+            }
+            if paginated
+            else sessions_data
+        )
+        return Response().ok(data=data).__dict__
 
     async def get_session(self):
         """Get session information and message history by session_id."""
@@ -1322,6 +1344,15 @@ class ChatService(DashboardService):
         )
 
         response_data = {
+            "session": {
+                "session_id": session.session_id,
+                "platform_id": session.platform_id,
+                "creator": session.creator,
+                "display_name": session.display_name,
+                "is_group": session.is_group,
+                "created_at": to_utc_isoformat(session.created_at),
+                "updated_at": to_utc_isoformat(session.updated_at),
+            },
             "history": history_res,
             "threads": [self._serialize_thread(thread) for thread in threads],
             "is_running": self.running_convs.get(session_id, False),

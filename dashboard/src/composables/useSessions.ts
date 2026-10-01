@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, reactive } from 'vue';
 import axios from 'axios';
 import { useRouter } from 'vue-router';
 import { buildWebchatUmoDetails, getStoredSelectedChatConfigId } from '@/utils/chatConfigBinding';
@@ -16,6 +16,14 @@ export interface Session {
 export function useSessions(chatboxMode: boolean = false) {
     const router = useRouter();
     const sessions = ref<Session[]>([]);
+    const sessionsPagination = reactive({
+        page: 0,
+        hasMore: false,
+        loading: false,
+        error: false,
+        append: false,
+    });
+    let sessionsRequestId = 0;
     const selectedSessions = ref<string[]>([]);
     const currSessionId = ref('');
     const pendingSessionId = ref<string | null>(null);
@@ -31,19 +39,57 @@ export function useSessions(chatboxMode: boolean = false) {
 
     
 
-    async function getSessions() {
+    async function getSessions(append = false) {
+        if (append && (sessionsPagination.loading || !sessionsPagination.hasMore)) return;
+
+        const requestId = ++sessionsRequestId;
+        const lastPage = append ? sessionsPagination.page + 1 : Math.max(1, sessionsPagination.page);
+        const loaded = append ? [...sessions.value] : [];
+        let loadedPage = append ? sessionsPagination.page : 0;
+        let hasMore = false;
+        sessionsPagination.loading = true;
+        sessionsPagination.error = false;
+        sessionsPagination.append = append;
+
         try {
-            const response = await axios.get('/api/chat/sessions');
-            sessions.value = response.data.data;
+            for (let page = append ? lastPage : 1; page <= lastPage; page++) {
+                const response = await axios.get('/api/chat/sessions', {
+                    params: { page, page_size: 30 },
+                });
+                if (requestId !== sessionsRequestId) return;
 
+                const result = response.data;
+                const payload = result?.data;
+                if (
+                    result?.status !== 'ok' ||
+                    !Array.isArray(payload?.sessions) ||
+                    typeof payload.page !== 'number' ||
+                    typeof payload.page_size !== 'number' ||
+                    typeof payload.total !== 'number'
+                ) {
+                    throw new Error(result?.message || 'Invalid session pagination response');
+                }
 
+                loaded.push(...payload.sessions);
+                loadedPage = payload.page;
+                hasMore = payload.page * payload.page_size < payload.total;
+                if (!hasMore) break;
+            }
 
-    
+            if (requestId === sessionsRequestId) {
+                sessions.value = [...new Map(loaded.map(session => [session.session_id, session])).values()];
+                sessionsPagination.page = loadedPage;
+                sessionsPagination.hasMore = hasMore;
+            }
         } catch (err: any) {
+            if (requestId !== sessionsRequestId) return;
+            sessionsPagination.error = true;
             if (err.response?.status === 401) {
                 router.push('/auth/login?redirect=/chatbox');
             }
             console.error(err);
+        } finally {
+            if (requestId === sessionsRequestId) sessionsPagination.loading = false;
         }
     }
 
@@ -210,6 +256,7 @@ export function useSessions(chatboxMode: boolean = false) {
 
     return {
         sessions,
+        sessionsPagination,
         selectedSessions,
         currSessionId,
         pendingSessionId,

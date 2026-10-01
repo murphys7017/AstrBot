@@ -75,6 +75,7 @@
   "conversation": {
     "newConversation": "新的聊天",
     "noHistory": "暂无对话历史",
+    "retryLoading": "重试加载会话",
     "systemStatus": "系统状态",
     "llmService": "LLM 服务",
     "speechToText": "语音转文本",
