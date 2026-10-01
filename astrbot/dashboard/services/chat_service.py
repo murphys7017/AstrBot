@@ -904,7 +904,8 @@ class ChatService(DashboardService):
 
                         try:
                             if not client_disconnected:
-                                await asyncio.sleep(0.05)
+                                # Yield without adding a fixed per-chunk delay.
+                                await asyncio.sleep(0)
                         except asyncio.CancelledError:
                             logger.debug(f"[WebChat] 用户 {username} 断开聊天长连接。")
                             client_disconnected = True
