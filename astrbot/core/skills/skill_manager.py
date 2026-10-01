@@ -750,8 +750,9 @@ class SkillManager:
             archive_skill_name = None
             if skill_name_hint is not None:
                 archive_skill_name = _normalize_skill_name(skill_name_hint)
-                if archive_skill_name and not _SKILL_NAME_RE.fullmatch(
-                    archive_skill_name
+                if archive_skill_name and (
+                    archive_skill_name in {".", ".."}
+                    or not _SKILL_NAME_RE.fullmatch(archive_skill_name)
                 ):
                     raise ValueError("Invalid skill name.")
 
