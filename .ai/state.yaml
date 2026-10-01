@@ -2,17 +2,18 @@ dashboard_fastapi_migration:
   date: '2026-10-01'
   class: refactor
   risk: high
-  status: merged_pending_runtime_cutover
+  status: merged_runtime_cutover_verified
   scope: >-
     Migrate the Dashboard HTTP and WebSocket host to FastAPI on the dedicated
     codex/fastapi-migration worktree, preserve legacy public contracts and
     local Profile/plugin/Personal/Core/output behavior, separate API routing
     from services, and complete isolated acceptance before proposing a merge.
   isolation: >-
-    The user stopped the original AstrBot instance before live migration
-    validation. The migration worktree now runs against a copied production
-    data directory on loopback ports 6185 and 6199; source data remains
-    read-only.
+    Initial migration validation used a copied data directory. At final
+    cutover verification, the active process was already started from the
+    main AstrBot worktree using its virtual environment; ports 6185 and 6199
+    belonged to that process. Main-worktree data was newer than the migration
+    copy and was retained without copying over it.
     Transient data/temp and tmp_pytest folders were not mirrored due to local
     ACLs, but tracked runtime configuration, database, plugins, plugin data,
     memory, and Dashboard assets were verified copied. Do not start both
@@ -34,8 +35,11 @@ dashboard_fastapi_migration:
     cloud.astrbot.app repository metadata remains blocked by local CORS/network
     policy. The user authorized merging into master. The existing master SSE
     pacing optimization is preserved in chat_service; focused chat tests passed
-    (3). Code is merged, while runtime data and frontend asset cutover remain
-    separate. Retain the migration worktree and its data until cutover is verified.
+    (3). Main-worktree runtime cutover is verified: deployed index.html matches
+    the local production build by SHA256 and HTTP content, and the entry JS,
+    CSS, and Monaco editor worker are accessible. No process restart or data
+    replacement was needed. The migration worktree remains available for
+    rollback. Full provider conversations were not repeated during cutover.
     See docs/Yakumo/dev/fastapi-migration/03-progress.md for checkpoints.
 
 knowledge_base_cleaning_and_async_io_repair:
