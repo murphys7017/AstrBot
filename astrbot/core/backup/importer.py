@@ -10,6 +10,7 @@
 import json
 import os
 import shutil
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -70,7 +71,7 @@ def _validate_path_within(target_path: Path, base_dir: Path) -> bool:
         resolved = target_path.resolve(strict=False)
         base_resolved = base_dir.resolve(strict=False)
         return resolved.is_relative_to(base_resolved)
-    except (OSError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         return False
 
 
@@ -721,6 +722,32 @@ class AstrBotImporter:
         if not self.kb_manager:
             return
 
+        kb_meta_data = dict(kb_meta_data)
+        valid_kb_rows = []
+        valid_kb_ids = set()
+        for row in kb_meta_data.get("knowledge_bases", []):
+            kb_id = row.get("kb_id") if isinstance(row, dict) else None
+            if not isinstance(kb_id, str) or not self._is_valid_kb_id(kb_id):
+                result.add_warning("跳过包含无效知识库 ID 的备份记录。")
+                continue
+            try:
+                self._resolve_kb_dir(kb_id)
+            except (OSError, RuntimeError, ValueError) as e:
+                result.add_warning(f"跳过知识库 {kb_id}：目录路径无效：{e}")
+                continue
+            valid_kb_rows.append(row)
+            valid_kb_ids.add(kb_id)
+        kb_meta_data["knowledge_bases"] = valid_kb_rows
+
+        for table_name in ("kb_documents", "kb_media"):
+            rows = kb_meta_data.get(table_name, [])
+            if isinstance(rows, list):
+                kb_meta_data[table_name] = [
+                    row
+                    for row in rows
+                    if isinstance(row, dict) and row.get("kb_id") in valid_kb_ids
+                ]
+
         # 1. 导入知识库元数据
         async with self.kb_manager.kb_db.get_db() as session:
             async with session.begin():
@@ -747,9 +774,14 @@ class AstrBotImporter:
             if not kb_id:
                 continue
 
-            # 创建知识库目录
-            kb_dir = Path(self.kb_root_dir) / kb_id
-            kb_dir.mkdir(parents=True, exist_ok=True)
+            # Do not follow a pre-existing link out of (or across) the KB store.
+            try:
+                kb_dir = self._resolve_kb_dir(kb_id)
+                kb_dir.mkdir(parents=True, exist_ok=True)
+                kb_dir = self._resolve_kb_dir(kb_id)
+            except (OSError, RuntimeError, ValueError) as e:
+                result.add_warning(f"跳过知识库 {kb_id}：目录路径无效：{e}")
+                continue
 
             # 导入文档数据
             doc_path = f"databases/kb_{kb_id}/documents.json"
@@ -781,7 +813,13 @@ class AstrBotImporter:
                         rel_path = name[len(media_prefix) :]
                         target_path = kb_dir / rel_path
                         # Validate path is within kb directory (CWE-22)
-                        if not _validate_path_within(target_path, kb_dir):
+                        if not (
+                            _validate_path_within(target_path, kb_dir)
+                            and _validate_path_within(
+                                target_path,
+                                Path(self.kb_root_dir).resolve(strict=False),
+                            )
+                        ):
                             logger.warning(f"媒体文件路径越界，已跳过: {target_path}")
                             continue
                         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -793,11 +831,32 @@ class AstrBotImporter:
         # 3. 重新加载知识库实例
         await self.kb_manager.load_kbs()
 
+    @staticmethod
+    def _is_valid_kb_id(kb_id: object) -> bool:
+        if not isinstance(kb_id, str):
+            return False
+        try:
+            return str(uuid.UUID(kb_id)) == kb_id.lower()
+        except ValueError:
+            return False
+
+    def _resolve_kb_dir(self, kb_id: str) -> Path:
+        kb_root = Path(self.kb_root_dir).resolve(strict=False)
+        kb_dir = Path(self.kb_root_dir) / kb_id
+        if kb_dir.is_symlink() or kb_dir.is_junction():
+            raise ValueError("知识库目录不能是符号链接或 junction")
+        if kb_dir.exists() and not kb_dir.is_dir():
+            raise ValueError("知识库路径已被非目录文件占用")
+        resolved = kb_dir.resolve(strict=False)
+        if resolved == kb_root or not _validate_path_within(resolved, kb_root):
+            raise ValueError("知识库目录超出知识库根目录")
+        return resolved
+
     async def _import_kb_documents(self, kb_id: str, doc_data: dict) -> None:
         """导入知识库文档到向量数据库"""
         from astrbot.core.db.vec_db.faiss_impl.document_storage import DocumentStorage
 
-        kb_dir = Path(self.kb_root_dir) / kb_id
+        kb_dir = self._resolve_kb_dir(kb_id)
         doc_db_path = kb_dir / "doc.db"
 
         # 初始化文档存储
