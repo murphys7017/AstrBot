@@ -1855,9 +1855,13 @@ snapshot `9d4f52346`.
 
 Absorbed by local rewrite:
 
-- Outbound `At` message components now serialize as QQ Official's
-  `<qqbot-at-user>` markup in component order. Empty IDs and the special `all`
-  target are omitted.
+- Group and C2C outbound `At` components serialize as
+  `<qqbot-at-user>` markup in component order. Empty IDs are omitted and IDs
+  outside the safe attribute character set are rejected.
+- Guild channel messages use the documented `<@!user_id>` and `@everyone`
+  forms in plain content. Guild DMs omit mentions pending protocol confirmation;
+  `AtAll` remains omitted from Group/C2C because no official v2 format was
+  confirmed.
 - Incoming group mention normalization was not ported in this partial update:
   the local qq-botpy `GroupMessage` model drops the `is_you` field needed to
   reliably identify the bot mention. That parser-contract change needs its own
@@ -1865,5 +1869,7 @@ Absorbed by local rewrite:
 
 Validation:
 
-- Focused QQ mention serialization test, scoped Ruff, Python compilation, and
-  `git diff --check` passed. No live QQ API request was sent.
+- An isolated runtime call through `_post_send_one` produced the guild channel
+  content payload with `<@!user_id>` and `@everyone`, without a Markdown field;
+  Group serialization retained `<qqbot-at-user>`, and a markup-injection ID
+  was rejected. No test suite or live QQ API request was run.

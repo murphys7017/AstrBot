@@ -4,6 +4,7 @@ import copy
 import logging
 import os
 import random
+import re
 import uuid
 from typing import cast
 
@@ -293,7 +294,18 @@ class QQOfficialMessageEvent(AstrMessageEvent):
             video_file_source,
             file_source,
             file_name,
-        ) = await QQOfficialMessageEvent._parse_to_qqofficial(message_to_send)
+        ) = await QQOfficialMessageEvent._parse_to_qqofficial(
+            message_to_send,
+            mention_context=(
+                "guild_channel"
+                if isinstance(source, botpy.message.Message)
+                else "group"
+                if isinstance(source, botpy.message.GroupMessage)
+                else "guild_dm"
+                if isinstance(source, botpy.message.DirectMessage)
+                else "c2c"
+            ),
+        )
 
         # C2C 流式仅用于文本分片，富媒体时降级为普通发送，避免平台侧流式校验报错。
         if stream and (
@@ -328,6 +340,11 @@ class QQOfficialMessageEvent(AstrMessageEvent):
 
         # 根据消息链的 use_markdown_ 标记决定发送模式
         use_md = getattr(message_to_send, "use_markdown_", None)
+        if isinstance(source, botpy.message.Message) and any(
+            isinstance(component, At) for component in message_to_send.chain
+        ):
+            # The guild API's mention tokens are only supported in plain content.
+            use_md = False
         if use_md is False:
             payload: dict = {
                 "content": plain_text,
@@ -746,7 +763,11 @@ class QQOfficialMessageEvent(AstrMessageEvent):
         return message.Message(**result)
 
     @staticmethod
-    async def _parse_to_qqofficial(message: MessageChain):
+    async def _parse_to_qqofficial(
+        message: MessageChain,
+        *,
+        mention_context: str = "group",
+    ):
         plain_text = ""
         image_base64 = None  # only one img supported
         image_file_path = None
@@ -759,7 +780,29 @@ class QQOfficialMessageEvent(AstrMessageEvent):
                 plain_text += i.text
             elif isinstance(i, At):
                 mention_id = str(i.qq) if i.qq else ""
-                if mention_id and mention_id != "all":
+                if not mention_id:
+                    continue
+                if mention_id.casefold() == "all":
+                    if mention_context == "guild_channel":
+                        plain_text += "@everyone"
+                    else:
+                        logger.warning(
+                            "[QQOfficial] AtAll is only enabled for guild channels; "
+                            "omitting it for %s messages.",
+                            mention_context,
+                        )
+                    continue
+
+                if mention_context == "guild_dm":
+                    logger.warning(
+                        "[QQOfficial] User mentions are not enabled for guild DMs."
+                    )
+                    continue
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", mention_id, re.ASCII):
+                    raise ValueError("QQ mention IDs contain unsupported characters.")
+                if mention_context == "guild_channel":
+                    plain_text += f"<@!{mention_id}>"
+                else:
                     plain_text += f'<qqbot-at-user id="{mention_id}" />'
             elif isinstance(i, Image) and not image_base64:
                 if i.file and i.file.startswith("file:"):
