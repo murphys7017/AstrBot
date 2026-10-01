@@ -1,4 +1,4 @@
-# AG99 问题登记册（102 项复核版）
+# AG99 问题登记册（原 102 项复核版，含补充发现）
 
 更新时间：2026-10-01
 范围：当前工作区代码、配置、工作流、治理文件和已提供的历史审计结果。
@@ -21,7 +21,7 @@
 
 - B1-B5、B7-B8 的耗时/失败数字保留为历史实跑证据，不在本次重新验证。
 - D、E、F、G、H、I 主要是源码追踪结果；其中相似度、重复块、函数数量等统计依赖工具和口径。
-- 当前工作区除已修改的 `astrbot/dashboard/routes/chat.py` 外，还存在未跟踪的 `jieba.cache` 和 `pytest-of-Administrator/` 测试产物；原报告“唯一未提交改动”不再准确。
+- 原报告提到的 `chat.py`、`jieba.cache` 和 `pytest-of-Administrator/` 在本轮开始时均已不在工作区；本轮继续处理后新增了 `astrbot/core/star/updator.py` 的未提交修改。
 - 这份登记册不把架构观察自动升级成产品缺陷。删除兼容路径、改变安全模型或合并生命周期前，必须补充真实运行验收。
 
 ## A · 工程门禁
@@ -95,8 +95,11 @@
 | D13 | ✓ confirmed | session management 同时返回旧格式和结构化格式。 | open |
 | D14 | ✓ confirmed | `provider/entities.py` 有兼容包装，当前未发现调用方。 | open |
 | D15 | ✓ confirmed | `CommandResult` 是旧名兼容别名。 | open |
-| D16 | ✓ confirmed | `chat_service.py` 仍固定 `page_size=100` 并标注“暂时返回前100个”；上游 `2f7675140` 已增加渐进分页能力，本 fork 尚未吸收。 | open |
+| D16 | ✓ implementation / △ live pending | Dashboard 会话列表已吸收渐进分页，旧接口无分页参数时仍保留数组响应；后端契约、稳定排序和深链接元数据已通过定向测试，运行中页面滚动尚待验收。 | in_progress |
 | D17 | ✓ confirmed | 配置项保留兼容旧配置的注释。 | open |
+| D18* | ✓ implementation / △ live pending | `PluginManager.update_plugin()` 总是向 updater 传 `download_url`，但本地 `PluginUpdator.update()` 原签名不接收该参数，导致插件更新调用抛 `TypeError`；已吸收上游直链更新参数契约，真实更新验收待做。 | in_progress |
+
+`D18*` 是处理原清单时发现的补充问题，不计入原 102 项。
 
 ## E · 补丁式实现
 
@@ -140,7 +143,7 @@
 | G3 | ✓ confirmed | JWT secret 首次启动生成后写回配置文件。 | open |
 | G4 | ✓ implementation / △ live pending | 前端下载不再把 JWT 放 URL，使用现有 HttpOnly Dashboard cookie；后端保留 Bearer 与旧 query 兼容。真实浏览器下载验收待做。 | in_progress |
 | G5 | ✗ stale/incorrect | 当前默认 `secure` 是非 debug 且非 testing 时为 true。 | open |
-| G6 | △ partial | 通用 `zip_updator.py` 与插件 `star/updator.py` 都有 `extractall`；插件安装入口可处理上传/下载压缩包。是否可利用仍需按来源和目标路径验证，不能仅凭调用定性；backup importer 另有成员路径校验。 | open |
+| G6 | △ implementation / △ live pending | 插件安装/更新、CLI 插件 ZIP、skill ZIP 与通用 core updater 均已在解包前校验成员路径；插件与 core 下载上限为 512 MiB，并限制中央目录（8 MiB）、实际条目数、路径复杂度及解压体积。插件更新失败会保留/恢复旧版本。隔离 ZIP 输入输出验收已通过；实际远程更新/运行中插件加载仍待验收。 | in_progress |
 | G7 | ✓/△ | 插件可访问数据库和 provider registry；这是可信插件模型下的能力，非传统沙箱。 | open |
 | G8 | △ partial | `ChatService.get_session` 当前已校验 `session.creator == username`，与上游 `041fba4df` 的修复一致；其他 Dashboard 配置接口是否需要租户隔离仍取决于产品模型。 | open |
 | G9 | ✗/△ | registry 有 clear/remove 路径，不能称为完全不可注销。 | open |
@@ -205,9 +208,9 @@ B1-B3、B5-B12、C1-C9。
 
 历史测试数字只作为背景；后续以实际运行验收和可追踪的 acceptance 记录关闭。
 
-## 当前工作区说明
+## 工作区状态
 
-截至本次复核，`git status` 初始为干净；原先提到的 `chat.py` 改动、`jieba.cache`、`pytest-of-Administrator/` 不再出现在工作区。用户清理相关提交保留，不由本次审计改写。
+本节所述干净状态是上一轮复核时的快照，不代表当前工作区。后续 G6 复核产生的 updater、技能导入、插件服务、关联记录与验收用例按其对应提交单独收口；用户删除的 `openspec/config.yaml` 不属于本轮范围，保留删除状态且不纳入提交。
 
 ## 上游对照与本轮优先级（2026-10-01）
 
@@ -222,10 +225,10 @@ B1-B3、B5-B12、C1-C9。
 | B7 | 上游 `astrbot/core/backup/exporter.py` 仍用 `ZIP_DEFLATED` 且不传 `compresslevel`。 | 未发现压缩快路径；测试耗时属性能优化而非生产行为缺陷。 |
 | B8 | `d524b8708` 统一 provider User-Agent。 | 与测试起真实 aiohttp server 的耗时原因不同，不能据此关闭慢测问题。 |
 | D8 | 上游 `main.py` 与 `cli/commands/cmd_run.py` 目前仍各自构造 `InitialLoader`。 | 本 fork 的重复入口属实；上一版登记的“`astrbot/main.py` 不存在”是路径误读，未发现上游已消除这项重复。 |
-| D16 | `2f7675140` 为 ChatUI sidebar 添加渐进加载和分页。 | 可解决固定首屏 100 条的产品限制，但依赖 API 与前端协同；不要只改后端返回形状。 |
+| D16 | `2f7675140` 为 ChatUI sidebar 添加渐进加载和分页。 | 已完成后端兼容响应、侧栏按需加载及边界测试；真实页面滚动验收待服务更新后进行。 |
 | G4 | `573367b7f` 在备份下载中接受 Bearer header。 | 已保留上游 Bearer 能力，并增加 HttpOnly cookie 下载鉴权；前端原生下载不再携带 query token，旧 query 仍兼容。 |
 | G1-G3 | 当前上游仍用固定 `b"astrbot_api_key"` 做 PBKDF2 salt；JWT 仍主要含 `username` 与 7 天 `exp`，JWT secret 仍写回 Dashboard config。 | 未发现上游提交解决静态 salt 或 secret 持久化；G2 已在本地增加凭据版本绑定及 HTTP/WebSocket/备份校验，需实际运行验收。TOTP 是额外认证，不等于 token 吊销。 |
-| G6 | `3d4c4ed01` 增加插件 archive 元数据/来源验证；`21f41c239` 重构 updater。当前上游通用 `zip_updater.py` 和 plugin updater 仍有 `extractall` 路径。 | 有插件包有效性校验改进，但未发现显式拒绝所有越界 archive member 的对应修复；不能把这些提交记作 G6 已解决。 |
+| G6 / D18* | `3d4c4ed01`（#9061）增加插件 archive 元数据验证；`7ec39bdef`（#10053）支持 URL/文件插件更新；`b53999e95`（#10193）缩短 GitHub 提交归档根目录以支持 Windows 长路径。上游仍通过 `extractall` 解包，未发现拒绝越界成员路径的修复。 | 本 fork 已吸收 `download_url` 更新契约、#10193 根目录缩短，并分别为插件、CLI、skill 与 core updater 加入 ZIP 边界和资源限制；core/plugin 在构造 `ZipFile` 前校验中央目录大小与真实记录数。隔离归档输入输出已验收；实际远程插件更新及 core 更新尚未运行。 |
 | G8 | `041fba4df` 增加 ChatUI session owner 校验。 | 当前本地 `ChatService.get_session` 已有同等 creator 校验；这条应限定到未明确租户边界的其他管理 API。 |
 | I6/I8/I9 | 非上游问题，属本地仓库/工作区状态。 | I6 已随 `4731f970d` 删除；I8 文件当前不存在；I9 的历史工作区产物本次不做清理。 |
 | C/D/E/F/H/I 其余项 | 未发现能直接消除 AG99 自有 Interaction/Persona 双轨、治理或结构问题的对应上游提交。 | 维持登记册的静态观察结论；D8/D9/I5 等路径错误已在本轮更正，逐项重构前仍要有具体运行场景和验收。 |
@@ -233,11 +236,15 @@ B1-B3、B5-B12、C1-C9。
 建议的实际处理顺序：
 
 1. **G2/G4 Dashboard token 生命周期与传递**：代码路径已改；部署后确认旧会话要求重新登录，验证改密后 HTTP/WebSocket/备份旧 token 均失效，并实测 cookie 原生下载成功。
-2. **G6 ZIP 解包边界核验**：逐条确认上传/下载压缩包来源、目标目录和 Python 解包的实际路径约束；若来源可被不可信方控制，再增加显式成员路径校验并用真实插件/core 更新流程验收。
+2. **G6 ZIP 解包边界核验**：插件、CLI 插件、skill 与 core updater 的 ZIP 成员路径及资源边界已实现；接下来用隔离插件副本验证仓库更新、直链更新、坏包保留旧版本，并在隔离环境验证实际 core 更新应用流程。
 3. **B4 EventBus fixture 契约**：修正测试构造，让它提供真实 config selection；随后用一条真实消息/实际运行路径确认事件能到对应 pipeline。
 4. **A4/A9/A10 与 CI 去留**：先由用户决定是否恢复最小 CI；再统一依赖解析来源。不得把“所有 workflow 删除”记成 CI 修复。
 5. **D16 分页**：参考 `2f7675140`，同步改后端兼容响应、前端按需加载和边界场景；这是有真实规模收益的功能修复，但不应压过安全核验。
 6. **G1/G3/G10 与插件权限边界**：按部署威胁模型处理；API key 是高熵随机值，静态盐值得改但优先级低于会话/下载边界。
 7. **D/E/F/H 结构债**：不按行数批量拆分，选一个具体行为边界逐个收敛，并用真实应用流程验收。
 
-验证边界：本轮不运行测试套件。G2/G4 已完成代码实现与静态复核；仍需启动后的账户改密/旧会话失效及真实浏览器备份下载验收，未验证前不标记 resolved。
+验证边界：本轮不运行测试套件。G2/G4 已完成代码实现与静态复核；仍需启动后的账户改密/旧会话失效及真实浏览器备份下载验收。D18/G6 的 ZIP 成员边界已用临时归档调用生产入口验收（含越界、超量条目、超限中央目录、伪造条目计数与深路径）；真实远程插件更新、插件加载回滚和 core 更新应用流程仍待隔离环境验收，未验证前不标记 resolved。
+
+## 2026-10-01 D16 分页吸收跟进
+
+已按上游 `2f7675140` 完成会话分页的本地适配：旧 `/api/chat/sessions` 调用仍返回原数组，新分页请求返回页数据；列表触底加载后续会话，失败可重试，深链接会话保留标题和选中态。定向后端测试、Python 检查、Dashboard 类型检查和生产构建通过。当前运行中的服务未重启，真实浏览器滚动行为留待服务更新后验收，因此 D16 暂记 `in_progress`。

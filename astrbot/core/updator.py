@@ -17,6 +17,8 @@ from astrbot.core.utils.io import ensure_dir
 
 from .zip_updator import ReleaseInfo, RepoZipUpdator
 
+_CORE_UPDATE_MAX_DOWNLOAD_SIZE = 512 * 1024 * 1024
+
 
 class AstrBotUpdator(RepoZipUpdator):
     """AstrBot 更新器，继承自 RepoZipUpdator 类
@@ -223,6 +225,7 @@ class AstrBotUpdator(RepoZipUpdator):
             file_url,
             str(zip_path),
             progress_callback=progress_callback,
+            max_size=_CORE_UPDATE_MAX_DOWNLOAD_SIZE,
         )
         return zip_path
 

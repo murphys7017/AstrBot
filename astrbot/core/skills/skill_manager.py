@@ -38,6 +38,21 @@ def _normalize_skill_name(name: str | None) -> str:
     return re.sub(r"\s+", "_", raw.strip())
 
 
+def _resolve_skill_install_destination(skills_root: str | Path, name: str) -> Path:
+    if not name or name in {".", ".."} or not _SKILL_NAME_RE.fullmatch(name):
+        raise ValueError("Invalid skill name.")
+
+    root = Path(skills_root).resolve()
+    destination = root / name
+    if (
+        destination.is_symlink()
+        or destination.is_junction()
+        or destination.resolve().parent != root
+    ):
+        raise ValueError("Invalid skill name.")
+    return destination
+
+
 def _default_sandbox_skill_path(name: str) -> str:
     return f"{SANDBOX_WORKSPACE_ROOT}/{SANDBOX_SKILLS_ROOT}/{name}/SKILL.md"
 
@@ -750,11 +765,10 @@ class SkillManager:
             archive_skill_name = None
             if skill_name_hint is not None:
                 archive_skill_name = _normalize_skill_name(skill_name_hint)
-                if archive_skill_name and (
-                    archive_skill_name in {".", ".."}
-                    or not _SKILL_NAME_RE.fullmatch(archive_skill_name)
-                ):
-                    raise ValueError("Invalid skill name.")
+                if archive_skill_name:
+                    _resolve_skill_install_destination(
+                        self.skills_root, archive_skill_name
+                    )
 
             for name in names:
                 if not name:
@@ -786,7 +800,9 @@ class SkillManager:
                     else:
                         target_name = candidate_name
 
-                    dest_dir = Path(self.skills_root) / target_name
+                    dest_dir = _resolve_skill_install_destination(
+                        self.skills_root, target_name
+                    )
                     if dest_dir.exists():
                         conflict_dirs.append(str(dest_dir))
 
@@ -808,8 +824,6 @@ class SkillManager:
                     archive_hint = _normalize_skill_name(
                         archive_skill_name or zip_path_obj.stem
                     )
-                    if not archive_hint or not _SKILL_NAME_RE.fullmatch(archive_hint):
-                        raise ValueError("Invalid skill name.")
                     skill_name = archive_hint
 
                     src_dir = Path(tmp_dir)
@@ -819,7 +833,9 @@ class SkillManager:
                             "SKILL.md not found in the root of the zip archive."
                         )
 
-                    dest_dir = Path(self.skills_root) / skill_name
+                    dest_dir = _resolve_skill_install_destination(
+                        self.skills_root, skill_name
+                    )
                     if dest_dir.exists() and overwrite:
                         shutil.rmtree(dest_dir)
                     elif dest_dir.exists() and not overwrite:
@@ -860,7 +876,9 @@ class SkillManager:
                         if normalized_path is None:
                             continue
 
-                        dest_dir = Path(self.skills_root) / skill_name
+                        dest_dir = _resolve_skill_install_destination(
+                            self.skills_root, skill_name
+                        )
                         if dest_dir.exists():
                             if not overwrite:
                                 raise FileExistsError(

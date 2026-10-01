@@ -16,21 +16,27 @@ from astrbot.core.utils.io import ensure_dir, remove_dir
 
 from ..star.star import StarMetadata
 from ..updator import RepoZipUpdator
+from ..zip_updator import _ArchivePathNode
 
 _PLUGIN_METADATA_MAX_BYTES = 1024 * 1024
 _PLUGIN_METADATA_REQUIRED_FIELDS = ("name", "desc", "version", "author")
 _PLUGIN_METADATA_FILENAMES = ("metadata.yaml", "metadata.yml")
 _PLUGIN_ARCHIVE_MAX_ENTRIES = 20_000
+_PLUGIN_ARCHIVE_MAX_PATH_LENGTH = 4096
+_PLUGIN_ARCHIVE_MAX_PATH_DEPTH = 128
+_PLUGIN_ARCHIVE_MAX_TOTAL_PATH_LENGTH = 16 * 1024 * 1024
+_PLUGIN_ARCHIVE_MAX_PATH_NODES = 100_000
 _PLUGIN_ARCHIVE_MAX_FILE_SIZE = 128 * 1024 * 1024
 _PLUGIN_ARCHIVE_MAX_TOTAL_SIZE = 512 * 1024 * 1024
+_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE = 512 * 1024 * 1024
 _ARCHIVE_COPY_CHUNK_SIZE = 64 * 1024
 _WINDOWS_RESERVED_NAMES = {
     "con",
     "prn",
     "aux",
     "nul",
-    *(f"com{index}" for index in range(1, 10)),
-    *(f"lpt{index}" for index in range(1, 10)),
+    *(f"com{digit}" for digit in "123456789\u00b9\u00b2\u00b3"),
+    *(f"lpt{digit}" for digit in "123456789\u00b9\u00b2\u00b3"),
 }
 
 
@@ -93,9 +99,18 @@ class PluginUpdator(RepoZipUpdator):
         plugin_path = os.path.join(self.plugin_store_path, repo_name)
         if download_url:
             logger.info(f"Downloading plugin archive for {repo_name}: {download_url}")
-            await self._download_file(download_url, plugin_path + ".zip")
+            await self._download_file(
+                download_url,
+                plugin_path + ".zip",
+                max_size=_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE,
+            )
         else:
-            await self.download_from_repo_url(plugin_path, repo_url, proxy)
+            await self.download_from_repo_url(
+                plugin_path,
+                repo_url,
+                proxy,
+                max_size=_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE,
+            )
         await self.unzip_file_async(plugin_path + ".zip", plugin_path)
 
         return plugin_path
@@ -150,12 +165,17 @@ class PluginUpdator(RepoZipUpdator):
         )
         try:
             if download_url:
-                await self._download_file(download_url, archive_path)
+                await self._download_file(
+                    download_url,
+                    archive_path,
+                    max_size=_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE,
+                )
             else:
                 await self.download_from_repo_url(
                     os.path.join(staging_dir, "archive"),
                     repo_url,
                     proxy=proxy,
+                    max_size=_PLUGIN_ARCHIVE_MAX_DOWNLOAD_SIZE,
                 )
 
             archive_plugin_name = await self._run_archive_io_in_thread(
@@ -470,13 +490,21 @@ class PluginUpdator(RepoZipUpdator):
             raise ValueError("Plugin archive contains too many entries.")
 
         target_root = os.path.abspath(target_dir)
-        explicit_paths: set[str] = set()
-        path_kinds: dict[str, str] = {}
-        path_spellings: dict[str, str] = {}
+        path_tree = _ArchivePathNode()
+        path_node_count = 1
+        total_path_length = 0
         declared_total_size = 0
         for member in members:
             name = member.filename
+            if len(name) > _PLUGIN_ARCHIVE_MAX_PATH_LENGTH:
+                raise ValueError(f"Plugin archive path is too long: {name!r}")
+            total_path_length += len(name)
+            if total_path_length > _PLUGIN_ARCHIVE_MAX_TOTAL_PATH_LENGTH:
+                raise ValueError("Plugin archive contains too much path data.")
+
             parts = cls._archive_member_parts(name, member.is_dir())
+            if len(parts) > _PLUGIN_ARCHIVE_MAX_PATH_DEPTH:
+                raise ValueError(f"Plugin archive path is too deep: {name!r}")
             path = os.path.abspath(os.path.join(target_root, *parts))
             try:
                 common_path = os.path.commonpath([target_root, path])
@@ -494,36 +522,36 @@ class PluginUpdator(RepoZipUpdator):
             if member.is_dir() != (file_type == stat.S_IFDIR) and file_type:
                 raise ValueError(f"Invalid plugin archive entry type: {name!r}")
 
-            canonical_parts = [part.casefold() for part in parts]
-            canonical_path = "/".join(canonical_parts)
-            if canonical_path in explicit_paths:
-                raise ValueError(
-                    f"Plugin archive contains duplicate or case-colliding paths: {name!r}"
-                )
-            explicit_paths.add(canonical_path)
-
-            for index in range(1, len(parts) + 1):
-                canonical_prefix = "/".join(canonical_parts[:index])
-                spelling = "/".join(parts[:index])
-                previous_spelling = path_spellings.get(canonical_prefix)
-                if previous_spelling is not None and previous_spelling != spelling:
-                    raise ValueError(
-                        f"Plugin archive contains case-colliding paths: {name!r}"
-                    )
-                path_spellings.setdefault(canonical_prefix, spelling)
-
-            kind = "directory" if member.is_dir() else "file"
-            for index in range(1, len(canonical_parts)):
-                parent = "/".join(canonical_parts[:index])
-                if path_kinds.get(parent) == "file":
+            node = path_tree
+            for part in parts:
+                if node.kind == "file":
                     raise ValueError(
                         f"Plugin archive path conflicts with a file: {name!r}"
                     )
-                path_kinds.setdefault(parent, "directory")
-            existing_kind = path_kinds.get(canonical_path)
-            if existing_kind and existing_kind != kind:
+                key = part.casefold()
+                child = node.children.get(key)
+                if child is None:
+                    if path_node_count >= _PLUGIN_ARCHIVE_MAX_PATH_NODES:
+                        raise ValueError("Plugin archive contains too many path nodes.")
+                    child = _ArchivePathNode(spelling=part)
+                    node.children[key] = child
+                    path_node_count += 1
+                elif child.spelling != part:
+                    raise ValueError(
+                        f"Plugin archive contains case-colliding paths: {name!r}"
+                    )
+                node = child
+
+            kind = "directory" if member.is_dir() else "file"
+            if node.kind and node.kind != kind:
                 raise ValueError(f"Plugin archive path has conflicting types: {name!r}")
-            path_kinds[canonical_path] = kind
+            if node.kind:
+                raise ValueError(f"Plugin archive contains duplicate paths: {name!r}")
+            if kind == "file" and node.children:
+                raise ValueError(
+                    f"Plugin archive path conflicts with a directory: {name!r}"
+                )
+            node.kind = kind
 
             if member.file_size < 0:
                 raise ValueError(f"Plugin archive member has an invalid size: {name!r}")
@@ -574,6 +602,9 @@ class PluginUpdator(RepoZipUpdator):
         allow_legacy_metadata: bool = False,
     ) -> str | None:
         try:
+            entry_count = cls._read_archive_entry_count(zip_path)
+            if entry_count is not None and entry_count > _PLUGIN_ARCHIVE_MAX_ENTRIES:
+                raise ValueError("Plugin archive contains too many entries.")
             with zipfile.ZipFile(zip_path, "r") as archive:
                 cls._validate_archive_member_paths(archive, target_dir)
                 entries = archive.namelist()

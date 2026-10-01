@@ -1,3 +1,29 @@
+plugin_archive_update_review:
+  date: '2026-10-01'
+  class: bugfix
+  risk: high
+  status: committed
+  scope: >-
+    Review the committed plugin archive update transaction, cap plugin archive
+    downloads by advertised and actual bytes, replace quadratic archive-root
+    member scanning with a linear path trie, and bound core updater archive
+    download and extraction while preserving existing root selection.
+  non_goals: >-
+    Do not introduce per-plugin dependency environments, roll back global
+    site-packages mutations, or modify unrelated dirty files.
+  validation: >-
+    The prior focused updater, plugin manager, and plugin transaction test run
+    reported 73 passing; tests were not rerun this turn per user preference.
+    Scoped Ruff check/format, py_compile, and git diff --check passed. An isolated
+    runtime ZIP smoke accepted valid core/plugin archives, rejected traversal,
+    over-deep paths, 20,001 actual entries, oversized central directories, and
+    forged EOCD counts, rejected all six COM/LPT superscript aliases, and verified
+    core archive root placement.
+    No remote update, live plugin load, or application restart was run.
+    Dependency installation still changes the shared Python environment and is
+    not reversed if plugin loading later fails; per-plugin isolation remains
+    outside this task.
+
 dashboard_fastapi_migration:
   date: '2026-10-01'
   class: refactor

@@ -3,6 +3,7 @@ import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 import certifi
 import httpx
@@ -44,6 +45,8 @@ class _FakeStreamResponse:
 
 
 class _FakeFailingStreamResponse:
+    headers = {}
+
     async def __aenter__(self):
         return self
 
@@ -316,19 +319,30 @@ async def test_plugin_updator_install_prefers_download_url(
     updator = PluginUpdator()
     updator.plugin_store_path = str(tmp_path)
 
-    async def fake_download_file(url: str, path: str, timeout: float = 1800.0):  # noqa: ARG001
-        calls["download"] = (url, path)
+    async def fake_download_file(
+        url: str,
+        path: str,
+        timeout: float = 1800.0,
+        *,
+        max_size: int | None = None,
+    ):  # noqa: ARG001
+        calls["download"] = (url, path, max_size)
         Path(path).write_bytes(b"zip-data")
 
     async def fail_download_from_repo_url(*args, **kwargs):  # noqa: ARG001
         raise AssertionError("install should use download_url instead of GitHub")
 
-    def fake_unzip_file(zip_path: str, target_dir: str):
+    async def fake_unzip_file_async(
+        zip_path: str,
+        target_dir: str,
+        *,
+        allow_legacy_metadata: bool = False,
+    ):
         calls["unzip"] = (zip_path, target_dir)
 
     monkeypatch.setattr(updator, "_download_file", fake_download_file)
     monkeypatch.setattr(updator, "download_from_repo_url", fail_download_from_repo_url)
-    monkeypatch.setattr(updator, "unzip_file", fake_unzip_file)
+    monkeypatch.setattr(updator, "unzip_file_async", fake_unzip_file_async)
 
     plugin_path = await updator.install(
         "https://github.com/Owner/plugin-name",
@@ -341,6 +355,7 @@ async def test_plugin_updator_install_prefers_download_url(
     assert calls["download"] == (
         "https://cdn.example/plugin.zip",
         str(expected_path) + ".zip",
+        512 * 1024 * 1024,
     )
     assert calls["unzip"] == (str(expected_path) + ".zip", str(expected_path))
 
@@ -530,6 +545,37 @@ async def test_download_file_removes_partial_file_when_stream_fails(
 
 
 @pytest.mark.asyncio
+async def test_download_file_enforces_actual_size_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _OversizedAsyncClient(_FakeFailingStreamAsyncClient):
+        def stream(self, method: str, url: str):  # noqa: ARG002
+            response = _FakeStreamResponse(b"x" * 16)
+            response.headers = {"content-length": "4"}
+            return response
+
+    monkeypatch.setattr(
+        RepoZipUpdator,
+        "_create_httpx_client",
+        staticmethod(lambda timeout=30.0: _OversizedAsyncClient()),  # noqa: ARG005
+    )
+
+    updater = RepoZipUpdator()
+    updater.rm_on_error = True
+    target_path = tmp_path / "oversized.zip"
+
+    with pytest.raises(ValueError, match="exceeds the size limit"):
+        await updater._download_file(
+            "https://example.com/archive.zip",
+            str(target_path),
+            max_size=8,
+        )
+
+    assert not target_path.exists()
+
+
+@pytest.mark.asyncio
 async def test_download_file_logs_url_and_target_path_on_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -608,11 +654,22 @@ def test_plugin_unzip_file_normalizes_windows_extended_length_paths(
     import astrbot.core.zip_updator as zip_updator_module
 
     target_dir = r"\\?\C:\Users\admin\AppData\Local\AstrBot\data\plugins\demo"
+    updater = PluginUpdator.__new__(PluginUpdator)
+    monkeypatch.setattr(
+        updater,
+        "validate_plugin_archive",
+        lambda *args, **kwargs: "demo",
+    )
+    monkeypatch.setattr(
+        updater,
+        "_extract_archive_contents",
+        lambda archive, target: updater._resolve_archive_root_dir(archive.namelist()),
+    )
     captured = _exercise_unzip_file_windows_path_normalization(
         monkeypatch,
         updater_module=plugin_updator_module,
         zip_updator_module=zip_updator_module,
-        updater=PluginUpdator.__new__(PluginUpdator),
+        updater=updater,
         target_dir=target_dir,
         archive_root=archive_root,
         logger_method="info",
@@ -621,6 +678,38 @@ def test_plugin_unzip_file_normalizes_windows_extended_length_paths(
     _assert_unzip_file_windows_path_normalization(
         captured, target_dir=target_dir, archive_root=archive_root
     )
+
+
+@pytest.mark.parametrize(
+    "reserved_name",
+    [
+        "COM\u00b9",
+        "COM\u00b2",
+        "COM\u00b3",
+        "LPT\u00b9",
+        "LPT\u00b2",
+        "LPT\u00b3",
+    ],
+)
+def test_zip_updaters_reject_windows_device_name_aliases(
+    tmp_path: Path,
+    reserved_name: str,
+) -> None:
+    archive_path = tmp_path / "reserved-name.zip"
+    with ZipFile(archive_path, "w") as archive:
+        archive.writestr(
+            "repo/metadata.yaml",
+            "name: test_plugin\ndesc: test\nversion: 1.0.0\nauthor: test\n",
+        )
+        archive.writestr(f"repo/{reserved_name}", "device alias")
+
+    with pytest.raises(ValueError, match="Unsafe update archive path"):
+        RepoZipUpdator().unzip_file(str(archive_path), str(tmp_path / "core"))
+
+    with pytest.raises(ValueError, match="Unsafe plugin archive path"):
+        PluginUpdator.validate_plugin_archive(
+            str(archive_path), str(tmp_path / "plugin")
+        )
 
 
 @pytest.mark.parametrize(

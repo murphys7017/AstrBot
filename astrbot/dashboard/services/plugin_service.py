@@ -520,16 +520,13 @@ class PluginService(DashboardService):
             safe="",
         )
         if not asset_path:
-            return (
-                f"{route_prefix}/{encoded_plugin_name}/{encoded_page_name}/"
-            )
+            return f"{route_prefix}/{encoded_plugin_name}/{encoded_page_name}/"
         safe_asset_path = _normalize_plugin_page_asset_path(asset_path)
         encoded_path = "/".join(
             quote(part, safe="") for part in safe_asset_path.split("/")
         )
         return (
-            f"{route_prefix}/{encoded_plugin_name}/"
-            f"{encoded_page_name}/{encoded_path}"
+            f"{route_prefix}/{encoded_plugin_name}/{encoded_page_name}/{encoded_path}"
         )
 
     @staticmethod
@@ -1912,8 +1909,6 @@ class PluginService(DashboardService):
             await self.plugin_manager.update_plugin(
                 plugin_name, proxy, download_url=download_url
             )
-            # self.core_lifecycle.restart()
-            await self.plugin_manager.reload(plugin_name)
             await self._sync_skills_after_plugin_change()
             logger.info(f"更新插件 {plugin_name} 成功。")
             return Response().ok(None, "更新成功。").__dict__

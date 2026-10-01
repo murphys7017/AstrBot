@@ -55,6 +55,7 @@ class MockStar:
         self.root_dir_name = TEST_PLUGIN_DIR
         self.name = TEST_PLUGIN_NAME
         self.repo = TEST_PLUGIN_REPO
+        self.module_path = f"data.plugins.{TEST_PLUGIN_DIR}.main"
         self.reserved = False
         self.info = {"repo": TEST_PLUGIN_REPO, "readme": ""}
 
@@ -545,6 +546,15 @@ async def test_install_plugin_from_file_dependency_install_flow(
         _write_requirements(plugin_path)
 
     monkeypatch.setattr(plugin_manager_pm.updator, "unzip_file", mock_unzip_file)
+
+    async def mock_unzip_file_async(zip_path: str, target_dir: str) -> None:
+        mock_unzip_file(zip_path, target_dir)
+
+    monkeypatch.setattr(
+        plugin_manager_pm.updator,
+        "unzip_file_async",
+        mock_unzip_file_async,
+    )
     monkeypatch.setattr(
         "astrbot.core.star.star_manager.pip_installer.install",
         _build_dependency_install_mock(events, dependency_install_fails),
@@ -1137,12 +1147,35 @@ async def test_update_plugin_dependency_install_flow(
     _write_requirements(local_updator)
     events = []
     _mock_missing_requirements(monkeypatch, {"networkx"})
+    update_plan = SimpleNamespace(
+        staged_plugin_path=str(local_updator),
+        applied=False,
+    )
 
-    async def mock_update(plugin, proxy="", download_url=""):
+    async def mock_prepare_update(plugin, proxy="", download_url="", **kwargs):
         del proxy, download_url
+        assert kwargs["allow_legacy_metadata"] is False
         events.append(("update", plugin.name))
+        return update_plan
 
-    monkeypatch.setattr(plugin_manager_pm.updator, "update", mock_update)
+    monkeypatch.setattr(
+        plugin_manager_pm.updator, "prepare_update", mock_prepare_update
+    )
+    monkeypatch.setattr(
+        plugin_manager_pm.updator,
+        "apply_update",
+        lambda plan: events.append(("apply", plan.staged_plugin_path)),
+    )
+    monkeypatch.setattr(
+        plugin_manager_pm.updator,
+        "finalize_update",
+        lambda plan: events.append(("finalize", plan.staged_plugin_path)),
+    )
+    monkeypatch.setattr(
+        plugin_manager_pm.updator,
+        "cleanup_prepared_update",
+        lambda plan: None,
+    )
     monkeypatch.setattr(
         "astrbot.core.star.star_manager.pip_installer.install",
         _build_dependency_install_mock(events, dependency_install_fails),
@@ -1151,6 +1184,11 @@ async def test_update_plugin_dependency_install_flow(
         plugin_manager_pm,
         "_reload_locked",
         _build_reload_mock(events),
+    )
+    monkeypatch.setattr(
+        plugin_manager_pm,
+        "load",
+        lambda *args, **kwargs: asyncio.sleep(0, result=(True, None)),
     )
 
     if dependency_install_fails:
@@ -1171,6 +1209,79 @@ async def test_update_plugin_dependency_install_flow(
             expected_content="networkx\n",
         )
         assert ("reload", TEST_PLUGIN_DIR) in events
+
+
+@pytest.mark.asyncio
+async def test_update_plugin_load_failure_restores_previous_plugin_directory(
+    plugin_manager_pm: PluginManager,
+    local_updator: Path,
+    monkeypatch,
+    tmp_path: Path,
+):
+    from astrbot.core.star.updator import PreparedPluginUpdate
+
+    manager = plugin_manager_pm
+    manager.updator.plugin_store_path = manager.plugin_store_path
+    old_version_marker = local_updator / "version.txt"
+    old_version_marker.write_text("old", encoding="utf-8")
+    mock_star = MockStar()
+    cast(Any, manager.context).stars.append(mock_star)
+
+    staging_dir = tmp_path / "update-stage"
+    staged_plugin_path = staging_dir / "plugin"
+    staged_plugin_path.mkdir(parents=True)
+    (staged_plugin_path / "version.txt").write_text("new", encoding="utf-8")
+    plan = PreparedPluginUpdate(
+        plugin_path=str(local_updator),
+        staging_dir=str(staging_dir),
+        staged_plugin_path=str(staged_plugin_path),
+        backup_path=str(staging_dir / "previous"),
+    )
+
+    async def prepare_update(*args, **kwargs):
+        return plan
+
+    monkeypatch.setattr(manager.updator, "prepare_update", prepare_update)
+    monkeypatch.setattr(
+        manager, "_ensure_plugin_requirements", lambda *args: asyncio.sleep(0)
+    )
+    monkeypatch.setattr(manager, "_cleanup_plugin_state", lambda *args: None)
+    monkeypatch.setattr(
+        manager, "_remove_plugin_runtime_extensions", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(manager, "_find_plugin_by_module_path", lambda *args: None)
+
+    class _NoopDrain:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(manager, "_drain_plugin_execution", lambda *args: _NoopDrain())
+
+    async def unload_plugin(*args, **kwargs):
+        cast(Any, manager.context).stars.clear()
+
+    monkeypatch.setattr(manager, "_reload_locked", unload_plugin)
+    load_calls = 0
+
+    async def load_plugin(*args, **kwargs):
+        nonlocal load_calls
+        load_calls += 1
+        if load_calls == 1:
+            return False, "new plugin initialization failed"
+        cast(Any, manager.context).stars.append(MockStar())
+        return True, None
+
+    monkeypatch.setattr(manager, "load", load_plugin)
+
+    with pytest.raises(RuntimeError, match="Updated plugin failed to load"):
+        await manager.update_plugin(TEST_PLUGIN_NAME)
+
+    assert old_version_marker.read_text(encoding="utf-8") == "old"
+    assert load_calls == 2
+    assert manager.context.get_registered_star(TEST_PLUGIN_NAME) is not None
 
 
 @pytest.mark.asyncio
@@ -1643,9 +1754,7 @@ async def test_repeated_plugin_loads_bind_current_instance_once(
         assert await event_handler.handler("event") == (metadata.star_cls, "event")
         assert await plugin_tool.handler("query") == (metadata.star_cls, "query")
 
-        success, error = await plugin_manager_pm.load(
-            specified_module_path=module_path
-        )
+        success, error = await plugin_manager_pm.load(specified_module_path=module_path)
         assert success is True
         assert error is None
         assert isinstance(event_handler.handler, functools.partial)
