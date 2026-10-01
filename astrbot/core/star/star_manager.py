@@ -290,6 +290,15 @@ class PluginManager:
         dirs = os.listdir(path)
         # 遍历文件夹，找到 main.py 或者和文件夹同名的文件
         for d in dirs:
+            if d.startswith(
+                (
+                    ".plugin-install-",
+                    ".plugin-upload-",
+                    ".plugin-backup-",
+                    ".plugin-update-",
+                )
+            ):
+                continue
             if os.path.isdir(os.path.join(path, d)):
                 if os.path.exists(os.path.join(path, d, "main.py")):
                     module_str = "main"
@@ -474,8 +483,16 @@ class PluginManager:
             return __import__(path, fromlist=[module_str])
 
     @staticmethod
+    def _find_plugin_metadata_path(plugin_path: str) -> str | None:
+        for filename in ("metadata.yaml", "metadata.yml"):
+            metadata_path = os.path.join(plugin_path, filename)
+            if os.path.isfile(metadata_path):
+                return metadata_path
+        return None
+
+    @staticmethod
     def _load_plugin_metadata(plugin_path: str, plugin_obj=None) -> StarMetadata | None:
-        """先寻找 metadata.yaml 文件，如果不存在，则使用插件对象的 info() 函数获取元数据。
+        """先寻找 YAML 元数据文件，如果不存在，则使用插件对象的 info() 函数获取元数据。
 
         Notes: 旧版本 AstrBot 插件可能使用的是 info() 函数来获取元数据。
         """
@@ -484,9 +501,10 @@ class PluginManager:
         if not os.path.exists(plugin_path):
             raise Exception("插件不存在。")
 
-        if os.path.exists(os.path.join(plugin_path, "metadata.yaml")):
+        metadata_path = PluginManager._find_plugin_metadata_path(plugin_path)
+        if metadata_path:
             with open(
-                os.path.join(plugin_path, "metadata.yaml"),
+                metadata_path,
                 encoding="utf-8",
             ) as f:
                 metadata = yaml.safe_load(f)
@@ -608,32 +626,34 @@ class PluginManager:
     def _validate_importable_name(plugin_name: str) -> None:
         if "/" in plugin_name or "\\" in plugin_name:
             raise ValueError(
-                "metadata.yaml 中 name 含有路径分隔符，不可用于 importlib 加载。"
+                "插件元数据中的 name 含有路径分隔符，不可用于 importlib 加载。"
             )
         if not plugin_name.isidentifier() or keyword.iskeyword(plugin_name):
             raise Exception(
-                "metadata.yaml 中 name 不是合法的模块名称（应为合法 Python 标识符且非关键字）。"
+                "插件元数据中的 name 不是合法的模块名称（应为合法 Python 标识符且非关键字）。"
             )
 
     @staticmethod
     def _get_plugin_dir_name_from_metadata(plugin_path: str) -> str:
-        metadata_path = os.path.join(plugin_path, "metadata.yaml")
-        if not os.path.exists(metadata_path):
-            raise Exception("未找到 metadata.yaml，无法获取插件目录名。")
+        metadata_path = PluginManager._find_plugin_metadata_path(plugin_path)
+        if not metadata_path:
+            raise Exception(
+                "未找到 metadata.yaml 或 metadata.yml，无法获取插件目录名。"
+            )
 
         with open(metadata_path, encoding="utf-8") as f:
             metadata = yaml.safe_load(f)
 
         if not isinstance(metadata, dict):
-            raise Exception("metadata.yaml 格式错误。")
+            raise Exception(f"{os.path.basename(metadata_path)} 格式错误。")
 
         plugin_name = metadata.get("name")
         if not isinstance(plugin_name, str) or not plugin_name.strip():
-            raise Exception("metadata.yaml 中缺少 name 字段。")
+            raise Exception(f"{os.path.basename(metadata_path)} 中缺少 name 字段。")
 
         plugin_dir_name = PluginManager._normalize_plugin_dir_name(plugin_name)
         if not plugin_dir_name:
-            raise Exception("metadata.yaml 中 name 字段内容非法。")
+            raise Exception(f"{os.path.basename(metadata_path)} 中 name 字段内容非法。")
         PluginManager._validate_importable_name(plugin_dir_name)
         return plugin_dir_name
 
@@ -915,10 +935,7 @@ class PluginManager:
                 if smd.name == specified_plugin_name:
                     specified_module_path = smd.module_path
                     break
-            if (
-                specified_module_path is None
-                and pre_drained_module_path is not None
-            ):
+            if specified_module_path is None and pre_drained_module_path is not None:
                 raise RuntimeError(
                     f"更新中的插件 {specified_plugin_name} 已从注册表消失。"
                 )
@@ -1848,9 +1865,7 @@ class PluginManager:
                 continue
             handler = getattr(func_tool, "handler", None)
             handler_module = (
-                getattr(handler, "__module__", None)
-                if handler is not None
-                else None
+                getattr(handler, "__module__", None) if handler is not None else None
             )
             candidates = [mp, handler_module]
             if any(
@@ -1859,10 +1874,7 @@ class PluginManager:
                 and (
                     candidate == plugin_module_path
                     or candidate.startswith(f"{plugin_module_path}.")
-                    or (
-                        module_prefix
-                        and candidate.startswith(f"{module_prefix}.")
-                    )
+                    or (module_prefix and candidate.startswith(f"{module_prefix}."))
                 )
                 for candidate in candidates
             ):
@@ -1945,39 +1957,199 @@ class PluginManager:
         self.context.unregister_persona_effects(module_prefix=module_prefix)
         self.context.remove_runtime_observation_sensors_by_module_prefix(module_prefix)
 
+    def _find_plugin_by_module_path(self, module_path: str | None):
+        if not module_path:
+            return None
+        return next(
+            (
+                plugin
+                for plugin in self.context.get_all_stars()
+                if plugin.module_path == module_path
+            ),
+            None,
+        )
+
+    async def _restore_plugin_after_failed_update(
+        self,
+        plugin: StarMetadata,
+        update_plan,
+    ) -> None:
+        module_path = plugin.module_path
+        root_dir_name = plugin.root_dir_name
+        if not module_path or not root_dir_name:
+            raise RuntimeError(
+                "Cannot restore the plugin without its module and directory names."
+            )
+
+        async with self._drain_plugin_execution(module_path):
+            partially_loaded_plugin = self._find_plugin_by_module_path(module_path)
+            if partially_loaded_plugin:
+                try:
+                    await self._terminate_plugin(partially_loaded_plugin)
+                except Exception:
+                    logger.warning(
+                        "Failed to terminate partially loaded plugin %s during update rollback",
+                        partially_loaded_plugin.name,
+                        exc_info=True,
+                    )
+                if module_path in star_map:
+                    try:
+                        await self._unbind_plugin_after_drain(
+                            partially_loaded_plugin.name
+                            or plugin.name
+                            or root_dir_name,
+                            module_path,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to unbind partially loaded plugin %s during update rollback",
+                            root_dir_name,
+                            exc_info=True,
+                        )
+
+            self._cleanup_plugin_state(root_dir_name)
+            self._remove_plugin_runtime_extensions(
+                module_path.rsplit(".", 1)[0],
+                plugin_name=plugin.name,
+            )
+            if update_plan.applied or update_plan.backup_created:
+                self.updator.rollback_update(update_plan)
+
+        success, error = await self.load(module_path)
+        restored_plugin = next(
+            (
+                item
+                for item in self.context.get_all_stars()
+                if item.root_dir_name == root_dir_name
+            ),
+            None,
+        )
+        if (
+            not success
+            or restored_plugin is None
+            or restored_plugin.name != plugin.name
+        ):
+            detail = (
+                error
+                or "the previous plugin did not register with its original identity"
+            )
+            raise RuntimeError(
+                f"The previous plugin version was restored on disk but could not be loaded: {detail}"
+            )
+
+        self.failed_plugin_dict.pop(root_dir_name, None)
+        self._rebuild_failed_plugin_info()
+
     async def update_plugin(
         self, plugin_name: str, proxy="", download_url: str = ""
     ) -> None:
-        """升级一个插件"""
+        """Upgrade a plugin, retaining its previous version until the new one loads."""
         async with self._pm_lock:
             plugin = self.context.get_registered_star(plugin_name)
             if not plugin:
                 raise Exception("插件不存在。")
             if plugin.reserved:
                 raise Exception("该插件是 AstrBot 保留插件，无法更新。")
+            if not plugin.module_path or not plugin.root_dir_name:
+                raise Exception("插件缺少模块路径或目录名，无法安全更新。")
 
-            plugin_module_path = getattr(plugin, "module_path", None)
-            async with self._drain_plugin_execution(plugin_module_path):
-                await self.updator.update(
-                    plugin,
-                    proxy=proxy,
-                    download_url=download_url,
-                )
-                if plugin.root_dir_name:
-                    plugin_dir_path = os.path.join(
-                        self.plugin_store_path,
-                        plugin.root_dir_name,
+            plugin_snapshot = StarMetadata(
+                name=plugin.name,
+                repo=plugin.repo,
+                root_dir_name=plugin.root_dir_name,
+            )
+            original_module_path = plugin.module_path
+            original_root_dir_name = plugin.root_dir_name
+            original_name = plugin.name
+            plugin_dir_path = os.path.join(
+                self.plugin_store_path,
+                original_root_dir_name,
+            )
+            allow_legacy_metadata = not any(
+                os.path.isfile(os.path.join(plugin_dir_path, filename))
+                for filename in ("metadata.yaml", "metadata.yml")
+            )
+
+        update_plan = await self.updator.prepare_update(
+            plugin_snapshot,
+            proxy=proxy,
+            download_url=download_url,
+            allow_legacy_metadata=allow_legacy_metadata,
+        )
+        try:
+            async with self._pm_lock:
+                current_plugin = self.context.get_registered_star(plugin_name)
+                if current_plugin is not plugin:
+                    raise RuntimeError(
+                        "The plugin changed while its update was being prepared; retry the update."
                     )
-                    await self._ensure_plugin_requirements(
-                        plugin_dir_path,
-                        plugin_name,
+
+                old_plugin_unloaded = False
+                try:
+                    async with self._drain_plugin_execution(original_module_path):
+                        await self._ensure_plugin_requirements(
+                            update_plan.staged_plugin_path,
+                            plugin_name,
+                        )
+                        old_plugin_unloaded = True
+                        await self._reload_locked(
+                            plugin_name,
+                            pre_drained_module_path=original_module_path,
+                            defer_load=True,
+                        )
+                        if not getattr(plugin, "activated", True):
+                            # Disabled plugins are not unbound by the normal reload path.
+                            self._cleanup_plugin_state(original_root_dir_name)
+                            self._remove_plugin_runtime_extensions(
+                                original_module_path.rsplit(".", 1)[0],
+                                plugin_name=original_name,
+                            )
+                        self.updator.apply_update(update_plan)
+
+                    success, error = await self.load(original_module_path)
+                    updated_plugin = next(
+                        (
+                            item
+                            for item in self.context.get_all_stars()
+                            if item.root_dir_name == original_root_dir_name
+                        ),
+                        None,
                     )
-                await self._reload_locked(
-                    plugin_name,
-                    pre_drained_module_path=plugin_module_path,
-                    defer_load=True,
-                )
-            await self.load(plugin_module_path)
+                    if (
+                        not success
+                        or updated_plugin is None
+                        or updated_plugin.name != original_name
+                    ):
+                        detail = (
+                            error
+                            or "the updated plugin did not register with its original identity"
+                        )
+                        raise RuntimeError(f"Updated plugin failed to load: {detail}")
+
+                    self.failed_plugin_dict.pop(original_root_dir_name, None)
+                    self._rebuild_failed_plugin_info()
+                    self.updator.finalize_update(update_plan)
+                except BaseException as update_error:
+                    if old_plugin_unloaded:
+                        try:
+                            await self._restore_plugin_after_failed_update(
+                                plugin,
+                                update_plan,
+                            )
+                        except BaseException as restore_error:
+                            if isinstance(update_error, asyncio.CancelledError):
+                                logger.critical(
+                                    "Plugin update was cancelled and rollback failed: %s",
+                                    restore_error,
+                                    exc_info=True,
+                                )
+                                raise update_error
+                            raise RuntimeError(
+                                f"Plugin update failed ({update_error}); restoring the previous version also failed ({restore_error})."
+                            ) from restore_error
+                    raise
+        finally:
+            self.updator.cleanup_prepared_update(update_plan)
 
     async def turn_off_plugin(self, plugin_name: str) -> None:
         """禁用一个插件。
@@ -2007,10 +2179,9 @@ class PluginManager:
             # 禁用插件启用的 llm_tool
             for func_tool in llm_tools.func_list:
                 mp = func_tool.handler_module_path
-                if (
-                    self._tool_belongs_to_plugin(mp, plugin.module_path)
-                    and not mp.endswith(("astrbot.builtin_stars", "data.plugins"))
-                ):
+                if self._tool_belongs_to_plugin(
+                    mp, plugin.module_path
+                ) and not mp.endswith(("astrbot.builtin_stars", "data.plugins")):
                     func_tool.active = False
                     if func_tool.name not in inactivated_llm_tools:
                         inactivated_llm_tools.append(func_tool.name)
@@ -2070,11 +2241,7 @@ class PluginManager:
                     f"hook(on_plugin_unloaded) -> {owner.name if owner is not None else owner_module_path} - {handler.handler_name}",
                 )
                 runtime = getattr(self, "plugin_execution_runtime", None)
-                if (
-                    runtime is not None
-                    and not runtime.is_closed
-                    and owner_module_path
-                ):
+                if runtime is not None and not runtime.is_closed and owner_module_path:
                     await runtime.run_foreground_call(
                         (owner_module_path,),
                         lambda: handler.handler(star_metadata),
@@ -2120,13 +2287,16 @@ class PluginManager:
     ):
         dir_name = os.path.splitext(os.path.basename(zip_file_path))[0]
         desti_dir = tempfile.mkdtemp(
-            dir=self.plugin_store_path, prefix="plugin_upload_"
+            dir=self.plugin_store_path, prefix=".plugin-upload-"
         )
         temp_desti_dir = desti_dir
         skip_failed_tracking = False
 
         try:
-            self.updator.unzip_file(zip_file_path, desti_dir)
+            await self.updator.unzip_file_async(
+                zip_file_path,
+                desti_dir,
+            )
             metadata_dir_name = self._get_plugin_dir_name_from_metadata(desti_dir)
             target_plugin_path = os.path.join(
                 self.plugin_store_path,
