@@ -65,6 +65,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
+import { useProviderModelSelection } from '@/composables/useProviderModelSelection';
 
 interface ModelMetadata {
     modalities?: { input?: string[] };
@@ -81,7 +82,8 @@ interface ProviderConfig {
 }
 
 const providerConfigs = ref<ProviderConfig[]>([]);
-const selectedProviderId = ref('');
+const { selectedProviderId, selectedModelName, setSelection } =
+    useProviderModelSelection();
 const searchQuery = ref('');
 const menuOpen = ref(false);
 
@@ -95,19 +97,6 @@ const filteredProviders = computed(() => {
         p.model.toLowerCase().includes(query)
     );
 });
-
-function loadFromStorage() {
-    const savedProvider = localStorage.getItem('selectedProvider');
-    if (savedProvider) {
-        selectedProviderId.value = savedProvider;
-    }
-}
-
-function saveToStorage() {
-    if (selectedProviderId.value) {
-        localStorage.setItem('selectedProvider', selectedProviderId.value);
-    }
-}
 
 function loadProviderConfigs() {
     axios.get('/api/config/provider/list', {
@@ -125,8 +114,7 @@ function loadProviderConfigs() {
 }
 
 function selectProvider(provider: ProviderConfig) {
-    selectedProviderId.value = provider.id;
-    saveToStorage();
+    setSelection(provider.id, provider.model || '');
 }
 
 function supportsImageInput(provider: ProviderConfig): boolean {
@@ -151,7 +139,7 @@ function getCurrentSelection() {
     const provider = providerConfigs.value.find(p => p.id === selectedProviderId.value);
     return {
         providerId: selectedProviderId.value,
-        modelName: provider?.model || ''
+        modelName: selectedModelName.value || provider?.model || ''
     };
 }
 
@@ -163,7 +151,6 @@ function handleMenuToggle(isOpen: boolean) {
 }
 
 onMounted(() => {
-    loadFromStorage();
     loadProviderConfigs();
 });
 

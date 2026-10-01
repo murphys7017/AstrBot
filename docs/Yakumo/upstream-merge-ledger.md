@@ -1721,6 +1721,27 @@ Validation:
 - Dashboard typecheck and production build passed. No high-volume live trace
   history replay was performed.
 
+## 2026-10-01 Per-Session Provider Selection
+
+Reviewed upstream reference: `bc45a6d24` (`#10301`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- Provider selection state is shared across mounted chat input menus while
+  preserving the existing `selectedProvider` local-storage key. The selected
+  model uses the existing `selectedProviderModel` key as an optional override.
+- ChatUI stores the chosen provider/model per session when selection changes,
+  sends a message, or regenerates a response, then restores it when returning to
+  that session.
+- Project switching already focused the input in this fork, so that upstream
+  behavior required no duplicate change.
+
+Validation:
+
+- Dashboard typecheck and production build passed. No live multi-session model
+  switching was exercised in the running application.
+
 ## 2026-10-01 Dashboard Bind Environment Precedence
 
 Reviewed upstream reference: `774cc9498` (`#10095`), against the refreshed

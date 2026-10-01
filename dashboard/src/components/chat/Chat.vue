@@ -553,6 +553,7 @@ import {
 import { useMediaHandling } from "@/composables/useMediaHandling";
 import { useRecording } from "@/composables/useRecording";
 import { useProjects } from "@/composables/useProjects";
+import { useProviderModelSelection } from "@/composables/useProviderModelSelection";
 import { useCustomizerStore } from "@/stores/customizer";
 import ProviderChatCompletionPanel from "@/components/provider/ProviderChatCompletionPanel.vue";
 import {
@@ -575,6 +576,11 @@ const { lgAndUp } = useDisplay();
 const customizer = useCustomizerStore();
 const { t } = useI18n();
 const { tm } = useModuleI18n("features/chat");
+const {
+  selectedProviderId: currentProviderId,
+  selectedModelName: currentModelName,
+  setSelection: setProviderSelection,
+} = useProviderModelSelection();
 const confirmDialog = useConfirmDialog();
 const toast = useToast();
 const { languageOptions, currentLanguage, switchLanguage, locale } =
@@ -791,6 +797,48 @@ const chatInputReplyTarget = computed(() =>
         selectedText: replyPreview(replyTarget.value.id, ""),
       },
 );
+
+const SESSION_PROVIDER_STORAGE_PREFIX = "chat.sessionProvider.";
+
+function readSessionProviderSelection(sessionId: string) {
+  try {
+    const raw = localStorage.getItem(SESSION_PROVIDER_STORAGE_PREFIX + sessionId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.providerId === "string" && parsed.providerId) {
+      return {
+        providerId: parsed.providerId,
+        modelName: typeof parsed.modelName === "string" ? parsed.modelName : "",
+      };
+    }
+  } catch {
+    // Ignore corrupted or unavailable local storage entries.
+  }
+  return null;
+}
+
+function writeSessionProviderSelection(
+  sessionId: string,
+  selection: { providerId?: string; modelName?: string } | null | undefined,
+) {
+  if (!sessionId || !selection?.providerId) return;
+  try {
+    localStorage.setItem(
+      SESSION_PROVIDER_STORAGE_PREFIX + sessionId,
+      JSON.stringify({
+        providerId: selection.providerId,
+        modelName: selection.modelName || "",
+      }),
+    );
+  } catch {
+    // Session model persistence must not block chat flows.
+  }
+}
+
+watch([currentProviderId, currentModelName], ([providerId, modelName]) => {
+  if (!currSessionId.value || !providerId) return;
+  writeSessionProviderSelection(currSessionId.value, { providerId, modelName });
+});
 
 provide("isDark", isDark);
 
@@ -1074,6 +1122,10 @@ async function selectSession(sessionId: string, pushRoute = true) {
   if (!loadedSessions[sessionId]) {
     await loadSessionMessages(sessionId);
   }
+  const storedSelection = readSessionProviderSelection(sessionId);
+  if (storedSelection) {
+    setProviderSelection(storedSelection.providerId, storedSelection.modelName);
+  }
   scrollToBottom();
   closeMobileSidebar();
   await focusChatInput();
@@ -1111,6 +1163,7 @@ async function sendCurrentMessage() {
     const messageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const outgoingParts = buildOutgoingParts(text);
     const selection = getSelectedProviderSelection();
+    writeSessionProviderSelection(sessionId, selection);
     const { userRecord, botRecord } = createLocalExchange({
       sessionId,
       messageId,
@@ -1229,6 +1282,7 @@ async function saveMessageEdit() {
 
     if (result.needsRegenerate && result.truncatedAfterMessage) {
       const selection = getSelectedProviderSelection();
+      writeSessionProviderSelection(currSessionId.value, selection);
       continueEditedMessage({
         sessionId: currSessionId.value,
         sourceRecord: target,
@@ -1262,6 +1316,7 @@ async function handleRegenerateMessage(
   if (!currSessionId.value || isUserMessage(message)) return;
   message.threads = [];
   const effectiveSelection = selection ?? getSelectedProviderSelection();
+  writeSessionProviderSelection(currSessionId.value, effectiveSelection);
   await regenerateMessage(
     currSessionId.value,
     message,
