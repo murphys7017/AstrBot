@@ -845,6 +845,7 @@ provide("isDark", isDark);
 const isTouchDevice = ref(false);
 let pointerMediaQuery: MediaQueryList | undefined;
 let sessionListResizeObserver: ResizeObserver | undefined;
+let autoScrollFrame: number | null = null;
 
 function syncTouchDevice() {
   isTouchDevice.value = pointerMediaQuery?.matches ?? false;
@@ -879,6 +880,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   pointerMediaQuery?.removeEventListener("change", syncTouchDevice);
   sessionListResizeObserver?.disconnect();
+  if (autoScrollFrame !== null) {
+    window.cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = null;
+  }
   cleanupMediaCache();
 });
 
@@ -1126,7 +1131,7 @@ async function selectSession(sessionId: string, pushRoute = true) {
   if (storedSelection) {
     setProviderSelection(storedSelection.providerId, storedSelection.modelName);
   }
-  scrollToBottom();
+  scrollToBottom(true);
   closeMobileSidebar();
   await focusChatInput();
 }
@@ -1174,7 +1179,7 @@ async function sendCurrentMessage() {
     draft.value = "";
     replyTarget.value = null;
     clearStaged({ revokeUrls: false });
-    scrollToBottom();
+    scrollToBottom(true);
 
     sendMessageStream({
       sessionId,
@@ -1290,7 +1295,7 @@ async function saveMessageEdit() {
         selectedProvider: selection?.providerId || "",
         selectedModel: selection?.modelName || "",
       });
-      scrollToBottom();
+      scrollToBottom(true);
     } else if (result.needsRegenerate) {
       const index = activeMessages.value.findIndex(
         (message) => String(message.id) === String(target.id),
@@ -1497,10 +1502,14 @@ function handleMessagesScroll() {
   shouldStickToBottom.value = distance < 80;
 }
 
-function scrollToBottom() {
-  nextTick(() => {
+function scrollToBottom(resumeFollowing = false) {
+  if (resumeFollowing) shouldStickToBottom.value = true;
+  if (!shouldStickToBottom.value || autoScrollFrame !== null) return;
+
+  autoScrollFrame = window.requestAnimationFrame(() => {
+    autoScrollFrame = null;
     const container = messagesContainer.value;
-    if (!container) return;
+    if (!container || !shouldStickToBottom.value) return;
     container.scrollTop = container.scrollHeight;
     shouldStickToBottom.value = true;
   });

@@ -1742,6 +1742,24 @@ Validation:
 - Dashboard typecheck and production build passed. No live multi-session model
   switching was exercised in the running application.
 
+## 2026-10-01 Chat Auto-Scroll Coalescing
+
+Reviewed upstream reference: `4d92a2cdd` (`#10271`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- Streaming and message-list updates now coalesce automatic scroll requests into
+  one animation-frame callback. The callback checks the current stick-to-bottom
+  state so a queued update does not pull the user down after they scroll upward.
+- Session switches, outgoing messages, and edit continuations explicitly resume
+  bottom-following; a pending frame is cancelled when the chat component unmounts.
+
+Validation:
+
+- Dashboard typecheck and production build passed. No live streaming or manual
+  scroll interaction was exercised in the running application.
+
 ## 2026-10-01 Dashboard Bind Environment Precedence
 
 Reviewed upstream reference: `774cc9498` (`#10095`), against the refreshed
