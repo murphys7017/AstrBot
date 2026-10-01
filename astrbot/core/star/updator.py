@@ -2,6 +2,7 @@ import asyncio
 import keyword
 import os
 import re
+import secrets
 import stat
 import tempfile
 import zipfile
@@ -16,7 +17,7 @@ from astrbot.core.utils.io import ensure_dir, remove_dir
 
 from ..star.star import StarMetadata
 from ..updator import RepoZipUpdator
-from ..zip_updator import _ArchivePathNode
+from ..zip_updator import _ArchivePathNode, _is_symlink_or_junction
 
 _PLUGIN_METADATA_MAX_BYTES = 1024 * 1024
 _PLUGIN_METADATA_REQUIRED_FIELDS = ("name", "desc", "version", "author")
@@ -38,6 +39,20 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"com{digit}" for digit in "123456789\u00b9\u00b2\u00b3"),
     *(f"lpt{digit}" for digit in "123456789\u00b9\u00b2\u00b3"),
 }
+
+
+def _create_plugin_archive_temp_file(directory: str) -> tuple[int, str]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    for _ in range(100):
+        path = os.path.join(
+            directory,
+            f".astrbot-plugin-update-{secrets.token_hex(8)}",
+        )
+        try:
+            return os.open(path, flags, 0o666), path
+        except FileExistsError:
+            continue
+    raise FileExistsError("Could not create a temporary plugin archive file.")
 
 
 @dataclass
@@ -412,35 +427,53 @@ class PluginUpdator(RepoZipUpdator):
                 ensure_dir(destination)
                 continue
 
+            existing_mode = None
+            try:
+                existing_stat = os.stat(destination, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                if stat.S_ISREG(existing_stat.st_mode):
+                    existing_mode = stat.S_IMODE(existing_stat.st_mode)
+
+            fd, temporary_path = _create_plugin_archive_temp_file(
+                os.path.dirname(destination)
+            )
             member_written = 0
-            with (
-                archive.open(member, "r") as source,
-                open(
-                    destination,
-                    "wb",
-                ) as target,
-            ):
-                while chunk := source.read(_ARCHIVE_COPY_CHUNK_SIZE):
-                    member_written += len(chunk)
-                    total_written += len(chunk)
-                    if member_written > _PLUGIN_ARCHIVE_MAX_FILE_SIZE:
-                        raise ValueError(
-                            f"Plugin archive member exceeds the size limit: {member.filename!r}"
-                        )
-                    if total_written > _PLUGIN_ARCHIVE_MAX_TOTAL_SIZE:
-                        raise ValueError("Plugin archive exceeds the total size limit.")
-                    if member_written > member.file_size:
-                        raise ValueError(
-                            f"Plugin archive member expands beyond its declared size: {member.filename!r}"
-                        )
-                    target.write(chunk)
-            if member_written != member.file_size:
-                raise ValueError(
-                    f"Plugin archive member size does not match its directory entry: {member.filename!r}"
-                )
-            mode = member.external_attr >> 16
-            if stat.S_ISREG(mode):
-                os.chmod(destination, stat.S_IMODE(mode) & 0o777)
+            try:
+                with (
+                    os.fdopen(fd, "wb") as target,
+                    archive.open(member, "r") as source,
+                ):
+                    while chunk := source.read(_ARCHIVE_COPY_CHUNK_SIZE):
+                        member_written += len(chunk)
+                        total_written += len(chunk)
+                        if member_written > _PLUGIN_ARCHIVE_MAX_FILE_SIZE:
+                            raise ValueError(
+                                f"Plugin archive member exceeds the size limit: {member.filename!r}"
+                            )
+                        if total_written > _PLUGIN_ARCHIVE_MAX_TOTAL_SIZE:
+                            raise ValueError(
+                                "Plugin archive exceeds the total size limit."
+                            )
+                        if member_written > member.file_size:
+                            raise ValueError(
+                                f"Plugin archive member expands beyond its declared size: {member.filename!r}"
+                            )
+                        target.write(chunk)
+                if member_written != member.file_size:
+                    raise ValueError(
+                        f"Plugin archive member size does not match its directory entry: {member.filename!r}"
+                    )
+                mode = member.external_attr >> 16
+                if stat.S_ISREG(mode):
+                    os.chmod(temporary_path, stat.S_IMODE(mode) & 0o777)
+                elif existing_mode is not None:
+                    os.chmod(temporary_path, existing_mode)
+                os.replace(temporary_path, destination)
+            finally:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
         return update_dir
 
     @staticmethod
@@ -580,16 +613,17 @@ class PluginUpdator(RepoZipUpdator):
         current = target_root
         for part in parts[:-1]:
             current = os.path.join(current, part)
-            if os.path.islink(current) or (
+            if _is_symlink_or_junction(current) or (
                 os.path.lexists(current) and not os.path.isdir(current)
             ):
                 raise ValueError(
-                    f"Plugin archive path traverses a non-directory: {current!r}"
+                    "Plugin archive path traverses a symbolic link, junction, "
+                    f"or non-directory: {current!r}"
                 )
             os.makedirs(current, exist_ok=True)
-        if os.path.islink(destination):
+        if _is_symlink_or_junction(destination):
             raise ValueError(
-                f"Plugin archive path targets a symbolic link: {destination!r}"
+                f"Plugin archive path targets a symbolic link or junction: {destination!r}"
             )
         return destination
 

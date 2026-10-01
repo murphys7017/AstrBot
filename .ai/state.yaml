@@ -1,3 +1,30 @@
+plugin_archive_windows_junction_followup:
+  date: '2026-10-02'
+  class: bugfix
+  risk: high
+  status: validated_pending_public_and_plugin_reload_acceptance
+  scope: >-
+    Reject Windows junctions as well as symbolic links throughout core and
+    plugin ZIP extraction. Write plugin archive files to same-directory
+    temporary files and atomically replace destinations so a pre-existing hard
+    link is not truncated through its external alias.
+  finding: >-
+    A Windows runtime reproduction showed that the prior core and plugin
+    extractors accepted an archive root redirected by a directory junction and
+    moved the external sentinel into the update target. Plugin root shortening
+    also made the extraction path differ from the path inspected during
+    validation.
+  validation: >-
+    After the fix, isolated Windows runtime checks rejected both junction cases
+    before changing external sentinels. A flat plugin archive replaced a
+    pre-existing hard-link path without changing its external target. A
+    GitHub-shaped loopback proxy exercised default HEAD archive URL construction,
+    plugin replacement/finalization, and traversal rejection with installed
+    plugin bytes and staging preserved. A core package applied only to a
+    temporary MAIN_PATH and retained its prior sentinel. Ruff check/format and
+    Python compilation passed. No test suite, public GitHub request, plugin
+    module load/reload, reboot, or production-data operation was performed.
+
 dashboard_auth_runtime_acceptance:
   date: '2026-10-01'
   class: validation

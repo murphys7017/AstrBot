@@ -39,6 +39,11 @@ _WINDOWS_RESERVED_NAMES = {
 }
 
 
+def _is_symlink_or_junction(path: str) -> bool:
+    is_junction = getattr(os.path, "isjunction", None)
+    return os.path.islink(path) or (is_junction is not None and is_junction(path))
+
+
 @dataclass(slots=True)
 class _ArchivePathNode:
     spelling: str | None = None
@@ -421,16 +426,17 @@ class RepoZipUpdator:
         current = target_root
         for part in parts[:-1]:
             current = os.path.join(current, part)
-            if os.path.islink(current) or (
+            if _is_symlink_or_junction(current) or (
                 os.path.lexists(current) and not os.path.isdir(current)
             ):
                 raise ValueError(
-                    f"Update archive path traverses a non-directory: {current!r}"
+                    "Update archive path traverses a symbolic link, junction, "
+                    f"or non-directory: {current!r}"
                 )
             os.makedirs(current, exist_ok=True)
-        if os.path.islink(destination):
+        if _is_symlink_or_junction(destination):
             raise ValueError(
-                f"Update archive path targets a symbolic link: {destination!r}"
+                f"Update archive path targets a symbolic link or junction: {destination!r}"
             )
         return destination
 

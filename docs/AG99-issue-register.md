@@ -143,7 +143,7 @@
 | G3 | ✓ confirmed | JWT secret 首次启动生成后写回配置文件。 | open |
 | G4 | ✓ implementation / ✓ isolated browser / △ UI action pending | 真实 Chromium 在 localhost 接受 `Secure; HttpOnly; SameSite=Strict` cookie，并以仅含 filename 的同源请求下载到预置备份；没有 token query。`BackupDialog` 按钮的实际点击流程与生产部署仍待验收。 | in_progress |
 | G5 | ✗ stale/incorrect | 当前默认 `secure` 是非 debug 且非 testing 时为 true。 | open |
-| G6 | △ implementation / △ live pending | 插件安装/更新、CLI 插件 ZIP、skill ZIP 与通用 core updater 均已在解包前校验成员路径；插件与 core 下载上限为 512 MiB，并限制中央目录（8 MiB）、实际条目数、路径复杂度及解压体积。隔离 ZIP 输入输出及 loopback 直链下载、换版、回滚/完成流程已通过；实际远程仓库更新、运行中插件加载与 core 更新应用仍待验收。 | in_progress |
+| G6 | ✓ implementation / ✓ isolated Windows runtime / △ public integration pending | 插件、CLI、skill 与 core ZIP 解包均限制成员路径和资源；Windows symlink/junction 会被拒绝，插件文件通过同目录临时文件原子替换。隔离运行验证了默认 `HEAD.zip` URL 构造与下载、插件换版、坏包保留旧版、core 包应用到临时安装根；公网 GitHub 跳转、运行中插件加载/回滚仍待验收。 | in_progress |
 | G7 | ✓/△ | 插件可访问数据库和 provider registry；这是可信插件模型下的能力，非传统沙箱。 | open |
 | G8 | △ partial | `ChatService.get_session` 当前已校验 `session.creator == username`，与上游 `041fba4df` 的修复一致；其他 Dashboard 配置接口是否需要租户隔离仍取决于产品模型。 | open |
 | G9 | ✗/△ | registry 有 clear/remove 路径，不能称为完全不可注销。 | open |
@@ -235,7 +235,7 @@ B1-B3、B5-B12、C1-C9。
 
 建议的实际处理顺序：
 
-1. **G6 ZIP 更新流程收口**：本地 loopback 直链更新、换版、回滚和完成流程已通过；再用隔离插件副本验证真实仓库归档、坏包保留旧版本，并在隔离环境验证 core 更新应用流程。
+1. **G6 ZIP 更新流程收口**：Windows junction 绕过已在 core 与插件解包入口复现并修复；本机代理上的默认 HEAD 归档更新、坏包保护及临时 core 更新应用已通过。仍需公网 GitHub 重定向和隔离插件真实加载/失败回滚验收。
 2. **G2/G4 Dashboard token 生命周期与传递**：隔离完整运行实例已验证改密/改用户名后 HTTP、WebSocket、备份旧 token 失效，真实浏览器 cookie 下载成功；仍需点击 `BackupDialog` 下载按钮并按部署方式验收。
 3. **B4 EventBus fixture 契约**：修正测试构造，让它提供真实 config selection；随后用一条真实消息/实际运行路径确认事件能到对应 pipeline。
 4. **A4/A9/A10 与 CI 去留**：先由用户决定是否恢复最小 CI；再统一依赖解析来源。不得把“所有 workflow 删除”记成 CI 修复。
@@ -243,8 +243,14 @@ B1-B3、B5-B12、C1-C9。
 6. **G1/G3/G10 与插件权限边界**：按部署威胁模型处理；API key 是高熵随机值，静态盐值得改但优先级低于会话/下载边界。
 7. **D/E/F/H 结构债**：不按行数批量拆分，选一个具体行为边界逐个收敛，并用真实应用流程验收。
 
-验证边界：本轮不运行测试套件。G2/G4 在新建 `ASTRBOT_ROOT` 的完整本地运行实例中通过改密码、改用户名、旧 HTTP/WS/备份 JWT 拒绝及浏览器 cookie 备份下载验收；生产环境未触碰，`BackupDialog` 按钮点击和生产部署仍待确认。启动时核心自动访问 `models.dev` 获取模型元数据。D18/G6 的 ZIP 成员边界与 loopback 直链下载、插件目录换版、失败回滚及成功完成已通过隔离运行；真实远程仓库更新、运行中插件加载与 core 更新应用流程仍待隔离环境验收，未验证前不标记 resolved。
+验证边界：本轮不运行测试套件。G2/G4 在新建 `ASTRBOT_ROOT` 的完整本地运行实例中通过改密码、改用户名、旧 HTTP/WS/备份 JWT 拒绝及浏览器 cookie 备份下载验收；生产环境未触碰，`BackupDialog` 按钮点击和生产部署仍待确认。启动时核心自动访问 `models.dev` 获取模型元数据。D18/G6 的 ZIP 成员边界、Windows junction 拒绝、同目录原子写、loopback 默认 HEAD 归档更新、插件坏包保留旧版及隔离 core 更新应用均已通过直接运行验证；公网 GitHub 跳转、运行中插件加载/失败回滚仍未验收，未验证前不标记 resolved。
 
 ## 2026-10-01 D16 分页吸收跟进
 
 已按上游 `2f7675140` 完成会话分页的本地适配：旧 `/api/chat/sessions` 调用仍返回原数组，新分页请求返回页数据；列表触底加载后续会话，失败可重试，深链接会话保留标题和选中态。定向后端测试、Python 检查、Dashboard 类型检查和生产构建通过。当前运行中的服务未重启，真实浏览器滚动行为留待服务更新后验收，因此 D16 暂记 `in_progress`。
+
+## 2026-10-02 G6 Windows Junction Follow-up
+
+Windows 隔离运行发现，`os.path.islink()` 不识别目录 junction。更新包根目录命中预置 junction 时，core 与插件解包都曾把外部 sentinel 移入更新目标；插件 commit-root 缩短还会让解包实际路径与前置校验路径不同。修复后，两条生产解包入口均通过 `os.path.isjunction()` 拒绝 junction，插件文件先写入同目录临时文件再 `os.replace`，同时避免覆盖硬链接时改写外部 inode。
+
+本轮直接运行验收通过：loopback GitHub 形状代理收到了默认 `HEAD.zip` 路径并返回归档，隔离插件更新成功；随后恶意归档被拒，已安装文件逐字节不变且 staging 清理。core 更新包应用到临时 `MAIN_PATH`，更新 marker 生效且旧 sentinel 保留。core 和插件 junction 归档均在外部 sentinel 改变前拒绝；平铺插件归档替换硬链接路径后，外部原文件保持不变。公网 GitHub 服务/重定向、运行中插件加载与失败回滚仍待验收；没有运行测试套件或重启当前服务。
