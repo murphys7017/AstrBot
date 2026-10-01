@@ -27,7 +27,7 @@ from tenacity import (
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.message_components import File, Image, Plain, Record, Video
+from astrbot.api.message_components import At, File, Image, Plain, Record, Video
 from astrbot.api.platform import AstrBotMessage, PlatformMetadata
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.io import download_image_by_url, file_to_base64
@@ -757,6 +757,10 @@ class QQOfficialMessageEvent(AstrMessageEvent):
         for i in message.chain:
             if isinstance(i, Plain):
                 plain_text += i.text
+            elif isinstance(i, At):
+                mention_id = str(i.qq) if i.qq else ""
+                if mention_id and mention_id != "all":
+                    plain_text += f'<qqbot-at-user id="{mention_id}" />'
             elif isinstance(i, Image) and not image_base64:
                 if i.file and i.file.startswith("file:"):
                     image_file_path = file_uri_to_path(i.file)

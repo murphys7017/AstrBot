@@ -1847,3 +1847,23 @@ Validation:
 
 - Package, runtime, and exported version values matched; targeted provider
   user-agent test, Python compilation, and `git diff --check` passed.
+
+## 2026-10-01 QQ Official Outbound Mentions
+
+Reviewed upstream reference: `e99432c87` (`#9705`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- Outbound `At` message components now serialize as QQ Official's
+  `<qqbot-at-user>` markup in component order. Empty IDs and the special `all`
+  target are omitted.
+- Incoming group mention normalization was not ported in this partial update:
+  the local qq-botpy `GroupMessage` model drops the `is_you` field needed to
+  reliably identify the bot mention. That parser-contract change needs its own
+  review.
+
+Validation:
+
+- Focused QQ mention serialization test, scoped Ruff, Python compilation, and
+  `git diff --check` passed. No live QQ API request was sent.
