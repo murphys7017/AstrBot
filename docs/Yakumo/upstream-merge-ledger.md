@@ -1703,3 +1703,20 @@ Validation:
   session can move across page boundaries while the list is being browsed and
   remain absent until refresh. The timestamp tie-breaker stabilizes equal sort
   values but does not provide a snapshot across page requests.
+
+## 2026-10-01 Trace Span Sorting Optimization
+
+Reviewed upstream reference: `9c6b603be` (`#10274`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- Trace updates now sort records only for spans touched by the incoming batch,
+  rather than sorting every span on each update.
+- Sorting happens before the existing maximum-item pruning so a large initial
+  history batch cannot leave removed span IDs in the touched set before lookup.
+
+Validation:
+
+- Dashboard typecheck and production build passed. No high-volume live trace
+  history replay was performed.
