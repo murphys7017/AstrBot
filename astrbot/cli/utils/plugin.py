@@ -1,8 +1,9 @@
 import shutil
+import stat
 import tempfile
 from enum import Enum
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from zipfile import ZipFile
 
 import click
@@ -10,6 +11,92 @@ import httpx
 import yaml
 
 from .version_comparator import VersionComparator
+
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
+
+
+def _get_archive_root_dir(archive: ZipFile) -> str:
+    roots: dict[str, str] = {}
+    explicit_paths: set[str] = set()
+    path_kinds: dict[str, str] = {}
+
+    for member in archive.infolist():
+        name = member.filename
+        windows_path = PureWindowsPath(name)
+        if (
+            not name
+            or "\x00" in name
+            or "\\" in name
+            or PurePosixPath(name).is_absolute()
+            or windows_path.root
+            or windows_path.drive
+        ):
+            raise ValueError(f"Unsafe plugin archive path: {name!r}")
+
+        parts = name.split("/")
+        if member.is_dir() and parts[-1] == "":
+            parts.pop()
+        while parts and parts[0] == ".":
+            parts.pop(0)
+        if not parts and member.is_dir():
+            continue
+        if not parts or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError(f"Unsafe plugin archive path: {name!r}")
+
+        for part in parts:
+            windows_basename = part.split(".", 1)[0].casefold()
+            if (
+                part.rstrip(" .") != part
+                or any(char in part for char in '<>:"|?*')
+                or any(ord(char) < 32 for char in part)
+                or windows_basename in _WINDOWS_RESERVED_NAMES
+            ):
+                raise ValueError(f"Unsafe plugin archive path: {name!r}")
+
+        mode = member.external_attr >> 16
+        file_type = stat.S_IFMT(mode)
+        if file_type == stat.S_IFLNK:
+            raise ValueError(f"Plugin archive symlink is not allowed: {name!r}")
+        if file_type not in (0, stat.S_IFREG, stat.S_IFDIR):
+            raise ValueError(f"Unsupported plugin archive entry type: {name!r}")
+        if file_type and member.is_dir() != (file_type == stat.S_IFDIR):
+            raise ValueError(f"Invalid plugin archive entry type: {name!r}")
+
+        normalized_path = "/".join(part.casefold() for part in parts)
+        if normalized_path in explicit_paths:
+            raise ValueError(f"Duplicate plugin archive path: {name!r}")
+        explicit_paths.add(normalized_path)
+
+        kind = "directory" if member.is_dir() else "file"
+        for index in range(1, len(parts)):
+            parent = "/".join(part.casefold() for part in parts[:index])
+            if path_kinds.get(parent) == "file":
+                raise ValueError(f"Plugin archive path conflicts with a file: {name!r}")
+            path_kinds.setdefault(parent, "directory")
+        existing_kind = path_kinds.get(normalized_path)
+        if existing_kind and existing_kind != kind:
+            raise ValueError(f"Plugin archive path has conflicting types: {name!r}")
+        path_kinds[normalized_path] = kind
+
+        root = parts[0]
+        canonical_root = root.casefold()
+        previous_root = roots.get(canonical_root)
+        if previous_root is not None and previous_root != root:
+            raise ValueError("Plugin archive contains case-colliding root directories.")
+        roots[canonical_root] = root
+        if len(parts) == 1 and not member.is_dir():
+            raise ValueError("Plugin archive root must be a directory.")
+
+    if len(roots) != 1:
+        raise ValueError("Plugin archive must contain exactly one root directory.")
+    return next(iter(roots.values()))
 
 
 class PluginStatus(str, Enum):
@@ -54,7 +141,7 @@ def get_git_repo(url: str, target_path: Path, proxy: str | None = None) -> None:
         if proxy:
             download_url = f"{proxy}/{download_url}"
 
-        # Download and extract
+        # Download and extract into an isolated directory before touching the target.
         with httpx.Client(
             proxy=proxy if proxy else None,
             follow_redirects=True,
@@ -71,13 +158,24 @@ def get_git_repo(url: str, target_path: Path, proxy: str | None = None) -> None:
             else:
                 resp.raise_for_status()
             zip_content = BytesIO(resp.content)
-        with ZipFile(zip_content) as z:
-            z.extractall(temp_dir)
-            namelist = z.namelist()
-            root_dir = Path(namelist[0]).parts[0] if namelist else ""
-            if target_path.exists():
-                shutil.rmtree(target_path)
-            shutil.move(temp_dir / root_dir, target_path)
+        extract_dir = temp_dir / "extracted"
+        extract_dir.mkdir()
+        with ZipFile(zip_content) as archive:
+            root_dir = _get_archive_root_dir(archive)
+            archive.extractall(extract_dir)
+
+        root_path = extract_dir / root_dir
+        resolved_extract_dir = extract_dir.resolve(strict=True)
+        resolved_root_path = root_path.resolve(strict=True)
+        if (
+            resolved_root_path.parent != resolved_extract_dir
+            or not resolved_root_path.is_dir()
+        ):
+            raise ValueError("Plugin archive root is outside the extraction directory.")
+
+        if target_path.exists():
+            shutil.rmtree(target_path)
+        shutil.move(str(resolved_root_path), str(target_path))
     finally:
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
