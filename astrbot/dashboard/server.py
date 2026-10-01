@@ -420,6 +420,10 @@ class AstrBotDashboard:
     def run(self):
         ip_addr = []
         dashboard_config = self.core_lifecycle.astrbot_config.get("dashboard", {})
+        # Environment variables take precedence over dashboard config. Within each pair,
+        # DASHBOARD_* takes precedence over the ASTRBOT_DASHBOARD_* alias.
+        # AuthService._can_skip_default_password_auth also reads this host pair and only
+        # allows the opt-in password bypass for loopback hosts.
         port = (
             os.environ.get("DASHBOARD_PORT")
             or os.environ.get("ASTRBOT_DASHBOARD_PORT")

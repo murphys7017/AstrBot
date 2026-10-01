@@ -1720,3 +1720,21 @@ Validation:
 
 - Dashboard typecheck and production build passed. No high-volume live trace
   history replay was performed.
+
+## 2026-10-01 Dashboard Bind Environment Precedence
+
+Reviewed upstream reference: `774cc9498` (`#10095`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- Documented that `DASHBOARD_HOST` / `DASHBOARD_PORT` override dashboard config,
+  and take precedence over their `ASTRBOT_`-prefixed aliases.
+- Documented that the host variables also affect whether the explicitly opted-in
+  default-password bypass is eligible; the auth service permits it only for
+  loopback hosts. The local helper name and current config fallback are retained.
+
+Validation:
+
+- Reviewed both environment-resolution branches and
+  `AuthService._can_skip_default_password_auth`; `git diff --check` passed.
