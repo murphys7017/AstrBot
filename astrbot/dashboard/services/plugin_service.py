@@ -72,7 +72,7 @@ _JS_SIDE_EFFECT_IMPORT_RE = re.compile(
 )
 _PLUGIN_PAGE_ASSET_TOKEN_TYPE = "plugin_page_asset"
 _PLUGIN_PAGE_ASSET_TOKEN_TTL_SECONDS = 60
-_PLUGIN_PAGE_ROOT_DIR_NAME = "pages"
+_PLUGIN_PAGE_ROOT_DIR_NAMES = ("views", "pages")
 _PLUGIN_PAGE_ENTRY_FILE_NAME = "index.html"
 
 
@@ -280,7 +280,9 @@ class PluginService(DashboardService):
             or plugin.name
         )
         page_title = (
-            self._get_by_path(locale_data, f"pages.{page_name}.title") or page_name
+            self._get_by_path(locale_data, f"views.{page_name}.title")
+            or self._get_by_path(locale_data, f"pages.{page_name}.title")
+            or page_name
         )
         theme = self._get_request_theme()
 
@@ -351,13 +353,14 @@ class PluginService(DashboardService):
         plugin: StarMetadata,
     ) -> Path:
         plugin_root = self._get_plugin_root_dir(plugin)
-        pages_root = (plugin_root / _PLUGIN_PAGE_ROOT_DIR_NAME).resolve(strict=False)
-        pages_root.relative_to(plugin_root)
-        if pages_root == plugin_root:
-            raise FileNotFoundError("Plugin Pages root directory is invalid")
-        if not await aio_ospath.isdir(str(pages_root)):
-            raise FileNotFoundError("Plugin Pages root directory does not exist")
-        return pages_root
+        for root_name in _PLUGIN_PAGE_ROOT_DIR_NAMES:
+            pages_root = (plugin_root / root_name).resolve(strict=False)
+            pages_root.relative_to(plugin_root)
+            if pages_root == plugin_root:
+                continue
+            if await aio_ospath.isdir(str(pages_root)):
+                return pages_root
+        raise FileNotFoundError("Plugin Views root directory does not exist")
 
     async def _discover_plugin_pages(self, plugin: StarMetadata) -> list[PluginPage]:
         try:
@@ -503,6 +506,14 @@ class PluginService(DashboardService):
         page_name: str,
         asset_path: str = "",
     ) -> str:
+        try:
+            route_prefix = (
+                "/api/plugin/view/content"
+                if request.path.startswith("/api/plugin/view/")
+                else "/api/plugin/page/content"
+            )
+        except LookupError:
+            route_prefix = "/api/plugin/page/content"
         encoded_plugin_name = quote(plugin_name, safe="")
         encoded_page_name = quote(
             PluginService._normalize_plugin_page_name(page_name),
@@ -510,14 +521,14 @@ class PluginService(DashboardService):
         )
         if not asset_path:
             return (
-                f"/api/plugin/page/content/{encoded_plugin_name}/{encoded_page_name}/"
+                f"{route_prefix}/{encoded_plugin_name}/{encoded_page_name}/"
             )
         safe_asset_path = _normalize_plugin_page_asset_path(asset_path)
         encoded_path = "/".join(
             quote(part, safe="") for part in safe_asset_path.split("/")
         )
         return (
-            f"/api/plugin/page/content/{encoded_plugin_name}/"
+            f"{route_prefix}/{encoded_plugin_name}/"
             f"{encoded_page_name}/{encoded_path}"
         )
 
@@ -526,11 +537,19 @@ class PluginService(DashboardService):
         extra_query_params: dict[str, str] | None = None,
     ) -> str:
         query = urlencode(extra_query_params or {})
+        try:
+            bridge_path = (
+                "/api/plugin/view/bridge-sdk.js"
+                if request.path.startswith("/api/plugin/view/")
+                else "/api/plugin/page/bridge-sdk.js"
+            )
+        except LookupError:
+            bridge_path = "/api/plugin/page/bridge-sdk.js"
         return urlunsplit(
             (
                 "",
                 "",
-                "/api/plugin/page/bridge-sdk.js",
+                bridge_path,
                 query,
                 "",
             )
@@ -576,7 +595,10 @@ class PluginService(DashboardService):
             attr = match.group("attr")
             quote_char = match.group("quote")
 
-            if raw_url.strip() == "/api/plugin/page/bridge-sdk.js":
+            if raw_url.strip() in {
+                "/api/plugin/page/bridge-sdk.js",
+                "/api/plugin/view/bridge-sdk.js",
+            }:
                 url = self._get_plugin_page_bridge_sdk_url(extra_query_params)
                 return f"{attr}={quote_char}{url}{quote_char}"
 
@@ -601,7 +623,10 @@ class PluginService(DashboardService):
         theme = self._get_request_theme()
         if theme:
             rewritten_html = self._apply_theme_to_html(rewritten_html, theme)
-        if "/api/plugin/page/bridge-sdk.js" not in rewritten_html:
+        if (
+            "/api/plugin/page/bridge-sdk.js" not in rewritten_html
+            and "/api/plugin/view/bridge-sdk.js" not in rewritten_html
+        ):
             bridge_tag = f'<script src="{self._get_plugin_page_bridge_sdk_url(extra_query_params)}"></script>'
             if "</body>" in rewritten_html:
                 rewritten_html = rewritten_html.replace(
@@ -721,14 +746,18 @@ class PluginService(DashboardService):
         try:
             page = await self._get_plugin_page(plugin, page_name)
             await self._resolve_plugin_page_file(plugin, page.name, "")
+            pages_root = await self._resolve_plugin_pages_root(plugin)
         except (FileNotFoundError, ValueError):
             return None
 
+        namespace = "views" if pages_root.name == "views" else "pages"
         page_data = {
             "name": page.name,
             "title": page.title,
-            "i18n_key": f"pages.{page.name}",
+            "i18n_key": f"{namespace}.{page.name}",
         }
+        if namespace == "views":
+            page_data["view_type"] = "view"
         if include_content_path:
             asset_token = (
                 self._issue_plugin_page_asset_token(plugin_name, page.name) or ""
@@ -1323,6 +1352,7 @@ class PluginService(DashboardService):
                 "astrbot_version": plugin.astrbot_version,
                 "installed_at": self._get_plugin_installed_at(plugin),
                 "i18n": plugin.i18n,
+                "views": [page.name for page in pages],
                 "pages": [page.name for page in pages],
             }
             # 检查是否为全空的幽灵插件
@@ -1441,8 +1471,9 @@ class PluginService(DashboardService):
 
     async def get_plugin_page_components(self, plugin) -> list[dict]:
         pages = await self._serialize_plugin_pages(plugin)
-        return [
-            {
+        components = []
+        for page in pages:
+            component = {
                 "type": "page",
                 "name": page["title"],
                 "title": page["title"],
@@ -1452,8 +1483,10 @@ class PluginService(DashboardService):
                 "plugin_name": plugin.name,
                 "plugin_marketplace_name": (plugin.name or "").replace("_", "-"),
             }
-            for page in pages
-        ]
+            if page.get("view_type") == "view":
+                component["view_type"] = "view"
+            components.append(component)
+        return components
 
     async def get_plugin_handler_components(self, handler_full_names: list[str]):
         """Build behavior components from registered handlers."""

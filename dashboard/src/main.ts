@@ -11,30 +11,32 @@ import VueApexCharts from 'vue3-apexcharts';
 import print from 'vue3-print-nb';
 import { loader } from '@guolao/vue-monaco-editor'
 import * as monaco from 'monaco-editor';
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import axios from 'axios';
 import { waitForRouterReadyInBackground } from './utils/routerReadiness.mjs';
 import { UPGRADE_RECOVERY_TOKEN_KEY } from './utils/upgradeRecovery';
 
 (self as any).MonacoEnvironment = {
   getWorker(_: string, label: string) {
+    const workerUrl = (fileName: string) =>
+      new URL(
+        `${import.meta.env.BASE_URL}monaco-workers/${fileName}`,
+        window.location.href,
+      ).toString();
+    const createWorker = (fileName: string) =>
+      new Worker(workerUrl(fileName), { type: 'module' });
     if (label === 'json') {
-      return new jsonWorker();
+      return createWorker('json.worker.js');
     }
     if (label === 'css' || label === 'scss' || label === 'less') {
-      return new cssWorker();
+      return createWorker('css.worker.js');
     }
     if (label === 'html' || label === 'handlebars' || label === 'razor') {
-      return new htmlWorker();
+      return createWorker('html.worker.js');
     }
     if (label === 'typescript' || label === 'javascript') {
-      return new tsWorker();
+      return createWorker('ts.worker.js');
     }
-    return new editorWorker();
+    return createWorker('editor.worker.js');
   },
 };
 

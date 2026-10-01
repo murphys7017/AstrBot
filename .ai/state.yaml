@@ -1,5 +1,5 @@
 dashboard_fastapi_migration:
-  date: '2026-09-30'
+  date: '2026-10-01'
   class: refactor
   risk: high
   status: in_progress
@@ -9,23 +9,30 @@ dashboard_fastapi_migration:
     local Profile/plugin/Personal/Core/output behavior, separate API routing
     from services, and complete isolated acceptance before proposing a merge.
   isolation: >-
-    Production remains running in the original AstrBot worktree on ports
-    6185 and 6199. All validation uses the migration worktree, separate data
-    and unused loopback ports. Do not change or restart the production service.
+    The user stopped the original AstrBot instance before live migration
+    validation. The migration worktree now runs against a copied production
+    data directory on loopback ports 6185 and 6199; source data remains
+    read-only.
+    Transient data/temp and tmp_pytest folders were not mirrored due to local
+    ACLs, but tracked runtime configuration, database, plugins, plugin data,
+    memory, and Dashboard assets were verified copied. Do not start both
+    instances concurrently because their data directories will diverge.
   commits: >-
     The user explicitly requested small reviewed and validated migration
     commits for traceability. Do not merge or push without a separate request.
   validation: >-
     The migration branch now uses native FastAPI. Existing Dashboard (48),
     external API-Key (11), knowledge-base (5) and platform-response (2) tests
-    passed. An isolated native network smoke on 127.0.0.1:6285 completed login
-    and an authenticated plugin request. An authenticated live-chat WebSocket
-    transport smoke also connected on 127.0.0.1:6286. Frontend typecheck passed;
-    Vite build hit a Windows esbuild temp cleanup Access Denied after transform.
-    Full chat payload, SSE payload, browser and configured-platform acceptance
-    remains environment-dependent. The migration branch is implementation-
-    complete enough for review; production cutover/merge is intentionally not
-    performed while the original service is running.
+    passed, as did the focused Plugin Manager and Dashboard run (92 tests),
+    frontend typecheck, and Vite build. The copied-data process was previously
+    exercised on 127.0.0.1:6185 and 6199 and is currently stopped. A real
+    browser rendered the authenticated Iris plugin view: the iframe loaded its full
+    dashboard, exposed
+    AstrBotPluginView with AstrBotPluginPage as a compatibility alias, and
+    the legacy #/plugin-page route redirected to #/plugin-view. External
+    cloud.astrbot.app repository metadata remains blocked by local CORS/network
+    policy. The migration branch is implementation-complete enough for review;
+    production cutover/merge is intentionally not performed.
     See docs/Yakumo/dev/fastapi-migration/03-progress.md for checkpoints.
 
 knowledge_base_cleaning_and_async_io_repair:

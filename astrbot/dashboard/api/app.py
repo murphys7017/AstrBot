@@ -134,7 +134,7 @@ def create_dashboard_app(server):
         if path == "api" or path.startswith("api/"):
             raise HTTPException(404, "Not found")
         # Deep links are limited to known SPA routes, never unknown API paths.
-        if path.startswith(("plugin-page/", "plugin/")):
+        if path.startswith(("plugin-page/", "plugin-view/", "plugin/")):
             return await adapter.send_static_file("index.html")
         return await adapter.send_static_file(path)
 

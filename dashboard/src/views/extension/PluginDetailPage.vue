@@ -87,7 +87,12 @@ const isHeaderStuck = ref(false);
 const configOptions = ref([]);
 const selectedConfigId = ref("default");
 const pluginPages = computed(() =>
-  (Array.isArray(props.plugin?.pages) ? props.plugin.pages : []).filter(
+  (Array.isArray(props.plugin?.views)
+    ? props.plugin.views
+    : Array.isArray(props.plugin?.pages)
+      ? props.plugin.pages
+      : []
+  ).filter(
     (page) => typeof page === "string" && page.trim().length > 0,
   ),
 );
@@ -453,7 +458,7 @@ const openExternal = (url) => {
 
 const openPluginPage = (pageName) => {
   router.push({
-    name: "PluginPage",
+    name: "PluginView",
     params: { pluginName: props.plugin.name, pageName },
   });
 };

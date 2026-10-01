@@ -1,62 +1,86 @@
-import { computed, onMounted, reactive, shallowRef, watch } from "vue";
+import { reactive, shallowRef, onMounted, watch } from "vue";
 import axios from "axios";
 import type { menu } from "@/layouts/full/vertical-sidebar/sidebarItem";
 
 const DEFAULT_ICON = "mdi-puzzle";
-const GROUP_ICON = "mdi-puzzle-outline";
 const GROUP_I18N_KEY = "core.navigation.pluginWebui";
-const SAFE_MDI_ICON_RE = /^mdi-[a-z0-9-]+$/i;
+const GROUP_ICON = "mdi-puzzle-outline";
 
 interface PluginEntry {
   name: string;
   display_name?: string | null;
+  author?: string | null;
+  version?: string;
   activated: boolean;
-  pages: string[];
-  icon?: string | null;
+  views?: string[];
+  pages?: string[];
 }
 
+/** 模块级共享状态，由 useExtensionPage.getExtensions() 更新 */
 export const pluginSidebarState = reactive<{
   plugins: PluginEntry[];
 }>({
   plugins: [],
 });
 
-function normalizeMdiIcon(icon?: string | null): string {
-  const candidate = (icon || "").trim();
-  return SAFE_MDI_ICON_RE.test(candidate) ? candidate : DEFAULT_ICON;
-}
-
 function buildPluginItems(plugins: PluginEntry[]): menu | null {
-  const children = plugins
-    .filter((plugin) => (
-      plugin.activated &&
-      Array.isArray(plugin.pages) &&
-      plugin.pages.length > 0 &&
-      typeof plugin.name === "string" &&
-      plugin.name.length > 0
-    ))
-    .map((plugin) => {
-      const displayName = plugin.display_name || plugin.name || "Unknown Plugin";
-      const firstPage = plugin.pages[0];
-      const icon = normalizeMdiIcon(plugin.icon);
+  const getViews = (plugin: PluginEntry) =>
+    Array.isArray(plugin.views)
+      ? plugin.views
+      : Array.isArray(plugin.pages)
+        ? plugin.pages
+        : [];
+  const activeWithPages = plugins.filter(
+    (p) => p.activated && getViews(p).length > 0,
+  );
 
-      return {
-        title: displayName,
-        icon,
-        to: `/plugin-page/${encodeURIComponent(plugin.name)}/${encodeURIComponent(firstPage)}`,
-        isRawTitle: true,
-      };
-    });
+  if (activeWithPages.length === 0) return null;
 
-  if (children.length === 0) {
-    return null;
-  }
+  const children: menu[] = activeWithPages.map((p) => {
+    return buildPageItem(p, getViews(p)[0]);
+  });
 
   return {
     title: GROUP_I18N_KEY,
     icon: GROUP_ICON,
     children,
   };
+}
+
+function buildPageItem(p: PluginEntry, page: string): menu {
+  const displayName = p.display_name || p.name || "Unknown Plugin";
+  return {
+    title: page,
+    icon: DEFAULT_ICON,
+    to: `/plugin-view/${encodeURIComponent(p.name)}/${encodeURIComponent(page)}`,
+    isRawTitle: true,
+    pluginInfo: {
+      id: p.name,
+      displayName,
+      author: p.author,
+      version: p.version,
+    },
+  };
+}
+
+function buildPluginGroups(plugins: PluginEntry[]): menu[] {
+  const getViews = (plugin: PluginEntry) =>
+    Array.isArray(plugin.views)
+      ? plugin.views
+      : Array.isArray(plugin.pages)
+        ? plugin.pages
+        : [];
+  return plugins
+    .filter((p) => p.activated && getViews(p).length > 0)
+    .map((p) => {
+      const displayName = p.display_name || p.name || "Unknown Plugin";
+      return {
+        title: displayName,
+        icon: GROUP_ICON,
+        isRawTitle: true,
+        children: getViews(p).map((page) => buildPageItem(p, page)),
+      };
+    });
 }
 
 let initialFetched = false;
@@ -70,16 +94,17 @@ async function initPluginState() {
       pluginSidebarState.plugins = res.data.data ?? [];
     }
   } catch {
-    // The extension page refreshes this shared state when it is opened.
+    // 静默失败，后续 getExtensions() 会补充
   }
 }
 
 export function usePluginSidebarItems() {
-  const pluginGroup = computed(() => buildPluginItems(pluginSidebarState.plugins));
   const pluginItems = shallowRef<menu | null>(null);
+  const pluginGroups = shallowRef<menu[]>([]);
 
   function refreshItems() {
-    pluginItems.value = pluginGroup.value;
+    pluginItems.value = buildPluginItems(pluginSidebarState.plugins);
+    pluginGroups.value = buildPluginGroups(pluginSidebarState.plugins);
   }
 
   onMounted(async () => {
@@ -87,9 +112,12 @@ export function usePluginSidebarItems() {
     refreshItems();
   });
 
-  watch(pluginGroup, () => {
-    refreshItems();
-  });
+  watch(
+    () => pluginSidebarState.plugins,
+    () => {
+      refreshItems();
+    },
+  );
 
-  return { pluginItems };
+  return { pluginItems, pluginGroups };
 }

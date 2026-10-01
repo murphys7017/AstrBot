@@ -4,14 +4,22 @@ from astrbot.dashboard.asgi_runtime import request
 
 PLUGIN_PAGE_CONTENT_PREFIX = "/api/plugin/page/content/"
 PLUGIN_PAGE_BRIDGE_PATH = "/api/plugin/page/bridge-sdk.js"
+PLUGIN_VIEW_CONTENT_PREFIX = "/api/plugin/view/content/"
+PLUGIN_VIEW_BRIDGE_PATH = "/api/plugin/view/bridge-sdk.js"
 PLUGIN_PAGE_TOKEN_TYPE = "plugin_page_asset"
 
 
 class PluginPageAuth:
     @staticmethod
     def is_protected_path(path: str) -> bool:
-        return path.startswith(PLUGIN_PAGE_CONTENT_PREFIX) or path.startswith(
-            PLUGIN_PAGE_BRIDGE_PATH
+        return any(
+            path.startswith(prefix)
+            for prefix in (
+                PLUGIN_PAGE_CONTENT_PREFIX,
+                PLUGIN_VIEW_CONTENT_PREFIX,
+                PLUGIN_PAGE_BRIDGE_PATH,
+                PLUGIN_VIEW_BRIDGE_PATH,
+            )
         )
 
     @staticmethod
@@ -25,17 +33,33 @@ class PluginPageAuth:
 
     @staticmethod
     def extract_plugin_name_from_path(path: str) -> str | None:
-        if not path.startswith(PLUGIN_PAGE_CONTENT_PREFIX):
+        prefix = next(
+            (
+                prefix
+                for prefix in (PLUGIN_PAGE_CONTENT_PREFIX, PLUGIN_VIEW_CONTENT_PREFIX)
+                if path.startswith(prefix)
+            ),
+            None,
+        )
+        if prefix is None:
             return None
-        remainder = path[len(PLUGIN_PAGE_CONTENT_PREFIX) :]
+        remainder = path[len(prefix) :]
         plugin_part = remainder.split("/", 1)[0] if remainder else ""
         return unquote(plugin_part) if plugin_part else None
 
     @staticmethod
     def extract_page_name_from_path(path: str) -> str | None:
-        if not path.startswith(PLUGIN_PAGE_CONTENT_PREFIX):
+        prefix = next(
+            (
+                prefix
+                for prefix in (PLUGIN_PAGE_CONTENT_PREFIX, PLUGIN_VIEW_CONTENT_PREFIX)
+                if path.startswith(prefix)
+            ),
+            None,
+        )
+        if prefix is None:
             return None
-        remainder = path[len(PLUGIN_PAGE_CONTENT_PREFIX) :]
+        remainder = path[len(prefix) :]
         parts = remainder.split("/", 2)
         page_part = parts[1] if len(parts) > 1 else ""
         return unquote(page_part) if page_part else None
@@ -44,7 +68,7 @@ class PluginPageAuth:
     def is_scope_valid(cls, payload: dict, path: str) -> bool:
         if not cls.is_protected_path(path):
             return False
-        if path.startswith(PLUGIN_PAGE_BRIDGE_PATH):
+        if path.startswith((PLUGIN_PAGE_BRIDGE_PATH, PLUGIN_VIEW_BRIDGE_PATH)):
             return True
 
         token_plugin_name = payload.get("plugin_name")

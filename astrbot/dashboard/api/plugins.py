@@ -8,6 +8,7 @@ def register_legacy_routes(app, service):
         "/plugin/capabilities": ("GET", service.get_plugin_capabilities),
         "/plugin/check-compat": ("POST", service.check_plugin_compatibility),
         "/plugin/page/entry": ("GET", service.get_plugin_page_entry_config),
+        "/plugin/view/entry": ("GET", service.get_plugin_page_entry_config),
         "/plugin/install": ("POST", service.install_plugin),
         "/plugin/install-upload": ("POST", service.install_plugin_upload),
         "/plugin/update": ("POST", service.update_plugin),
@@ -37,6 +38,12 @@ def register_legacy_routes(app, service):
         view_func=service.get_plugin_page_entry,
         methods=["GET"],
     )
+    app.add_url_rule(
+        "/api/plugin/view/content/<plugin_name>/<page_name>/",
+        endpoint="plugin_view_content_entry",
+        view_func=service.get_plugin_page_entry,
+        methods=["GET"],
+    )
 
     app.add_url_rule(
         "/api/plugin/page/content/<plugin_name>/<page_name>/<path:asset_path>",
@@ -44,10 +51,22 @@ def register_legacy_routes(app, service):
         view_func=service.get_plugin_page_asset,
         methods=["GET"],
     )
+    app.add_url_rule(
+        "/api/plugin/view/content/<plugin_name>/<page_name>/<path:asset_path>",
+        endpoint="plugin_view_content_asset",
+        view_func=service.get_plugin_page_asset,
+        methods=["GET"],
+    )
 
     app.add_url_rule(
         "/api/plugin/page/bridge-sdk.js",
         endpoint="plugin_page_bridge_sdk",
+        view_func=service.get_plugin_page_bridge_sdk,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        "/api/plugin/view/bridge-sdk.js",
+        endpoint="plugin_view_bridge_sdk",
         view_func=service.get_plugin_page_bridge_sdk,
         methods=["GET"],
     )

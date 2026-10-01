@@ -537,7 +537,9 @@ class PluginManager:
                     else None
                 ),
                 i18n=PluginManager._load_plugin_i18n(plugin_path),
-                pages=metadata["pages"]
+                views=metadata["views"]
+                if isinstance(metadata.get("views"), list)
+                else metadata["pages"]
                 if isinstance(metadata.get("pages"), list)
                 else [],
             )
@@ -1093,7 +1095,7 @@ class PluginManager:
                             metadata.support_platforms = metadata_yaml.support_platforms
                             metadata.astrbot_version = metadata_yaml.astrbot_version
                             metadata.i18n = metadata_yaml.i18n
-                            metadata.pages = metadata_yaml.pages
+                            metadata.views = metadata_yaml.views
                     except Exception as e:
                         logger.warning(
                             f"插件 {root_dir_name} 元数据载入失败: {e!s}。使用默认元数据。",

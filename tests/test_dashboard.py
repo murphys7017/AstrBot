@@ -577,6 +577,29 @@ async def test_plugin_page_entry_returns_signed_content_path(
 
 
 @pytest.mark.asyncio
+async def test_plugin_view_entry_returns_signed_content_path(
+    app: Quart,
+    authenticated_header: dict,
+    registered_plugin_page: StarMetadata,
+):
+    test_client = app.test_client()
+    response = await test_client.get(
+        (
+            f"/api/plugin/view/entry?name={PLUGIN_PAGE_DEMO_NAME}"
+            f"&page={PLUGIN_PAGE_DEMO_PAGE_NAME}"
+        ),
+        headers=authenticated_header,
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "ok"
+    assert data["data"]["content_path"].startswith(
+        f"/api/plugin/view/content/{PLUGIN_PAGE_DEMO_NAME}/{PLUGIN_PAGE_DEMO_PAGE_NAME}/"
+    )
+    assert "asset_token=" in data["data"]["content_path"]
+
+
+@pytest.mark.asyncio
 async def test_plugin_page_content_requires_auth(
     app: Quart,
     registered_plugin_page: StarMetadata,

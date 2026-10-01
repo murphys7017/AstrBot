@@ -5,28 +5,18 @@
     "providers": "Провайдеры моделей",
     "commands": "Команды",
     "persona": "Персонажи",
-    "workspaces": {
-        "persona": "Персонаж",
-        "intelligence": "Интеллект",
-        "channels": "Каналы",
-        "knowledge": "Знания",
-        "capabilities": "Возможности",
-        "automation": "Автоматизация",
-        "operations": "Управление"
-    },
-    "workspaceSettings": {
-        "persona": "Персонаж и выражение",
-        "intelligence": "Исполнение и модели",
-        "knowledge": "Поиск и память",
-        "capabilities": "Инструменты и возможности",
-        "automation": "Политика автоматизации"
+    "data": "Данные и логи",
+    "dataTabs": {
+        "statistics": "Статистика",
+        "conversations": "Данные диалогов",
+        "logs": "Логи",
+        "trace": "Трассировка"
     },
     "subagent": "Субагенты",
     "toolUse": "Инструменты MCP",
     "extension": "Плагины",
-    "pluginWebui": "Страницы плагинов",
     "extensionTabs": {
-        "installed": "Плагины AstrBot",
+        "installed": "Плагины",
         "market": "Магазин плагинов",
         "mcp": "Серверы MCP",
         "skills": "Навыки",
@@ -34,6 +24,8 @@
     },
     "config": "Конфигурация",
     "chat": "Чат",
+    "botMode": "Бот",
+    "options": "Параметры",
     "cron": "Запланированные задачи",
     "conversation": "Данные диалогов",
     "sessionManagement": "Пользовательские правила",
@@ -42,14 +34,38 @@
     "alkaid": "Alkaid Lab",
     "knowledgeBase": "База знаний",
     "about": "О программе",
-    "settings": "Настройки",
+    "settings": "Системные настройки",
+    "pin": "Закрепить",
+    "unpin": "Открепить",
+    "groupByPlugin": "Группировать по плагинам",
+    "ungroupByPlugin": "Отменить группировку",
+    "expandSidebar": "Развернуть боковую панель",
+    "collapseSidebar": "Свернуть боковую панель",
     "changelog": "Журнал изменений",
     "documentation": "Документация",
     "faq": "FAQ",
     "github": "GitHub",
     "drag": "Перетащить",
     "groups": {
-        "more": "Дополнительно"
+        "more": "Дополнительно",
+        "system": "Система",
+        "extension": "Расширения"
+    },
+    "workspaces": {
+        "persona": "Персонажи",
+        "intelligence": "Интеллект",
+        "channels": "Каналы",
+        "knowledge": "Знания",
+        "capabilities": "Возможности",
+        "automation": "Автоматизация",
+        "operations": "Операции"
+    },
+    "workspaceSettings": {
+        "persona": "Настройки персонажей",
+        "intelligence": "Настройки интеллекта",
+        "knowledge": "Настройки знаний",
+        "capabilities": "Настройки возможностей",
+        "automation": "Настройки автоматизации"
     },
     "changelogDialog": {
         "title": "Журнал изменений",
@@ -62,6 +78,8 @@
     "configTabs": {
         "normal": "Обычная конфигурация",
         "system": "Системная конфигурация",
-        "extension": "Системные расширения"
-    }
+        "extension": "Конфигурация расширений"
+    },
+    "pluginWebui": "Представления плагинов",
+    "pluginPageType": "Представление плагина"
 }

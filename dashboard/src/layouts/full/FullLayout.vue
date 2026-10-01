@@ -18,7 +18,11 @@ const { locale } = useI18n();
 const route = useRoute();
 const routerLoadingStore = useRouterLoadingStore();
 const isCurrentChatRoute = computed(() => route.path === '/chat' || route.path.startsWith('/chat/'));
-const isPluginPageRoute = computed(() => route.path.startsWith('/plugin-page/'));
+const isPluginPageRoute = computed(
+  () =>
+    route.path.startsWith('/plugin-view/') ||
+    route.path.startsWith('/plugin-page/'),
+);
 const isFullScreenRoute = computed(() => isCurrentChatRoute.value || isPluginPageRoute.value);
 const shouldMountChat = ref(isCurrentChatRoute.value);
 
