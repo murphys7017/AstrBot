@@ -1760,6 +1760,22 @@ Validation:
 - Dashboard typecheck and production build passed. No live streaming or manual
   scroll interaction was exercised in the running application.
 
+## 2026-10-01 Stats Refresh Timer Lifecycle
+
+Reviewed upstream reference: `e19954bfd` (`#10272`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- The initial stats request can resolve after navigation away from the page.
+  The page now checks its unmounted state before creating the recurring refresh
+  timer, and marks that state before clearing any existing timer.
+
+Validation:
+
+- Dashboard typecheck and production build passed. Navigation during a delayed
+  stats request was not exercised in a live browser.
+
 ## 2026-10-01 Dashboard Bind Environment Precedence
 
 Reviewed upstream reference: `774cc9498` (`#10095`), against the refreshed
