@@ -54,6 +54,9 @@ class RateLimitStage(Stage):
         platform_settings = runtime_config.get("platform_settings", {})
         rate_limit = platform_settings.get("rate_limit", {})
         rate_limit_count = int(rate_limit.get("count", 0))
+        if rate_limit_count <= 0:
+            return
+
         rate_limit_time = timedelta(seconds=rate_limit.get("time", 0))
         rl_strategy = rate_limit.get("strategy", RateLimitStrategy.STALL.value)
         umo = event.unified_msg_origin

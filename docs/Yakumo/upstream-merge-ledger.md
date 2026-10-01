@@ -1776,6 +1776,24 @@ Validation:
 - Dashboard typecheck and production build passed. Navigation during a delayed
   stats request was not exercised in a live browser.
 
+## 2026-10-01 Skip Disabled Rate-Limit State
+
+Reviewed upstream reference: `5b04f13e1` (`#10270`), against the refreshed
+snapshot `9d4f52346`.
+
+Absorbed by local rewrite:
+
+- The upstream stage caches a global rate-limit setting at initialization. This
+  fork reads the admitted turn's runtime configuration, so the disabled-limit
+  check now runs immediately after reading that snapshot's `count`. It returns
+  before looking up the message origin or allocating per-session locks and
+  timestamp queues, while preserving profile-specific settings.
+
+Validation:
+
+- Focused rate-limit tests, scoped Ruff, Python compilation, and `git diff
+  --check` passed.
+
 ## 2026-10-01 Dashboard Bind Environment Precedence
 
 Reviewed upstream reference: `774cc9498` (`#10095`), against the refreshed
