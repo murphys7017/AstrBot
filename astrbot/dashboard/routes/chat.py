@@ -928,7 +928,9 @@ class ChatRoute(Route):
 
                         try:
                             if not client_disconnected:
-                                await asyncio.sleep(0.05)
+                                # Yield to the event loop without adding a fixed
+                                # per-chunk delay to the SSE response.
+                                await asyncio.sleep(0)
                         except asyncio.CancelledError:
                             logger.debug(f"[WebChat] 用户 {username} 断开聊天长连接。")
                             client_disconnected = True
