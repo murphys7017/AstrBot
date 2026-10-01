@@ -139,11 +139,11 @@
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
 | G1 | ✓/△ | API key 使用静态 PBKDF2 salt；是盐复用问题，不是 salt 泄露。 | open |
-| G2 | ✓ implementation / △ live pending | Dashboard JWT 新增凭据版本 claim，HTTP、Live Chat WebSocket 与备份下载校验；改密码或改用户名会令旧 JWT 失效。部署后无新 claim 的旧 token 需重新登录；真实运行验收待做。 | in_progress |
+| G2 | ✓ implementation / ✓ isolated runtime / △ production rollout | Dashboard JWT 新增凭据版本 claim，HTTP、Live Chat WebSocket 与备份下载校验；隔离完整运行实例中改密码、改用户名后，旧 HTTP/WS/备份 JWT 均失效，新凭据可登录。生产账户迁移和部署仍待验收。 | in_progress |
 | G3 | ✓ confirmed | JWT secret 首次启动生成后写回配置文件。 | open |
-| G4 | ✓ implementation / △ live pending | 前端下载不再把 JWT 放 URL，使用现有 HttpOnly Dashboard cookie；后端保留 Bearer 与旧 query 兼容。真实浏览器下载验收待做。 | in_progress |
+| G4 | ✓ implementation / ✓ isolated browser / △ UI action pending | 真实 Chromium 在 localhost 接受 `Secure; HttpOnly; SameSite=Strict` cookie，并以仅含 filename 的同源请求下载到预置备份；没有 token query。`BackupDialog` 按钮的实际点击流程与生产部署仍待验收。 | in_progress |
 | G5 | ✗ stale/incorrect | 当前默认 `secure` 是非 debug 且非 testing 时为 true。 | open |
-| G6 | △ implementation / △ live pending | 插件安装/更新、CLI 插件 ZIP、skill ZIP 与通用 core updater 均已在解包前校验成员路径；插件与 core 下载上限为 512 MiB，并限制中央目录（8 MiB）、实际条目数、路径复杂度及解压体积。插件更新失败会保留/恢复旧版本。隔离 ZIP 输入输出验收已通过；实际远程更新/运行中插件加载仍待验收。 | in_progress |
+| G6 | △ implementation / △ live pending | 插件安装/更新、CLI 插件 ZIP、skill ZIP 与通用 core updater 均已在解包前校验成员路径；插件与 core 下载上限为 512 MiB，并限制中央目录（8 MiB）、实际条目数、路径复杂度及解压体积。隔离 ZIP 输入输出及 loopback 直链下载、换版、回滚/完成流程已通过；实际远程仓库更新、运行中插件加载与 core 更新应用仍待验收。 | in_progress |
 | G7 | ✓/△ | 插件可访问数据库和 provider registry；这是可信插件模型下的能力，非传统沙箱。 | open |
 | G8 | △ partial | `ChatService.get_session` 当前已校验 `session.creator == username`，与上游 `041fba4df` 的修复一致；其他 Dashboard 配置接口是否需要租户隔离仍取决于产品模型。 | open |
 | G9 | ✗/△ | registry 有 clear/remove 路径，不能称为完全不可注销。 | open |
@@ -235,15 +235,15 @@ B1-B3、B5-B12、C1-C9。
 
 建议的实际处理顺序：
 
-1. **G2/G4 Dashboard token 生命周期与传递**：代码路径已改；部署后确认旧会话要求重新登录，验证改密后 HTTP/WebSocket/备份旧 token 均失效，并实测 cookie 原生下载成功。
-2. **G6 ZIP 解包边界核验**：插件、CLI 插件、skill 与 core updater 的 ZIP 成员路径及资源边界已实现；接下来用隔离插件副本验证仓库更新、直链更新、坏包保留旧版本，并在隔离环境验证实际 core 更新应用流程。
+1. **G6 ZIP 更新流程收口**：本地 loopback 直链更新、换版、回滚和完成流程已通过；再用隔离插件副本验证真实仓库归档、坏包保留旧版本，并在隔离环境验证 core 更新应用流程。
+2. **G2/G4 Dashboard token 生命周期与传递**：隔离完整运行实例已验证改密/改用户名后 HTTP、WebSocket、备份旧 token 失效，真实浏览器 cookie 下载成功；仍需点击 `BackupDialog` 下载按钮并按部署方式验收。
 3. **B4 EventBus fixture 契约**：修正测试构造，让它提供真实 config selection；随后用一条真实消息/实际运行路径确认事件能到对应 pipeline。
 4. **A4/A9/A10 与 CI 去留**：先由用户决定是否恢复最小 CI；再统一依赖解析来源。不得把“所有 workflow 删除”记成 CI 修复。
 5. **D16 分页**：参考 `2f7675140`，同步改后端兼容响应、前端按需加载和边界场景；这是有真实规模收益的功能修复，但不应压过安全核验。
 6. **G1/G3/G10 与插件权限边界**：按部署威胁模型处理；API key 是高熵随机值，静态盐值得改但优先级低于会话/下载边界。
 7. **D/E/F/H 结构债**：不按行数批量拆分，选一个具体行为边界逐个收敛，并用真实应用流程验收。
 
-验证边界：本轮不运行测试套件。G2/G4 已完成代码实现与静态复核；仍需启动后的账户改密/旧会话失效及真实浏览器备份下载验收。D18/G6 的 ZIP 成员边界已用临时归档调用生产入口验收（含越界、超量条目、超限中央目录、伪造条目计数与深路径）；真实远程插件更新、插件加载回滚和 core 更新应用流程仍待隔离环境验收，未验证前不标记 resolved。
+验证边界：本轮不运行测试套件。G2/G4 在新建 `ASTRBOT_ROOT` 的完整本地运行实例中通过改密码、改用户名、旧 HTTP/WS/备份 JWT 拒绝及浏览器 cookie 备份下载验收；生产环境未触碰，`BackupDialog` 按钮点击和生产部署仍待确认。启动时核心自动访问 `models.dev` 获取模型元数据。D18/G6 的 ZIP 成员边界与 loopback 直链下载、插件目录换版、失败回滚及成功完成已通过隔离运行；真实远程仓库更新、运行中插件加载与 core 更新应用流程仍待隔离环境验收，未验证前不标记 resolved。
 
 ## 2026-10-01 D16 分页吸收跟进
 

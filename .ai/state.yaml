@@ -1,3 +1,21 @@
+dashboard_auth_runtime_acceptance:
+  date: '2026-10-01'
+  class: validation
+  risk: high
+  status: isolated_runtime_verified_pending_ui_acceptance
+  scope: >-
+    Exercise Dashboard password and username credential-version invalidation,
+    plus backup download cookie authentication, against a fresh isolated full
+    AstrBot runtime without using production account or data.
+  validation: >-
+    In a temporary ASTRBOT_ROOT, password and username changes invalidated prior
+    HTTP, Live Chat WebSocket, and backup-download JWTs. A real Chromium browser
+    accepted the Secure, HttpOnly, SameSite=Strict cookie on localhost and fetched
+    the backup using only the filename query; the response matched the isolated
+    backup payload. The UI download button itself and production deployment were
+    not exercised. Full startup made an automatic models.dev metadata request.
+    No test suite was run. The app was stopped after the check.
+
 plugin_archive_update_review:
   date: '2026-10-01'
   class: bugfix
