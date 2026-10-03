@@ -8,7 +8,7 @@ Usage:
     ASTRBOT_BUILD_DASHBOARD=1 uv build
 
 When enabled, this hook:
-1. Runs `npm run build` inside the `dashboard/` directory.
+1. Runs `pnpm run build` inside the `dashboard/` directory.
 2. Copies the resulting `dashboard/dist/` tree into
    `astrbot/dashboard/dist/` so the static assets are shipped
    inside the Python wheel.
@@ -21,6 +21,13 @@ import sys
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+
+def _run_pnpm(args: list[str], cwd: Path) -> None:
+    command = ["pnpm", *args]
+    if os.name == "nt":
+        command = ["cmd.exe", "/d", "/c", *command]
+    subprocess.run(command, cwd=cwd, check=True)
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -44,22 +51,13 @@ class CustomBuildHook(BuildHookInterface):
             )
             return
 
-        # ── Install Node dependencies if node_modules is absent ─────────────
-        if not (dashboard_src / "node_modules").exists():
-            print("[hatch_build] Installing dashboard Node dependencies...")
-            subprocess.run(
-                ["npm", "install"],
-                cwd=dashboard_src,
-                check=True,
-            )
+        # Keep existing node_modules aligned with the committed lockfile.
+        print("[hatch_build] Installing dashboard Node dependencies...")
+        _run_pnpm(["install", "--frozen-lockfile"], dashboard_src)
 
         # ── Build the Vue/Vite dashboard ──────────────────────────────────────
-        print("[hatch_build] Building Vue dashboard (npm run build)...")
-        subprocess.run(
-            ["npm", "run", "build"],
-            cwd=dashboard_src,
-            check=True,
-        )
+        print("[hatch_build] Building Vue dashboard (pnpm run build)...")
+        _run_pnpm(["run", "build"], dashboard_src)
 
         if not dist_src.exists():
             print(
