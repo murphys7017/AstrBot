@@ -6,6 +6,34 @@ import type { Locale } from './types';
 const currentLocale = ref<Locale>('zh-CN');
 const translations = ref<Record<string, any>>({});
 
+function getByPath(source: unknown, key: string): unknown {
+  if (!source || typeof source !== 'object') return undefined;
+
+  let value: any = source;
+  for (const part of key.split('.')) {
+    if (!value || typeof value !== 'object' || !(part in value)) {
+      return undefined;
+    }
+    value = value[part];
+  }
+  return value;
+}
+
+function resolveTranslation(key: string): unknown {
+  const localValue = getByPath(translations.value, key);
+  if (localValue !== undefined) return localValue;
+
+  // New configuration groups can arrive before every locale has been updated.
+  // Prefer English over exposing an internal i18n key in the UI.
+  for (const fallbackLocale of ['en-US', 'zh-CN'] as Locale[]) {
+    if (fallbackLocale === currentLocale.value) continue;
+    const fallbackValue = getByPath(staticTranslations[fallbackLocale], key);
+    if (fallbackValue !== undefined) return fallbackValue;
+  }
+
+  return undefined;
+}
+
 /**
  * 初始化i18n系统
  */
@@ -48,18 +76,12 @@ function loadTranslations(locale: Locale) {
 export function useI18n() {
   // 翻译函数
   const t = (key: string, params?: Record<string, string | number>): string => {
-    const keys = key.split('.');
-    let value: any = translations.value;
+    const value = resolveTranslation(key);
 
-    // 遍历键路径
-    for (const k of keys) {
-      if (value && typeof value === 'object' && k in value) {
-        value = value[k];
-      } else {
-        console.warn(`Translation key not found: ${key}`);
-        // 返回带括号的键名，便于在开发时识别缺失的翻译
-        return `[MISSING: ${key}]`;
-      }
+    if (value === undefined) {
+      console.warn(`Translation key not found: ${key}`);
+      // 返回带括号的键名，便于在开发时识别缺失的翻译
+      return `[MISSING: ${key}]`;
     }
 
     if (typeof value !== 'string') {
@@ -144,18 +166,7 @@ export function useModuleI18n(moduleName: string) {
   // 获取原始翻译值（可能是字符串、数组或对象）
   const getRaw = (key: string): any => {
     const fullKey = resolveFullKey(key);
-    const keys = fullKey.split('.');
-    let value: any = translations.value;
-
-    for (const k of keys) {
-      if (value && typeof value === 'object' && k in value) {
-        value = value[k];
-      } else {
-        return null;
-      }
-    }
-
-    return value;
+    return resolveTranslation(fullKey) ?? null;
   };
 
   return { tm, getRaw };

@@ -1229,6 +1229,710 @@
       }
     }
   },
+  "interaction_middleware_group": {
+    "name": "交互中间件",
+    "general": {
+      "description": "基础开关",
+      "hint": "控制交互中间件主链路。普通对话由 Personal 的统一结构化表达决定直接回复、委派 Core 或群聊静默；表达失败会使用本地 first_response。",
+      "interaction_middleware": {
+        "enabled": {
+          "description": "启用交互中间件"
+        },
+        "turn_timeout": {
+          "description": "单轮总超时秒数",
+          "hint": "从进入 Personal Runtime 排队开始计时，Personal、Planner、Core、插件工具、重试与 fallback 共用这一总预算。默认 120 秒，子阶段不会重置计时。"
+        },
+        "parallel_plugin_runtime_enabled": {
+          "description": "启用插件三线并行运行时",
+          "hint": "关闭时，官方消息 Handler 在 Personal 之前按旧串行路径执行。开启后，合格的普通对话由 Coordinator 同时启动 Personal 与 Plugin Job；若存在 activated Handlers，它们整体进入同一 Plugin Job。这不是按插件开关，完成真实运行验收前请保持关闭。"
+        },
+        "plugin_parallel_window_seconds": {
+          "description": "插件当前轮仲裁窗口秒数",
+          "hint": "从 Personal 与 Plugin Job 的共同 t0 开始计时。窗口到期只让当前轮停止等待插件，不会取消后台插件；Core 等待插件作出决定，不等待插件完整执行。"
+        },
+        "persona_plugin_context_mode": {
+          "description": "Persona 首回复的插件上下文策略",
+          "labels": [
+            "等待插件上下文完成",
+            "不等待，直接使用基础上下文"
+          ],
+          "hint": "控制普通 Prompt Extension 和 Contributor 是否阻塞 Persona 的首次请求。"
+        },
+        "memory_window_size": {
+          "description": "记忆窗口轮数",
+          "hint": "构建中间件上下文时读取的近期对话轮数。"
+        },
+        "persona_history_window_size": {
+          "description": "Persona 历史窗口轮数",
+          "hint": "Persona 历史候选池上限。系统保留连续的近期对话，再补入少量与当前输入和 Memory 相关的较早锚点，最后按 token 预算裁剪；不影响 Memory 或 Core。"
+        },
+        "plugin_capability_targets": {
+          "description": "插件能力生效链路",
+          "hint": "按插件注册名称分别配置 llm_hooks 与 tools。tools 中具体工具名优先于 *；目标可设为 core 或 personal_expression。"
+        }
+      }
+    },
+    "plugin": {
+      "description": "插件富化与能力目标",
+      "hint": "控制普通对话插件的并行执行、Prompt/结果贡献者超时，以及插件钩子和插件 FunctionTool 进入 Personal 或 Core 的目标。命令、消息 Handler 和事件监听器不受这些配置影响。",
+      "interaction_middleware": {
+        "parallel_plugin_runtime_enabled": {
+          "description": "启用插件三线并行运行时",
+          "hint": "关闭时，官方消息 Handler 在 Personal 之前按旧串行路径执行。开启后，合格的普通对话由 Coordinator 同时启动 Personal 与 Plugin Job；若存在 activated Handlers，它们整体进入同一 Plugin Job。这不是按插件开关，真实日志验收完成前保持关闭。"
+        },
+        "plugin_parallel_window_seconds": {
+          "description": "插件当前轮仲裁窗口秒数",
+          "hint": "从 Personal 与 Plugin Job 的共同 t0 开始计时。窗口到期只让当前轮停止等待插件，不取消后台插件；Core 等待插件作出决定，不等待插件完整执行。"
+        },
+        "persona_plugin_context_mode": {
+          "description": "Persona 首回复的插件上下文策略",
+          "hint": "控制普通 Prompt Extension 和 Contributor 是否阻塞 Persona 首次请求。等待模式受单轮总超时保护；协议或适配器直接注入的人格输入不受此项影响。",
+          "labels": [
+            "等待插件上下文完成",
+            "不等待，直接使用基础上下文"
+          ]
+        },
+        "contributor_timeout": {
+          "description": "单个贡献者超时秒数",
+          "hint": "结果 Contributor 的单项时间上限；Prompt 收集统一使用插件上下文总预算。"
+        },
+        "plugin_enrichment_timeout": {
+          "description": "插件上下文总预算秒数",
+          "hint": "所有普通 Prompt Extension 收集器共享的一个总时间上限。超时后停止等待并保留已完成的贡献；该预算只会在整轮 deadline 之内缩短等待，不是按插件的超时，也不会取消后台任务。"
+        },
+        "plugin_capability_targets": {
+          "description": "插件能力生效链路",
+          "hint": "按插件注册名称分别配置 llm_hooks 与 tools。tools 内具体工具名优先于 *；只影响 LLM Hook 和 FunctionTool，不改变 Handler、Prompt 或人格 Effect 的消费方。"
+        }
+      }
+    },
+    "context": {
+      "description": "Persona 上下文",
+      "hint": "控制 Interaction 构建只读上下文时保留的近期记忆和 Persona 历史候选池；最终仍按目标 token 预算裁剪。",
+      "interaction_middleware": {
+        "memory_window_size": {
+          "description": "记忆窗口轮数",
+          "hint": "构建 Interaction 只读上下文时保留的近期对话回合数。"
+        },
+        "persona_history_window_size": {
+          "description": "Persona 历史窗口轮数",
+          "hint": "Persona 历史候选池上限。系统优先保留近期连续上下文，再从较早记录中选择少量与当前输入和 Memory 相关的锚点，并按 token 预算动态裁剪；不影响 Memory 或 Core。"
+        }
+      }
+    },
+    "expression": {
+      "description": "Fast Expression",
+      "hint": "生成统一的拟人回复计划：直接回复、委派 Core 或允许的群聊静默；所有用户可见 Persona 表达都使用这一链路。",
+      "interaction_middleware": {
+        "expression_provider_id": {
+          "description": "表达模型提供商",
+          "hint": "用于所有用户可见 Persona 表达。"
+        },
+        "expression_temperature": {
+          "description": "表达温度"
+        },
+        "expression_timeout": {
+          "description": "表达超时秒数"
+        }
+      }
+    },
+    "planner": {
+      "description": "Core Planner",
+      "hint": "仅在 Personal 委派 Core 后，把当前任务整理为 CoreTaskSpec；不再重新判断是否进入执行层。",
+      "interaction_middleware": {
+        "planner_provider_id": {
+          "description": "规划模型提供商",
+          "hint": "留空时使用 Persona 表达模型。"
+        },
+        "planner_temperature": {
+          "description": "规划温度"
+        },
+        "planner_timeout": {
+          "description": "规划超时秒数"
+        }
+      }
+    },
+    "personal_policy": {
+      "description": "Personal Policy",
+      "hint": "对通过确定性 Gate 的后台 Observation 做行动决策。express 仅通过统一 Persona 输出链路主动表达；Policy 不调用 Core 或工具。",
+      "interaction_middleware": {
+        "personal_policy_enabled": {
+          "description": "启用人格策略"
+        },
+        "personal_policy_provider_id": {
+          "description": "策略模型提供商",
+          "hint": "必须显式选择，不回退到 Persona 或 Core 模型。"
+        },
+        "personal_policy_temperature": {
+          "description": "策略温度"
+        },
+        "personal_policy_timeout": {
+          "description": "策略超时秒数"
+        },
+        "personal_policy_daily_call_limit": {
+          "description": "每日策略调用上限",
+          "hint": "Provider 请求开始时计数；设为 0 会阻止所有策略调用。"
+        }
+      }
+    },
+    "personal_runtime_policy": {
+      "description": "主动人格控制",
+      "hint": "控制后台 Observation、延后策略与主动表达。Heartbeat 只产生 Observation；Policy 决定是否经统一 Persona 输出链路表达。",
+      "interaction_middleware": {
+        "personal_heartbeat_enabled": {
+          "description": "启用人格心跳",
+          "hint": "仅向 Personal Runtime 提交 Observation，不直接发送消息或调用 Core。"
+        },
+        "personal_heartbeat_interval_seconds": {
+          "description": "人格心跳间隔秒数",
+          "hint": "最小 30 秒；每个已配置的人格运行时观察目标独立计时。"
+        },
+        "personal_idle_initiation_enabled": {
+          "description": "启用空闲主动发起",
+          "hint": "仅对已有真实用户互动且达到空闲阈值的会话提交一次受限 Observation；仍由 Policy、静音、安静时段、冷却和每日预算决定是否表达。"
+        },
+        "personal_idle_initiation_after_seconds": {
+          "description": "空闲主动发起阈值秒数",
+          "hint": "最小 30 秒。每次新的用户活动最多触发一次空闲 Observation；重启后保持该去重状态。"
+        },
+        "personal_conversation_activity_enabled": {
+          "description": "启用群聊环境观察",
+          "hint": "仅观察默认主动消息目标中的未唤醒群聊文本。通过白名单和会话状态检查后只提交 Runtime Observation，不触发普通 Personal、插件或 Core。"
+        },
+        "personal_runtime_conversation_continuation_seconds": {
+          "description": "群聊连续对话窗口秒数",
+          "hint": "机器人成功回复明确触发它的用户后，仅该用户在窗口内的未唤醒消息可继续进入对话；直接续接窗口结束后由 Personal 判断直接回复、委派或静默。设为 0 可关闭。"
+        },
+        "personal_runtime_direct_continuation_seconds": {
+          "description": "群聊直接续接窗口秒数",
+          "hint": "从机器人成功发送可见回复开始计时，仅明确触发机器人的同一用户可在该窗口内无需再次 @；Personal 与插件仍按正常链路运行，但 Personal 不允许 silent。该值不会超过群聊连续对话总窗口。"
+        },
+        "personal_runtime_muted": {
+          "description": "静音主动人格",
+          "hint": "启用后，后台 Observation 会在 Gate 被拒绝，不调用策略模型。"
+        },
+        "personal_runtime_quiet_hours_enabled": {
+          "description": "启用安静时段"
+        },
+        "personal_runtime_quiet_hours_start": {
+          "description": "安静时段开始小时",
+          "hint": "使用全局时区设置；起止小时相同表示全天安静。"
+        },
+        "personal_runtime_quiet_hours_end": {
+          "description": "安静时段结束小时"
+        },
+        "personal_runtime_reply_cooldown_seconds": {
+          "description": "主动回复冷却秒数",
+          "hint": "仅在主动 Action 的可见输出确认送达后写入冷却。"
+        },
+        "personal_runtime_no_action_cooldown_seconds": {
+          "description": "不动作冷却秒数",
+          "hint": "Policy 选择 defer 时的最小等待时间；等待后由后续 Observation 重新评估。"
+        },
+        "personal_runtime_daily_proactive_output_limit": {
+          "description": "每日主动输出上限",
+          "hint": "设为 0 会在 Gate 阻止所有后台策略评估。普通被动回复不计入此预算。"
+        }
+      }
+    },
+    "progress": {
+      "description": "执行进度提示",
+      "hint": "由同一开关统一控制流式内容观察与工具阶段提示；提示只描述已确认的当前进度，不把单个步骤当作整轮完成。",
+      "interaction_middleware": {
+        "stream_observation_min_chars": {
+          "description": "流式观察最少累计字符数",
+          "hint": "仅用于核心流式文本；累计到该字符数后才判断是否需要给出进度提示。工具结果不会按正文长度触发。"
+        },
+        "stream_interjection_enabled": {
+          "description": "启用执行进度提示"
+        },
+        "stream_interjection_max_per_turn": {
+          "description": "每轮最多进度提示次数"
+        },
+        "tool_stage_observation_delay_seconds": {
+          "description": "工具运行中提示延迟秒数",
+          "hint": "资料型 FunctionTool 超过此时长仍未结束时，可提示一次仍在处理；完成单个工具步骤时不会被表述为整轮完成。"
+        }
+      }
+    }
+  },
+  "memory_group": {
+    "name": "记忆",
+    "general": {
+      "description": "基础",
+      "hint": "Memory 会在对话后更新短期记忆，并按配置整理为长期记忆。",
+      "memory": {
+        "enabled": {
+          "description": "启用记忆模块"
+        },
+        "short_term": {
+          "enabled": {
+            "description": "启用短期记忆"
+          }
+        },
+        "long_term": {
+          "enabled": {
+            "description": "启用长期记忆"
+          }
+        },
+        "analysis": {
+          "enabled": {
+            "description": "启用记忆分析"
+          },
+          "strict": {
+            "description": "严格分析模式",
+            "hint": "启用后，分析器配置错误或输出无效时会明确报错。"
+          }
+        },
+        "persona": {
+          "enabled": {
+            "description": "启用人格反思"
+          }
+        }
+      }
+    },
+    "models": {
+      "description": "模型",
+      "hint": "普通模型处理高频轻量任务；高级模型处理整理、提取和长期记忆写入等复杂任务。高级模型留空时会使用普通模型。",
+      "memory": {
+        "analysis": {
+          "standard_provider_id": {
+            "description": "普通记忆模型",
+            "hint": "用于话题识别、关注点提取和短期摘要。"
+          },
+          "advanced_provider_id": {
+            "description": "高级记忆模型",
+            "hint": "用于会话洞察、经验提取、长期记忆决策和撰写。留空时使用普通记忆模型。"
+          }
+        },
+        "vector_index": {
+          "provider_id": {
+            "description": "Embedding 提供商",
+            "hint": "用于生成记忆向量的 provider 实例 ID。"
+          }
+        }
+      }
+    },
+    "schedule": {
+      "description": "触发条件",
+      "hint": "控制短期记忆分析的频率。大上下文配置下可以保持较低频率，让 Memory 更偏长期沉淀。",
+      "memory": {
+        "short_term": {
+          "recent_turns_window": {
+            "description": "短期分析窗口轮数"
+          },
+          "update_interval_turns": {
+            "description": "短期分析间隔轮数",
+            "hint": "第一次会立即分析；之后每累计这么多轮对话才再次分析短期记忆。"
+          },
+          "update_min_chars": {
+            "description": "短期分析最小累计字符数",
+            "hint": "设为 0 表示只按轮数触发；大于 0 时，自上次短期分析后累计文本达到该值也会触发。"
+          }
+        },
+        "consolidation": {
+          "enabled": {
+            "description": "启用记忆整理"
+          },
+          "batch_window_hours": {
+            "description": "批量整理时间窗口（小时）"
+          },
+          "min_short_term_updates": {
+            "description": "整理触发轮数",
+            "hint": "当前按原始对话轮数触发整理，名称保留兼容旧配置。"
+          }
+        },
+        "long_term": {
+          "min_experience_importance": {
+            "description": "长期记忆最低重要性"
+          },
+          "min_pending_experiences": {
+            "description": "待处理经验最低数量"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "description": "后台任务",
+      "memory": {
+        "identity": {
+          "enabled": {
+            "description": "启用身份映射",
+            "hint": "启用后，Memory 可以根据身份映射将不同平台的账号合并到同一个记忆身份。"
+          }
+        },
+        "jobs": {
+          "consolidation_enabled": {
+            "description": "对话后执行记忆整理"
+          },
+          "long_term_enabled": {
+            "description": "记忆整理后执行长期记忆提升"
+          },
+          "persona_reflection_enabled": {
+            "description": "启用人格反思任务"
+          }
+        },
+        "persona": {
+          "enabled": {
+            "description": "启用人格反思"
+          },
+          "reflection_interval_hours": {
+            "description": "人格反思间隔小时数"
+          }
+        }
+      }
+    },
+    "keyword_extraction": {
+      "description": "关键词提取",
+      "memory": {
+        "keyword_extraction": {
+          "enabled": {
+            "description": "启用关键词提取"
+          },
+          "implementation": {
+            "description": "关键词提取实现方式"
+          },
+          "top_k": {
+            "description": "关键词数量"
+          }
+        }
+      }
+    },
+    "vector_index": {
+      "description": "向量索引",
+      "memory": {
+        "vector_index": {
+          "enabled": {
+            "description": "启用向量索引"
+          },
+          "provider": {
+            "description": "索引提供商"
+          },
+          "provider_id": {
+            "description": "Embedding 提供商",
+            "hint": "用于生成记忆向量的 provider 实例 ID。"
+          },
+          "model": {
+            "description": "Embedding 模型名称",
+            "hint": "可选。留空时使用所选提供商自身的模型名称。"
+          },
+          "experience_top_k": {
+            "description": "经验检索数量"
+          },
+          "long_term_top_k": {
+            "description": "长期记忆检索数量"
+          }
+        }
+      }
+    },
+    "analyzers": {
+      "description": "分析器",
+      "hint": "每个分析器使用各自的 Prompt 和输出结构。模型名称在完整配置编辑器中设置；常规页面只显示提供商、超时和温度。",
+      "memory": {
+        "analysis": {
+          "analyzers": {
+            "description": "分析器完整配置",
+            "topic_v1": {
+              "enabled": {
+                "description": "启用话题分析器"
+              },
+              "provider_id": {
+                "description": "话题分析提供商"
+              },
+              "timeout_seconds": {
+                "description": "话题分析超时秒数"
+              },
+              "temperature": {
+                "description": "话题分析温度"
+              }
+            },
+            "focus_v1": {
+              "enabled": {
+                "description": "启用关注点分析器"
+              },
+              "provider_id": {
+                "description": "关注点分析提供商"
+              },
+              "timeout_seconds": {
+                "description": "关注点分析超时秒数"
+              },
+              "temperature": {
+                "description": "关注点分析温度"
+              }
+            },
+            "summary_v1": {
+              "enabled": {
+                "description": "启用短期摘要分析器"
+              },
+              "provider_id": {
+                "description": "短期摘要提供商"
+              },
+              "timeout_seconds": {
+                "description": "短期摘要分析超时秒数"
+              },
+              "temperature": {
+                "description": "短期摘要分析温度"
+              }
+            },
+            "session_insight_v1": {
+              "enabled": {
+                "description": "启用会话洞察分析器"
+              },
+              "provider_id": {
+                "description": "会话洞察分析提供商"
+              },
+              "timeout_seconds": {
+                "description": "会话洞察分析超时秒数"
+              },
+              "temperature": {
+                "description": "会话洞察分析温度"
+              }
+            },
+            "experience_extract_v1": {
+              "enabled": {
+                "description": "启用经验提取分析器"
+              },
+              "provider_id": {
+                "description": "经验提取分析提供商"
+              },
+              "timeout_seconds": {
+                "description": "经验提取分析超时秒数"
+              },
+              "temperature": {
+                "description": "经验提取分析温度"
+              }
+            },
+            "long_term_promote_v1": {
+              "enabled": {
+                "description": "启用长期记忆提升分析器"
+              },
+              "provider_id": {
+                "description": "长期记忆提升分析提供商"
+              },
+              "timeout_seconds": {
+                "description": "长期记忆提升分析超时秒数"
+              },
+              "temperature": {
+                "description": "长期记忆提升分析温度"
+              }
+            },
+            "long_term_compose_v1": {
+              "enabled": {
+                "description": "启用长期记忆撰写分析器"
+              },
+              "provider_id": {
+                "description": "长期记忆撰写提供商"
+              },
+              "timeout_seconds": {
+                "description": "长期记忆撰写超时秒数"
+              },
+              "temperature": {
+                "description": "长期记忆撰写温度"
+              }
+            }
+          },
+          "stages": {
+            "description": "分析阶段完整配置"
+          }
+        }
+      }
+    },
+    "advanced_paths": {
+      "description": "高级路径",
+      "hint": "这些路径决定 Memory 数据、Prompt 和索引文件的存储位置。仅在迁移数据目录或排查问题时修改。",
+      "memory": {
+        "identity": {
+          "mappings_path": {
+            "description": "身份映射文件路径"
+          }
+        },
+        "storage": {
+          "sqlite_path": {
+            "description": "SQLite 数据库路径（留空时按配置档隔离）"
+          },
+          "docs_root": {
+            "description": "长期记忆文档目录（留空时按配置档隔离）"
+          },
+          "projections_root": {
+            "description": "经验投影目录（留空时按配置档隔离）"
+          }
+        },
+        "vector_index": {
+          "root_dir": {
+            "description": "向量索引目录（留空时按配置档隔离）"
+          }
+        },
+        "analysis": {
+          "prompts_root": {
+            "description": "记忆分析 Prompt 目录（留空时按配置档隔离）"
+          }
+        }
+      }
+    },
+    "injection": {
+      "description": "注入配置",
+      "hint": "控制哪些 Memory 内容进入 Prompt。大上下文场景建议只注入短期状态和少量相关长期记忆。",
+      "memory": {
+        "injection": {
+          "enabled": {
+            "description": "启用记忆注入"
+          },
+          "topic_state": {
+            "description": "注入当前话题"
+          },
+          "short_term": {
+            "description": "注入短期记忆"
+          },
+          "experiences": {
+            "enabled": {
+              "description": "注入经验片段"
+            },
+            "top_k": {
+              "description": "经验注入数量"
+            }
+          },
+          "long_term": {
+            "enabled": {
+              "description": "注入长期记忆"
+            },
+            "top_k": {
+              "description": "长期记忆注入数量"
+            },
+            "query_required": {
+              "description": "长期记忆需要查询",
+              "hint": "开启后，只有当前请求能提供查询文本时才检索并注入长期记忆。"
+            }
+          },
+          "persona_state": {
+            "description": "注入人格状态"
+          },
+          "include_debug_fields": {
+            "description": "注入调试字段",
+            "hint": "关闭时会移除 ID、来源、时间戳等工程字段，减少 Prompt 噪声。"
+          }
+        }
+      }
+    },
+    "advanced": {
+      "description": "高级配置",
+      "hint": "通常不需要修改。仅在调试 Memory 行为、迁移数据目录或覆盖单个分析器时使用。",
+      "memory": {
+        "analysis": {
+          "enabled": {
+            "description": "启用记忆分析"
+          },
+          "analyzers": {
+            "session_insight_v1": {
+              "timeout_seconds": {
+                "description": "会话洞察分析超时",
+                "hint": "后台生成会话洞察时等待模型响应的最长秒数。"
+              }
+            },
+            "experience_extract_v1": {
+              "timeout_seconds": {
+                "description": "经验提取分析超时",
+                "hint": "后台提取经验时等待模型响应的最长秒数；模型响应较慢时可适当提高。"
+              }
+            },
+            "description": "分析器完整配置"
+          },
+          "stages": {
+            "description": "分析阶段完整配置"
+          },
+          "prompts_root": {
+            "description": "记忆分析 Prompt 目录（留空时按配置档隔离）"
+          }
+        },
+        "short_term": {
+          "enabled": {
+            "description": "启用短期记忆"
+          }
+        },
+        "consolidation": {
+          "enabled": {
+            "description": "启用记忆整理"
+          }
+        },
+        "identity": {
+          "enabled": {
+            "description": "启用身份映射"
+          },
+          "bindings": {
+            "description": "身份映射",
+            "hint": "在这里维护跨平台账号绑定。平台 ID 通常是 qq、webchat、discord 等；用户 ID 是平台侧用户 ID；记忆身份 ID 相同的账号会共享同一份记忆。",
+            "templates": {
+              "binding": {
+                "description": "把某个平台用户绑定到同一个记忆身份。",
+                "name": "绑定账号",
+                "hint": "把某个平台用户绑定到共享的记忆身份。",
+                "platform_id": {
+                  "description": "平台 ID"
+                },
+                "sender_user_id": {
+                  "description": "用户 ID"
+                },
+                "canonical_user_id": {
+                  "description": "记忆身份 ID"
+                },
+                "nickname_hint": {
+                  "description": "昵称备注"
+                },
+                "items": {
+                  "platform_id": {
+                    "description": "平台 ID"
+                  },
+                  "sender_user_id": {
+                    "description": "用户 ID"
+                  },
+                  "canonical_user_id": {
+                    "description": "记忆身份 ID"
+                  },
+                  "nickname_hint": {
+                    "description": "昵称备注"
+                  }
+                }
+              }
+            }
+          },
+          "mappings_path": {
+            "description": "身份映射文件路径"
+          }
+        },
+        "persona": {
+          "enabled": {
+            "description": "启用人格反思"
+          }
+        },
+        "vector_index": {
+          "enabled": {
+            "description": "启用向量索引"
+          },
+          "prewarm": {
+            "description": "启动时预热记忆向量索引",
+            "hint": "Provider 初始化后预热向量索引和 Embedding 模型，避免首轮记忆检索承担冷启动延迟。失败时仅记录告警，不阻止 AstrBot 启动。"
+          },
+          "prewarm_timeout_seconds": {
+            "description": "记忆向量预热超时",
+            "hint": "启动时等待向量索引和 Embedding 模型预热的最长秒数。"
+          },
+          "root_dir": {
+            "description": "向量索引目录（留空时按配置档隔离）"
+          }
+        },
+        "storage": {
+          "sqlite_path": {
+            "description": "SQLite 数据库路径（留空时按配置档隔离）"
+          },
+          "docs_root": {
+            "description": "长期记忆文档目录（留空时按配置档隔离）"
+          },
+          "projections_root": {
+            "description": "经验投影目录（留空时按配置档隔离）"
+          }
+        }
+      }
+    }
+  },
   "system_group": {
     "name": "系统配置",
     "system": {
