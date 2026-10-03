@@ -1,6 +1,6 @@
 # AG99 问题登记册（原 102 项复核版，含补充发现）
 
-更新时间：2026-10-01
+更新时间：2026-10-03
 范围：当前工作区代码、配置、工作流、治理文件和已提供的历史审计结果。
 验证方式：本次只做静态复核，没有重新运行测试套件或应用。
 
@@ -90,7 +90,7 @@
 | D8 | ✓ confirmed | 根目录 `main.py` 与 `cli/commands/cmd_run.py` 均各自创建 `InitialLoader` 并调用 `asyncio.run`；原登记误把根路径写成 `astrbot/main.py`。 | open |
 | D9 | ✓ confirmed | `render/interfaces.py` 定义 `BasePromptRenderer`，`base_renderer.py` 重新导出同一类；两个导入路径仍并存。 | open |
 | D10 | ✓ confirmed | admission/runtime/capability inventory 都遍历插件 registry。 | open |
-| D11 | ✓ confirmed | `_merge_runtime_config` 在两个模块各定义一次。 | open |
+| D11 | ✓ resolved | 递归配置合并已集中到纯函数 `interaction/runtime_config.py`，保留 middleware 对非 Mapping 输入的兼容行为。 | resolved |
 | D12 | ✓ confirmed | skills 中存在针对测试 monkeypatch 的 TypeError 兼容分支。 | open |
 | D13 | ✓ confirmed | session management 同时返回旧格式和结构化格式。 | open |
 | D14 | ✓ confirmed | `provider/entities.py` 有兼容包装，当前未发现调用方。 | open |
@@ -198,7 +198,7 @@ B4、D1-D4、D9-D15、E1-E7、F1-F2、F7、H6。
 
 ### Batch 4：规模和可维护性
 
-D7、D10-D11、F3-F6、F8-F10、F12-F16、H1-H4、I1-I5。
+D7、D10、F3-F6、F8-F10、F12-F16、H1-H4、I1-I5。
 
 这些条目多数不是紧急线上故障，应在边界稳定后按模块拆解。
 

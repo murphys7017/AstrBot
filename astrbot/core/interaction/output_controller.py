@@ -62,6 +62,7 @@ from .personal_expression_guard import fingerprint_personal_expression
 from .plugin_execution_types import (
     PLUGIN_OUTPUT_DELIVERY_IDENTITY_EXTRA_KEY,
 )
+from .runtime_config import merge_runtime_config
 from .turn_state import (
     InteractionFinalOutputStatus,
     add_interaction_turn_stream_observation_task,
@@ -137,18 +138,6 @@ PLUGIN_OUTPUT_TRANSACTION_ARTIFACTS_EXTRA_KEY = (
 TOOL_STAGE_OBSERVATION_TASKS_EXTRA_KEY = "_interaction_tool_stage_observation_tasks"
 TOOL_STAGE_OBSERVATION_STATE_EXTRA_KEY = "_interaction_tool_stage_observation_state"
 CORE_REPLY_FALLBACK_TEXT = "模型服务暂时不可用，请稍后再试。"
-
-
-def _merge_runtime_config(
-    base: Mapping[str, Any], override: Mapping[str, Any]
-) -> dict[str, Any]:
-    merged: dict[str, Any] = dict(base)
-    for key, value in override.items():
-        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
-            merged[key] = _merge_runtime_config(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
 
 
 def _visible_message_ids_from_extras(extras: Mapping[str, Any]) -> list[str]:
@@ -278,7 +267,7 @@ class InteractionOutputController:
             if isinstance(event_config, Mapping):
                 plugin_config = self._get_plugin_runtime_config(event)
                 if isinstance(plugin_config, Mapping):
-                    return _merge_runtime_config(event_config, plugin_config)
+                    return merge_runtime_config(event_config, plugin_config)
                 return event_config
         if self.plugin_context is None:
             return None

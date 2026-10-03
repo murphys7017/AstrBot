@@ -53,6 +53,7 @@ from .personal_expression_guard import (
     fingerprint_personal_expression,
 )
 from .protocol_bypass import match_protocol_command_bypass
+from .runtime_config import merge_runtime_config
 from .runtime_event import RuntimeObservationEvent
 from .turn_context import PersonalTurnContext
 from .turn_state import (
@@ -119,21 +120,6 @@ LOCAL_FAST_EXPRESSION_FALLBACK_RESULT = PersonaExpressionResult(
 LOCAL_FAST_EXPRESSION_SILENT_RESULT = PersonaExpressionResult(
     turn_action=PersonalResponseAction.SILENT,
 )
-
-
-def _merge_runtime_config(base: Any, override: Any) -> Any:
-    if not isinstance(base, Mapping):
-        return override if isinstance(override, Mapping) else base
-    if not isinstance(override, Mapping):
-        return dict(base)
-
-    merged: dict[str, Any] = dict(base)
-    for key, value in override.items():
-        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
-            merged[key] = _merge_runtime_config(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
 
 
 class InteractionMiddleware:
@@ -207,11 +193,11 @@ class InteractionMiddleware:
             runtime_config = get_config(umo=event.unified_msg_origin)
             if not isinstance(runtime_config, Mapping):
                 return self.config
-            return _merge_runtime_config(self.config, runtime_config)
+            return merge_runtime_config(self.config, runtime_config)
         runtime_config = get_config()
         if not isinstance(runtime_config, Mapping):
             return self.config
-        return _merge_runtime_config(self.config, runtime_config)
+        return merge_runtime_config(self.config, runtime_config)
 
     @staticmethod
     def _admit_runtime_config(
