@@ -476,6 +476,33 @@ const renderMarkdown = (source) => {
   const container = document.createElement("div");
   container.innerHTML = cleanHtml;
 
+  const usedIds = new Set();
+  container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+    if (heading.id) {
+      usedIds.add(heading.id);
+      return;
+    }
+
+    const base = (heading.textContent || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\p{Letter}\p{Number}\s-]/gu, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+    if (!base) return;
+
+    let slug = base;
+    let suffix = 1;
+    while (usedIds.has(slug)) {
+      slug = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(slug);
+    heading.id = slug;
+  });
+
   container.querySelectorAll("a").forEach((link) => {
     const href = link.getAttribute("href") || "";
     if (href.startsWith("http") || href.startsWith("//")) {
@@ -485,6 +512,28 @@ const renderMarkdown = (source) => {
   });
 
   return container.innerHTML;
+};
+
+const handleDocsClick = (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const anchor = target?.closest('a[href^="#"]');
+  if (!anchor) return;
+
+  event.preventDefault();
+
+  const rawHref = anchor.getAttribute("href") || "";
+  let targetId = "";
+  try {
+    targetId = decodeURIComponent(rawHref.slice(1));
+  } catch {
+    return;
+  }
+  if (!targetId) return;
+
+  const scrollTarget = event.currentTarget.querySelector(
+    `#${CSS.escape(targetId)}`,
+  );
+  scrollTarget?.scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
 const updateHeaderStuckState = () => {
@@ -828,6 +877,7 @@ onBeforeUnmount(() => {
             v-else
             class="docs-markdown"
             v-html="renderedReadme"
+            @click="handleDocsClick"
           ></div>
         </v-card-text>
       </v-card>
@@ -1097,6 +1147,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1.3;
   margin: 1.4em 0 0.6em;
+  scroll-margin-top: calc(var(--v-layout-top, 64px) + 24px);
 }
 
 .docs-markdown :deep(h1:first-child),
