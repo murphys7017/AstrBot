@@ -69,7 +69,8 @@
     "selectConfig": "选择配置文件",
     "selectSection": "配置分区",
     "normalConfig": "普通",
-    "systemConfig": "系统"
+    "systemConfig": "系统",
+    "defaultConfig": "默认配置"
   },
   "search": {
     "placeholder": "搜索配置项（字段名/描述/提示）",

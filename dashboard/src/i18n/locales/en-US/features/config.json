@@ -69,7 +69,8 @@
     "selectConfig": "Select Configuration",
     "selectSection": "Configuration section",
     "normalConfig": "Basic",
-    "systemConfig": "System"
+    "systemConfig": "System",
+    "defaultConfig": "Default configuration"
   },
   "search": {
     "placeholder": "Search config items (key/description/hint)",
