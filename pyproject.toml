@@ -115,12 +115,17 @@ ignore = [
   "F405",
   "E501",
   "ASYNC230", # TODO: handle ASYNC230 in AstrBot
+  "ASYNC109", # Public timeout parameters are part of existing async APIs.
   "ASYNC240", # TODO: handle ASYNC240 in AstrBot
+  "UP017", # Alias-only modernization.
+  "UP035", # Keep existing typing_extensions compatibility imports.
+  "UP036", # Keep existing Python-version guards.
+  "UP040", # Avoid a broad PEP 695 type-alias rewrite.
+  "UP041", # Alias-only modernization.
+  "UP042", # StrEnum changes str() behavior.
+  "UP046", # Avoid a broad PEP 695 generic-class rewrite.
+  "UP047", # Avoid a broad PEP 695 generic-function rewrite.
 ]
-
-[tool.ruff.lint.per-file-ignores]
-# Test doubles preserve timeout parameters from the APIs they model.
-"tests/**/*.py" = ["ASYNC109"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
