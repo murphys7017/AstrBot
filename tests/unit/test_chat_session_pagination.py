@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +10,7 @@ from astrbot.dashboard.services.chat_service import ChatService
 
 
 def _make_session(session_id="session-1"):
-    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     return SimpleNamespace(
         session_id=session_id,
         platform_id="webchat",
@@ -134,7 +134,7 @@ async def test_get_session_includes_metadata_for_deep_linked_sidebar_item(
 async def test_paginated_session_order_is_stable_for_equal_timestamps(tmp_path):
     db = SQLiteDatabase(str(tmp_path / "sessions.db"))
     await db.initialize()
-    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
     try:
         async with db.get_db() as session:
             async with session.begin():

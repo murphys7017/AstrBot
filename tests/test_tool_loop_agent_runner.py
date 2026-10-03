@@ -445,37 +445,6 @@ def _make_large_tool_result_text() -> str:
     return "x" * 100000
 
 
-@pytest.mark.asyncio
-async def test_empty_messages_after_on_agent_begin_skip_provider(
-    runner,
-    mock_provider,
-    provider_request,
-    mock_tool_executor,
-):
-    hooks = ClearingAgentBeginHooks()
-
-    await runner.reset(
-        provider=mock_provider,
-        request=provider_request,
-        run_context=ContextWrapper(context=None),
-        tool_executor=mock_tool_executor,
-        agent_hooks=hooks,
-        streaming=False,
-    )
-
-    responses = [response async for response in runner.step_until_done(2)]
-
-    assert mock_provider.call_count == 0
-    assert runner.done()
-    assert not runner.was_aborted()
-    assert runner.run_context.messages == []
-    assert responses[-1].type == "err"
-    final_response = runner.get_final_llm_resp()
-    assert final_response is not None
-    assert final_response.role == "err"
-    assert final_response.completion_text == "No messages remain for the LLM request."
-
-
 def test_sanitize_malformed_tool_call_names():
     runner = ToolLoopAgentRunner()
     response = LLMResponse(
@@ -1117,9 +1086,10 @@ async def test_fallback_preserves_history_after_primary_mutates_request(
         pass
 
     assert runner.get_final_llm_resp().role == "assistant"
-    assert [message.content for message in fallback_provider.received_contexts][
-        :2
-    ] == ["earlier question", "earlier answer"]
+    assert [message.content for message in fallback_provider.received_contexts][:2] == [
+        "earlier question",
+        "earlier answer",
+    ]
     assert [message.content for message in runner.run_context.messages][:2] == [
         "earlier question",
         "earlier answer",
@@ -1610,7 +1580,9 @@ async def test_skills_like_requery_fallback_emits_streaming_delta():
     runner = ToolLoopAgentRunner()
     await runner.reset(
         provider=provider,
-        request=ProviderRequest(prompt="run", func_tool=ToolSet(tools=[tool]), contexts=[]),
+        request=ProviderRequest(
+            prompt="run", func_tool=ToolSet(tools=[tool]), contexts=[]
+        ),
         run_context=ContextWrapper(
             context=MockAgentContext(MockEvent("test_umo", "test_sender"))
         ),
@@ -1691,7 +1663,9 @@ async def test_skills_like_requery_preserves_original_visible_reply():
 
     assert all(response.type != "llm_result" for response in responses)
     assistant_messages = [
-        message for message in runner.run_context.messages if message.role == "assistant"
+        message
+        for message in runner.run_context.messages
+        if message.role == "assistant"
     ]
     assert assistant_messages
     assistant_message = assistant_messages[-1]

@@ -118,6 +118,10 @@ ignore = [
   "ASYNC240", # TODO: handle ASYNC240 in AstrBot
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Test doubles preserve timeout parameters from the APIs they model.
+"tests/**/*.py" = ["ASYNC109"]
+
 [tool.pyright]
 typeCheckingMode = "basic"
 pythonVersion = "3.12"

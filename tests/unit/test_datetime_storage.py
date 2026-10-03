@@ -1,6 +1,6 @@
 """Regression coverage for the existing SQLite datetime representation."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -22,7 +22,7 @@ from astrbot.core.knowledge_base.models import BaseKBModel, KnowledgeBase
     [
         None,
         datetime(2024, 1, 2, 3, 4, 5, 123456),
-        datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=timezone.utc),
+        datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=UTC),
         datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=timezone(timedelta(hours=8))),
     ],
     ids=["null", "naive", "utc", "non-utc"],

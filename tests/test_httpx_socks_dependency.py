@@ -1,8 +1,8 @@
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
-import tomllib
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"

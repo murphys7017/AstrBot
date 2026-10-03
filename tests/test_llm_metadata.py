@@ -1,5 +1,3 @@
-import asyncio
-
 import aiohttp
 import pytest
 
@@ -71,7 +69,7 @@ async def test_update_llm_metadata_falls_back_to_secondary_endpoint(monkeypatch)
 async def test_update_llm_metadata_keeps_cache_when_all_endpoints_fail(monkeypatch):
     session = _Session(
         [
-            _Response(error=asyncio.TimeoutError()),
+            _Response(error=TimeoutError()),
             _Response(error=aiohttp.ClientError("secondary unavailable")),
         ]
     )

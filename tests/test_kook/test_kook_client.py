@@ -1,6 +1,6 @@
 import asyncio
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -14,7 +14,6 @@ from astrbot.core.message.components import (
     Plain,
     Record,
 )
-from astrbot.core.platform.sources.kook.kook_client import KookClient
 from astrbot.core.platform.sources.kook.kook_config import KookConfig
 from astrbot.core.platform.sources.kook.kook_types import (
     KookMessageEventData,

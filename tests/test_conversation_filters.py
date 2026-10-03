@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -13,24 +13,24 @@ async def test_exclude_ids_match_umo_boundary_without_like_wildcards(temp_db):
             platform_id="astrbot",
             user_id="astrbot:GroupMessage:1",
             content=[],
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         ),
         ConversationV2(
             conversation_id="astrbotweb-group",
             platform_id="astrbotweb",
             user_id="astrbotweb:GroupMessage:2",
             content=[],
-            created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 2, tzinfo=UTC),
         ),
         ConversationV2(
             conversation_id="literal-percent",
             platform_id="100%",
             user_id="100%:GroupMessage:3",
             content=[],
-            created_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 3, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 3, tzinfo=UTC),
         ),
     ]
 
@@ -67,13 +67,10 @@ async def test_webchat_session_title_is_searchable(temp_db):
                     ConversationV2(
                         conversation_id="webchat-title-search",
                         platform_id="webchat",
-                        user_id=(
-                            "webchat:FriendMessage:"
-                            f"webchat!astrbot!{session_id}"
-                        ),
+                        user_id=(f"webchat:FriendMessage:webchat!astrbot!{session_id}"),
                         content=[],
-                        created_at=datetime(2026, 1, 4, tzinfo=timezone.utc),
-                        updated_at=datetime(2026, 1, 4, tzinfo=timezone.utc),
+                        created_at=datetime(2026, 1, 4, tzinfo=UTC),
+                        updated_at=datetime(2026, 1, 4, tzinfo=UTC),
                     ),
                     PlatformSession(
                         session_id=session_id,
