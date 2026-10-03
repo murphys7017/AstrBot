@@ -173,14 +173,14 @@
 | I7 | ✓ confirmed | `video-fix.patch` 已被 git 跟踪。 | open |
 | I8 | ✗ stale/incorrect | 本次检查该 exe 当前不存在；原报告是工作区状态，不是仓库跟踪文件。 | open |
 | I9 | ? historical | 当前 `git status` 干净；忽略文件和所有本地缓存未做递归清理审计。 | open |
-| I10 | ✓ confirmed | `.gitignore` 忽略已被跟踪的 `AGENTS.md` 与 `pyproject.toml`。 | open |
+| I10 | ✓ resolved | 已从 `.gitignore` 移除对已跟踪 `AGENTS.md` 与 `pyproject.toml` 的忽略规则；两文件仍由 Git 跟踪。 | resolved |
 | I11 | △ partial | `openspec/config.yaml` 存在，`.agents/` 无受跟踪文件，`.claude/` 已删除；治理投入低的观察仍成立但不宜称为残留空目录。 | open |
 
 ## 建议处理批次
 
 ### Batch 1：先恢复可控门禁
 
-A4、A6、A9、A10、A13、I10。A2/A3/A5 已被 workflow 整体删除这一状态取代；是否恢复 CI 由用户另行决定。A7 已按上游版本统一。
+A4、A6、A9、A10、A13。A2/A3/A5 已被 workflow 整体删除这一状态取代；是否恢复 CI 由用户另行决定。A7 已按上游版本统一。
 
 目标是让 fork 的 CI、依赖解析、格式化和构建入口先拥有清晰且可重复的边界。
 
