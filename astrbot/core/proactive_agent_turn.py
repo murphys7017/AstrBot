@@ -175,6 +175,9 @@ async def run_proactive_agent_turn(
         get_interaction_turn_core_execution_spec,
         set_interaction_turn_configuration_selection,
     )
+    from astrbot.core.platform.astr_message_event import (
+        INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
+    )
 
     event = CronMessageEvent(
         context=context,
@@ -185,7 +188,7 @@ async def run_proactive_agent_turn(
     )
     output_controller = getattr(context, "interaction_output_controller", None)
     if output_controller is not None:
-        event.set_extra("_interaction_output_controller", output_controller)
+        event.set_extra(INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY, output_controller)
     if role is not None:
         event.role = role
 

@@ -62,7 +62,10 @@ from astrbot.core.persona_error_reply import (
     extract_persona_custom_error_message_from_event,
 )
 from astrbot.core.pipeline.stage import Stage
-from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.platform.astr_message_event import (
+    INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
+    AstrMessageEvent,
+)
 from astrbot.core.provider.entities import (
     LLMResponse,
     ProviderRequest,
@@ -320,7 +323,7 @@ class InternalAgentSubStage(Stage):
 
                 if executor_id != "native":
                     output_controller = event.get_extra(
-                        "_interaction_output_controller"
+                        INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY
                     )
                     if output_controller is None:
                         raise RuntimeError(

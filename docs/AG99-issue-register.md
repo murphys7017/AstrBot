@@ -118,7 +118,7 @@
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
 | F1 | ✓/△ | `_interaction_enabled` 是裸字符串，约 15 个读取点；实际行为风险需运行验证。 | open |
-| F2 | ✓ confirmed | `_interaction_output_controller` 有多处硬编码，同时已有常量。 | open |
+| F2 | ✓ resolved | 生产读取/写入点统一使用 `INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY`；字符串只保留在平台常量定义处。 | resolved |
 | F3 | △ partial | 超长函数示例属实；211 个的精确数量依赖统计脚本。 | open |
 | F4 | ? historical | satori 转换器相似度数据未本次复核。 | open |
 | F5 | △ partial | Provider text/stream 函数成对存在；相似度数字未复核。 | open |

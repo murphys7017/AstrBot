@@ -19,6 +19,9 @@ from astrbot.core.agent_lifecycle_scope import (
     get_active_agent_lifecycle,
 )
 from astrbot.core.pipeline.context_utils import call_event_hook
+from astrbot.core.platform.astr_message_event import (
+    INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
+)
 from astrbot.core.plugin_runtime import PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
 from astrbot.core.postprocess import dispatch_postprocess
 from astrbot.core.postprocess.types import PostProcessTrigger
@@ -257,7 +260,7 @@ class AgentRequestLifecycle:
         """Bridge Core tool lifecycle into Interaction without runner coupling."""
         if self.execution_surface != TOOL_TARGET_CORE:
             return
-        controller = self.event.get_extra("_interaction_output_controller")
+        controller = self.event.get_extra(INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY)
         callback = getattr(controller, f"observe_core_tool_{phase}", None)
         if not callable(callback):
             return
