@@ -66,7 +66,12 @@ from ..message import (
 from ..response import AgentResponseData, AgentStats
 from ..run_context import ContextWrapper, TContext
 from ..tool_executor import BaseFunctionToolExecutor
-from .base import AgentResponse, AgentState, BaseAgentRunner
+from .base import (
+    REQUEST_NOT_SET_MESSAGE,
+    AgentResponse,
+    AgentState,
+    BaseAgentRunner,
+)
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -865,7 +870,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         This method should return the result of the step.
         """
         if not self.req:
-            raise ValueError("Request is not set. Please call reset() first.")
+            raise ValueError(REQUEST_NOT_SET_MESSAGE)
 
         if self._state == AgentState.IDLE:
             try:

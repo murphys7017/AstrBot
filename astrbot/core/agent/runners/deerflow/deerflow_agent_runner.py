@@ -20,7 +20,12 @@ from astrbot.core.utils.config_number import coerce_int_config
 from ...hooks import BaseAgentRunHooks
 from ...response import AgentResponseData
 from ...run_context import ContextWrapper, TContext
-from ..base import AgentResponse, AgentState, BaseAgentRunner
+from ..base import (
+    REQUEST_NOT_SET_MESSAGE,
+    AgentResponse,
+    AgentState,
+    BaseAgentRunner,
+)
 from ..request_material import materialize_runner_request
 from .constants import DEERFLOW_SESSION_PREFIX, DEERFLOW_THREAD_ID_KEY
 from .deerflow_api_client import DeerFlowAPIClient
@@ -280,7 +285,7 @@ class DeerFlowAgentRunner(BaseAgentRunner[TContext]):
     @override
     async def step(self):
         if not self.req:
-            raise ValueError("Request is not set. Please call reset() first.")
+            raise ValueError(REQUEST_NOT_SET_MESSAGE)
         if self.done():
             return
 

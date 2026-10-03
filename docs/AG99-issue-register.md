@@ -124,7 +124,7 @@
 | F5 | △ partial | Provider text/stream 函数成对存在；相似度数字未复核。 | open |
 | F6 | ? historical | “三胞胎”函数簇及相似度未复核。 | open |
 | F7 | ✓/△ | 生产代码检索到约 69 行 `assert`；`python -O` 会移除它们，但不代表每个都承担安全校验。 | open |
-| F8 | ✓ confirmed | `Request is not set...` 文案在 5 个 runner 中重复。 | open |
+| F8 | ✓ resolved | 5 个 runner 共用 `REQUEST_NOT_SET_MESSAGE`，错误文本和异常类型保持不变。 | resolved |
 | F9 | ✓ confirmed | `except Exception` 当前约 1128 处。 | open |
 | F10 | △ partial | `getattr` 数量随匹配规则约 700–756，原数字不稳定。 | open |
 | F11 | ? historical | 56 处静默吞异常未按同一规则重新核对。 | open |

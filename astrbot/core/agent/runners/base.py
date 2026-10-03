@@ -9,6 +9,8 @@ from ..hooks import BaseAgentRunHooks
 from ..response import AgentResponse
 from ..run_context import ContextWrapper, TContext
 
+REQUEST_NOT_SET_MESSAGE = "Request is not set. Please call reset() first."
+
 
 class AgentState(Enum):
     """Defines the state of the agent."""

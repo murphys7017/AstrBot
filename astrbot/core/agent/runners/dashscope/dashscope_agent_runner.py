@@ -20,7 +20,12 @@ from astrbot.core.provider.entities import (
 from ...hooks import BaseAgentRunHooks
 from ...response import AgentResponseData
 from ...run_context import ContextWrapper, TContext
-from ..base import AgentResponse, AgentState, BaseAgentRunner
+from ..base import (
+    REQUEST_NOT_SET_MESSAGE,
+    AgentResponse,
+    AgentState,
+    BaseAgentRunner,
+)
 
 if sys.version_info >= (3, 12):
     from typing import override
@@ -87,7 +92,7 @@ class DashscopeAgentRunner(BaseAgentRunner[TContext]):
         执行 Dashscope Agent 的一个步骤
         """
         if not self.req:
-            raise ValueError("Request is not set. Please call reset() first.")
+            raise ValueError(REQUEST_NOT_SET_MESSAGE)
 
         if self._state == AgentState.IDLE:
             try:

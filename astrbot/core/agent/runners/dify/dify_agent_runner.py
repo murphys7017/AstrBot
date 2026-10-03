@@ -15,7 +15,12 @@ from astrbot.core.utils.io import download_file
 from ...hooks import BaseAgentRunHooks
 from ...response import AgentResponseData
 from ...run_context import ContextWrapper, TContext
-from ..base import AgentResponse, AgentState, BaseAgentRunner
+from ..base import (
+    REQUEST_NOT_SET_MESSAGE,
+    AgentResponse,
+    AgentState,
+    BaseAgentRunner,
+)
 from ..request_material import image_filename, materialize_runner_request
 from .dify_api_client import DifyAPIClient
 
@@ -68,7 +73,7 @@ class DifyAgentRunner(BaseAgentRunner[TContext]):
         执行 Dify Agent 的一个步骤
         """
         if not self.req:
-            raise ValueError("Request is not set. Please call reset() first.")
+            raise ValueError(REQUEST_NOT_SET_MESSAGE)
 
         if self._state == AgentState.IDLE:
             try:

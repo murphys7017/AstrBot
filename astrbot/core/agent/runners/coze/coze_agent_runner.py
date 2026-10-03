@@ -19,7 +19,12 @@ from ...hooks import BaseAgentRunHooks
 from ...message import is_checkpoint_message
 from ...response import AgentResponseData
 from ...run_context import ContextWrapper, TContext
-from ..base import AgentResponse, AgentState, BaseAgentRunner
+from ..base import (
+    REQUEST_NOT_SET_MESSAGE,
+    AgentResponse,
+    AgentState,
+    BaseAgentRunner,
+)
 from ..request_material import materialize_runner_request
 from .coze_api_client import CozeAPIClient
 
@@ -80,7 +85,7 @@ class CozeAgentRunner(BaseAgentRunner[TContext]):
         执行 Coze Agent 的一个步骤
         """
         if not self.req:
-            raise ValueError("Request is not set. Please call reset() first.")
+            raise ValueError(REQUEST_NOT_SET_MESSAGE)
 
         if self._state == AgentState.IDLE:
             try:
