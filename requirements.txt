@@ -61,6 +61,5 @@ crypto>=1.4.1
 edge-tts>=7.2.7
 json-repair>=0.61.0
 pyffmpeg>=2.5.2.3.2
-silero-vad>=6.2.1
 volcengine-python-sdk[ark]>=5.0.17
 whisper>=1.1.10

@@ -33,14 +33,14 @@
 | A3 | ? historical | 当前没有受跟踪 workflow，Dashboard/coverage/Docker/release 自动化均不存在；原“被 repo 条件门控”描述已被整体删除取代。 | open |
 | A4 | ✓ confirmed | 无 typecheck job；pyright 只有配置且不在 dev 依赖。 | open |
 | A5 | ✗ stale/incorrect | 当前 HEAD 不含 `.github/workflows/build-docs.yml`；原 secrets 依赖不再是当前可执行路径。 | open |
-| A6 | ✓ confirmed | `requires-python >=3.12` 与 Ruff `py310` 不一致。 | open |
+| A6 | ✓ resolved | Ruff `target-version` 与 pyupgrade pre-commit 参数均已统一到 Python 3.12。 | resolved |
 | A7 | ✓ resolved | 已按上游 `1240156f9` 统一到 Ruff `0.15.22`：pre-commit 与 dev 依赖使用同一精确版本。 | resolved |
-| A8 | △ partial | Ruff 配置排除 `tests`；当前 fork 已无 workflow，因此不只是 tests，仓库也没有 CI lint/format 执行入口。 | open |
-| A9 | ✓ confirmed | `uv.lock` 被忽略，未纳入版本控制。 | open |
+| A8 | △ partial | Ruff 已纳入 `tests`；当前 fork 仍无 workflow 自动执行 lint/format，CI 门禁问题未解决。 | open |
+| A9 | ✓ resolved | 已取消 `.gitignore` 对 `uv.lock` 的忽略，并生成当前项目锁文件。 | resolved |
 | A10 | △ partial | `requirements.txt` 与 `pyproject.toml` 双源并存；原 smoke workflow 已删除，当前没有 workflow 使用任一依赖源。 | open |
-| A11 | △ partial | `silero-vad` 当前源码无引用；权重/torch 安装成本需按依赖解析确认。 | open |
+| A11 | ✓ resolved | 已确认源码与测试均无 `silero-vad` 引用；已从 `pyproject.toml`、`requirements.txt` 和锁文件移除，锁文件不再解析 Torch/CUDA 依赖链。 | resolved |
 | A12 | ✓ confirmed | `whisper`、`faiss-cpu`、Volcengine、MarkItDown 等是无条件依赖；是否 optional 属于设计决策。 | open |
-| A13 | △ partial | Hatch 构建 hook 调用 npm，而 Dashboard 提交的是 `pnpm-lock.yaml`；原 CI 使用 pnpm 的部分已随 workflow 删除。 | open |
+| A13 | △ partial | Hatch 构建 hook 调用 npm，而 Dashboard 提交的是 `pnpm-lock.yaml`；本批未改构建入口，仍需单独决定统一包管理器。 | open |
 | A14 | ✗ stale/incorrect | 原引用不能证明“requirements.txt 被列为运行时依赖”；问题应并入 A10。 | open |
 
 ## B · 测试
@@ -219,7 +219,7 @@ B1-B3、B5-B12、C1-C9。
 | 问题 | 上游证据 | 本 fork 现状与结论 |
 |---|---|---|
 | A1-A5 | 上游仍保留官方 workflows；当前 fork 的 workflows 已整体不在 HEAD。 | A1 格式 workflow 已删；A2/A3/A5 的旧描述不再适用，但 CI/build 自动化也不存在，不能视为功能修复。 |
-| A6-A13 | 上游仍有 `target-version = "py310"`、排除 tests、忽略 `uv.lock`、依赖双源及 npm/pnpm 并存；`silero-vad` 仍列依赖。 | 这些没有被上游解决；A7 已吸收 `1240156f9`，统一 Ruff `0.15.22`。A4 在当前 fork 更准确的问题是没有 CI workflow，pyright 只有配置。 |
+| A6-A13 | 上游仍有 `target-version = "py310"`、排除 tests、忽略 `uv.lock`、依赖双源及 npm/pnpm 并存；`silero-vad` 仍列依赖。 | 本 fork 已修 A6（Ruff/pyupgrade 对齐 Python 3.12）、A7（Ruff 版本统一）、A9（追踪 `uv.lock`）、A11（移除未引用的 `silero-vad`）；A8 的 Ruff 范围已包含 tests，但仍无 CI 执行入口。A4/A10/A13 仍待处理，A12 属依赖分层设计决策。 |
 | B4 | 上游近期没有对应的 EventBus fixture 修复提交。 | 仍应按当前 config-selection 契约修 fixture；这是测试适配问题，不等同于证明生产路由错误。本轮未跑测试。 |
 | B6 | `dd36979ec` 新增 Tenacity 重试封装；当前上游 Gemini 仍保留 `retry = 10` 的 key 轮换。 | 属于部分重试体系更新，不解决本条的可注入 sleep/测试墙钟问题；不整体移植其 provider API 改造。 |
 | B7 | 上游 `astrbot/core/backup/exporter.py` 仍用 `ZIP_DEFLATED` 且不传 `compresslevel`。 | 未发现压缩快路径；测试耗时属性能优化而非生产行为缺陷。 |

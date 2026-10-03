@@ -71,7 +71,6 @@ dependencies = [
   "crypto>=1.4.1",
   "whisper>=1.1.10",
   "volcengine-python-sdk[ark]>=5.0.17",
-  "silero-vad>=6.2.1",
   "pyffmpeg>=2.5.2.3.2",
   "python-ripgrep==0.0.8 ; python_version < '3.14'",
   "json-repair>=0.61.0",
@@ -95,9 +94,9 @@ Documentation = "https://github.com/murphys7017/AG99/tree/codex/unify-prompt-con
 Upstream = "https://github.com/AstrBotDevs/AstrBot"
 
 [tool.ruff]
-exclude = ["astrbot/core/utils/t2i/local_strategy.py", "astrbot/api/all.py", "tests"]
+exclude = ["astrbot/core/utils/t2i/local_strategy.py", "astrbot/api/all.py"]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
