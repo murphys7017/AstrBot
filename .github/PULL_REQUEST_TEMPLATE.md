@@ -27,8 +27,8 @@
 - [ ] 👀 My changes have been well-tested, **and "Verification Steps" and "Screenshots" have been provided above**.
   / 我的更改经过了良好的测试，**并已在上方提供了“验证步骤”和“运行截图”**。
 
-- [ ] 🤓 I have ensured that no new dependencies are introduced, OR if new dependencies are introduced, they have been added to the appropriate locations in `requirements.txt` and `pyproject.toml`.
-  / 我确保没有引入新依赖库，或者引入了新依赖库的同时将其添加到 `requirements.txt` 和 `pyproject.toml` 文件相应位置。
+- [ ] 🤓 I have ensured that no new dependencies are introduced, OR if new runtime dependencies are introduced, I added them to `pyproject.toml` and regenerated `requirements.txt` with `python scripts/export_requirements.py`.
+  / 我确保没有引入新依赖库，或者引入了新的运行时依赖后已将其添加到 `pyproject.toml`，并通过 `python scripts/export_requirements.py` 重新生成 `requirements.txt`。
 
 - [ ] 😮 My changes do not introduce malicious code.
   / 我的更改没有引入恶意代码。

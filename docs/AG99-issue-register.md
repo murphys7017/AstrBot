@@ -37,11 +37,11 @@
 | A7 | ✓ resolved | 已按上游 `1240156f9` 统一到 Ruff `0.15.22`：pre-commit 与 dev 依赖使用同一精确版本。 | resolved |
 | A8 | △ partial | Ruff 已纳入 `tests`；当前 fork 仍无 workflow 自动执行 lint/format，CI 门禁问题未解决。 | open |
 | A9 | ✓ resolved | 已取消 `.gitignore` 对 `uv.lock` 的忽略，并生成当前项目锁文件。 | resolved |
-| A10 | △ maintenance risk | `pyproject.toml` 是 uv/Docker 主入口，`requirements.txt` 仍供 pip 部署文档使用；两份直接依赖当前语义一致，但需手工同步，存在未来漂移风险。不能直接删除 pip 兼容入口。 | open |
+| A10 | ✓ resolved | `pyproject.toml` 是唯一手写依赖来源；`scripts/export_requirements.py` 生成 pip 兼容清单，pre-commit 在依赖清单变更时检查同步。pip 部署入口保留，Docker 继续从 uv 锁文件导出。 | resolved |
 | A11 | ✓ resolved | 已确认源码与测试均无 `silero-vad` 引用；已从 `pyproject.toml`、`requirements.txt` 和锁文件移除，锁文件不再解析 Torch/CUDA 依赖链。 | resolved |
 | A12 | ✓ confirmed | `whisper`、`faiss-cpu`、Volcengine、MarkItDown 等是无条件依赖；是否 optional 属于设计决策。 | open |
 | A13 | ✓ implementation / △ build pending | Hatch Dashboard 构建已统一使用 pnpm；每次显式构建前通过 `pnpm install --frozen-lockfile` 对齐依赖。Windows 通过 `cmd.exe` 调用 pnpm 启动器；Hatch 完整构建待验收。 | in_progress |
-| A14 | ✗ stale/incorrect | 原引用不能证明“requirements.txt 被列为运行时依赖”；问题应并入 A10。 | open |
+| A14 | ✓ merged | pip 部署文档确实使用 `requirements.txt`；原来的依赖来源疑问并入 A10，由生成脚本维持同步。 | merged |
 
 ## B · 测试
 
@@ -219,7 +219,7 @@ B1-B3、B5-B12、C1-C9。
 | 问题 | 上游证据 | 本 fork 现状与结论 |
 |---|---|---|
 | A1-A5 | 上游仍保留官方 workflows；当前 fork 的 workflows 已整体不在 HEAD。 | A1 格式 workflow 已删；A2/A3/A5 的旧描述不再适用，但 CI/build 自动化也不存在，不能视为功能修复。 |
-| A6-A13 | 上游仍有 `target-version = "py310"`、排除 tests、忽略 `uv.lock`、依赖双源及 npm/pnpm 并存；`silero-vad` 仍列依赖。 | 本 fork 已修 A6（Ruff/pyupgrade 对齐 Python 3.12）、A7（Ruff 版本统一）、A9（追踪 `uv.lock`）、A11（移除未引用的 `silero-vad`）；A13 已实现 Hatch/pnpm 对齐，完整构建待验收。A8 的 Ruff 范围已包含 tests，但仍无 CI 执行入口。A4/A10 仍待处理，A12 属依赖分层设计决策。 |
+| A6-A13 | 上游仍有 `target-version = "py310"`、排除 tests、忽略 `uv.lock`、依赖双源及 npm/pnpm 并存；`silero-vad` 仍列依赖。 | 本 fork 已修 A6（Ruff/pyupgrade 对齐 Python 3.12）、A7（Ruff 版本统一）、A9（追踪 `uv.lock`）、A10（由 pyproject 生成 pip 兼容清单）、A11（移除未引用的 `silero-vad`）；A13 已实现 Hatch/pnpm 对齐，完整构建待验收。A8 的 Ruff 范围已包含 tests，但仍无 CI 执行入口。A4 仍待处理，A12 属依赖分层设计决策。 |
 | B4 | 上游近期没有对应的 EventBus fixture 修复提交。 | 仍应按当前 config-selection 契约修 fixture；这是测试适配问题，不等同于证明生产路由错误。本轮未跑测试。 |
 | B6 | `dd36979ec` 新增 Tenacity 重试封装；当前上游 Gemini 仍保留 `retry = 10` 的 key 轮换。 | 属于部分重试体系更新，不解决本条的可注入 sleep/测试墙钟问题；不整体移植其 provider API 改造。 |
 | B7 | 上游 `astrbot/core/backup/exporter.py` 仍用 `ZIP_DEFLATED` 且不传 `compresslevel`。 | 未发现压缩快路径；测试耗时属性能优化而非生产行为缺陷。 |

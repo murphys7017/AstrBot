@@ -23,3 +23,12 @@ repos:
   hooks:
     - id: pyupgrade
       args: [--py312-plus]
+
+- repo: local
+  hooks:
+    - id: requirements-sync
+      name: Check generated requirements.txt
+      entry: python scripts/export_requirements.py --check
+      language: system
+      files: ^(pyproject\.toml|requirements\.txt)$
+      pass_filenames: false
