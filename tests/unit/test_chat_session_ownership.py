@@ -57,3 +57,19 @@ async def test_chat_session_lookup_failure_does_not_continue(monkeypatch):
 
     db.create_platform_session.assert_not_awaited()
     service._build_user_message_parts.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_does_not_create_session_for_empty_message(monkeypatch):
+    db = SimpleNamespace(
+        get_platform_session_by_id=AsyncMock(return_value=None),
+        create_platform_session=AsyncMock(),
+    )
+    service = _service_with_db(db)
+    service._build_user_message_parts.return_value = []
+    _authenticated_user(monkeypatch, "alice")
+
+    response = await service.chat({"message": "", "session_id": "empty-session"})
+
+    assert response["status"] == "error"
+    db.create_platform_session.assert_not_awaited()
