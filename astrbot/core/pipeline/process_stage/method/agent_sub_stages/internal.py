@@ -63,6 +63,7 @@ from astrbot.core.persona_error_reply import (
 )
 from astrbot.core.pipeline.stage import Stage
 from astrbot.core.platform.astr_message_event import (
+    INTERACTION_ENABLED_EXTRA_KEY,
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
     AstrMessageEvent,
 )
@@ -717,7 +718,7 @@ class InternalAgentSubStage(Stage):
         runner_stats: AgentStats | None,
         user_aborted: bool = False,
     ) -> None:
-        if event.get_extra("_interaction_enabled", False):
+        if event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False):
             try:
                 await self._save_interaction_core_state(
                     event,
@@ -962,7 +963,7 @@ class InternalAgentSubStage(Stage):
         """Persist a cancelled interaction execution without mutating dialogue history."""
 
         if (
-            not event.get_extra("_interaction_enabled", False)
+            not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False)
             or req is None
             or req.conversation is None
         ):
@@ -1011,7 +1012,7 @@ class InternalAgentSubStage(Stage):
         error: Exception,
     ) -> None:
         if (
-            not event.get_extra("_interaction_enabled", False)
+            not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False)
             or req is None
             or req.conversation is None
         ):

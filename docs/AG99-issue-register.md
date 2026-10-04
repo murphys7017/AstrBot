@@ -40,7 +40,7 @@
 | A10 | ✓ resolved | `pyproject.toml` 是唯一手写依赖来源；`scripts/export_requirements.py` 生成 pip 兼容清单，pre-commit 在依赖清单变更时检查同步。pip 部署入口保留，Docker 继续从 uv 锁文件导出。 | resolved |
 | A11 | ✓ resolved | 已确认源码与测试均无 `silero-vad` 引用；已从 `pyproject.toml`、`requirements.txt` 和锁文件移除，锁文件不再解析 Torch/CUDA 依赖链。 | resolved |
 | A12 | ✓ confirmed | `whisper`、`faiss-cpu`、Volcengine、MarkItDown 等是无条件依赖；是否 optional 属于设计决策。 | open |
-| A13 | ✓ implementation / △ build pending | Hatch Dashboard 构建已统一使用 pnpm；每次显式构建前通过 `pnpm install --frozen-lockfile` 对齐依赖。Windows 通过 `cmd.exe` 调用 pnpm 启动器；Hatch 完整构建待验收。 | in_progress |
+| A13 | ✓ resolved | Hatch Dashboard 已通过 `pnpm install --frozen-lockfile` 与 `ASTRBOT_BUILD_DASHBOARD=1 uv build` 实际验收；wheel 包含构建后的 `astrbot/dashboard/dist/` 资源。构建期间仅有 pnpm build-script 与 Google Fonts 下载 warning，不影响构建成功。 | resolved |
 | A14 | ✓ merged | pip 部署文档确实使用 `requirements.txt`；原来的依赖来源疑问并入 A10，由生成脚本维持同步。 | merged |
 
 ## B · 测试
@@ -93,7 +93,7 @@
 | D11 | ✓ resolved | 递归配置合并已集中到纯函数 `interaction/runtime_config.py`，保留 middleware 对非 Mapping 输入的兼容行为。 | resolved |
 | D12 | ✓ confirmed | skills 中存在针对测试 monkeypatch 的 TypeError 兼容分支。 | open |
 | D13 | ✓ confirmed | session management 同时返回旧格式和结构化格式。 | open |
-| D14 | ✓ confirmed | `provider/entities.py` 有兼容包装，当前未发现调用方。 | open |
+| D14 | ✓ resolved | 删除 `ProviderRequest._encode_image_bs64` 私有兼容包装；当前图片组装路径直接使用 `materialize_image_ref()`，仓内无调用方。 | resolved |
 | D15 | ✓ confirmed | `CommandResult` 是旧名兼容别名。 | open |
 | D16 | ✓ implementation / △ live pending | Dashboard 会话列表已吸收渐进分页，旧接口无分页参数时仍保留数组响应；后端契约、稳定排序和深链接元数据已通过定向测试，运行中页面滚动尚待验收。 | in_progress |
 | D17 | ✓ confirmed | 配置项保留兼容旧配置的注释。 | open |
@@ -117,7 +117,7 @@
 
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
-| F1 | ✓/△ | `_interaction_enabled` 是裸字符串，约 15 个读取点；实际行为风险需运行验证。 | open |
+| F1 | ✓ resolved | 生产读取/写入点统一使用 `INTERACTION_ENABLED_EXTRA_KEY`；字符串只保留在平台常量定义处，键值与行为不变。 | resolved |
 | F2 | ✓ resolved | 生产读取/写入点统一使用 `INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY`；字符串只保留在平台常量定义处。 | resolved |
 | F3 | △ partial | 超长函数示例属实；211 个的精确数量依赖统计脚本。 | open |
 | F4 | ? historical | satori 转换器相似度数据未本次复核。 | open |
@@ -166,7 +166,7 @@
 |---|---|---|---|
 | I1 | ✓/△ | `provider/entites.py` 存在且未发现调用；原报告行数已过时。 | open |
 | I2 | ✓ confirmed | `filter_llm_exposed_context_pack` 当前未发现生产调用方。 | open |
-| I3 | △ partial | `_encode_image_bs64` 未发现生产调用方，动态调用仍不能完全排除。 | open |
+| I3 | ✓ resolved | `_encode_image_bs64` 私有兼容包装已删除；当前图片组装路径直接使用 `materialize_image_ref()`，仓内无调用方。 | resolved |
 | I4 | △ partial | Persona runtime 三个方法未发现调用方，需排除反射/插件调用。 | open |
 | I5 | ✗ stale/incorrect | `session_controller/`、`web_searcher/` 当前都不存在，也没有受跟踪源码；原“目录只含 pycache”不适用于当前工作区。 | open |
 | I6 | ✓ resolved | `test.db` 已由本地提交 `4731f970d` 删除，当前不再跟踪且文件不存在。 | resolved |

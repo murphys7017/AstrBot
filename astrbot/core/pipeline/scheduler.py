@@ -4,6 +4,7 @@ from contextlib import aclosing, nullcontext
 from astrbot.core import logger
 from astrbot.core.interaction.turn_state import get_interaction_turn_runtime_config
 from astrbot.core.platform import AstrMessageEvent
+from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
 from astrbot.core.utils.active_event_registry import active_event_registry
 
 from .bootstrap import ensure_builtin_stages_registered
@@ -37,7 +38,7 @@ class PipelineScheduler:
 
     @staticmethod
     def _log_stopped_event(event: AstrMessageEvent, stage_name: str) -> None:
-        if event.get_extra("_interaction_enabled"):
+        if event.get_extra(INTERACTION_ENABLED_EXTRA_KEY):
             logger.debug(
                 "当前交互轮已完成，跳过剩余 Pipeline 阶段。stage=%s",
                 stage_name,

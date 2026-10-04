@@ -23,6 +23,7 @@ from astrbot.core.execution import (
     get_core_execution_lifecycle,
     get_core_execution_session,
 )
+from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
 from astrbot.core.prompt.context_types import ContextPack
 
 from .types import (
@@ -1338,7 +1339,7 @@ def _project_core_execution_event_to_interaction_turn(
 ) -> CoreExecutionEvent | None:
     """Project one Head fact into the owning Interaction journal and trace."""
 
-    if envelope is None or not event.get_extra("_interaction_enabled", False):
+    if envelope is None or not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False):
         return None
     state = get_interaction_turn_state(event)
     execution_spec = get_interaction_turn_core_execution_spec(event)
@@ -1448,7 +1449,7 @@ def record_interaction_turn_core_execution_ledger_settlement(
 ) -> None:
     """Record one inserted or deduplicated Ledger append without execution material."""
 
-    if not event.get_extra("_interaction_enabled", False):
+    if not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False):
         return
     state = get_interaction_turn_state(event)
     execution_spec = get_interaction_turn_core_execution_spec(event)
@@ -1497,7 +1498,7 @@ def record_interaction_turn_core_execution_ledger_persist_failure(
     execution_spec = get_interaction_turn_core_execution_spec(event)
     state = get_interaction_turn_state(event)
     if (
-        not event.get_extra("_interaction_enabled", False)
+        not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False)
         or state is None
         or not isinstance(execution_spec, CoreExecutionSpec)
         or execution_spec.turn_id != state.turn_id
@@ -1527,7 +1528,7 @@ def bind_interaction_turn_core_execution_journal(
 ) -> bool:
     """Attach the Interaction journal as the Head's local event projection."""
 
-    if not event.get_extra("_interaction_enabled", False):
+    if not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False):
         return False
     state = get_interaction_turn_state(event)
     execution_spec = get_interaction_turn_core_execution_spec(event)
@@ -1564,7 +1565,7 @@ def record_interaction_turn_core_execution_event(
 ) -> CoreExecutionEvent | None:
     """Record one non-visible execution fact through the current Core boundary."""
 
-    if not event.get_extra("_interaction_enabled", False):
+    if not event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False):
         return None
     state = get_interaction_turn_state(event)
     execution_spec = get_interaction_turn_core_execution_spec(event)

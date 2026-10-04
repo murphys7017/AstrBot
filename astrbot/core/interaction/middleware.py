@@ -8,6 +8,7 @@ from astrbot.core.deadline import TurnDeadlineExceeded
 from astrbot.core.message.components import Image, Plain, Record
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astr_message_event import (
+    INTERACTION_ENABLED_EXTRA_KEY,
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
     AstrMessageEvent,
 )
@@ -339,7 +340,7 @@ class InteractionMiddleware:
         turn_id: str,
         route_decision: InteractionRouteDecision | None = None,
     ) -> None:
-        event.set_extra("_interaction_enabled", True)
+        event.set_extra(INTERACTION_ENABLED_EXTRA_KEY, True)
         event.set_extra("_turn_id", turn_id)
         event.set_extra(
             INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,

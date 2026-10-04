@@ -299,10 +299,6 @@ class ProviderRequest:
         # 否则返回多模态格式
         return {"role": "user", "content": content_blocks}
 
-    async def _encode_image_bs64(self, image_url: str) -> str:
-        """Compatibility wrapper for callers that previously used this helper."""
-        return (await materialize_image_ref(image_url)).to_data_url()
-
     async def _encode_audio_bs64(
         self,
         audio_path: str,

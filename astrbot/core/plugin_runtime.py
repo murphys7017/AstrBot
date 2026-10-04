@@ -11,6 +11,7 @@ from astrbot.core.agent.tool import (
     TOOL_TARGET_PERSONAL_EXPRESSION,
     tool_supports_target,
 )
+from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
 from astrbot.core.plugin_admission import (
     CapabilityKind,
     capability_allowed,
@@ -31,7 +32,7 @@ def _event_config(event) -> Mapping[str, object]:
 
 
 def _is_personal_runtime_turn(event) -> bool:
-    return bool(event.get_extra("_interaction_enabled", False))
+    return bool(event.get_extra(INTERACTION_ENABLED_EXTRA_KEY, False))
 
 
 def _binding(runtime_config, metadata) -> Mapping[str, object]:

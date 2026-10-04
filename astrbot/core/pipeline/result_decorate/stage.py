@@ -10,7 +10,10 @@ from astrbot.core.interaction.turn_state import get_interaction_turn_state
 from astrbot.core.message.components import At, Image, Json, Node, Plain, Record, Reply
 from astrbot.core.message.message_event_result import ResultContentType
 from astrbot.core.output_lifecycle import PreOutputProcessor
-from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.platform.astr_message_event import (
+    INTERACTION_ENABLED_EXTRA_KEY,
+    AstrMessageEvent,
+)
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.star.session_llm_manager import SessionServiceManager
 from astrbot.core.voice import (
@@ -473,6 +476,6 @@ class ResultDecorateStage(Stage):
 
     @staticmethod
     def _is_interaction_turn(event: AstrMessageEvent) -> bool:
-        return bool(event.get_extra("_interaction_enabled")) and (
+        return bool(event.get_extra(INTERACTION_ENABLED_EXTRA_KEY)) and (
             get_interaction_turn_state(event) is not None
         )

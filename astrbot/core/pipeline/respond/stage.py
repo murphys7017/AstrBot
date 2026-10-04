@@ -14,6 +14,7 @@ from astrbot.core.message.message_chain_delivery import deliver_message_chain
 from astrbot.core.message.message_event_result import ResultContentType
 from astrbot.core.output_lifecycle import TurnDeliveryCoordinator
 from astrbot.core.platform.astr_message_event import (
+    INTERACTION_ENABLED_EXTRA_KEY,
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
     AstrMessageEvent,
 )
@@ -55,7 +56,9 @@ class RespondStage(Stage):
         platform_extras: dict,
     ) -> None:
         async def _send() -> None:
-            if not platform_extras or event.get_extra("_interaction_enabled", False):
+            if not platform_extras or event.get_extra(
+                INTERACTION_ENABLED_EXTRA_KEY, False
+            ):
                 await event.send(message)
                 return
             await event.send_message_with_extras(
@@ -113,7 +116,7 @@ class RespondStage(Stage):
 
     @staticmethod
     def _is_interaction_turn(event: AstrMessageEvent) -> bool:
-        return bool(event.get_extra("_interaction_enabled")) and (
+        return bool(event.get_extra(INTERACTION_ENABLED_EXTRA_KEY)) and (
             get_interaction_turn_state(event) is not None
         )
 

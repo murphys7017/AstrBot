@@ -22,6 +22,7 @@ from astrbot.core.interaction.turn_state import (
     bind_interaction_turn_core_execution_journal,
     get_interaction_turn_runtime_config_id,
 )
+from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
 from astrbot.core.prompt.targets import PromptTarget
 
 from .assembly import build_codex_executor_assembly
@@ -69,7 +70,7 @@ async def execute_external_core_turn(
     head = bind_core_execution_head(event, prepared.execution_spec)
     try:
         if getattr(event, "get_extra", lambda *_args, **_kwargs: False)(
-            "_interaction_enabled", False
+            INTERACTION_ENABLED_EXTRA_KEY, False
         ) and not bind_interaction_turn_core_execution_journal(event, head):
             raise RuntimeError(
                 "External Core execution could not bind the Interaction journal"

@@ -36,6 +36,7 @@ from astrbot.core.message.message_event_result import (
     MessageChain,
     MessageEventResult,
 )
+from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.plugin_runtime import tool_supports_runtime_target
 from astrbot.core.provider.register import llm_tools
@@ -165,7 +166,7 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
 
         event = getattr(run_context.context, "event", None)
         interaction_turn = bool(
-            event is not None and event.get_extra("_interaction_enabled")
+            event is not None and event.get_extra(INTERACTION_ENABLED_EXTRA_KEY)
         )
 
         if isinstance(tool, HandoffTool):

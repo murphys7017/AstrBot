@@ -39,6 +39,7 @@ from .astrbot_message import AstrBotMessage, Group
 from .message_session import MessageSesion, MessageSession  # noqa
 from .platform_metadata import PlatformMetadata
 
+INTERACTION_ENABLED_EXTRA_KEY = "_interaction_enabled"
 INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY = "_interaction_output_controller"
 INTERACTION_OUTPUT_INTERCEPTOR_INSTALLED_EXTRA_KEY = (
     "_interaction_output_interceptor_installed"
