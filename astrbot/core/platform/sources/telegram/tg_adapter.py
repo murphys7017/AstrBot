@@ -477,9 +477,7 @@ class TelegramPlatformAdapter(Platform):
             if update.message.caption and update.message.caption_entities:
                 for entity in update.message.caption_entities:
                     if entity.type == "mention":
-                        name = update.message.caption[
-                            entity.offset + 1 : entity.offset + entity.length
-                        ]
+                        name = update.message.parse_caption_entity(entity)[1:]
                         message.message.append(Comp.At(qq=name, name=name))
 
         message = AstrBotMessage()
@@ -545,6 +543,7 @@ class TelegramPlatformAdapter(Platform):
         if update.message.text:
             # 处理文本消息
             plain_text = update.message.text
+            original_text = plain_text
             if (
                 message.type == MessageType.GROUP_MESSAGE
                 and update.message
@@ -568,16 +567,16 @@ class TelegramPlatformAdapter(Platform):
             if update.message.entities:
                 for entity in update.message.entities:
                     if entity.type == "mention":
-                        name = plain_text[
-                            entity.offset + 1 : entity.offset + entity.length
-                        ]
+                        name = update.message.parse_entity(entity)[1:]
                         message.message.append(Comp.At(qq=name, name=name))
                         # 如果mention是当前bot则移除；否则保留
                         if name.lower() == context.bot.username.lower():
+                            encoded = original_text.encode("utf-16-le")
+                            start = entity.offset * 2
+                            end = (entity.offset + entity.length) * 2
                             plain_text = (
-                                plain_text[: entity.offset]
-                                + plain_text[entity.offset + entity.length :]
-                            )
+                                encoded[:start] + encoded[end:]
+                            ).decode("utf-16-le")
 
             if plain_text:
                 message.message.append(Comp.Plain(plain_text))
