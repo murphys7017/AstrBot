@@ -49,7 +49,7 @@ const { tm } = useModuleI18n('features/console');
         </v-dialog>
       </div>
     </div>
-    <ConsoleDisplayer ref="consoleDisplayer" class="console-display" />
+    <ConsoleDisplayer ref="consoleDisplayer" class="console-display" show-search />
   </div>
 </template>
 <script>

@@ -2,17 +2,34 @@
 import { useCommonStore } from '@/stores/common';
 import axios from 'axios';
 import { EventSourcePolyfill } from 'event-source-polyfill';
+import { useModuleI18n } from '@/i18n/composables';
+
+const { tm } = useModuleI18n('features/console');
 </script>
 
 <template>
   <div class="console-displayer-wrapper" id="console-wrapper">
-    <div class="filter-controls mb-2" v-if="showLevelBtns">
+    <div class="filter-controls mb-2" v-if="showLevelBtns || showSearch">
       <v-chip-group v-model="selectedLevels" column multiple>
         <v-chip v-for="level in logLevels" :key="level" :color="getLevelColor(level)" filter variant="flat" size="small"
           :text-color="level === 'DEBUG' || level === 'INFO' ? 'black' : 'white'" class="font-weight-medium">
           {{ level }}
         </v-chip>
       </v-chip-group>
+      <v-text-field
+        v-if="showSearch"
+        v-model="searchInput"
+        class="log-search-field"
+        density="compact"
+        variant="solo-filled"
+        flat
+        hide-details
+        single-line
+        clearable
+        prepend-inner-icon="mdi-magnify"
+        :aria-label="tm('search.label')"
+        :placeholder="tm('search.placeholder')"
+      />
       <v-spacer></v-spacer>
       <v-btn
         :icon="isFullscreen ? 'mdi-fullscreen-exit' : 'mdi-fullscreen'"
@@ -55,6 +72,9 @@ export default {
         'CRITICAL': 'purple'
       },
       localLogCache: [],
+      searchInput: '',
+      searchKeyword: '',
+      searchTimer: null,
       eventSource: null,
       retryTimer: null,
       retryAttempts: 0,           
@@ -76,6 +96,10 @@ export default {
     showLevelBtns: {
       type: Boolean,
       default: true
+    },
+    showSearch: {
+      type: Boolean,
+      default: false
     }
   },
   watch: {
@@ -84,6 +108,17 @@ export default {
         this.refreshDisplay();
       },
       deep: true
+    },
+    searchInput(value) {
+      if (this.searchTimer) clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => {
+        this.searchTimer = null;
+        const keyword = (value || '').trim();
+        if (keyword !== this.searchKeyword) {
+          this.searchKeyword = keyword;
+          this.refreshDisplay();
+        }
+      }, 250);
     }
   },
   async mounted() {
@@ -100,6 +135,10 @@ export default {
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
+    }
+    if (this.searchTimer) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
     }
     this.retryAttempts = 0;
   },
@@ -204,7 +243,7 @@ export default {
             this.localLogCache.push(log);
             hasUpdate = true;
             
-            if (this.isLevelSelected(log.level)) {
+            if (this.isLevelSelected(log.level) && this.matchesKeyword(log)) {
               this.printLog(log.data);
             }
         }
@@ -245,6 +284,35 @@ export default {
       return false;
     },
 
+    matchesKeyword(log) {
+      if (!this.searchKeyword) return true;
+      const text = (log.data || '').replace(/\u001b\[[0-9;]*m/g, '').toLowerCase();
+      return text.includes(this.searchKeyword.toLowerCase());
+    },
+
+    appendHighlightedText(element, text) {
+      const keyword = this.searchKeyword;
+      if (!keyword || !text) {
+        element.textContent = text || '';
+        return;
+      }
+      const cleanText = text.replace(/\u001b\[[0-9;]*m/g, '');
+      const lowerText = cleanText.toLowerCase();
+      const lowerKeyword = keyword.toLowerCase();
+      let cursor = 0;
+      let index = lowerText.indexOf(lowerKeyword);
+      while (index !== -1) {
+        if (index > cursor) element.appendChild(document.createTextNode(cleanText.slice(cursor, index)));
+        const highlight = document.createElement('span');
+        highlight.className = 'console-log-highlight';
+        highlight.textContent = cleanText.slice(index, index + keyword.length);
+        element.appendChild(highlight);
+        cursor = index + keyword.length;
+        index = lowerText.indexOf(lowerKeyword, cursor);
+      }
+      if (cursor < cleanText.length) element.appendChild(document.createTextNode(cleanText.slice(cursor)));
+    },
+
     refreshDisplay() {
       const termElement = document.getElementById('term');
       if (termElement) {
@@ -252,7 +320,7 @@ export default {
         
         if (this.localLogCache && this.localLogCache.length > 0) {
           this.localLogCache.forEach(logItem => {
-            if (this.isLevelSelected(logItem.level)) {
+            if (this.isLevelSelected(logItem.level) && this.matchesKeyword(logItem)) {
               this.printLog(logItem.data);
             }
           });
@@ -282,7 +350,7 @@ export default {
     appendLogContent(element, log) {
       const levelMatch = log.match(/\[(DEBG|INFO|WARN|ERRO|CRIT|DEBUG|WARNING|ERROR|CRITICAL)\]/);
       if (!levelMatch) {
-        element.innerText = `${log}`;
+        this.appendHighlightedText(element, `${log}`);
         return;
       }
 
@@ -293,15 +361,15 @@ export default {
 
       const prefixSpan = document.createElement('span');
       prefixSpan.className = 'console-log-prefix';
-      prefixSpan.innerText = prefix;
+      this.appendHighlightedText(prefixSpan, prefix);
 
       const levelSpan = document.createElement('span');
       levelSpan.className = 'console-log-level';
-      levelSpan.innerText = levelMatch[0];
+      this.appendHighlightedText(levelSpan, levelMatch[0]);
 
       const messageSpan = document.createElement('span');
       messageSpan.className = 'console-log-message';
-      messageSpan.innerText = message;
+      this.appendHighlightedText(messageSpan, message);
 
       element.classList.add('console-log-line--structured');
       element.appendChild(prefixSpan);
@@ -372,6 +440,12 @@ export default {
   padding: 16px;
 }
 
+.log-search-field {
+  flex: 0 1 260px;
+  max-width: 260px;
+  min-width: 160px;
+}
+
 .fullscreen-btn {
     color: rgba(255, 255, 255, 0.7) !important; /* 提高在深色背景下的对比度 */
 }
@@ -397,6 +471,11 @@ export default {
 :deep(.console-log-message) {
   min-width: 0;
   white-space: pre-wrap;
+}
+
+:deep(.console-log-highlight) {
+  background: rgba(255, 213, 79, 0.35);
+  border-radius: 2px;
 }
 
 :deep(.console-log-level) {

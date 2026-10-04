@@ -4,6 +4,10 @@
     "enabled": "自动滚动已开启",
     "disabled": "自动滚动已关闭"
   },
+  "search": {
+    "label": "搜索日志",
+    "placeholder": "按关键词过滤日志"
+  },
   "pipInstall": {
     "button": "安装 pip 库",
     "dialogTitle": "安装 Pip 库",
