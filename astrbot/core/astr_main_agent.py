@@ -1373,14 +1373,18 @@ async def build_main_agent(
             req.audio_urls = []
             if sel_model := event.get_extra("selected_model"):
                 req.model = sel_model
+            provider_wake_prefix = config.provider_wake_prefix
             if (
-                config.provider_wake_prefix
-                and not event.message_str.startswith(config.provider_wake_prefix)
+                provider_wake_prefix
+                and event.get_platform_name() != "webchat"
+                and not event.message_str.startswith(provider_wake_prefix)
                 and not interaction_core
             ):
                 return None
 
-            req.prompt = event.message_str[len(config.provider_wake_prefix) :]
+            req.prompt = event.message_str
+            if provider_wake_prefix and event.message_str.startswith(provider_wake_prefix):
+                req.prompt = event.message_str[len(provider_wake_prefix) :]
 
             conversation = await _get_session_conv(event, plugin_context)
             req.conversation = conversation

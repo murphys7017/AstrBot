@@ -298,9 +298,11 @@ class ThirdPartyAgentSubStage(Stage):
             and get_core_task_spec(event) is not None
         )
 
+        is_webchat = event.get_platform_name() == "webchat"
         if (
             req is None
             and provider_wake_prefix
+            and not is_webchat
             and not event.message_str.startswith(provider_wake_prefix)
             and not has_delegated_core_task
         ):
@@ -348,7 +350,9 @@ class ThirdPartyAgentSubStage(Stage):
 
         if req is None:
             req = ProviderRequest()
-            req.prompt = event.message_str[len(provider_wake_prefix) :]
+            req.prompt = event.message_str
+            if provider_wake_prefix and event.message_str.startswith(provider_wake_prefix):
+                req.prompt = event.message_str[len(provider_wake_prefix) :]
             for comp in event.message_obj.message:
                 if isinstance(comp, Image):
                     image_path = await comp.convert_to_base64()
