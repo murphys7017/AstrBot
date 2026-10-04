@@ -782,7 +782,8 @@ class SQLiteDatabase(BaseDatabase):
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
-                now = datetime.now()
+                # Platform history timestamps are stored as UTC wall-clock values.
+                now = datetime.now(timezone.utc)
                 cutoff_time = now - timedelta(seconds=offset_sec)
                 await session.execute(
                     delete(PlatformMessageHistory).where(
