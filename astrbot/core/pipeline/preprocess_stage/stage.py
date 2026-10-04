@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import traceback
 from collections.abc import AsyncGenerator
@@ -9,7 +10,7 @@ from astrbot.core.interaction.turn_state import (
 )
 from astrbot.core.message.components import Image, Plain, Record, Reply
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
-from astrbot.core.utils.media_utils import ensure_wav
+from astrbot.core.utils.media_utils import detect_image_mime_type_async, ensure_wav
 from astrbot.core.voice import (
     VoiceServiceError,
     resolve_stt_provider,
@@ -26,6 +27,24 @@ class PreProcessStage(Stage):
     async def initialize(self, ctx: PipelineContext) -> None:
         self.ctx = ctx
         self.plugin_manager = ctx.plugin_manager
+
+    async def _materialize_image(self, event: AstrMessageEvent, image: Image) -> Image:
+        """Materialize images and discard invalid downloaded payloads."""
+        source = image.url or image.file
+        path = await image.convert_to_file_path()
+        is_local = bool(
+            source and (source.startswith("file://") or os.path.exists(source))
+        )
+        if not is_local:
+            event.track_temporary_local_file(path)
+            if await detect_image_mime_type_async(path, default_mime_type=None) is None:
+                raise ValueError("image content could not be identified")
+        image.file = path
+        image.path = path
+        image.url = path
+        if is_local:
+            event.untrack_temporary_local_file(path)
+        return image
 
     async def process(
         self,
@@ -109,6 +128,22 @@ class PreProcessStage(Stage):
                         component.chain[reply_idx] = await _materialize_record(reply_comp)
                     except Exception as e:
                         logger.warning(f"Voice processing in reply chain failed: {e}")
+
+        for idx, component in enumerate(message_chain):
+            if isinstance(component, Image):
+                try:
+                    message_chain[idx] = await self._materialize_image(event, component)
+                except Exception as e:
+                    logger.warning(f"Image processing failed: {e}")
+            elif isinstance(component, Reply) and component.chain:
+                for reply_idx, reply_comp in enumerate(component.chain):
+                    if isinstance(reply_comp, Image):
+                        try:
+                            component.chain[reply_idx] = await self._materialize_image(
+                                event, reply_comp
+                            )
+                        except Exception as e:
+                            logger.warning(f"Image processing in reply chain failed: {e}")
 
         # STT
         if stt_settings.get("enable", False):
