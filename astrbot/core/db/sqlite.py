@@ -1302,11 +1302,7 @@ class SQLiteDatabase(BaseDatabase):
         return await self.get_persona_folder_by_id(folder_id)
 
     async def delete_persona_folder(self, folder_id: str) -> None:
-        """Delete a persona folder by its folder_id.
-
-        Note: This will also set folder_id to NULL for all personas in this folder,
-        moving them to the root directory.
-        """
+        """Delete a folder while preserving its child folders and contents."""
         async with self.get_db() as session:
             session: AsyncSession
             async with session.begin():
@@ -1315,6 +1311,11 @@ class SQLiteDatabase(BaseDatabase):
                     update(Persona)
                     .where(col(Persona.folder_id) == folder_id)
                     .values(folder_id=None)
+                )
+                await session.execute(
+                    update(PersonaFolder)
+                    .where(col(PersonaFolder.parent_id) == folder_id)
+                    .values(parent_id=None)
                 )
                 # Delete the folder
                 await session.execute(
