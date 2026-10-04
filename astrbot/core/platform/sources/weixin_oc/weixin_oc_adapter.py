@@ -108,6 +108,7 @@ class WeixinOCAdapter(Platform):
     REPLY_MATCH_WINDOW_MS = 60_000
     RECENT_SESSION_CACHE_TTL_S = 1_800
     MAX_RECENT_MESSAGE_SESSIONS = 500
+    MIN_TIMEOUT_MS = 1_000
 
     def __init__(
         self,
@@ -122,15 +123,20 @@ class WeixinOCAdapter(Platform):
             platform_config.get("weixin_oc_base_url", "https://ilinkai.weixin.qq.com")
         ).rstrip("/")
         self.bot_type = str(platform_config.get("weixin_oc_bot_type", "3"))
-        self.qr_poll_interval = max(
+        self.qr_poll_interval = self._get_int_config(
+            "weixin_oc_qr_poll_interval",
             1,
-            int(platform_config.get("weixin_oc_qr_poll_interval", 1)),
+            1,
         )
-        self.long_poll_timeout_ms = int(
-            platform_config.get("weixin_oc_long_poll_timeout_ms", 35_000),
+        self.long_poll_timeout_ms = self._get_int_config(
+            "weixin_oc_long_poll_timeout_ms",
+            35_000,
+            self.MIN_TIMEOUT_MS,
         )
-        self.api_timeout_ms = int(
-            platform_config.get("weixin_oc_api_timeout_ms", 120_000),
+        self.api_timeout_ms = self._get_int_config(
+            "weixin_oc_api_timeout_ms",
+            120_000,
+            self.MIN_TIMEOUT_MS,
         )
         self.cdn_base_url = str(
             platform_config.get(
