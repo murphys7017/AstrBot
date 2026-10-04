@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Protocol, runtime_checkable
 
 from ..message import AudioURLPart, ImageURLPart, Message, TextPart, ThinkPart
@@ -33,6 +34,12 @@ class TokenCounter(Protocol):
 # 这里取一个保守中位数，宁可偏高触发压缩也不要偏低导致 API 报错。
 IMAGE_TOKEN_ESTIMATE = 765
 AUDIO_TOKEN_ESTIMATE = 500
+
+# Emoji sequences cost more than ordinary text under common BPE tokenizers.
+EMOJI_TOKEN_ESTIMATE = 2.0
+EMOJI_PATTERN = re.compile(
+    "[\\u200d\\u2600-\\u27bf\\ufe00-\\ufe0f\\U0001f000-\\U0001faff]"
+)
 
 
 class EstimateTokenCounter:
@@ -74,5 +81,10 @@ class EstimateTokenCounter:
 
     def _estimate_tokens(self, text: str) -> int:
         chinese_count = len([c for c in text if "\u4e00" <= c <= "\u9fff"])
-        other_count = len(text) - chinese_count
-        return int(chinese_count * 0.6 + other_count * 0.3)
+        emoji_count = len(EMOJI_PATTERN.findall(text))
+        other_count = len(text) - chinese_count - emoji_count
+        return int(
+            chinese_count * 0.6
+            + emoji_count * EMOJI_TOKEN_ESTIMATE
+            + other_count * 0.3
+        )
