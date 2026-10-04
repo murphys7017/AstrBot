@@ -43,6 +43,19 @@ def _sanitize_upload_filename(filename: str | None) -> str:
     return name
 
 
+def _unique_attachment_filename(filename: str) -> str:
+    """Keep attachment storage names unique while preserving display names."""
+    prefix = f"{generate_timestamp_id()}_"
+    suffix = Path(filename).suffix
+    suffix_bytes = len(suffix.encode())
+    budget = 255 - len(prefix.encode())
+    if suffix_bytes >= budget:
+        suffix = ""
+        suffix_bytes = 0
+    stem = Path(filename).stem.encode()[: budget - suffix_bytes].decode(errors="ignore")
+    return f"{prefix}{stem}{suffix}"
+
+
 @asynccontextmanager
 async def track_conversation(convs: dict, conv_id: str):
     convs[conv_id] = True
@@ -338,7 +351,8 @@ class ChatService(DashboardService):
             attach_type = "file"
 
         attachments_dir = Path(self.attachments_dir).resolve(strict=False)
-        file_path = (attachments_dir / filename).resolve(strict=False)
+        stored_filename = _unique_attachment_filename(filename)
+        file_path = (attachments_dir / stored_filename).resolve(strict=False)
         if not file_path.is_relative_to(attachments_dir):
             return Response().error("Invalid filename").__dict__
 
@@ -354,14 +368,13 @@ class ChatService(DashboardService):
         if not attachment:
             return Response().error("Failed to create attachment").__dict__
 
-        filename = os.path.basename(attachment.path)
-
         return (
             Response()
             .ok(
                 data={
                     "attachment_id": attachment.attachment_id,
                     "filename": filename,
+                    "stored_filename": os.path.basename(attachment.path),
                     "type": attach_type,
                 }
             )
