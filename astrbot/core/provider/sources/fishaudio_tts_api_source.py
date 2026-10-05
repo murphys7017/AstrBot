@@ -68,8 +68,7 @@ class ProviderFishAudioTTSAPI(TTSProvider):
             **self.request_headers,
             "Authorization": f"Bearer {self.chosen_api_key}",
         }
-        # FishAudio API 要求 model 作为 HTTP header 发送，而非请求体字段
-        # 参考: https://github.com/fishaudio/fish-audio-python/blob/main/src/fishaudio/resources/tts.py
+        # FishAudio expects the model in an HTTP header, not the request body.
         self.set_model(provider_config.get("model", "s2-pro"))
         self.headers["model"] = self.get_model()
 
