@@ -359,7 +359,7 @@ class CronJobManager:
                 args=[job.job_id],
                 kwargs={"scheduled_revision": job.revision},
                 replace_existing=True,
-                misfire_grace_time=30,
+                misfire_grace_time=300,
             )
             self._scheduled_job_ids[job.job_id] = scheduler_id
             job.next_run_time = self._get_next_run_time(job.job_id)
