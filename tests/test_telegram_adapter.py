@@ -80,6 +80,53 @@ def _build_context() -> MagicMock:
 
 
 @pytest.mark.asyncio
+async def test_telegram_mentions_preserve_command_and_utf16_text():
+    from telegram import Update
+
+    text = "/help@test_bot \U0001f600 @test_bot @alice @test_bot"
+    entities = []
+    for offset, name in (
+        (text.index("@test_bot", 15), "test_bot"),
+        (text.index("@alice"), "alice"),
+        (text.rindex("@test_bot"), "test_bot"),
+    ):
+        entities.append(
+            {
+                "type": "mention",
+                "offset": len(text[:offset].encode("utf-16-le")) // 2,
+                "length": len(name) + 1,
+            }
+        )
+    update = Update.de_json(
+        {
+            "update_id": 1,
+            "message": {
+                "message_id": 42,
+                "date": 1,
+                "chat": {"id": -123, "type": "group", "title": "test"},
+                "from": {"id": 123, "is_bot": False, "first_name": "test"},
+                "text": text,
+                "entities": entities,
+            },
+        },
+        None,
+    )
+    adapter = _load_telegram_adapter()(
+        make_platform_config("telegram"), {}, asyncio.Queue()
+    )
+    adapter.client.username = "test_bot"
+
+    result = await adapter.convert_message(update, _build_context())
+
+    assert result.message_str == "/help \U0001f600  @alice "
+    assert [part.qq for part in result.message if isinstance(part, Comp.At)] == [
+        "test_bot",
+        "alice",
+        "test_bot",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_telegram_partial_quote_uses_exact_quote_text():
     TelegramPlatformAdapter = _load_telegram_adapter()
     adapter = TelegramPlatformAdapter(

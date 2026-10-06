@@ -543,7 +543,23 @@ class TelegramPlatformAdapter(Platform):
         if update.message.text:
             # 处理文本消息
             plain_text = update.message.text
-            original_text = plain_text
+            if update.message.entities:
+                # Telegram offsets refer to the original text in UTF-16 units.
+                encoded = plain_text.encode("utf-16-le")
+                text_parts = []
+                last_end = 0
+                for entity in sorted(
+                    update.message.entities, key=lambda item: item.offset
+                ):
+                    if entity.type != "mention":
+                        continue
+                    name = update.message.parse_entity(entity)[1:]
+                    message.message.append(Comp.At(qq=name, name=name))
+                    if name.lower() == context.bot.username.lower():
+                        text_parts.append(encoded[last_end : entity.offset * 2])
+                        last_end = (entity.offset + entity.length) * 2
+                text_parts.append(encoded[last_end:])
+                plain_text = b"".join(text_parts).decode("utf-16-le")
             if (
                 message.type == MessageType.GROUP_MESSAGE
                 and update.message
@@ -563,20 +579,6 @@ class TelegramPlatformAdapter(Platform):
                         plain_text = command + (
                             f" {command_parts[1]}" if len(command_parts) > 1 else ""
                         )
-
-            if update.message.entities:
-                for entity in update.message.entities:
-                    if entity.type == "mention":
-                        name = update.message.parse_entity(entity)[1:]
-                        message.message.append(Comp.At(qq=name, name=name))
-                        # 如果mention是当前bot则移除；否则保留
-                        if name.lower() == context.bot.username.lower():
-                            encoded = original_text.encode("utf-16-le")
-                            start = entity.offset * 2
-                            end = (entity.offset + entity.length) * 2
-                            plain_text = (
-                                encoded[:start] + encoded[end:]
-                            ).decode("utf-16-le")
 
             if plain_text:
                 message.message.append(Comp.Plain(plain_text))
