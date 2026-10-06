@@ -594,7 +594,7 @@ const sessionPlatformId = computed(
 const sessionIsGroup = computed(() => Boolean(props.currentSession?.is_group));
 
 const canSend = computed(() => {
-  return (
+  return !props.activeUploads?.length && (
     (props.prompt && props.prompt.trim()) ||
     props.stagedImagesUrl.length > 0 ||
     props.stagedAudioUrl ||

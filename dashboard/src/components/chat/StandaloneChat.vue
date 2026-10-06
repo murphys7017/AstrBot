@@ -324,7 +324,12 @@ async function bindConfigToSession(sessionId: string) {
 }
 
 async function sendCurrentMessage() {
-  if (!draft.value.trim() && !stagedFiles.value.length) return;
+  if (
+    (!draft.value.trim() && !stagedFiles.value.length) ||
+    activeUploadViews.value.length > 0
+  ) {
+    return;
+  }
   const sessionId = await ensureSession();
   const text = draft.value.trim();
   const parts = buildOutgoingParts(text);

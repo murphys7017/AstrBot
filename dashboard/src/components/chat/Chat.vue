@@ -799,7 +799,9 @@ function flushDraft() {
 const isDark = computed(() => customizer.uiTheme === "PurpleThemeDark");
 const canSend = computed(
   () =>
-    Boolean(draft.value.trim() || stagedFiles.value.length) && !sending.value,
+    Boolean(draft.value.trim() || stagedFiles.value.length) &&
+    !sending.value &&
+    activeUploadViews.value.length === 0,
 );
 const currentSession = computed(
   () =>
