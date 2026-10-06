@@ -80,6 +80,6 @@
     "system": "System Config",
     "extension": "Extension Config"
   },
-  "pluginWebui": "Plugin Views",
-  "pluginPageType": "Plugin View"
+  "pluginView": "Plugin Views",
+  "pluginViewType": "Plugin View"
 }

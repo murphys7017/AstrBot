@@ -80,6 +80,6 @@
     "system": "系统配置",
     "extension": "扩展配置"
   },
-  "pluginWebui": "插件可视化视图",
-  "pluginPageType": "插件可视化视图"
+  "pluginView": "插件可视化视图",
+  "pluginViewType": "插件可视化视图"
 }

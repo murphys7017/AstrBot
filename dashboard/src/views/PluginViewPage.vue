@@ -575,7 +575,7 @@ const loadPluginView = async () => {
     });
     if (detailResponse.data?.status === "error") {
       throw new Error(
-        detailResponse.data.message || tm("messages.pluginPageLoadFailed"),
+        detailResponse.data.message || tm("messages.pluginViewLoadFailed"),
       );
     }
 
@@ -598,7 +598,7 @@ const loadPluginView = async () => {
     });
     if (entryResponse.data?.status === "error") {
       throw new Error(
-        entryResponse.data.message || tm("messages.pluginPageLoadFailed"),
+        entryResponse.data.message || tm("messages.pluginViewLoadFailed"),
       );
     }
 
@@ -608,7 +608,7 @@ const loadPluginView = async () => {
       typeof pageEntry.content_path !== "string" ||
       !pageEntry.content_path.length
     ) {
-      errorMessage.value = tm("messages.pluginPageNotFound");
+      errorMessage.value = tm("messages.pluginViewNotFound");
       return;
     }
 
@@ -621,7 +621,7 @@ const loadPluginView = async () => {
     errorMessage.value =
       error?.response?.data?.message ||
       error?.message ||
-      tm("messages.pluginPageLoadFailed");
+      tm("messages.pluginViewLoadFailed");
   } finally {
     loading.value = false;
   }

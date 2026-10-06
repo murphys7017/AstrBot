@@ -345,7 +345,7 @@ const togglePin = () => {
           </template>
         </v-tooltip>
 
-        <v-tooltip v-if="hasPages" location="top" :text="tm('buttons.openWebui')">
+        <v-tooltip v-if="hasPages" location="top" :text="tm('buttons.openView')">
           <template v-slot:activator="{ props: actionProps }">
             <v-btn
               v-bind="actionProps"

@@ -6,7 +6,6 @@ PLUGIN_PAGE_CONTENT_PREFIX = "/api/plugin/page/content/"
 PLUGIN_PAGE_BRIDGE_PATH = "/api/plugin/page/bridge-sdk.js"
 PLUGIN_VIEW_CONTENT_PREFIX = "/api/plugin/view/content/"
 PLUGIN_VIEW_BRIDGE_PATH = "/api/plugin/view/bridge-sdk.js"
-PLUGIN_VIEW_TOKEN_PREFIX = "/api/v1/plugins/"
 PLUGIN_PAGE_TOKEN_TYPE = "plugin_page_asset"
 
 
