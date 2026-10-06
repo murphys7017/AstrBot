@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from astrbot.core.utils.datetime_utils import to_utc_isoformat
 from astrbot.core.utils.upload import save_upload_stream
+from astrbot.dashboard.static_encoding import DashboardStaticFileResponse
 
 _request_var: contextvars.ContextVar[DashboardRequest] = contextvars.ContextVar(
     "dashboard_request"
@@ -800,7 +801,7 @@ class FastAPIAppAdapter:
         path = (root / filename).resolve()
         if not path.is_relative_to(root) or not path.is_file():
             raise HTTPException(status_code=404)
-        return FileResponse(path)
+        return DashboardStaticFileResponse(path)
 
     def before_request(self, callback):
         self._app.add_middleware(
