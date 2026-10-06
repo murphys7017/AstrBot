@@ -356,7 +356,13 @@ async def _calc_comp_interval(
     segmented_reply = platform_settings.get("segmented_reply", {})
     interval_method = str(segmented_reply.get("interval_method", "random") or "random")
     if interval_method == "log":
-        log_base = float(segmented_reply.get("log_base", 2.6) or 2.6)
+        try:
+            log_base = float(segmented_reply.get("log_base", 2.6))
+        except (TypeError, ValueError):
+            log_base = 2.6
+        if not math.isfinite(log_base) or log_base <= 1:
+            logger.warning("Invalid segmented reply log base; using default 2.6.")
+            log_base = 2.6
         if isinstance(comp, Comp.Plain):
             word_count = await _word_count(comp.text)
             interval = math.log(word_count + 1, log_base)
