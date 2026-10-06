@@ -564,6 +564,7 @@ import {
 import type { Locale } from "@/i18n/types";
 import { askForConfirmation, useConfirmDialog } from "@/utils/confirmDialog";
 import { useToast } from "@/utils/toast";
+import { readChatDraft, writeChatDraft } from "@/utils/chatDraftStorage";
 
 const props = withDefaults(defineProps<{ chatboxMode?: boolean; active?: boolean }>(), {
   chatboxMode: false,
@@ -637,7 +638,14 @@ const editingMessage = ref<ChatRecord | null>(null);
 const savingMessageEdit = ref(false);
 const projectSessions = ref<Session[]>([]);
 const loadingSessions = ref(false);
-const draft = ref("");
+const draftKey = computed(() =>
+  selectedProjectId.value
+    ? `project:${selectedProjectId.value}`
+    : currSessionId.value || "new",
+);
+let activeDraftKey = draftKey.value;
+let draftSaveTimer: number | null = null;
+const draft = ref(readChatDraft(activeDraftKey));
 const messagesContainer = ref<HTMLElement | null>(null);
 const sessionList = ref<HTMLElement | null>(null);
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null);
@@ -750,6 +758,29 @@ watch(transportMode, (mode) => {
   localStorage.setItem("chat.transportMode", mode);
 });
 
+watch(draft, (value) => {
+  if (draftSaveTimer !== null) window.clearTimeout(draftSaveTimer);
+  const key = activeDraftKey;
+  draftSaveTimer = window.setTimeout(() => {
+    writeChatDraft(key, value);
+    draftSaveTimer = null;
+  }, 300);
+}, { flush: "sync" });
+
+watch(draftKey, (key) => {
+  flushDraft();
+  activeDraftKey = key;
+  draft.value = readChatDraft(key);
+});
+
+function flushDraft() {
+  if (draftSaveTimer !== null) {
+    window.clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+  }
+  writeChatDraft(activeDraftKey, draft.value);
+}
+
 const isDark = computed(() => customizer.uiTheme === "PurpleThemeDark");
 const canSend = computed(
   () =>
@@ -852,6 +883,7 @@ function syncTouchDevice() {
 }
 
 onMounted(async () => {
+  window.addEventListener("beforeunload", flushDraft);
   if (typeof ResizeObserver !== "undefined") {
     sessionListResizeObserver = new ResizeObserver(loadMoreSessions);
     if (sessionList.value) sessionListResizeObserver.observe(sessionList.value);
@@ -878,6 +910,8 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  flushDraft();
+  window.removeEventListener("beforeunload", flushDraft);
   pointerMediaQuery?.removeEventListener("change", syncTouchDevice);
   sessionListResizeObserver?.disconnect();
   if (autoScrollFrame !== null) {
@@ -1143,6 +1177,12 @@ function getSelectedProviderSelection() {
 async function sendCurrentMessage() {
   if (!canSend.value) return;
 
+  const outgoingDraftKey = activeDraftKey;
+  const draftText = draft.value;
+  const text = draftText.trim();
+  const outgoingParts = buildOutgoingParts(text);
+  const selection = getSelectedProviderSelection();
+
   sending.value = true;
   try {
     let sessionId = currSessionId.value;
@@ -1150,6 +1190,8 @@ async function sendCurrentMessage() {
     const targetProject = selectedProject.value;
     if (!sessionId) {
       sessionId = await newSession();
+      await nextTick();
+      draft.value = draftText;
       if (targetProjectId) {
         await addSessionToProject(sessionId, targetProjectId);
         sessionProjects[sessionId] = targetProject
@@ -1164,10 +1206,7 @@ async function sendCurrentMessage() {
       }
     }
 
-    const text = draft.value.trim();
     const messageId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-    const outgoingParts = buildOutgoingParts(text);
-    const selection = getSelectedProviderSelection();
     writeSessionProviderSelection(sessionId, selection);
     const { userRecord, botRecord } = createLocalExchange({
       sessionId,
@@ -1176,7 +1215,9 @@ async function sendCurrentMessage() {
     });
     updateTitleFromText(sessionId, text);
 
+    writeChatDraft(outgoingDraftKey, "");
     draft.value = "";
+    flushDraft();
     replyTarget.value = null;
     clearStaged({ revokeUrls: false });
     scrollToBottom(true);
