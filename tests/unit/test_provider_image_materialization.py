@@ -1,4 +1,5 @@
 import base64
+import random
 from io import BytesIO
 from unittest.mock import AsyncMock
 
@@ -20,6 +21,28 @@ from astrbot.core.utils.image_materializer import (
     MaterializedImage,
     materialize_image_ref,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["RGB", "RGBA"])
+async def test_persona_request_bounds_model_image_without_mutating_source(mode):
+    raw = random.Random(1).randbytes(1024 * 1024 * len(mode))
+    source = Image.frombytes(mode, (1024, 1024), raw)
+    buffer = BytesIO()
+    source.save(buffer, format="PNG")
+    original = buffer.getvalue()
+    reference = "data:image/png;base64," + base64.b64encode(original).decode("ascii")
+    request = ProviderRequest(prompt="inspect", image_urls=[reference])
+
+    stats = await normalize_provider_request_images(request, max_dimension=1536)
+
+    prepared = await materialize_image_ref(request.image_urls[0])
+    assert stats.normalized == 1 and stats.dropped == 0
+    assert len(prepared.data) <= 512 * 1024
+    assert base64.b64decode(reference.split(",", 1)[1]) == original
+    with Image.open(BytesIO(prepared.data)) as output:
+        assert max(output.size) <= 1536
+        assert ("A" in output.getbands()) == (mode == "RGBA")
 
 
 def _valid_png_bytes() -> bytes:

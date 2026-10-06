@@ -65,12 +65,14 @@ async def normalize_provider_request_images(
         try:
             async with semaphore:
                 image = await materialize_image_ref(reference)
-            original_bytes = len(image.data)
-            optimized = False
-            if max_dimension is not None:
-                prepared = image.prepare_for_provider(max_dimension=max_dimension)
-                optimized = prepared.data != image.data
-                image = prepared
+                original_bytes = len(image.data)
+                optimized = False
+                if max_dimension is not None:
+                    prepared = await asyncio.to_thread(
+                        image.prepare_for_provider, max_dimension=max_dimension
+                    )
+                    optimized = prepared.data != image.data
+                    image = prepared
             return reference, image, optimized, original_bytes
         except ImageMaterializationError as exc:
             logger.warning(

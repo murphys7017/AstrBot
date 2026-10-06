@@ -33,6 +33,7 @@ DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 20
 DEFAULT_PROVIDER_IMAGE_MAX_DIMENSION = 1536
 DEFAULT_PROVIDER_IMAGE_JPEG_QUALITY = 82
+DEFAULT_PROVIDER_IMAGE_MAX_BYTES = 512 * 1024
 
 _FORMAT_MIME_TYPES = {
     "AVIF": "image/avif",
@@ -66,6 +67,7 @@ class MaterializedImage:
         *,
         max_dimension: int = DEFAULT_PROVIDER_IMAGE_MAX_DIMENSION,
         jpeg_quality: int = DEFAULT_PROVIDER_IMAGE_JPEG_QUALITY,
+        max_bytes: int = DEFAULT_PROVIDER_IMAGE_MAX_BYTES,
     ) -> MaterializedImage:
         """Resize and re-encode one image for a model-facing request.
 
@@ -78,6 +80,8 @@ class MaterializedImage:
             raise ValueError("max_dimension must be positive")
         if not 1 <= jpeg_quality <= 100:
             raise ValueError("jpeg_quality must be between 1 and 100")
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
 
         try:
             with PILImage.open(BytesIO(self.data)) as source:
@@ -104,9 +108,25 @@ class MaterializedImage:
                         "progressive": True,
                     }
 
-                buffer = BytesIO()
-                prepared.save(buffer, format=output_format, **save_kwargs)
-                data = buffer.getvalue()
+                while True:
+                    buffer = BytesIO()
+                    prepared.save(buffer, format=output_format, **save_kwargs)
+                    data = buffer.getvalue()
+                    if len(data) <= max_bytes:
+                        break
+                    if output_format == "JPEG" and save_kwargs["quality"] > 35:
+                        save_kwargs["quality"] = max(35, save_kwargs["quality"] - 10)
+                        continue
+                    if prepared.size == (1, 1):
+                        raise ImageMaterializationError(
+                            "image cannot fit the provider size limit"
+                        )
+                    scale = min(0.85, (max_bytes / len(data)) ** 0.5 * 0.9)
+                    width, height = prepared.size
+                    prepared = prepared.resize(
+                        (max(1, int(width * scale)), max(1, int(height * scale))),
+                        resample=PILImage.Resampling.LANCZOS,
+                    )
         except (OSError, ValueError, UnidentifiedImageError) as exc:
             raise ImageMaterializationError(
                 "image could not be prepared for provider request"
