@@ -55,7 +55,12 @@
             :key="'img-' + index"
             class="attachment-card image-preview"
           >
-            <img :src="img" class="preview-image" alt="attachment preview" />
+            <img
+              :src="img"
+              class="preview-image"
+              alt="attachment preview"
+              @click="openImagePreview(img)"
+            />
             <v-btn
               @click="$emit('removeImage', index)"
               class="remove-attachment-btn"
@@ -373,6 +378,23 @@
         </div>
       </div>
     </div>
+
+    <v-overlay
+      v-model="imagePreview.visible"
+      class="image-preview-overlay"
+      scrim="rgba(0, 0, 0, 0.86)"
+      role="dialog"
+      aria-label="Image preview"
+      @click="closeImagePreview"
+      @keydown.esc="closeImagePreview"
+    >
+      <img
+        :src="imagePreview.url"
+        class="preview-image-large"
+        alt="Preview"
+        @click.stop
+      />
+    </v-overlay>
   </div>
 </template>
 
@@ -380,6 +402,7 @@
 import {
   ref,
   computed,
+  reactive,
   watch,
   nextTick,
   onMounted,
@@ -480,6 +503,7 @@ const isReplyClosing = ref(false);
 const isDragging = ref(false);
 const isComposing = ref(false);
 const lastCompositionEndAt = ref<number | null>(null);
+const imagePreview = reactive({ visible: false, url: "" });
 const allCommands = ref<CommandItem[]>([]);
 const showCommandSuggestion = ref(false);
 const selectedCommandIndex = ref(0);
@@ -488,6 +512,16 @@ const wakePrefixes = ref<string[]>(["/"]);
 const currentConfigId = ref((props.configId as string) || "default");
 let dragLeaveTimeout: number | null = null;
 let blurTimer: number | null = null;
+
+function openImagePreview(url: string) {
+  imagePreview.url = url;
+  imagePreview.visible = true;
+}
+
+function closeImagePreview() {
+  imagePreview.visible = false;
+  imagePreview.url = "";
+}
 
 const localPrompt = computed({
   get: () => props.prompt,
@@ -1196,6 +1230,20 @@ defineExpose({
   height: 100%;
   object-fit: cover;
   border-radius: 11px;
+  cursor: zoom-in;
+}
+
+.image-preview-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-image-large {
+  max-width: min(92vw, 1200px);
+  max-height: 90vh;
+  object-fit: contain;
+  cursor: zoom-out;
 }
 
 .attachment-icon {
