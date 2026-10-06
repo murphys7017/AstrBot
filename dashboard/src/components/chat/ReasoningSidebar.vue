@@ -6,7 +6,7 @@
         <v-btn icon="mdi-close" size="small" variant="text" @click="close" />
       </div>
 
-      <div ref="sidebarBody" class="reasoning-sidebar-body">
+      <div ref="sidebarBody" class="reasoning-sidebar-body" @scroll.passive="handleScroll">
         <ReasoningTimeline
           v-if="parts.length || reasoning"
           :parts="parts"
@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import {
   reasoningActivityCounts,
   reasoningActivityTitle,
@@ -39,6 +39,8 @@ const props = defineProps<{
 }>();
 
 const sidebarBody = ref<HTMLElement | null>(null);
+let followLatest = true;
+let scrollFrame: number | null = null;
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
@@ -59,13 +61,32 @@ function close() {
 }
 
 function scrollToLatestActivity() {
-  if (!props.modelValue) return;
+  if (!props.modelValue || !followLatest) return;
   void nextTick(() => {
-    const body = sidebarBody.value;
-    if (!body) return;
-    body.scrollTop = body.scrollHeight;
+    if (scrollFrame !== null || !props.modelValue || !followLatest) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = null;
+      const body = sidebarBody.value;
+      if (body && props.modelValue && followLatest) body.scrollTop = body.scrollHeight;
+    });
   });
 }
+
+function handleScroll() {
+  const body = sidebarBody.value;
+  if (body) followLatest = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
+}
+
+watch(() => props.modelValue, (open) => {
+  if (open) {
+    followLatest = true;
+    scrollToLatestActivity();
+  }
+});
+
+onBeforeUnmount(() => {
+  if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+});
 
 watch(
   () => [props.modelValue, props.reasoning, props.parts],
