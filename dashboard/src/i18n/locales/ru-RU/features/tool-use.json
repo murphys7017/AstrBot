@@ -13,6 +13,8 @@
     "mcpServers": {
         "title": "MCP Сервера",
         "description": "Управление MCP-серверами",
+        "searchPlaceholder": "Поиск MCP-серверов или инструментов",
+        "noSearchResult": "Подходящие MCP-сервера не найдены",
         "buttons": {
             "refresh": "Обновить",
             "add": "Добавить сервер",

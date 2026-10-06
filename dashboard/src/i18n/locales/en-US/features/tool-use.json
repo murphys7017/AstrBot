@@ -13,6 +13,8 @@
   "mcpServers": {
     "title": "MCP Servers",
     "description": "Manage MCP servers",
+    "searchPlaceholder": "Search MCP servers or tools",
+    "noSearchResult": "No matching MCP servers found",
     "buttons": {
       "refresh": "Refresh",
       "add": "Add Server",

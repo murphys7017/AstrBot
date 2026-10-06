@@ -2,14 +2,29 @@
   <div class="tools-page">
     <v-container fluid class="pa-0" elevation="0">
       <!-- MCP 服务器部分 -->
+      <v-text-field
+        v-if="mcpServers.length > 0"
+        v-model="serverSearch"
+        :label="tm('mcpServers.searchPlaceholder')"
+        prepend-inner-icon="mdi-magnify"
+        variant="outlined"
+        density="compact"
+        hide-details
+        clearable
+        class="mb-3"
+      />
       <div v-if="mcpServers.length === 0" class="text-center pa-8">
         <v-icon size="64" color="grey-lighten-1">mdi-server-off</v-icon>
         <p class="text-grey mt-4">{{ tm('mcpServers.empty') }}</p>
       </div>
 
+      <div v-else-if="filteredServers.length === 0" class="text-center pa-8">
+        <v-icon size="48" color="grey-lighten-1">mdi-magnify</v-icon>
+        <p class="text-grey mt-4">{{ tm('mcpServers.noSearchResult') }}</p>
+      </div>
       <div v-else class="mcp-server-list">
         <OutlinedActionListItem
-          v-for="server in mcpServers || []"
+          v-for="server in filteredServers"
           :key="server.name"
           :title="server.name"
           clickable
@@ -303,6 +318,7 @@ import axios from 'axios';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import OutlinedActionListItem from '@/components/shared/OutlinedActionListItem.vue';
+import { buildSearchQuery, matchesText } from '@/utils/pluginSearch';
 import {
   askForConfirmation as askForConfirmationDialog,
   useConfirmDialog
@@ -324,6 +340,7 @@ export default {
     return {
       refreshInterval: null,
       mcpServers: [],
+      serverSearch: '',
       showMcpServerDialog: false,
       selectedMcpServerProvider: 'modelscope',
       mcpServerProviderList: ['modelscope'],
@@ -348,6 +365,14 @@ export default {
     };
   },
   computed: {
+    filteredServers() {
+      const query = buildSearchQuery(this.serverSearch);
+      if (!query) return this.mcpServers;
+      return this.mcpServers.filter(server =>
+        [server.name, server.transport, server.command, ...(server.tools || [])]
+          .some(field => matchesText(field, query))
+      );
+    },
     isServerFormValid() {
       return !!this.currentServer.name && !this.jsonError;
     },

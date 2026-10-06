@@ -54,6 +54,17 @@
 
         <div v-else class="skills-list pb-3">
           <div class="skills-list-actions">
+            <v-text-field
+              v-model="skillSearch"
+              :label="tm('skills.searchPlaceholder')"
+              prepend-inner-icon="mdi-magnify"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+              class="flex-grow-1"
+              :disabled="batchDeleting"
+            />
             <template v-if="batchSelectionEnabled">
               <v-tooltip :text="allDeletableSelected ? tm('skills.clearSelection') : tm('skills.selectAll')" location="top">
                 <template #activator="{ props }">
@@ -112,8 +123,12 @@
           </div>
 
           <div class="skills-list-items">
+            <div v-if="filteredSkills.length === 0" class="text-center pa-8">
+              <v-icon size="48" color="grey-lighten-1">mdi-magnify</v-icon>
+              <p class="text-grey mt-4">{{ tm('skills.noSearchResult') }}</p>
+            </div>
             <OutlinedActionListItem
-              v-for="skill in skills"
+              v-for="skill in filteredSkills"
               :key="skill.name"
               :title="skill.name"
               :class="{ 'skill-list-item--selected': batchSelectionEnabled && selectedSkillNames.includes(skill.name) }"
@@ -876,6 +891,7 @@ import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
 import { useI18n, useModuleI18n } from "@/i18n/composables";
 import OutlinedActionListItem from "@/components/shared/OutlinedActionListItem.vue";
 import { useCustomizerStore } from "@/stores/customizer";
+import { buildSearchQuery, matchesText } from "@/utils/pluginSearch";
 
 const STATUS_WAITING = "waiting";
 const STATUS_UPLOADING = "uploading";
@@ -893,6 +909,7 @@ export default {
 
     const mode = ref("local");
     const skills = ref([]);
+    const skillSearch = ref("");
     const loading = ref(false);
     const runtime = ref("local");
     const sandboxCache = reactive({ ready: false, count: 0, updated_at: null });
@@ -964,9 +981,24 @@ export default {
     const activeReleaseCount = computed(
       () => neoReleases.value.filter((item) => item?.is_active).length,
     );
+    const filteredSkills = computed(() => {
+      const query = buildSearchQuery(skillSearch.value);
+      if (!query) return skills.value;
+      return skills.value.filter((skill) =>
+        [skill.name, skill.description, skill.path, skill.plugin_name].some((field) =>
+          matchesText(field, query),
+        ),
+      );
+    });
     const deletableSkills = computed(() =>
-      skills.value.filter((skill) => !isReadOnlySourceSkill(skill)),
+      filteredSkills.value.filter((skill) => !isReadOnlySourceSkill(skill)),
     );
+    watch(deletableSkills, (visibleSkills) => {
+      const visibleNames = new Set(visibleSkills.map((skill) => skill.name));
+      selectedSkillNames.value = selectedSkillNames.value.filter((name) =>
+        visibleNames.has(name),
+      );
+    }, { flush: "sync" });
     const allDeletableSelected = computed(
       () =>
         deletableSkills.value.length > 0 &&
@@ -2000,6 +2032,8 @@ export default {
       tm,
       mode,
       skills,
+      skillSearch,
+      filteredSkills,
       loading,
       runtime,
       sandboxCache,
