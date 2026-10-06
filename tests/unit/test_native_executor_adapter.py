@@ -40,6 +40,9 @@ class FakeNativeRunner:
     def request_stop(self):
         self.stop_requested = True
 
+    def set_step_budget(self, max_step):
+        self.step_budget = max_step
+
     def done(self):
         return self.completed
 

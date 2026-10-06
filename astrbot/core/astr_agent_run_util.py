@@ -387,6 +387,9 @@ class NativeExecutorAdapter:
         """Open one Native step stream; the consumer must close it on exit."""
         return self._runner.step()
 
+    def set_step_budget(self, max_step: int) -> None:
+        self._runner.set_step_budget(max_step)
+
     async def stream(self) -> AsyncGenerator[ExecutorStreamItem, None]:
         """Normalize Native response containers for the Core output bridge."""
 
@@ -584,6 +587,7 @@ class NativeExecutionLoop:
         if self._executor.done():
             return
 
+        self._executor.set_step_budget(self._max_step)
         step_idx = 0
         while step_idx < self._max_step + 1:
             step_idx += 1
@@ -594,10 +598,7 @@ class NativeExecutionLoop:
                 )
                 if not self._executor.done():
                     self._executor.force_final_response(
-                        instruction=(
-                            "工具调用次数已达到上限，请停止使用工具，并根据已经收集到的信息，"
-                            "对你的任务和发现进行总结，然后直接回复用户。"
-                        )
+                        instruction=ToolLoopAgentRunner.MAX_STEPS_REACHED_PROMPT
                     )
 
             stop_watcher = asyncio.create_task(

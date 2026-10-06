@@ -531,6 +531,69 @@ async def test_max_step_limit_functionality(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entrypoint", ["sdk", "core"])
+async def test_step_budget_reminders_reach_provider(
+    runner,
+    mock_provider,
+    provider_request,
+    mock_tool_executor,
+    mock_hooks,
+    monkeypatch,
+    entrypoint,
+):
+    from unittest.mock import MagicMock
+
+    snapshots = []
+    original_chat = mock_provider.text_chat
+    mock_provider.max_calls_before_normal_response = 100
+
+    async def capture_chat(**kwargs):
+        snapshots.append(str(kwargs["contexts"]))
+        return await original_chat(**kwargs)
+
+    monkeypatch.setattr(mock_provider, "text_chat", capture_chat)
+    event = MagicMock()
+    event.is_stopped.return_value = False
+    event.get_extra.return_value = None
+    await runner.reset(
+        provider=mock_provider,
+        request=provider_request,
+        run_context=ContextWrapper(context=SimpleNamespace(event=event)),
+        tool_executor=mock_tool_executor,
+        agent_hooks=mock_hooks,
+        streaming=False,
+    )
+    if entrypoint == "sdk":
+        responses = runner.step_until_done(16)
+    else:
+        from astrbot.core.astr_agent_run_util import (
+            NativeExecutionLoop,
+            NativeExecutorAdapter,
+        )
+
+        monkeypatch.setattr(
+            "astrbot.core.astr_agent_run_util.record_interaction_turn_core_execution_event",
+            lambda event, **kwargs: None,
+        )
+        responses = NativeExecutionLoop(
+            NativeExecutorAdapter(runner), max_step=16
+        ).stream()
+    async for _ in responses:
+        pass
+
+    assert runner.done()
+    assert mock_provider.call_count == 17
+    assert runner.req.func_tool is None
+    for percent, next_round in ((80, 14), (90, 16), (95, 17)):
+        marker = f"[SYSTEM NOTICE: Agent step budget {percent}%]"
+        assert marker not in snapshots[next_round - 2]
+        assert marker in snapshots[next_round - 1]
+        tool_results = [m for m in runner.run_context.messages if m.role == "tool"]
+        assert sum(marker in str(m.content) for m in tool_results) == 1
+    assert "Remaining steps: 0." in snapshots[-1]
+
+
+@pytest.mark.asyncio
 async def test_normal_completion_without_max_step(
     runner, mock_provider, provider_request, mock_tool_executor, mock_hooks
 ):

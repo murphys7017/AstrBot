@@ -134,9 +134,10 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         "{follow_up_lines}"
     )
     MAX_STEPS_REACHED_PROMPT = (
-        "Maximum tool call limit reached. "
-        "Stop calling tools, and based on the information you have gathered, "
-        "summarize your task and findings, and reply to the user directly."
+        "[SYSTEM NOTICE: Agent step budget exhausted] "
+        "Remaining steps: 0. Stop using tools; summarize results and unfinished work. "
+        "If unfinished, tell the user they can ask you to continue with a fresh "
+        "step budget. Report any unverified work honestly."
     )
     SKILLS_LIKE_REQUERY_INSTRUCTION_TEMPLATE = (
         "You have decided to call tool(s): {tool_names}. Now call the tool(s) "
@@ -329,6 +330,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self._follow_up_seq = 0
         self._last_tool_name: str | None = None
         self._same_tool_streak = 0
+        self._step_budget_max: int | None = None
+        self._step_budget_used = 0
+        self._step_budget_notified: set[int] = set()
 
         # These two are used for tool schema mode handling
         # We now have two modes:
@@ -872,6 +876,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         if not self.req:
             raise ValueError(REQUEST_NOT_SET_MESSAGE)
 
+        if self._step_budget_max is not None:
+            self._step_budget_used += 1
+
         if self._state == AgentState.IDLE:
             try:
                 await self.agent_hooks.on_agent_begin(self.run_context)
@@ -1117,6 +1124,41 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 yield await self._finalize_aborted_step(llm_resp)
                 return
 
+            # Keep budget accounting outside messages, which can be compressed.
+            if tool_call_result_blocks and self._step_budget_max is not None:
+                max_steps = self._step_budget_max
+                used = self._step_budget_used
+                notices = []
+                if max_steps >= 16:
+                    for percent, guidance in (
+                        (80, "Focus on the core goal; avoid new exploration."),
+                        (90, "Wrap up; prioritize essential fixes and verification."),
+                        (95, "Finish verification and report unfinished work."),
+                    ):
+                        if (
+                            used * 100 >= max_steps * percent
+                            and percent not in self._step_budget_notified
+                        ):
+                            self._step_budget_notified.add(percent)
+                            notices.append(
+                                f"[SYSTEM NOTICE: Agent step budget {percent}%] "
+                                f"Steps used: {used}/{max_steps}. "
+                                f"Remaining steps: {max(0, max_steps - used)}. {guidance}"
+                            )
+                if used >= max_steps and 100 not in self._step_budget_notified:
+                    self._step_budget_notified.add(100)
+                    notices.append(self.MAX_STEPS_REACHED_PROMPT)
+                if notices:
+                    notice = "\n\n" + "\n".join(notices)
+                    last_result = tool_call_result_blocks[-1]
+                    if isinstance(last_result.content, str):
+                        last_result.content += notice
+                    else:
+                        last_result.content = [
+                            *(last_result.content or []),
+                            TextPart(text=notice),
+                        ]
+
             # 将结果添加到上下文中
             parts = []
             if llm_resp.reasoning_content is not None or llm_resp.reasoning_signature:
@@ -1180,10 +1222,17 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
 
             self.req.append_tool_calls_result(tool_calls_result)
 
+    def set_step_budget(self, max_step: int) -> None:
+        """Set the budget for a new execution without changing configured limits."""
+        self._step_budget_max = max_step
+        self._step_budget_used = 0
+        self._step_budget_notified = set()
+
     async def step_until_done(
         self, max_step: int
     ) -> T.AsyncGenerator[AgentResponse, None]:
         """Process steps until the agent is done."""
+        self.set_step_budget(max_step)
         step_count = 0
         while not self.done() and step_count < max_step:
             step_count += 1
