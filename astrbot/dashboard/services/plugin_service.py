@@ -41,6 +41,7 @@ from astrbot.core.utils.astrbot_path import (
 )
 from astrbot.dashboard.asgi_runtime import AdapterResponse as QuartResponse
 from astrbot.dashboard.asgi_runtime import g, make_response, request
+from astrbot.dashboard.plugin_page_auth import PluginPageAuth
 
 from .base import DashboardService, Response, ServiceContext
 
@@ -71,7 +72,9 @@ _JS_SIDE_EFFECT_IMPORT_RE = re.compile(
     re.IGNORECASE,
 )
 _PLUGIN_PAGE_ASSET_TOKEN_TYPE = "plugin_page_asset"
-_PLUGIN_PAGE_ASSET_TOKEN_TTL_SECONDS = 60
+# A view cannot outlive the dashboard session that opened it.
+_PLUGIN_PAGE_ASSET_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
+_PLUGIN_PAGE_ASSET_TOKEN_PURPOSE = "page_session"
 _PLUGIN_PAGE_ROOT_DIR_NAMES = ("views", "pages")
 _PLUGIN_PAGE_ENTRY_FILE_NAME = "index.html"
 
@@ -141,6 +144,25 @@ class PluginService(DashboardService):
         return await self._serve_plugin_page_content(
             plugin_name,
             page_name,
+            asset_path,
+        )
+
+    async def get_plugin_view_token_asset(
+        self,
+        plugin_id: str,
+        view_name: str,
+        token: str,
+        asset_path: str = "",
+    ):
+        """Serve a View asset from the canonical path-token route."""
+        # The dashboard middleware validates the token and binds g.username
+        # before this handler is called. Keep the token argument explicit so
+        # route adapters cannot accidentally serve an unscoped asset path.
+        if not token:
+            return await self._plugin_page_error_response(401, "Token 无效")
+        return await self._serve_plugin_page_content(
+            plugin_id,
+            view_name,
             asset_path,
         )
 
@@ -501,6 +523,32 @@ class PluginService(DashboardService):
         )
 
     @staticmethod
+    def _build_plugin_view_token_path(
+        plugin_name: str,
+        page_name: str,
+        token: str,
+        asset_path: str = "",
+    ) -> str:
+        """Build the canonical View asset URL with a scoped path token."""
+        encoded_plugin_name = quote(plugin_name, safe="")
+        encoded_page_name = quote(
+            PluginService._normalize_plugin_page_name(page_name),
+            safe="",
+        )
+        base = (
+            f"/api/v1/plugins/{encoded_plugin_name}/views/"
+            f"{encoded_page_name}/_t/{quote(token, safe='')}"
+        )
+        if not asset_path:
+            return f"{base}/"
+
+        safe_asset_path = _normalize_plugin_page_asset_path(asset_path)
+        encoded_path = "/".join(
+            quote(part, safe="") for part in safe_asset_path.split("/")
+        )
+        return f"{base}/{encoded_path}"
+
+    @staticmethod
     def _build_plugin_page_content_path(
         plugin_name: str,
         page_name: str,
@@ -586,6 +634,7 @@ class PluginService(DashboardService):
         page_name: str,
         entry_asset_path: str,
         extra_query_params: dict[str, str] | None = None,
+        rewrite_relative_assets: bool = True,
     ) -> str:
         def replace_attr(match: re.Match[str]) -> str:
             raw_url = match.group("url")
@@ -599,7 +648,7 @@ class PluginService(DashboardService):
                 url = self._get_plugin_page_bridge_sdk_url(extra_query_params)
                 return f"{attr}={quote_char}{url}{quote_char}"
 
-            if not self._is_rewritable_asset_url(raw_url):
+            if not rewrite_relative_assets or not self._is_rewritable_asset_url(raw_url):
                 return match.group(0)
 
             try:
@@ -759,13 +808,21 @@ class PluginService(DashboardService):
             asset_token = (
                 self._issue_plugin_page_asset_token(plugin_name, page.name) or ""
             )
-            extra_query_params = {"asset_token": asset_token} if asset_token else None
-            page_data["content_path"] = self._build_plugin_page_asset_url(
-                plugin_name,
-                page.name,
-                "",
-                extra_query_params=extra_query_params,
-            )
+            if asset_token:
+                page_data["content_path"] = (
+                    self._build_plugin_view_token_path(
+                        plugin_name,
+                        page.name,
+                        asset_token,
+                    )
+                    + f"?asset_token={quote(asset_token, safe='')}"
+                )
+            else:
+                page_data["content_path"] = self._build_plugin_page_asset_url(
+                    plugin_name,
+                    page.name,
+                    "",
+                )
         return page_data
 
     async def _serialize_plugin_pages(self, plugin: StarMetadata) -> list[dict]:
@@ -793,6 +850,7 @@ class PluginService(DashboardService):
         payload = {
             "username": username,
             "token_type": _PLUGIN_PAGE_ASSET_TOKEN_TYPE,
+            "purpose": _PLUGIN_PAGE_ASSET_TOKEN_PURPOSE,
             "plugin_name": plugin_name,
             "page_name": page_name,
             "locale": self._get_request_locale(),
@@ -807,6 +865,8 @@ class PluginService(DashboardService):
         page_name: str,
     ) -> dict[str, str] | None:
         asset_token = request.args.get("asset_token", "").strip()
+        if not asset_token:
+            asset_token = PluginPageAuth.extract_path_asset_token(request.path) or ""
         if not asset_token:
             asset_token = (
                 self._issue_plugin_page_asset_token(plugin_name, page_name) or ""
@@ -866,6 +926,9 @@ class PluginService(DashboardService):
             page_name,
             asset_path,
             extra_query_params=extra_query_params,
+            rewrite_relative_assets=not PluginPageAuth.is_path_token_path(
+                request.path
+            ),
         )
         response = cast(
             QuartResponse,
@@ -884,12 +947,16 @@ class PluginService(DashboardService):
         extra_query_params: dict[str, str] | None,
     ):
         css_text = await self._read_plugin_page_text(file_path)
-        rewritten_css = self._rewrite_plugin_page_css(
-            css_text,
-            plugin_name,
-            page_name,
-            asset_path,
-            extra_query_params=extra_query_params,
+        rewritten_css = (
+            css_text
+            if PluginPageAuth.is_path_token_path(request.path)
+            else self._rewrite_plugin_page_css(
+                css_text,
+                plugin_name,
+                page_name,
+                asset_path,
+                extra_query_params=extra_query_params,
+            )
         )
         response = cast(
             QuartResponse,
@@ -908,12 +975,16 @@ class PluginService(DashboardService):
         extra_query_params: dict[str, str] | None,
     ):
         js_text = await self._read_plugin_page_text(file_path)
-        rewritten_js = self._rewrite_plugin_page_js(
-            js_text,
-            plugin_name,
-            page_name,
-            asset_path,
-            extra_query_params=extra_query_params,
+        rewritten_js = (
+            js_text
+            if PluginPageAuth.is_path_token_path(request.path)
+            else self._rewrite_plugin_page_js(
+                js_text,
+                plugin_name,
+                page_name,
+                asset_path,
+                extra_query_params=extra_query_params,
+            )
         )
         response = cast(
             QuartResponse,

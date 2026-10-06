@@ -15,7 +15,7 @@ const customizer = useCustomizerStore();
 const {
   locale,
   pluginName: pluginDisplayName,
-  pluginPageTitle,
+  pluginViewTitle,
 } = usePluginI18n();
 
 const loading = ref(true);
@@ -31,7 +31,7 @@ let iframeMessageOrigin = null;
 const pluginName = computed(() => String(route.params.pluginName || ""));
 const pageName = computed(() => String(route.params.pageName || ""));
 const localizedPageTitle = computed(() =>
-  pluginPageTitle(
+  pluginViewTitle(
     plugin.value,
     page.value || pageName.value,
     page.value?.title || pageName.value || tm("buttons.openPages"),
@@ -558,7 +558,7 @@ const handleIframeLoad = () => {
   sendIframeContext();
 };
 
-const loadPluginPage = async () => {
+const loadPluginView = async () => {
   loading.value = true;
   errorMessage.value = "";
   plugin.value = null;
@@ -636,7 +636,7 @@ onBeforeUnmount(() => {
   cleanupSSEConnections();
 });
 
-watch([pluginName, pageName], loadPluginPage, { immediate: true });
+watch([pluginName, pageName], loadPluginView, { immediate: true });
 watch(locale, () => {
   sendIframeContext();
 });
@@ -649,7 +649,7 @@ watch(
 </script>
 
 <template>
-  <div class="plugin-page-page">
+  <div class="plugin-view-page">
     <div class="d-flex align-center flex-wrap mb-4" style="gap: 12px">
       <v-btn
         variant="tonal"
@@ -667,9 +667,9 @@ watch(
       </div>
     </div>
 
-    <v-card class="plugin-page-card" elevation="0">
+    <v-card class="plugin-view-card" elevation="0">
       <v-card-text class="pa-0">
-        <div v-if="loading" class="plugin-page-state">
+        <div v-if="loading" class="plugin-view-state">
           <v-progress-circular indeterminate color="primary" />
           <span>{{ tm("status.loading") }}</span>
         </div>
@@ -684,7 +684,7 @@ watch(
           v-else
           ref="iframeRef"
           :src="iframeSrc"
-          class="plugin-page-frame"
+          class="plugin-view-frame"
           referrerpolicy="no-referrer"
           sandbox="allow-scripts allow-forms allow-downloads"
           @load="handleIframeLoad"
@@ -695,20 +695,20 @@ watch(
 </template>
 
 <style scoped>
-.plugin-page-card {
+.plugin-view-card {
   background-color: rgb(var(--v-theme-surface));
   border-radius: 16px;
   overflow: hidden;
 }
 
-.plugin-page-frame {
+.plugin-view-frame {
   width: 100%;
   min-height: calc(100vh - 140px);
   border: 0;
   background: transparent;
 }
 
-.plugin-page-state {
+.plugin-view-state {
   min-height: calc(100vh - 140px);
   display: flex;
   align-items: center;

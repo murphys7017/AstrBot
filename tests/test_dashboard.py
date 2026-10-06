@@ -571,7 +571,8 @@ async def test_plugin_page_entry_returns_signed_content_path(
     assert data["data"]["name"] == PLUGIN_PAGE_DEMO_PAGE_NAME
     assert data["data"]["title"] == PLUGIN_PAGE_DEMO_PAGE_NAME
     assert data["data"]["content_path"].startswith(
-        f"/api/plugin/page/content/{PLUGIN_PAGE_DEMO_NAME}/{PLUGIN_PAGE_DEMO_PAGE_NAME}/"
+        f"/api/v1/plugins/{PLUGIN_PAGE_DEMO_NAME}/views/"
+        f"{PLUGIN_PAGE_DEMO_PAGE_NAME}/_t/"
     )
     assert "asset_token=" in data["data"]["content_path"]
 
@@ -594,9 +595,50 @@ async def test_plugin_view_entry_returns_signed_content_path(
     data = await response.get_json()
     assert data["status"] == "ok"
     assert data["data"]["content_path"].startswith(
-        f"/api/plugin/view/content/{PLUGIN_PAGE_DEMO_NAME}/{PLUGIN_PAGE_DEMO_PAGE_NAME}/"
+        f"/api/v1/plugins/{PLUGIN_PAGE_DEMO_NAME}/views/"
+        f"{PLUGIN_PAGE_DEMO_PAGE_NAME}/_t/"
     )
     assert "asset_token=" in data["data"]["content_path"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_page_view_token_path_serves_scoped_assets(
+    app: Quart,
+    authenticated_header: dict,
+    registered_plugin_page: StarMetadata,
+):
+    """Path-token view URLs serve relative assets without URL rewriting."""
+    test_client = app.test_client()
+    entry_response = await test_client.get(
+        (
+            f"/api/plugin/page/entry?name={PLUGIN_PAGE_DEMO_NAME}"
+            f"&page={PLUGIN_PAGE_DEMO_PAGE_NAME}"
+        ),
+        headers=authenticated_header,
+    )
+    assert entry_response.status_code == 200
+    content_path = (await entry_response.get_json())["data"]["content_path"]
+
+    anonymous_client = app.test_client()
+    html_response = await anonymous_client.get(content_path)
+    assert html_response.status_code == 200
+    html_text = (await html_response.get_data()).decode("utf-8")
+    assert "Single plugin Page with internal navigation" in html_text
+
+    app_js_url = re.search(r'src="([^\"]*app\.js[^\"]*)"', html_text)
+    assert app_js_url is not None
+    assert "/api/plugin/page/content/" not in app_js_url.group(1)
+    asset_response = await anonymous_client.get(
+        urlsplit(content_path).path + app_js_url.group(1)
+    )
+    assert asset_response.status_code == 200
+
+    other_path = urlsplit(content_path).path.replace(
+        f"/plugins/{PLUGIN_PAGE_DEMO_NAME}/",
+        "/plugins/another_plugin/",
+    )
+    other_response = await anonymous_client.get(other_path)
+    assert other_response.status_code == 401
 
 
 @pytest.mark.asyncio

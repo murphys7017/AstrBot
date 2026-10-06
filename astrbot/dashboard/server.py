@@ -148,6 +148,25 @@ class AstrBotDashboard:
     async def auth_middleware(self):
         if not request.path.startswith("/api"):
             return None
+        if PluginPageAuth.is_path_token_path(request.path):
+            path_token = PluginPageAuth.extract_path_asset_token(request.path)
+            if not path_token:
+                r = jsonify(Response().error("未授权").__dict__)
+                r.status_code = 401
+                return r
+
+            payload, token_error = self._validate_dashboard_token(
+                path_token,
+                request.path,
+            )
+            if payload is None:
+                r = jsonify(Response().error(token_error or "Token 无效").__dict__)
+                r.status_code = 401
+                return r
+
+            g.username = cast(str, payload["username"])
+            return None
+
         if request.path == "/api/v1" or request.path.startswith("/api/v1/"):
             raw_key = self._extract_raw_api_key()
             if not raw_key:

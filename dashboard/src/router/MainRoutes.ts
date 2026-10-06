@@ -40,7 +40,7 @@ const MainRoutes = {
     {
       name: 'PluginView',
       path: '/plugin-view/:pluginName/:pageName',
-      component: () => import('@/views/PluginPagePage.vue'),
+      component: () => import('@/views/PluginViewPage.vue'),
       props: true
     },
     {

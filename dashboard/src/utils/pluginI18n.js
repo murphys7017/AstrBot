@@ -53,7 +53,7 @@ export function usePluginI18n() {
     )
   }
 
-  const pluginPageTitle = (plugin, page, fallback = '') => {
+  const pluginViewTitle = (plugin, page, fallback = '') => {
     const pageName = typeof page === 'string' ? page : page?.name
     const i18nKey = typeof page === 'object' ? page?.i18n_key : null
     const candidates = [
@@ -79,7 +79,9 @@ export function usePluginI18n() {
     pluginName,
     pluginDesc,
     pluginShortDesc,
-    pluginPageTitle,
+    pluginViewTitle,
+    // Keep the old helper name for third-party dashboard extensions.
+    pluginPageTitle: pluginViewTitle,
     configText,
   }
 }

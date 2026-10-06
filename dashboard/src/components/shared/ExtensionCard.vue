@@ -36,7 +36,7 @@ const emit = defineEmits([
   "view-handlers",
   "view-readme",
   "view-changelog",
-  "open-webui",
+  "open-view",
   "toggle-pin",
 ]);
 
@@ -130,8 +130,8 @@ const pages = computed(() => {
 
 const hasPages = computed(() => pages.value.length > 0);
 
-const openWebui = () => {
-  emit("open-webui", props.extension);
+const openView = () => {
+  emit("open-view", props.extension);
 };
 
 const togglePin = () => {
@@ -354,7 +354,7 @@ const togglePin = () => {
               variant="tonal"
               color="primary"
               :disabled="!extension.activated"
-              @click="openWebui"
+              @click="openView"
             ></v-btn>
           </template>
         </v-tooltip>

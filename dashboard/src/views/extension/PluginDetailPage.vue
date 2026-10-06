@@ -456,7 +456,7 @@ const openExternal = (url) => {
   window.open(url, "_blank", "noopener,noreferrer");
 };
 
-const openPluginPage = (pageName) => {
+const openPluginView = (pageName) => {
   router.push({
     name: "PluginView",
     params: { pluginName: props.plugin.name, pageName },
@@ -678,7 +678,7 @@ onBeforeUnmount(() => {
           :key="pageName"
           variant="outlined"
           prepend-icon="mdi-open-in-new"
-          @click="openPluginPage(pageName)"
+          @click="openPluginView(pageName)"
         >
           {{ pageName }}
         </v-btn>

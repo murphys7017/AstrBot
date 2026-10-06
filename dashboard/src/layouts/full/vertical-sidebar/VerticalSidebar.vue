@@ -256,7 +256,7 @@ function startSidebarResize(event) {
   document.body.style.userSelect = 'none';
   document.body.style.cursor = 'ew-resize';
 
-  const iframes = document.querySelectorAll('.plugin-page-frame');
+  const iframes = document.querySelectorAll('.plugin-view-frame, .plugin-page-frame');
   iframes.forEach((el) => {
     el.style.pointerEvents = 'none';
   });

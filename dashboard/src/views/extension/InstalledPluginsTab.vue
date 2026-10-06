@@ -154,7 +154,7 @@ const openPluginDetail = (extension) => {
   });
 };
 
-const openPluginWebui = (extension) => {
+const openPluginView = (extension) => {
   const pages = Array.isArray(extension?.views)
     ? extension.views
     : Array.isArray(extension?.pages)
@@ -362,7 +362,7 @@ const togglePinnedExtension = (extension) => {
                       @view-handlers="showPluginInfo(extension)"
                       @view-readme="viewReadme(extension)"
                       @view-changelog="viewChangelog(extension)"
-                      @open-webui="openPluginWebui(extension)"
+                      @open-view="openPluginView(extension)"
                     >
                     </ExtensionCard>
                   </v-col>

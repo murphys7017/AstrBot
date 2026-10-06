@@ -6,6 +6,7 @@ PLUGIN_PAGE_CONTENT_PREFIX = "/api/plugin/page/content/"
 PLUGIN_PAGE_BRIDGE_PATH = "/api/plugin/page/bridge-sdk.js"
 PLUGIN_VIEW_CONTENT_PREFIX = "/api/plugin/view/content/"
 PLUGIN_VIEW_BRIDGE_PATH = "/api/plugin/view/bridge-sdk.js"
+PLUGIN_VIEW_TOKEN_PREFIX = "/api/v1/plugins/"
 PLUGIN_PAGE_TOKEN_TYPE = "plugin_page_asset"
 
 
@@ -20,7 +21,34 @@ class PluginPageAuth:
                 PLUGIN_PAGE_BRIDGE_PATH,
                 PLUGIN_VIEW_BRIDGE_PATH,
             )
+        ) or PluginPageAuth.is_path_token_path(path)
+
+    @staticmethod
+    def is_path_token_path(path: str) -> bool:
+        parts = path.split("/")
+        return (
+            len(parts) >= 9
+            and parts[1:4] == ["api", "v1", "plugins"]
+            and parts[5] in {"views", "pages"}
+            and parts[7] == "_t"
+            and bool(parts[8])
         )
+
+    @staticmethod
+    def extract_path_asset_token(path: str) -> str | None:
+        if not PluginPageAuth.is_path_token_path(path):
+            return None
+        parts = path.split("/")
+        return unquote(parts[8]).strip() or None
+
+    @staticmethod
+    def extract_path_scope(path: str) -> tuple[str | None, str | None]:
+        if not PluginPageAuth.is_path_token_path(path):
+            return None, None
+        parts = path.split("/")
+        plugin_name = unquote(parts[4]).strip() or None
+        page_name = unquote(parts[6]).strip() or None
+        return plugin_name, page_name
 
     @staticmethod
     def is_asset_token(payload: dict) -> bool:
@@ -70,6 +98,13 @@ class PluginPageAuth:
             return False
         if path.startswith((PLUGIN_PAGE_BRIDGE_PATH, PLUGIN_VIEW_BRIDGE_PATH)):
             return True
+
+        request_plugin_name, request_page_name = cls.extract_path_scope(path)
+        if request_plugin_name and request_page_name:
+            return (
+                payload.get("plugin_name") == request_plugin_name
+                and payload.get("page_name") == request_page_name
+            )
 
         token_plugin_name = payload.get("plugin_name")
         token_page_name = payload.get("page_name")

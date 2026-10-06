@@ -58,6 +58,33 @@ def register_legacy_routes(app, service):
         methods=["GET"],
     )
 
+    # Canonical plugin View assets carry their scoped token in the path so
+    # relative URLs inherit the token without server-side URL rewriting.
+    app.add_url_rule(
+        "/api/v1/plugins/<plugin_id>/views/<view_name>/_t/<token>/",
+        endpoint="plugin_view_token_entry",
+        view_func=service.get_plugin_view_token_asset,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        "/api/v1/plugins/<plugin_id>/views/<view_name>/_t/<token>/<path:asset_path>",
+        endpoint="plugin_view_token_asset",
+        view_func=service.get_plugin_view_token_asset,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        "/api/v1/plugins/<plugin_id>/pages/<view_name>/_t/<token>/",
+        endpoint="plugin_page_token_entry",
+        view_func=service.get_plugin_view_token_asset,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        "/api/v1/plugins/<plugin_id>/pages/<view_name>/_t/<token>/<path:asset_path>",
+        endpoint="plugin_page_token_asset",
+        view_func=service.get_plugin_view_token_asset,
+        methods=["GET"],
+    )
+
     app.add_url_rule(
         "/api/plugin/page/bridge-sdk.js",
         endpoint="plugin_page_bridge_sdk",
