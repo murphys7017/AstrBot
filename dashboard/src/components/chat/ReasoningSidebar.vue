@@ -41,6 +41,7 @@ const props = defineProps<{
 const sidebarBody = ref<HTMLElement | null>(null);
 let followLatest = true;
 let scrollFrame: number | null = null;
+let contentResizeObserver: ResizeObserver | null = null;
 
 const emit = defineEmits<{
   "update:modelValue": [value: boolean];
@@ -84,7 +85,16 @@ watch(() => props.modelValue, (open) => {
   }
 });
 
+watch(sidebarBody, (body) => {
+  contentResizeObserver?.disconnect();
+  contentResizeObserver = null;
+  if (!body || typeof ResizeObserver === "undefined") return;
+  contentResizeObserver = new ResizeObserver(scrollToLatestActivity);
+  if (body.firstElementChild) contentResizeObserver.observe(body.firstElementChild);
+}, { flush: "post" });
+
 onBeforeUnmount(() => {
+  contentResizeObserver?.disconnect();
   if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
 });
 
