@@ -887,7 +887,7 @@
 <script>
 import axios from "axios";
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
+import { LazyMonacoEditor as VueMonacoEditor } from "@/components/shared/LazyMonacoEditor";
 import { useI18n, useModuleI18n } from "@/i18n/composables";
 import OutlinedActionListItem from "@/components/shared/OutlinedActionListItem.vue";
 import { useCustomizerStore } from "@/stores/customizer";

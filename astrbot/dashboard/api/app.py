@@ -5,6 +5,7 @@ from importlib import import_module
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 
 from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter
@@ -13,6 +14,8 @@ from astrbot.dashboard.services.base import ServiceContext
 
 def create_dashboard_app(server):
     app = FastAPI(title="AstrBot API", docs_url=None, redoc_url=None, openapi_url=None)
+    # Compress sizeable dashboard assets and JSON responses without buffering SSE.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     adapter = FastAPIAppAdapter(app, static_folder=server.data_path)
     adapter.config["MAX_CONTENT_LENGTH"] = 128 * 1024 * 1024
     adapter.config["BODY_LIMIT_OVERRIDES"] = (

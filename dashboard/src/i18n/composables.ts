@@ -1,10 +1,11 @@
 import { ref, computed } from 'vue';
-import { translations as staticTranslations } from './translations';
+import { localeLoaders } from './translations';
 import type { Locale } from './types';
 
 // 全局状态
 const currentLocale = ref<Locale>('zh-CN');
 const translations = ref<Record<string, any>>({});
+const loadedTranslations = new Map<Locale, Record<string, any>>();
 
 function getByPath(source: unknown, key: string): unknown {
   if (!source || typeof source !== 'object') return undefined;
@@ -24,10 +25,10 @@ function resolveTranslation(key: string): unknown {
   if (localValue !== undefined) return localValue;
 
   // New configuration groups can arrive before every locale has been updated.
-  // Prefer English over exposing an internal i18n key in the UI.
+  // Reuse a fallback only when that locale has already been loaded.
   for (const fallbackLocale of ['en-US', 'zh-CN'] as Locale[]) {
     if (fallbackLocale === currentLocale.value) continue;
-    const fallbackValue = getByPath(staticTranslations[fallbackLocale], key);
+    const fallbackValue = getByPath(loadedTranslations.get(fallbackLocale), key);
     if (fallbackValue !== undefined) return fallbackValue;
   }
 
@@ -39,33 +40,33 @@ function resolveTranslation(key: string): unknown {
  */
 export async function initI18n(locale: Locale = 'zh-CN') {
   currentLocale.value = locale;
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = locale;
+  }
 
-  // 加载静态翻译数据
-  loadTranslations(locale);
+  await loadTranslations(locale);
 }
 
 /**
- * 加载翻译数据（现在从静态导入获取）
+ * 按需加载指定语言的翻译数据。
  */
-function loadTranslations(locale: Locale) {
+async function loadTranslations(locale: Locale) {
+  const cached = loadedTranslations.get(locale);
+  if (cached) {
+    translations.value = cached;
+    return;
+  }
+
   try {
-    const data = staticTranslations[locale];
-    if (data) {
-      translations.value = data;
-    } else {
-      console.warn(`Translations not found for locale: ${locale}`);
-      // 回退到中文
-      if (locale !== 'zh-CN') {
-        console.log('Falling back to zh-CN');
-        translations.value = staticTranslations['zh-CN'];
-      }
-    }
+    const loader = localeLoaders[locale] ?? localeLoaders['zh-CN'];
+    const data = await loader();
+    loadedTranslations.set(locale, data);
+    translations.value = data;
   } catch (error) {
     console.error(`Failed to load translations for ${locale}:`, error);
-    // 回退到中文
     if (locale !== 'zh-CN') {
       console.log('Falling back to zh-CN');
-      translations.value = staticTranslations['zh-CN'];
+      await loadTranslations('zh-CN');
     }
   }
 }
@@ -107,7 +108,10 @@ export function useI18n() {
   const setLocale = async (newLocale: Locale) => {
     if (newLocale !== currentLocale.value) {
       currentLocale.value = newLocale;
-      loadTranslations(newLocale);
+      if (typeof document !== 'undefined') {
+        document.documentElement.lang = newLocale;
+      }
+      await loadTranslations(newLocale);
 
       // 保存到localStorage
       localStorage.setItem('astrbot-locale', newLocale);
@@ -125,7 +129,7 @@ export function useI18n() {
   const locale = computed(() => currentLocale.value);
 
   // 获取可用语言列表
-  const availableLocales: Locale[] = ['zh-CN', 'en-US', 'ru-RU'];
+  const availableLocales: Locale[] = ['zh-CN', 'en-US', 'ru-RU', 'ja-JP'];
 
   // 检查是否已加载
   const isLoaded = computed(() => Object.keys(translations.value).length > 0);
@@ -243,7 +247,7 @@ function deepMerge(target: Record<string, any>, source: Record<string, any>) {
 export async function setupI18n() {
   // 从localStorage获取保存的语言设置
   const savedLocale = localStorage.getItem('astrbot-locale') as Locale;
-  const initialLocale = savedLocale && ['zh-CN', 'en-US', 'ru-RU'].includes(savedLocale)
+  const initialLocale = savedLocale && ['zh-CN', 'en-US', 'ru-RU', 'ja-JP'].includes(savedLocale)
     ? savedLocale
     : 'zh-CN';
 

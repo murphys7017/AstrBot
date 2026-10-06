@@ -6,39 +6,10 @@ import vuetify from './plugins/vuetify';
 import confirmPlugin from './plugins/confirmPlugin';
 import { setupI18n } from './i18n/composables';
 import '@/scss/style.scss';
-import VueApexCharts from 'vue3-apexcharts';
-
 import print from 'vue3-print-nb';
-import { loader } from '@guolao/vue-monaco-editor'
-import * as monaco from 'monaco-editor';
 import axios from 'axios';
 import { waitForRouterReadyInBackground } from './utils/routerReadiness.mjs';
 import { UPGRADE_RECOVERY_TOKEN_KEY } from './utils/upgradeRecovery';
-
-(self as any).MonacoEnvironment = {
-  getWorker(_: string, label: string) {
-    const workerUrl = (fileName: string) =>
-      new URL(
-        `${import.meta.env.BASE_URL}monaco-workers/${fileName}`,
-        window.location.href,
-      ).toString();
-    const createWorker = (fileName: string) =>
-      new Worker(workerUrl(fileName), { type: 'module' });
-    if (label === 'json') {
-      return createWorker('json.worker.js');
-    }
-    if (label === 'css' || label === 'scss' || label === 'less') {
-      return createWorker('css.worker.js');
-    }
-    if (label === 'html' || label === 'handlebars' || label === 'razor') {
-      return createWorker('html.worker.js');
-    }
-    if (label === 'typescript' || label === 'javascript') {
-      return createWorker('ts.worker.js');
-    }
-    return createWorker('editor.worker.js');
-  },
-};
 
 // 初始化新的i18n系统，等待完成后再挂载应用
 setupI18n().then(async () => {
@@ -49,7 +20,6 @@ setupI18n().then(async () => {
   app.use(pinia);
   app.use(router);
   app.use(print);
-  app.use(VueApexCharts);
   app.use(vuetify);
   app.use(confirmPlugin);
   await router.isReady();
@@ -82,7 +52,6 @@ setupI18n().then(async () => {
   app.use(pinia);
   app.use(router);
   app.use(print);
-  app.use(VueApexCharts);
   app.use(vuetify);
   app.use(confirmPlugin);
   app.mount('#app');
@@ -107,8 +76,6 @@ setupI18n().then(async () => {
     }
   });
 });
-
-
 axios.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   const headers = config.headers as Record<string, unknown>;
@@ -229,5 +196,3 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     return response;
   });
 };
-
-loader.config({ monaco })

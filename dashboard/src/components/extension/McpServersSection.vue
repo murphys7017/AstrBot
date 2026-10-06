@@ -315,7 +315,7 @@
 
 <script>
 import axios from 'axios';
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
+import { LazyMonacoEditor as VueMonacoEditor } from '@/components/shared/LazyMonacoEditor';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import OutlinedActionListItem from '@/components/shared/OutlinedActionListItem.vue';
 import { buildSearchQuery, matchesText } from '@/utils/pluginSearch';

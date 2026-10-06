@@ -230,7 +230,7 @@ import axios from 'axios';
 import AstrBotCoreConfigWrapper from '@/components/config/AstrBotCoreConfigWrapper.vue';
 import WaitingForRestart from '@/components/shared/WaitingForRestart.vue';
 import StandaloneChat from '@/components/chat/StandaloneChat.vue';
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
+import { LazyMonacoEditor as VueMonacoEditor } from '@/components/shared/LazyMonacoEditor';
 import { useI18n, useModuleI18n } from '@/i18n/composables';
 import { CONFIG_WORKSPACE_ORDER, normalizeConfigMetadata } from '@/composables/useConfigRegistry';
 import { restartAstrBot as restartAstrBotRuntime } from '@/utils/restartAstrBot';
