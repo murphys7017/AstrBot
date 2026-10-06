@@ -27,6 +27,9 @@ class _DummyEvent:
     def get_extra(self, _key: str):
         return None
 
+    def is_stopped(self):
+        return False
+
 
 class _InteractionEvent(_DummyEvent):
     def __init__(self) -> None:

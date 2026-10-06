@@ -54,6 +54,7 @@ from astrbot.core.tools.computer_tools import (
     LocalPythonTool,
     PythonTool,
 )
+from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.image_ref_utils import is_supported_image_ref
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
@@ -211,7 +212,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                         exc_info=True,
                     )
 
-            asyncio.create_task(_run_in_background())
+            task = asyncio.create_task(_run_in_background())
+            active_event_registry.register_background_task(event, task)
             text_content = mcp.types.TextContent(
                 type="text",
                 text=f"Background task submitted. task_id={task_id}",
@@ -471,7 +473,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                     exc_info=True,
                 )
 
-        asyncio.create_task(_run_handoff_in_background())
+        task = asyncio.create_task(_run_handoff_in_background())
+        active_event_registry.register_background_task(run_context.context.event, task)
 
         text_content = mcp.types.TextContent(
             type="text",
@@ -591,6 +594,9 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
 
         event = run_context.context.event
         ctx = run_context.context.context
+
+        if event.is_stopped() or event.get_extra("agent_stop_requested"):
+            return
 
         task_result = {
             "task_id": task_id,
