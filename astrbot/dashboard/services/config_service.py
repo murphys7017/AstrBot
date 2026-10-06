@@ -1441,8 +1441,8 @@ class ConfigService(DashboardService):
         try:
             # 检查缓存
             cache_key = f"{platform.name}:{platform.logo_path}"
-            if cache_key in self._logo_token_cache:
-                cached_token = self._logo_token_cache[cache_key]
+            cached_token = self._logo_token_cache.get(cache_key)
+            if cached_token and not await file_token_service.check_token_expired(cached_token):
                 # 确保platform_default_tmpl[platform.name]存在且为字典
                 if platform.name not in platform_default_tmpl or not isinstance(
                     platform_default_tmpl[platform.name], dict
@@ -1470,6 +1470,7 @@ class ConfigService(DashboardService):
                 logo_token = await file_token_service.register_file(
                     logo_file_path,
                     timeout=3600,
+                    single_use=False,
                 )
 
                 # 确保platform_default_tmpl[platform.name]存在且为字典
