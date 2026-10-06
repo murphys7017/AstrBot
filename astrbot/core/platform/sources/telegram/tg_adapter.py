@@ -477,7 +477,16 @@ class TelegramPlatformAdapter(Platform):
             if update.message.caption and update.message.caption_entities:
                 for entity in update.message.caption_entities:
                     if entity.type == "mention":
-                        name = update.message.parse_caption_entity(entity)[1:]
+                        parsed = update.message.parse_caption_entity(entity)
+                        if isinstance(parsed, str):
+                            name = parsed[1:]
+                        else:
+                            # Keep caption handling compatible with lightweight
+                            # Telegram doubles while respecting UTF-16 offsets.
+                            encoded = update.message.caption.encode("utf-16-le")
+                            start = entity.offset * 2
+                            end = (entity.offset + entity.length) * 2
+                            name = encoded[start:end].decode("utf-16-le")[1:]
                         message.message.append(Comp.At(qq=name, name=name))
 
         message = AstrBotMessage()
