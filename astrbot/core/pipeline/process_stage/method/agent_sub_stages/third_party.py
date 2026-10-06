@@ -355,10 +355,18 @@ class ThirdPartyAgentSubStage(Stage):
                 req.prompt = event.message_str[len(provider_wake_prefix) :]
             for comp in event.message_obj.message:
                 if isinstance(comp, Image):
-                    image_path = await comp.convert_to_base64()
+                    try:
+                        image_path = await comp.convert_to_base64()
+                    except Exception as exc:
+                        logger.warning("Image attachment unavailable (%s).", type(exc).__name__)
+                        continue
                     req.image_urls.append(image_path)
                 elif isinstance(comp, Record):
-                    audio_path = await comp.convert_to_file_path()
+                    try:
+                        audio_path = await comp.convert_to_file_path()
+                    except Exception as exc:
+                        logger.warning("Voice attachment unavailable (%s).", type(exc).__name__)
+                        continue
                     req.audio_urls.append(audio_path)
 
         if not req.session_id:
