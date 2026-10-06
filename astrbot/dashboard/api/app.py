@@ -15,6 +15,14 @@ def create_dashboard_app(server):
     app = FastAPI(title="AstrBot API", docs_url=None, redoc_url=None, openapi_url=None)
     adapter = FastAPIAppAdapter(app, static_folder=server.data_path)
     adapter.config["MAX_CONTENT_LENGTH"] = 128 * 1024 * 1024
+    adapter.config["BODY_LIMIT_OVERRIDES"] = (
+        ("/api/backup/upload/chunk", 2 * 1024 * 1024),
+        ("/api/chat/post_file/chunk", 2 * 1024 * 1024),
+        ("/api/chat/post_file", 513 * 1024 * 1024),
+        ("/api/config/file/upload", 501 * 1024 * 1024),
+        ("/api/kb/document/upload", 513 * 1024 * 1024),
+        ("/api/plugin/install-upload", 129 * 1024 * 1024),
+    )
     adapter._dashboard_server = server
     adapter.before_request(server.auth_middleware)
     context = ServiceContext(server.config, adapter)

@@ -202,10 +202,14 @@ class DashboardRequest:
     async def _load_form_parts(self) -> None:
         if self._form_cache is not None and self._files_cache is not None:
             return
+        adapter = self._request.app.state.dashboard_app_adapter
+        form_limit = adapter.config.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024)
+        for prefix, route_limit in adapter.config.get("BODY_LIMIT_OVERRIDES", ()):
+            if self.path.startswith(prefix):
+                form_limit = route_limit
+                break
         form = await self._request.form(
-            max_part_size=self._request.app.state.dashboard_app_adapter.config.get(
-                "MAX_CONTENT_LENGTH", 128 * 1024 * 1024
-            )
+            max_part_size=form_limit
         )
         form_pairs: list[tuple[str, Any]] = []
         file_pairs: list[tuple[str, Any]] = []
@@ -867,7 +871,14 @@ class DashboardMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limit = self.adapter.config.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024)
+        default_limit = self.adapter.config.get("MAX_CONTENT_LENGTH", 128 * 1024 * 1024)
+        path = scope.get("path", "")
+        method = scope.get("method", "GET").upper()
+        limit = default_limit
+        for prefix, route_limit in self.adapter.config.get("BODY_LIMIT_OVERRIDES", ()):
+            if path.startswith(prefix):
+                limit = route_limit
+                break
         received = 0
 
         async def bounded_receive():
@@ -883,6 +894,17 @@ class DashboardMiddleware:
         scope.setdefault("state", {})["dashboard_g"] = DashboardRequestState()
         try:
             raw_length = request_.headers.get("content-length")
+            content_type = request_.headers.get("content-type", "")
+            if (
+                raw_length is None
+                and method in {"POST", "PUT", "PATCH"}
+                and content_type.split(";", 1)[0].strip().lower() == "multipart/form-data"
+            ):
+                await JSONResponse(
+                    {"status": "error", "message": "Content-Length header is required for uploads", "data": None},
+                    status_code=411,
+                )(scope, bounded_receive, send)
+                return
             if raw_length is not None:
                 try:
                     length = int(raw_length)

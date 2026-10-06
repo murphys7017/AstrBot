@@ -23,6 +23,11 @@ def register_legacy_routes(app, service):
         "/chat/get_file": ("GET", service.get_file),
         "/chat/get_attachment": ("GET", service.get_attachment),
         "/chat/post_file": ("POST", service.post_file),
+        "/chat/post_file/init": ("POST", service.chat_upload_init),
+        "/chat/post_file/chunk": ("POST", service.chat_upload_chunk),
+        "/chat/post_file/complete": ("POST", service.chat_upload_complete),
+        "/chat/post_file/abort": ("POST", service.chat_upload_abort),
+        "/chat/post_file/status": ("POST", service.chat_upload_status),
     }
 
     for path, definition in routes.items() if isinstance(routes, dict) else routes:

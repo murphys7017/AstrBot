@@ -26,11 +26,32 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
 from astrbot.dashboard.asgi_runtime import AdapterResponse as QuartResponse
 from astrbot.dashboard.asgi_runtime import g, make_response, request, send_file
+from astrbot.core.utils.upload import UploadTooLargeError
 
 from .base import DashboardService, Response, ServiceContext
+from .chunked_upload_service import ChunkedUploadService
 
 # SSE heartbeat message to keep the connection alive during long-running operations
 SSE_HEARTBEAT = ": heartbeat\n\n"
+MAX_UPLOAD_FILE_SIZE_BYTES = 512 * 1024 * 1024
+MAX_UPLOAD_FILE_SIZE_MB = MAX_UPLOAD_FILE_SIZE_BYTES // (1024 * 1024)
+
+
+class LocalUploadFile:
+    """Adapt an assembled local file to the regular attachment upload path."""
+
+    def __init__(self, path: Path, filename: str, content_type: str | None) -> None:
+        self._path = path
+        self.filename = filename
+        self.content_type = content_type
+        self.headers: dict[str, str] = {}
+        self.content_length = path.stat().st_size
+
+    async def save(self, destination: str | Path, *, max_bytes: int | None = None) -> int:
+        if max_bytes is not None and self.content_length > max_bytes:
+            raise UploadTooLargeError(max_bytes)
+        await asyncio.to_thread(os.replace, self._path, destination)
+        return self.content_length
 
 
 def _sanitize_upload_filename(filename: str | None) -> str:
@@ -275,6 +296,9 @@ class ChatService(DashboardService):
         self.umop_config_router = core_lifecycle.umop_config_router
 
         self.running_convs: dict[str, bool] = {}
+        self.chunked_uploads = ChunkedUploadService(
+            os.path.join(get_astrbot_data_path(), "webchat", ".chunks")
+        )
 
     async def get_file(self):
         filename = request.args.get("filename")
@@ -336,11 +360,90 @@ class ChatService(DashboardService):
         if "file" not in post_data:
             return Response().error("Missing key: file").__dict__
 
-        file = post_data["file"]
+        try:
+            return Response().ok(
+                await self._save_uploaded_file(post_data["file"])
+            ).__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
+
+    def upload_init(self, data: object, *, owner: str = "") -> dict:
+        payload = data if isinstance(data, dict) else {}
+        filename = str(payload.get("filename") or "")
+        total_size = payload.get("total_size", 0)
+        if not filename:
+            raise ValueError("Missing key: filename")
+        if not isinstance(total_size, int) or total_size <= 0:
+            raise ValueError("Invalid file size")
+        if total_size > MAX_UPLOAD_FILE_SIZE_BYTES:
+            raise ValueError(f"File too large (limit {MAX_UPLOAD_FILE_SIZE_MB} MB)")
+
+        session = self.chunked_uploads.init_session(
+            owner=owner,
+            purpose="chat_attachment",
+            filename=_sanitize_upload_filename(filename),
+            original_filename=filename,
+            total_size=total_size,
+            meta={"content_type": payload.get("content_type") or "application/octet-stream"},
+        )
+        return {
+            "upload_id": session.id,
+            "chunk_size": session.chunk_size,
+            "total_chunks": session.total_chunks,
+        }
+
+    async def upload_chunk(
+        self,
+        *,
+        upload_id: str | None,
+        chunk_index_str: str | None,
+        chunk_file: Any | None,
+        owner: str = "",
+    ) -> dict:
+        if not upload_id or chunk_index_str is None or chunk_file is None:
+            raise ValueError("Missing required parameters")
+        try:
+            chunk_index = int(chunk_index_str)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid chunk_index") from exc
+        return await self.chunked_uploads.save_chunk(
+            upload_id,
+            chunk_index,
+            chunk_file,
+            owner=owner,
+            purpose="chat_attachment",
+        )
+
+    async def upload_complete(self, data: object, *, owner: str = "") -> dict:
+        payload = data if isinstance(data, dict) else {}
+        upload_id = payload.get("upload_id")
+        if not upload_id:
+            raise ValueError("Missing key: upload_id")
+        session = self.chunked_uploads.get_session(
+            upload_id, owner=owner, purpose="chat_attachment"
+        )
+        merged_path = self.chunked_uploads.chunks_root / f"{upload_id}.merged"
+        await self.chunked_uploads.assemble(
+            upload_id,
+            merged_path,
+            owner=owner,
+            purpose="chat_attachment",
+        )
+        try:
+            return await self._save_uploaded_file(
+                LocalUploadFile(
+                    merged_path,
+                    session.filename,
+                    str(session.meta.get("content_type") or "application/octet-stream"),
+                )
+            )
+        finally:
+            merged_path.unlink(missing_ok=True)
+
+    async def _save_uploaded_file(self, file: Any) -> dict:
+        """Shared attachment persistence for regular and chunked uploads."""
         filename = _sanitize_upload_filename(file.filename)
         content_type = file.content_type or "application/octet-stream"
-
-        # 根据 content_type 判断文件类型并添加扩展名
         if content_type.startswith("image"):
             attach_type = "image"
         elif content_type.startswith("audio"):
@@ -349,37 +452,85 @@ class ChatService(DashboardService):
             attach_type = "video"
         else:
             attach_type = "file"
-
         attachments_dir = Path(self.attachments_dir).resolve(strict=False)
-        stored_filename = _unique_attachment_filename(filename)
-        file_path = (attachments_dir / stored_filename).resolve(strict=False)
+        file_path = (attachments_dir / _unique_attachment_filename(filename)).resolve(strict=False)
         if not file_path.is_relative_to(attachments_dir):
-            return Response().error("Invalid filename").__dict__
-
-        await file.save(str(file_path))
-
-        # 创建 attachment 记录
+            raise ValueError("Invalid filename")
+        await file.save(str(file_path), max_bytes=MAX_UPLOAD_FILE_SIZE_BYTES)
         attachment = await self.db.insert_attachment(
-            path=str(file_path),
-            type=attach_type,
-            mime_type=content_type,
+            path=str(file_path), type=attach_type, mime_type=content_type
         )
-
         if not attachment:
-            return Response().error("Failed to create attachment").__dict__
+            file_path.unlink(missing_ok=True)
+            raise ValueError("Failed to create attachment")
+        return {
+            "attachment_id": attachment.attachment_id,
+            "filename": filename,
+            "stored_filename": os.path.basename(attachment.path),
+            "type": attach_type,
+        }
 
-        return (
-            Response()
-            .ok(
-                data={
-                    "attachment_id": attachment.attachment_id,
-                    "filename": filename,
-                    "stored_filename": os.path.basename(attachment.path),
-                    "type": attach_type,
-                }
+    async def upload_abort(self, data: object, *, owner: str = "") -> None:
+        payload = data if isinstance(data, dict) else {}
+        upload_id = payload.get("upload_id")
+        if upload_id:
+            await self.chunked_uploads.abort(
+                upload_id, owner=owner, purpose="chat_attachment"
             )
-            .__dict__
+
+    def upload_status(self, data: object, *, owner: str = "") -> dict:
+        payload = data if isinstance(data, dict) else {}
+        upload_id = payload.get("upload_id")
+        if not upload_id:
+            raise ValueError("Missing key: upload_id")
+        return self.chunked_uploads.session_status(
+            upload_id, owner=owner, purpose="chat_attachment"
         )
+
+    async def chat_upload_init(self):
+        try:
+            return Response().ok(self.upload_init(await request.json, owner=g.get("username", "guest"))).__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
+
+    async def chat_upload_chunk(self):
+        try:
+            form = await request.form
+            files = await request.files
+            result = await self.upload_chunk(
+                upload_id=form.get("upload_id"),
+                chunk_index_str=form.get("chunk_index"),
+                chunk_file=files.get("chunk"),
+                owner=g.get("username", "guest"),
+            )
+            return Response().ok(result).__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
+
+    async def chat_upload_complete(self):
+        try:
+            result = await self.upload_complete(
+                await request.json, owner=g.get("username", "guest")
+            )
+            return Response().ok(result).__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
+
+    async def chat_upload_abort(self):
+        try:
+            await self.upload_abort(await request.json, owner=g.get("username", "guest"))
+            return Response().ok(message="Upload aborted").__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
+
+    async def chat_upload_status(self):
+        try:
+            result = self.upload_status(
+                await request.json, owner=g.get("username", "guest")
+            )
+            return Response().ok(result).__dict__
+        except Exception as exc:
+            return Response().error(str(exc)).__dict__
 
     async def _build_user_message_parts(self, message: str | list) -> list[dict]:
         """构建用户消息的部分列表。"""

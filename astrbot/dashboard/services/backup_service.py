@@ -23,7 +23,8 @@ from astrbot.core.utils.astrbot_path import (
     get_astrbot_backups_path,
     get_astrbot_data_path,
 )
-from astrbot.dashboard.asgi_runtime import request, send_file
+from astrbot.dashboard.asgi_runtime import g, request, send_file
+from astrbot.core.utils.upload import UploadTooLargeError
 from astrbot.dashboard.password_state import is_dashboard_auth_version_current
 
 from .auth_service import DASHBOARD_JWT_COOKIE_NAME
@@ -32,6 +33,8 @@ from .base import DashboardService, Response, ServiceContext
 # 分片上传常量
 CHUNK_SIZE = 1024 * 1024  # 1MB
 UPLOAD_EXPIRE_SECONDS = 3600  # 上传会话过期时间（1小时）
+MAX_BACKUP_UPLOAD_BYTES = 128 * 1024 * 1024
+MAX_CHUNKED_BACKUP_BYTES = 8 * 1024 * 1024 * 1024
 
 
 def secure_filename(filename: str) -> str:
@@ -425,7 +428,12 @@ class BackupService(DashboardService):
             # 保存上传的文件
             Path(self.backup_dir).mkdir(parents=True, exist_ok=True)
             zip_path = os.path.join(self.backup_dir, unique_filename)
-            await file.save(zip_path)
+            try:
+                await file.save(zip_path, max_bytes=MAX_BACKUP_UPLOAD_BYTES)
+            except UploadTooLargeError as exc:
+                return Response().error(
+                    f"备份文件过大，限制为 {MAX_BACKUP_UPLOAD_BYTES // (1024 * 1024)} MiB"
+                ).__dict__
 
             logger.info(
                 f"上传的备份文件已保存: {unique_filename} (原始名称: {file.filename})"
@@ -474,6 +482,10 @@ class BackupService(DashboardService):
 
             if total_size <= 0:
                 return Response().error("无效的文件大小").__dict__
+            if total_size > MAX_CHUNKED_BACKUP_BYTES:
+                return Response().error(
+                    f"分片备份超过限制，最大为 {MAX_CHUNKED_BACKUP_BYTES // (1024 * 1024 * 1024)} GiB"
+                ).__dict__
 
             # 由后端计算分片总数，确保前后端一致
             import math
@@ -494,6 +506,7 @@ class BackupService(DashboardService):
             # 创建上传会话
             current_time = time.time()
             self.upload_sessions[upload_id] = {
+                "owner": g.get("username", "guest"),
                 "filename": unique_filename,
                 "original_filename": filename,
                 "total_size": total_size,
@@ -558,11 +571,19 @@ class BackupService(DashboardService):
             if "chunk" not in files:
                 return Response().error("缺少分片数据").__dict__
 
-            # 验证上传会话
-            if upload_id not in self.upload_sessions:
+            # 验证上传会话、所属用户和空闲过期时间。
+            session = self.upload_sessions.get(upload_id)
+            if (
+                session is None
+                or session.get("owner") != g.get("username", "guest")
+                or time.time() - session.get("last_activity", session["created_at"])
+                > UPLOAD_EXPIRE_SECONDS
+            ):
+                if session is not None and time.time() - session.get(
+                    "last_activity", session["created_at"]
+                ) > UPLOAD_EXPIRE_SECONDS:
+                    await self._cleanup_upload_session(upload_id)
                 return Response().error("上传会话不存在或已过期").__dict__
-
-            session = self.upload_sessions[upload_id]
 
             # 验证分片索引
             if chunk_index < 0 or chunk_index >= session["total_chunks"]:
@@ -571,7 +592,26 @@ class BackupService(DashboardService):
             # 保存分片
             chunk_file = files["chunk"]
             chunk_path = os.path.join(session["chunk_dir"], f"{chunk_index}.part")
-            await chunk_file.save(chunk_path)
+            temp_path = os.path.join(
+                session["chunk_dir"], f"{chunk_index}.{uuid.uuid4().hex}.tmp"
+            )
+            expected_size = min(
+                CHUNK_SIZE,
+                session["total_size"] - chunk_index * CHUNK_SIZE,
+            )
+            try:
+                written = await chunk_file.save(temp_path, max_bytes=CHUNK_SIZE)
+                if written != expected_size:
+                    raise ValueError(
+                        f"分片大小不匹配：收到 {written} 字节，应为 {expected_size} 字节"
+                    )
+                os.replace(temp_path, chunk_path)
+            except UploadTooLargeError as exc:
+                Path(temp_path).unlink(missing_ok=True)
+                return Response().error("分片超过 1 MiB 限制").__dict__
+            except Exception:
+                Path(temp_path).unlink(missing_ok=True)
+                raise
 
             # 记录已接收的分片，并更新最后活动时间
             session["received_chunks"].add(chunk_index)
@@ -649,11 +689,18 @@ class BackupService(DashboardService):
             if not upload_id:
                 return Response().error("缺少 upload_id 参数").__dict__
 
-            # 验证上传会话
-            if upload_id not in self.upload_sessions:
+            session = self.upload_sessions.get(upload_id)
+            if (
+                session is None
+                or session.get("owner") != g.get("username", "guest")
+                or time.time() - session.get("last_activity", session["created_at"])
+                > UPLOAD_EXPIRE_SECONDS
+            ):
+                if session is not None and time.time() - session.get(
+                    "last_activity", session["created_at"]
+                ) > UPLOAD_EXPIRE_SECONDS:
+                    await self._cleanup_upload_session(upload_id)
                 return Response().error("上传会话不存在或已过期").__dict__
-
-            session = self.upload_sessions[upload_id]
 
             # 检查是否所有分片都已接收
             received = session["received_chunks"]
@@ -687,6 +734,10 @@ class BackupService(DashboardService):
                                 outfile.write(data_block)
 
                 file_size = os.path.getsize(output_path)
+                if file_size != session["total_size"]:
+                    raise ValueError(
+                        f"合并大小不匹配：得到 {file_size} 字节，应为 {session['total_size']} 字节"
+                    )
 
                 # 标记备份为上传来源（修改 manifest.json 中的 origin 字段）
                 self._mark_backup_as_uploaded(output_path)
@@ -735,8 +786,11 @@ class BackupService(DashboardService):
             if not upload_id:
                 return Response().error("缺少 upload_id 参数").__dict__
 
-            if upload_id not in self.upload_sessions:
+            session = self.upload_sessions.get(upload_id)
+            if session is None:
                 # 会话已不存在，可能已过期或已完成
+                return Response().ok(message="上传已取消").__dict__
+            if session.get("owner") != g.get("username", "guest"):
                 return Response().ok(message="上传已取消").__dict__
 
             # 清理会话
@@ -749,6 +803,35 @@ class BackupService(DashboardService):
             logger.error(f"取消上传失败: {e}")
             logger.error(traceback.format_exc())
             return Response().error(f"取消上传失败: {e!s}").__dict__
+
+    async def upload_status(self):
+        """Return received chunk indexes so interrupted uploads can resume."""
+        try:
+            data = await request.json
+            upload_id = data.get("upload_id")
+            if not upload_id:
+                return Response().error("缺少 upload_id 参数").__dict__
+            session = self.upload_sessions.get(upload_id)
+            current_user = g.get("username", "guest")
+            if session is None or session.get("owner") != current_user:
+                return Response().error("上传会话不存在或已过期").__dict__
+            if time.time() - session.get("last_activity", session["created_at"]) > UPLOAD_EXPIRE_SECONDS:
+                await self._cleanup_upload_session(upload_id)
+                return Response().error("上传会话不存在或已过期").__dict__
+            remaining = UPLOAD_EXPIRE_SECONDS - (
+                time.time() - session.get("last_activity", session["created_at"])
+            )
+            return Response().ok(
+                {
+                    "received_chunks": sorted(session["received_chunks"]),
+                    "total_chunks": session["total_chunks"],
+                    "chunk_size": CHUNK_SIZE,
+                    "expires_in": max(0, int(remaining)),
+                }
+            ).__dict__
+        except Exception as e:
+            logger.error(f"查询上传状态失败: {e}")
+            return Response().error(f"查询上传状态失败: {e!s}").__dict__
 
     async def check_backup(self):
         """预检查备份文件

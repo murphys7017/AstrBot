@@ -233,6 +233,9 @@
                             <v-alert type="error" variant="tonal" class="mb-4">
                                 {{ importError }}
                             </v-alert>
+                            <v-btn v-if="uploadId && importFile" color="primary" class="mr-2" @click="resumeUpload">
+                                {{ t('features.settings.backup.import.resumeUpload', 'Resume Upload') }}
+                            </v-btn>
                             <v-btn color="primary" @click="resetImport">
                                 {{ t('features.settings.backup.import.retry') }}
                             </v-btn>
@@ -558,9 +561,9 @@ const resetExport = () => {
  * 后端按分片索引命名文件（如 0.part, 1.part），合并时按顺序读取，
  * 因此分片到达顺序不影响最终结果。
  */
-const uploadChunksInParallel = async (file, totalChunks, currentUploadId, currentChunkSize) => {
+const uploadChunksInParallel = async (file, totalChunks, currentUploadId, currentChunkSize, indexes = null) => {
     // 跟踪已完成的字节数（使用原子操作避免并发问题）
-    let completedBytes = 0
+    let completedBytes = uploadProgress.value.uploaded || 0
     const chunkSizes = []
     
     // 预计算每个分片的大小（使用后端返回的 chunk_size）
@@ -596,7 +599,7 @@ const uploadChunksInParallel = async (file, totalChunks, currentUploadId, curren
     }
 
     // 创建分片索引队列
-    const pendingChunks = Array.from({ length: totalChunks }, (_, i) => i)
+    const pendingChunks = indexes ? [...indexes] : Array.from({ length: totalChunks }, (_, i) => i)
     const activePromises = []
 
     // 处理队列中的分片
@@ -691,17 +694,46 @@ const uploadAndCheck = async () => {
         importStatus.value = 'confirm'
 
     } catch (error) {
-        // 上传失败时尝试清理已上传的分片
-        if (uploadId.value) {
-            try {
-                await axios.post('/api/backup/upload/abort', {
-                    upload_id: uploadId.value
-                })
-            } catch (abortError) {
-                console.error('Failed to abort upload:', abortError)
-            }
+        importStatus.value = 'failed'
+        importError.value = error.response?.data?.message || error.message || 'Upload failed'
+    }
+}
+
+const resumeUpload = async () => {
+    if (!importFile.value || !uploadId.value) return uploadAndCheck()
+    importStatus.value = 'uploading'
+    importError.value = ''
+    try {
+        const statusResponse = await axios.post('/api/backup/upload/status', {
+            upload_id: uploadId.value
+        })
+        if (statusResponse.data.status !== 'ok') throw new Error(statusResponse.data.message)
+        const state = statusResponse.data.data
+        const received = new Set(state.received_chunks || [])
+        const totalChunks = state.total_chunks
+        chunkSize.value = state.chunk_size
+        const missing = Array.from({ length: totalChunks }, (_, index) => index)
+            .filter(index => !received.has(index))
+        uploadProgress.value = {
+            uploaded: [...received].reduce((sum, index) => {
+                const start = index * chunkSize.value
+                return sum + Math.min(chunkSize.value, importFile.value.size - start)
+            }, 0),
+            total: importFile.value.size,
+            percent: 0,
+            message: t('features.settings.backup.import.uploadingChunks')
         }
-        
+        uploadProgress.value.percent = Math.round(uploadProgress.value.uploaded / uploadProgress.value.total * 100)
+        await uploadChunksInParallel(importFile.value, totalChunks, uploadId.value, chunkSize.value, missing)
+        const completeResponse = await axios.post('/api/backup/upload/complete', { upload_id: uploadId.value })
+        if (completeResponse.data.status !== 'ok') throw new Error(completeResponse.data.message)
+        uploadedFilename.value = completeResponse.data.data.filename
+        const checkResponse = await axios.post('/api/backup/check', { filename: uploadedFilename.value })
+        if (checkResponse.data.status !== 'ok') throw new Error(checkResponse.data.message)
+        checkResult.value = checkResponse.data.data
+        if (!checkResult.value.valid) throw new Error(checkResult.value.error || t('features.settings.backup.import.invalidBackup'))
+        importStatus.value = 'confirm'
+    } catch (error) {
         importStatus.value = 'failed'
         importError.value = error.response?.data?.message || error.message || 'Upload failed'
     }

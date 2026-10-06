@@ -10,6 +10,7 @@ def register_legacy_routes(app, service):
         "/backup/upload/chunk": ("POST", service.upload_chunk),
         "/backup/upload/complete": ("POST", service.upload_complete),
         "/backup/upload/abort": ("POST", service.upload_abort),
+        "/backup/upload/status": ("POST", service.upload_status),
         "/backup/check": ("POST", service.check_backup),
         "/backup/import": ("POST", service.import_backup),
         "/backup/progress": ("GET", service.get_progress),

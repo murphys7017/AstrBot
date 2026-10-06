@@ -1,5 +1,8 @@
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { chatChunkedUploadApi, useChunkedUpload } from '@/composables/useChunkedUpload';
+
+const CHUNKED_UPLOAD_THRESHOLD = 32 * 1024 * 1024;
 
 export interface StagedFileInfo {
     attachment_id: string;
@@ -64,6 +67,26 @@ export function useMediaHandling() {
         formData.append('file', file);
 
         try {
+            if (file.size >= CHUNKED_UPLOAD_THRESHOLD) {
+                const uploader = useChunkedUpload(chatChunkedUploadApi);
+                const result = await uploader.start(file);
+                if (!result && uploader.status.value === 'error') {
+                    console.error('Chunked upload failed:', uploader.errorMessage.value);
+                    return undefined;
+                }
+                if (!result) return undefined;
+                const { attachment_id, filename, type } = result;
+                const stagedFile = {
+                    attachment_id,
+                    filename,
+                    original_name: file.name,
+                    url: URL.createObjectURL(file),
+                    type,
+                    signature
+                };
+                stagedFiles.value.push(stagedFile);
+                return stagedFile;
+            }
             const response = await axios.post('/api/chat/post_file', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data'
