@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Iterable
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from slack_sdk.web.async_client import AsyncWebClient
 
@@ -16,7 +17,9 @@ from astrbot.api.message_components import (
     Plain,
 )
 from astrbot.api.platform import Group, MessageMember
-from astrbot.core.utils.media_utils import MediaResolver, file_uri_to_path
+from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.core.utils.io import download_file
+from astrbot.core.utils.path_util import file_uri_to_path
 
 
 class SlackMessageEvent(AstrMessageEvent):
@@ -75,21 +78,37 @@ class SlackMessageEvent(AstrMessageEvent):
                 "alt_text": "图片",
             }
         if isinstance(segment, File):
-            source = segment.url
-            if source:
-                scheme = urlsplit(source).scheme
-                if scheme not in ("", "file", "http", "https") and not Path(source).drive:
-                    raise ValueError("Slack file URLs must use HTTP or HTTPS.")
-                if scheme == "file":
-                    source = str(Path(file_uri_to_path(source)).absolute())
-            source = source or await segment.get_file()
+            source = segment.url or await segment.get_file()
             if not source:
-                raise ValueError("Slack file upload requires a URL or an existing file.")
-            async with MediaResolver(source).as_path() as resolved:
+                raise ValueError(
+                    "Slack file upload requires a URL or an existing file."
+                )
+            scheme = urlsplit(source).scheme.lower()
+            if scheme not in ("", "file", "http", "https") and not Path(source).drive:
+                raise ValueError("Slack file URLs must use HTTP or HTTPS.")
+            temporary_path = None
+            try:
+                if scheme in ("http", "https"):
+                    temporary_path = (
+                        Path(get_astrbot_temp_path()) / f"slack_{uuid4().hex}"
+                    )
+                    await asyncio.to_thread(
+                        temporary_path.parent.mkdir, parents=True, exist_ok=True
+                    )
+                    _, _, remainder = source.partition(":")
+                    await download_file(f"{scheme}:{remainder}", str(temporary_path))
+                    upload_path = temporary_path
+                else:
+                    upload_path = Path(file_uri_to_path(source))
+                    if not await asyncio.to_thread(upload_path.is_file):
+                        raise ValueError("Slack file upload requires an existing file.")
                 response = await web_client.files_upload_v2(
-                    file=await asyncio.to_thread(resolved.path.read_bytes),
+                    file=str(upload_path.absolute()),
                     filename=segment.name or "file",
                 )
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
             if not response["ok"]:
                 logger.error(
                     "Slack file upload failed: error=%s",
