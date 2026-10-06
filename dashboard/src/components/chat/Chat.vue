@@ -335,6 +335,8 @@
             :staged-images-url="stagedImagesUrl"
             :staged-audio-url="stagedAudioUrl"
             :staged-files="stagedNonImageFiles"
+            :failed-uploads="failedUploadViews"
+            :active-uploads="activeUploadViews"
             :disabled="sending"
             :enable-streaming="enableStreaming"
             :is-recording="isRecording"
@@ -351,6 +353,9 @@
             @remove-image="removeImage"
             @remove-audio="removeAudio"
             @remove-file="removeFile"
+            @retry-failed-upload="retryFailedUpload"
+            @discard-failed-upload="discardFailedUpload"
+            @cancel-active-upload="cancelActiveUpload"
             @start-recording="startRecording"
             @stop-recording="stopRecording"
             @paste-image="handlePaste"
@@ -419,6 +424,8 @@
             :staged-images-url="stagedImagesUrl"
             :staged-audio-url="stagedAudioUrl"
             :staged-files="stagedNonImageFiles"
+            :failed-uploads="failedUploadViews"
+            :active-uploads="activeUploadViews"
             :disabled="sending"
             :enable-streaming="enableStreaming"
             :is-recording="isRecording"
@@ -435,6 +442,9 @@
             @remove-image="removeImage"
             @remove-audio="removeAudio"
             @remove-file="removeFile"
+            @retry-failed-upload="retryFailedUpload"
+            @discard-failed-upload="discardFailedUpload"
+            @cancel-active-upload="cancelActiveUpload"
             @start-recording="startRecording"
             @stop-recording="stopRecording"
             @paste-image="handlePaste"
@@ -612,12 +622,17 @@ const {
   stagedImagesUrl,
   stagedAudioUrl,
   stagedNonImageFiles,
+  failedUploadViews,
+  activeUploadViews,
   processAndUploadImage,
   processAndUploadFile,
   handlePaste,
   removeImage,
   removeAudio,
   removeFile,
+  retryFailedUpload,
+  discardFailedUpload,
+  cancelActiveUpload,
   clearStaged,
   cleanupMediaCache,
 } = useMediaHandling();

@@ -147,6 +147,8 @@
         :staged-images-url="stagedImagesUrl"
         :staged-audio-url="stagedAudioUrl"
         :staged-files="stagedNonImageFiles"
+        :failed-uploads="failedUploadViews"
+        :active-uploads="activeUploadViews"
         :disabled="sending || initializing"
         :enable-streaming="enableStreaming"
         :is-recording="false"
@@ -161,6 +163,9 @@
         @remove-image="removeImage"
         @remove-audio="removeAudio"
         @remove-file="removeFile"
+        @retry-failed-upload="retryFailedUpload"
+        @discard-failed-upload="discardFailedUpload"
+        @cancel-active-upload="cancelActiveUpload"
         @paste-image="handlePaste"
         @file-select="handleFilesSelected"
       />
@@ -245,12 +250,17 @@ const {
   stagedImagesUrl,
   stagedAudioUrl,
   stagedNonImageFiles,
+  failedUploadViews,
+  activeUploadViews,
   processAndUploadImage,
   processAndUploadFile,
   handlePaste,
   removeImage,
   removeAudio,
   removeFile,
+  retryFailedUpload,
+  discardFailedUpload,
+  cancelActiveUpload,
   clearStaged,
   cleanupMediaCache,
 } = useMediaHandling();

@@ -10,6 +10,7 @@
     "recordingPrompt": "Recording, please speak...",
     "chatPrompt": "Let's chat!",
     "dropToUpload": "Drop files to upload",
+    "cancelUpload": "Cancel upload",
     "stopGenerating": "Stop generating"
   },
   "message": {

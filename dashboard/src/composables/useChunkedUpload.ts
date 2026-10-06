@@ -9,126 +9,143 @@ export interface ChunkedUploadApi {
     statusUpload(payload: { upload_id: string }): Promise<any>;
 }
 
+export type ChunkedUploadStatus = 'idle' | 'uploading' | 'error' | 'done';
+export type ChunkedUploadPhase = 'init' | 'chunks' | 'complete';
+
 const CONCURRENT_UPLOADS = 5;
 const CHUNK_MAX_ATTEMPTS = 3;
+const CANCELLED_MESSAGE = 'cancelled';
 
 export function useChunkedUpload(api: ChunkedUploadApi) {
-    const status = ref<'idle' | 'uploading' | 'error' | 'done'>('idle');
+    const status = ref<ChunkedUploadStatus>('idle');
+    const phase = ref<ChunkedUploadPhase>('init');
     const uploadedBytes = ref(0);
     const totalBytes = ref(0);
     const errorMessage = ref('');
     const percent = computed(() => totalBytes.value ? Math.round(uploadedBytes.value / totalBytes.value * 100) : 0);
+    const canResume = computed(() => status.value === 'error');
+
     let file: File | null = null;
     let uploadId = '';
     let chunkSize = 0;
     let totalChunks = 0;
+    let chunkSizes: number[] = [];
     let cancelled = false;
+    let runGeneration = 0;
 
     const data = (response: any) => {
         if (response.data?.status !== 'ok') throw new Error(response.data?.message || 'Upload failed');
         return response.data.data;
     };
 
-    async function uploadOne(index: number, sessionId: string) {
-        const start = index * chunkSize;
-        const chunk = file!.slice(start, Math.min(start + chunkSize, file!.size));
+    const cancelledError = () => new Error(CANCELLED_MESSAGE);
+    const isCancelledError = (error: any) => error?.message === CANCELLED_MESSAGE;
+    const isCurrent = (generation: number) => generation === runGeneration && !cancelled;
+
+    function planChunks() {
+        chunkSizes = [];
+        for (let index = 0; index < totalChunks; index += 1) {
+            const start = index * chunkSize;
+            chunkSizes[index] = Math.max(0, Math.min(start + chunkSize, file!.size) - start);
+        }
+    }
+
+    async function abortSession(sessionId: string) {
+        if (!sessionId) return;
+        try {
+            await api.abortUpload({ upload_id: sessionId });
+        } catch (error) {
+            console.error('Failed to abort upload:', error);
+        }
+    }
+
+    async function uploadOne(index: number, sessionId: string, generation: number) {
+        const currentFile = file;
+        const currentChunkSize = chunkSize;
+        if (!currentFile || !currentChunkSize) throw cancelledError();
+
+        const start = index * currentChunkSize;
+        const chunk = currentFile.slice(start, Math.min(start + currentChunkSize, currentFile.size));
         let lastError: any;
         for (let attempt = 0; attempt < CHUNK_MAX_ATTEMPTS; attempt += 1) {
-            if (cancelled) throw new Error('cancelled');
+            if (!isCurrent(generation)) throw cancelledError();
             try {
                 data(await api.uploadChunk({ upload_id: sessionId, chunk_index: index, chunk }));
+                if (!isCurrent(generation)) throw cancelledError();
                 uploadedBytes.value += chunk.size;
                 return;
             } catch (error) {
+                if (!isCurrent(generation) || isCancelledError(error)) throw cancelledError();
                 lastError = error;
             }
         }
         throw lastError;
     }
 
-    async function runPool(indexes: number[], sessionId: string) {
+    async function runPool(indexes: number[], sessionId: string, generation: number) {
         const pending = [...indexes];
-        const active: Promise<void>[] = [];
-        while (!cancelled && (pending.length || active.length)) {
-            while (pending.length && active.length < CONCURRENT_UPLOADS) {
+        const active = new Set<Promise<void>>();
+        let failure: any = null;
+
+        while (!failure && isCurrent(generation) && (pending.length || active.size)) {
+            while (pending.length && active.size < CONCURRENT_UPLOADS && isCurrent(generation)) {
                 const index = pending.shift()!;
-                const promise = uploadOne(index, sessionId).finally(() => {
-                    const position = active.indexOf(promise);
-                    if (position >= 0) active.splice(position, 1);
+                const promise = uploadOne(index, sessionId, generation).finally(() => {
+                    active.delete(promise);
                 });
-                active.push(promise);
+                active.add(promise);
             }
-            if (active.length) await Promise.race(active);
-        }
-        if (cancelled) throw new Error('cancelled');
-    }
-
-    async function start(input: File) {
-        file = input;
-        cancelled = false;
-        status.value = 'uploading';
-        errorMessage.value = '';
-        totalBytes.value = input.size;
-        try {
-            const init = data(await api.initUpload({ filename: input.name, total_size: input.size, content_type: input.type }));
-            uploadId = init.upload_id;
-            chunkSize = init.chunk_size;
-            totalChunks = init.total_chunks;
-            uploadedBytes.value = 0;
-            await runPool(Array.from({ length: totalChunks }, (_, index) => index), uploadId);
-            const result = data(await api.completeUpload({ upload_id: uploadId }));
-            status.value = 'done';
-            return result;
-        } catch (error: any) {
-            if (cancelled) return undefined;
-            status.value = 'error';
-            errorMessage.value = error?.response?.data?.message || error?.message || 'Upload failed';
-            return undefined;
-        }
-    }
-
-    async function resume() {
-        if (!file) return undefined;
-        cancelled = false;
-        status.value = 'uploading';
-        try {
-            let received: number[] = [];
-            try {
-                const state = data(await api.statusUpload({ upload_id: uploadId }));
-                received = state.received_chunks || [];
-            } catch {
-                uploadId = '';
+            if (active.size) {
+                try {
+                    await Promise.race(active);
+                } catch (error) {
+                    // Do not schedule more work after one chunk fails. Drain
+                    // requests already sent so resume cannot race the old run.
+                    failure = error;
+                }
             }
-            if (!uploadId) {
-                const init = data(await api.initUpload({ filename: file.name, total_size: file.size, content_type: file.type }));
-                uploadId = init.upload_id;
-                chunkSize = init.chunk_size;
-                totalChunks = init.total_chunks;
-                received = [];
-            }
-            uploadedBytes.value = received.reduce((total, index) => {
-                const start = index * chunkSize;
-                return total + Math.min(chunkSize, file!.size - start);
-            }, 0);
-            await runPool(Array.from({ length: totalChunks }, (_, index) => index).filter(index => !received.includes(index)), uploadId);
-            const result = data(await api.completeUpload({ upload_id: uploadId }));
-            status.value = 'done';
-            return result;
-        } catch (error: any) {
-            status.value = 'error';
-            errorMessage.value = error?.response?.data?.message || error?.message || 'Upload failed';
-            return undefined;
         }
+
+        if (active.size) await Promise.allSettled(active);
+        if (!isCurrent(generation)) throw cancelledError();
+        if (failure) throw failure;
     }
 
-    async function cancel() {
-        cancelled = true;
-        if (uploadId) await api.abortUpload({ upload_id: uploadId }).catch(() => undefined);
-        reset();
+    async function initSession(generation: number) {
+        const currentFile = file;
+        if (!currentFile || !isCurrent(generation)) throw cancelledError();
+        phase.value = 'init';
+        const result = data(await api.initUpload({
+            filename: currentFile.name,
+            total_size: currentFile.size,
+            content_type: currentFile.type,
+        }));
+
+        // A cancelled or superseded init may still have created a server
+        // session. Abort that returned session without touching new state.
+        if (!isCurrent(generation)) {
+            void abortSession(result.upload_id);
+            throw cancelledError();
+        }
+
+        uploadId = result.upload_id;
+        chunkSize = result.chunk_size;
+        totalChunks = result.total_chunks;
+        planChunks();
+        uploadedBytes.value = 0;
     }
 
-    function reset() {
+    async function completeSession(sessionId: string, generation: number) {
+        if (!isCurrent(generation)) throw cancelledError();
+        phase.value = 'complete';
+        const result = data(await api.completeUpload({ upload_id: sessionId }));
+        if (!isCurrent(generation)) throw cancelledError();
+        return result;
+    }
+
+    function clearState() {
         status.value = 'idle';
+        phase.value = 'init';
         uploadedBytes.value = 0;
         totalBytes.value = 0;
         errorMessage.value = '';
@@ -136,9 +153,118 @@ export function useChunkedUpload(api: ChunkedUploadApi) {
         uploadId = '';
         chunkSize = 0;
         totalChunks = 0;
+        chunkSizes = [];
     }
 
-    return { status, percent, uploadedBytes, totalBytes, errorMessage, start, resume, cancel, reset };
+    function supersedeCurrentRun() {
+        const previousSessionId = uploadId;
+        cancelled = true;
+        runGeneration += 1;
+        if (previousSessionId) void abortSession(previousSessionId);
+        uploadId = '';
+        chunkSize = 0;
+        totalChunks = 0;
+        chunkSizes = [];
+        uploadedBytes.value = 0;
+        cancelled = false;
+        return runGeneration;
+    }
+
+    function handleFailure(error: any, generation: number): undefined {
+        if (generation !== runGeneration || cancelled || isCancelledError(error)) {
+            if (generation === runGeneration && cancelled) {
+                const sessionId = uploadId;
+                clearState();
+                if (sessionId) void abortSession(sessionId);
+            }
+            return undefined;
+        }
+
+        // A failed merge cannot safely be resumed against the same session.
+        if (phase.value === 'complete') uploadId = '';
+        status.value = 'error';
+        errorMessage.value = error?.response?.data?.message || error?.message || 'Upload failed';
+        return undefined;
+    }
+
+    async function start(input: File) {
+        const generation = supersedeCurrentRun();
+        file = input;
+        status.value = 'uploading';
+        errorMessage.value = '';
+        totalBytes.value = input.size;
+        try {
+            await initSession(generation);
+            phase.value = 'chunks';
+            const sessionId = uploadId;
+            await runPool(Array.from({ length: totalChunks }, (_, index) => index), sessionId, generation);
+            const result = await completeSession(sessionId, generation);
+            status.value = 'done';
+            return result;
+        } catch (error: any) {
+            return handleFailure(error, generation);
+        }
+    }
+
+    async function resume() {
+        if (!file || status.value === 'uploading') return undefined;
+        const generation = ++runGeneration;
+        cancelled = false;
+        status.value = 'uploading';
+        errorMessage.value = '';
+        try {
+            let received: number[] = [];
+            if (uploadId) {
+                try {
+                    const state = data(await api.statusUpload({ upload_id: uploadId }));
+                    if (!isCurrent(generation)) throw cancelledError();
+                    received = Array.isArray(state.received_chunks) ? state.received_chunks : [];
+                    chunkSize = state.chunk_size || chunkSize;
+                    totalChunks = state.total_chunks || totalChunks;
+                    planChunks();
+                } catch (error) {
+                    if (!isCurrent(generation) || isCancelledError(error)) throw cancelledError();
+                    uploadId = '';
+                }
+            }
+
+            if (!uploadId) {
+                await initSession(generation);
+                received = [];
+            } else {
+                uploadedBytes.value = received.reduce((total, index) => total + (chunkSizes[index] || 0), 0);
+            }
+
+            phase.value = 'chunks';
+            const missing = Array.from({ length: totalChunks }, (_, index) => index)
+                .filter(index => !received.includes(index));
+            const sessionId = uploadId;
+            await runPool(missing, sessionId, generation);
+            const result = await completeSession(sessionId, generation);
+            status.value = 'done';
+            return result;
+        } catch (error: any) {
+            return handleFailure(error, generation);
+        }
+    }
+
+    async function cancel() {
+        cancelled = true;
+        runGeneration += 1;
+        const sessionId = uploadId;
+        clearState();
+        if (sessionId) await abortSession(sessionId);
+    }
+
+    function reset() {
+        cancelled = true;
+        runGeneration += 1;
+        const sessionId = uploadId;
+        clearState();
+        if (sessionId) void abortSession(sessionId);
+    }
+
+    return { status, phase, percent, uploadedBytes, totalBytes, errorMessage, canResume, start, resume, cancel, reset };
 }
 
 export const chatChunkedUploadApi: ChunkedUploadApi = {

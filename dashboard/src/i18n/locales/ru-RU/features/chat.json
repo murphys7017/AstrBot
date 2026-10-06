@@ -10,6 +10,7 @@
     "recordingPrompt": "Запись... говорите",
     "chatPrompt": "Давай пообщаемся!",
     "dropToUpload": "Отпустите, чтобы загрузить файл",
+    "cancelUpload": "Отменить загрузку",
     "stopGenerating": "Остановить генерацию"
   },
   "message": {
