@@ -642,6 +642,52 @@ async def test_plugin_page_view_token_path_serves_scoped_assets(
 
 
 @pytest.mark.asyncio
+async def test_plugin_page_path_token_takes_precedence_over_query_token(
+    app: Quart,
+    authenticated_header: dict,
+    registered_plugin_page: StarMetadata,
+):
+    authorized_client = app.test_client()
+    entry_response = await authorized_client.get(
+        (
+            f"/api/plugin/page/entry?name={PLUGIN_PAGE_DEMO_NAME}"
+            f"&page={PLUGIN_PAGE_DEMO_PAGE_NAME}"
+        ),
+        headers=authenticated_header,
+    )
+    assert entry_response.status_code == 200
+    content_path = (await entry_response.get_json())["data"]["content_path"]
+    parsed_content_path = urlsplit(content_path)
+    path_token = parsed_content_path.path.split("/_t/", 1)[1].split("/", 1)[0]
+
+    anonymous_client = app.test_client()
+    conflicting_content_path = urlunsplit(
+        (
+            parsed_content_path.scheme,
+            parsed_content_path.netloc,
+            parsed_content_path.path,
+            f"asset_token=invalid-query-token&{parsed_content_path.query}",
+            parsed_content_path.fragment,
+        )
+    )
+    html_response = await anonymous_client.get(
+        conflicting_content_path
+    )
+    assert html_response.status_code == 200
+    html_text = (await html_response.get_data()).decode("utf-8")
+
+    bridge_url_match = re.search(
+        r'src="([^"]+/bridge-sdk\.js[^"]*)"',
+        html_text,
+    )
+    assert bridge_url_match is not None
+    bridge_url = bridge_url_match.group(1)
+    assert parse_qs(urlsplit(bridge_url).query)["asset_token"] == [path_token]
+    bridge_response = await anonymous_client.get(bridge_url)
+    assert bridge_response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_plugin_page_content_requires_auth(
     app: Quart,
     registered_plugin_page: StarMetadata,

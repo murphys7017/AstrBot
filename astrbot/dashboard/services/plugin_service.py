@@ -864,9 +864,11 @@ class PluginService(DashboardService):
         plugin_name: str,
         page_name: str,
     ) -> dict[str, str] | None:
-        asset_token = request.args.get("asset_token", "").strip()
+        # Canonical path-token URLs must keep propagating their own token. A
+        # query-string token is only the legacy fallback for unscoped routes.
+        asset_token = PluginPageAuth.extract_path_asset_token(request.path) or ""
         if not asset_token:
-            asset_token = PluginPageAuth.extract_path_asset_token(request.path) or ""
+            asset_token = request.args.get("asset_token", "").strip()
         if not asset_token:
             asset_token = (
                 self._issue_plugin_page_asset_token(plugin_name, page_name) or ""
