@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-07",
+  "purpose": "Track the upstream increment after the 2026-10-06 historical snapshot by AG99 capability and plugin-compatibility impact, not by source-code identity.",
+  "previous_snapshot": "42972e932",
+  "current_reference": "8831d9502575f0aa6fbe5a2f77339b3e94954819",
+  "fork_point": "67c7445d253846c232477a1ebcb2823a522a029c",
+  "local_version": "4.29.0-beta.1",
+  "upstream_version": "4.29.0-beta.1",
+  "counts": {
+    "previous_non_merge": 789,
+    "increment_non_merge": 11,
+    "current_non_merge": 800,
+    "adapted": 9,
+    "not_selected": 2
+  },
+  "policy": {
+    "goal": "Improve AG99 while preserving plugin compatibility.",
+    "source_code_sync": false,
+    "version_alignment": "Use the AstrBot version and public plugin contracts as compatibility anchors; do not bump the version only to mirror commit history.",
+    "plugin_version_contract": "metadata.yaml astrbot_version is evaluated as a PEP 440 range by astrbot/core/star/star_manager.py.",
+    "frontend_deployment": "Frontend changes require a production build and synchronization to data/dist after validation."
+  },
+  "commits": [
+    {
+      "sha": "8831d9502575f0aa6fbe5a2f77339b3e94954819",
+      "title": "feat(dashboard): scoped path-token auth for plugin views and complete the views rename (#10415)",
+      "status": "adapted",
+      "local_commits": ["7db8a47d7", "562eb9244"],
+      "compatibility": "Plugin view authentication and the Pages-to-Views naming contract were adapted to the local FastAPI/dashboard layout; canonical view tokens are preserved."
+    },
+    {
+      "sha": "2de90592936b674030ed09b0fb56c7cba0bf015e",
+      "title": "fix: avoid blocking audio format probes (#10055)",
+      "status": "adapted",
+      "local_commits": ["8f7615557"],
+      "compatibility": "Preserves async runtime responsiveness without changing media adapter contracts."
+    },
+    {
+      "sha": "e1d30f301c45c7468a67906749affd6e0d6fe892",
+      "title": "fix(provider): replace retired gemini-embedding-exp-03-07 default with gemini-embedding-001 (#10393)",
+      "status": "adapted",
+      "local_commits": ["7dd5be327"],
+      "compatibility": "Keeps the default embedding provider usable after the upstream model retirement."
+    },
+    {
+      "sha": "93e446e9f715d691f748da629ca1bcc507bef536",
+      "title": "perf(dashboard): reduce first-screen load (lazy-load VAD/Monaco/i18n/ApexCharts, gzip responses) (#10413)",
+      "status": "adapted",
+      "local_commits": ["cde0e05d0", "b562790e0"],
+      "equivalent_local_commits": ["3bf85f8ad"],
+      "compatibility": "Lazy loading was integrated without replacing AG99's configuration and plugin UI boundaries. Static response compression was already covered by the earlier local adaptation 3bf85f8ad."
+    },
+    {
+      "sha": "55c2dd3d43c3b486103a5b5cd46c0ffbf11a9c7b",
+      "title": "feat: remember the last opened tab on the Data & Logs page (#10251)",
+      "status": "not_selected",
+      "local_commits": [],
+      "compatibility": "Useful UI behavior, but it is not required for plugin compatibility and the current AG99 dashboard does not use the same DataPage route structure. Revisit only as a separate UI enhancement."
+    },
+    {
+      "sha": "900a700b3238ab55158a992adfabaa716be271e5",
+      "title": "fix: match command group names as whole words (#10372)",
+      "status": "adapted",
+      "local_commits": ["a742ad70c"],
+      "compatibility": "Preserves command-group matching semantics for platform plugins and avoids partial-name collisions."
+    },
+    {
+      "sha": "c1356bb076ef95cbbaae2f7a82f590ec8237cf09",
+      "title": "fix(dify): handle CRLF event separators in streaming responses (#10392)",
+      "status": "adapted",
+      "local_commits": ["b2926efa3"],
+      "compatibility": "Keeps Dify-compatible streaming parsing tolerant of Windows line endings."
+    },
+    {
+      "sha": "1c655b37190b25b18b2ddb85b024eaf5c1ab09a0",
+      "title": "feat(dashboard): preview staged chat input images in ChatUI (#10376)",
+      "status": "adapted",
+      "local_commits": ["c06f954d4"],
+      "compatibility": "Improves ChatUI attachment feedback without changing the message material contract."
+    },
+    {
+      "sha": "64430fa2e17acb55dea789b1bf2f895b816044c2",
+      "title": "docs: sync Lark/Feishu guide with current capabilities and permissions (#10400)",
+      "status": "not_selected",
+      "local_commits": [],
+      "compatibility": "Documentation-only synchronization; no runtime or plugin contract change identified."
+    },
+    {
+      "sha": "57ac1d883b26450750d9de462d7569e9cdccf275",
+      "title": "fix: preserve Slack code block and quote text (#10380)",
+      "status": "adapted",
+      "local_commits": ["afb0246dd"],
+      "compatibility": "Preserves Slack rich-text content delivered to plugins and Core."
+    },
+    {
+      "sha": "3861730f5ac9929de7ea70f8378f0ea91afce53d",
+      "title": "fix(telegram): match bot mentions case-insensitively (#10399)",
+      "status": "adapted",
+      "local_commits": ["f63e5f6e6"],
+      "compatibility": "Keeps Telegram command and mention handling stable for plugins across case variants."
+    }
+  ]
+}
