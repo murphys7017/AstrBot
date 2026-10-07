@@ -748,6 +748,33 @@ class InteractionMiddleware:
         )
         await self._materialize_inbound_media(event)
         get_interaction_prompt_source_request(event)
+        core_bypass_reason = event.get_extra("_interaction_core_bypass_requested")
+        if core_bypass_reason:
+            reason = str(core_bypass_reason).strip()
+            if reason:
+                self.attach_event_context(event, turn_id=turn_state.turn_id)
+                event.set_extra("_interaction_protocol_core_bypass", True)
+                event.set_extra(
+                    "_interaction_protocol_core_bypass_reason",
+                    reason,
+                )
+                logger.info(
+                    "Interaction route bypassing Persona for plugin Core request: "
+                    "turn_id=%s reason=%s",
+                    turn_state.turn_id,
+                    reason,
+                )
+                await dispatch_interaction_lifecycle(
+                    event,
+                    self.plugin_context,
+                    InteractionLifecycleStage.DELEGATED,
+                    metadata={
+                        "route_kind": "plugin_core_bypass",
+                        "reason": reason,
+                    },
+                )
+                self._forward_to_core(event)
+                return None
         if isinstance(event.get_extra("provider_request"), ProviderRequest):
             self.attach_event_context(event, turn_id=turn_state.turn_id)
             event.set_extra("_interaction_protocol_core_bypass", True)

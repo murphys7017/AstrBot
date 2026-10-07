@@ -597,7 +597,7 @@ def test_coordinated_plugin_path_uses_admitted_turn_config_snapshot():
 
 
 @pytest.mark.asyncio
-async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypatch):
+async def test_llm_hook_dispatch_uses_configured_and_event_targets(monkeypatch):
     calls = []
 
     async def persona_handler(event, request):
@@ -608,8 +608,13 @@ async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypat
         del event, request
         calls.append("core")
 
+    async def ag99_handler(event, request):
+        del event, request
+        calls.append("ag99")
+
     persona_module = "test_plugins.persona"
     core_module = "test_plugins.core"
+    ag99_module = "test_plugins.ag99"
     handlers = [
         SimpleNamespace(
             handler_module_path=persona_module,
@@ -621,6 +626,11 @@ async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypat
             handler_name="core_handler",
             handler=core_handler,
         ),
+        SimpleNamespace(
+            handler_module_path=ag99_module,
+            handler_name="ag99_handler",
+            handler=ag99_handler,
+        ),
     ]
     monkeypatch.setitem(
         star_map,
@@ -631,6 +641,11 @@ async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypat
         star_map,
         core_module,
         StarMetadata(name="core", root_dir_name="core_plugin"),
+    )
+    monkeypatch.setitem(
+        star_map,
+        ag99_module,
+        StarMetadata(name="astrbot_plugin_ag99live_adapter", root_dir_name="ag99"),
     )
     monkeypatch.setattr(
         star_handlers_registry,
@@ -649,8 +664,16 @@ async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypat
                 "_interaction_enabled": True,
                 "_astrbot_config": {
                     "interaction_middleware": {
-                        "plugin_capability_targets": {"core": {"llm_hooks": "core"}}
+                        "plugin_capability_targets": {
+                            "core": {"llm_hooks": "core"},
+                            "astrbot_plugin_ag99live_adapter": {
+                                "llm_hooks": "personal_expression"
+                            },
+                        }
                     }
+                },
+                "_interaction_plugin_runtime_target_overrides": {
+                    "astrbot_plugin_ag99live_adapter": "core"
                 },
             }
 
@@ -678,7 +701,7 @@ async def test_llm_hook_dispatch_uses_configured_plugin_runtime_target(monkeypat
         object(),
         execution_surface=PLUGIN_RUNTIME_TARGET_CORE,
     )
-    assert calls == ["core"]
+    assert calls == ["core", "ag99"]
 
 
 @pytest.mark.asyncio
@@ -978,6 +1001,30 @@ async def test_core_result_returns_through_unified_persona_expression():
         PersonaExpressionResult(spoken_reply="人格化后的执行结果"),
         event,
     )
+
+
+@pytest.mark.asyncio
+async def test_ag99_independent_motion_core_bypass_skips_persona_rewrite():
+    class Event:
+        def get_extra(self, key, default=None):
+            extras = {
+                "_interaction_protocol_core_bypass_reason": (
+                    "ag99live_independent_motion"
+                ),
+                "_turn_id": "turn-ag99-independent-motion",
+            }
+            return extras.get(key, default)
+
+    renderer = AsyncMock()
+    controller = InteractionOutputController(visible_reply_renderer=renderer)
+    controller.deliver_raw_core_reply = AsyncMock()
+    event = Event()
+    source_message = MessageChain([Plain("Core execution completed")])
+
+    await controller._deliver_core_reply(source_message, event)
+
+    renderer.assert_not_awaited()
+    controller.deliver_raw_core_reply.assert_awaited_once_with(source_message, event)
 
 
 @pytest.mark.asyncio

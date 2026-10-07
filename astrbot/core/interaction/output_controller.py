@@ -1761,6 +1761,18 @@ class InteractionOutputController:
         message: MessageChain,
         event: AstrMessageEvent,
     ) -> None:
+        if (
+            event.get_extra("_interaction_protocol_core_bypass_reason")
+            == "ag99live_independent_motion"
+        ):
+            logger.info(
+                "Skipping Persona Core-final rewrite for AG99live independent motion: "
+                "turn_id=%s",
+                event.get_extra("_turn_id"),
+            )
+            await self.deliver_raw_core_reply(message, event)
+            return
+
         core_result_text = message.get_plain_text()
         try:
             result = await self._render_visible_reply(

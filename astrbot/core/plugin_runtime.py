@@ -24,6 +24,10 @@ PluginRuntimeTarget = Literal["core", "personal_expression"]
 PLUGIN_RUNTIME_TARGET_CORE: PluginRuntimeTarget = "core"
 PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION: PluginRuntimeTarget = "personal_expression"
 PLUGIN_CAPABILITY_TARGETS_CONFIG_KEY = "plugin_capability_targets"
+# A per-turn plugin target override for modes that change the active LLM path.
+PLUGIN_RUNTIME_TARGET_OVERRIDES_EXTRA_KEY = (
+    "_interaction_plugin_runtime_target_overrides"
+)
 
 
 def _event_config(event) -> Mapping[str, object]:
@@ -124,8 +128,17 @@ def plugin_supports_runtime_target(
         return False
     if not _is_personal_runtime_turn(event):
         return True
+    metadata = resolve_owner_metadata(module_path)
+    overrides = event.get_extra(PLUGIN_RUNTIME_TARGET_OVERRIDES_EXTRA_KEY, {})
+    override = (
+        _target(overrides.get(getattr(metadata, "name", None)))
+        if isinstance(overrides, Mapping)
+        else None
+    )
+    if override is not None:
+        return override == target
     resolved, _ = resolve_plugin_runtime_target(
-        _event_config(event), resolve_owner_metadata(module_path), module_path
+        _event_config(event), metadata, module_path
     )
     return resolved == target
 
