@@ -24,8 +24,7 @@ function resolveTranslation(key: string): unknown {
   const localValue = getByPath(translations.value, key);
   if (localValue !== undefined) return localValue;
 
-  // New configuration groups can arrive before every locale has been updated.
-  // Reuse a fallback only when that locale has already been loaded.
+  // Locale packs can be incomplete; use the loaded English pack for missing keys.
   for (const fallbackLocale of ['en-US', 'zh-CN'] as Locale[]) {
     if (fallbackLocale === currentLocale.value) continue;
     const fallbackValue = getByPath(loadedTranslations.get(fallbackLocale), key);
@@ -45,6 +44,9 @@ export async function initI18n(locale: Locale = 'zh-CN') {
   }
 
   await loadTranslations(locale);
+  if (locale !== 'en-US') {
+    await preloadFallbackTranslations('en-US');
+  }
 }
 
 /**
@@ -68,6 +70,17 @@ async function loadTranslations(locale: Locale) {
       console.log('Falling back to zh-CN');
       await loadTranslations('zh-CN');
     }
+  }
+}
+
+async function preloadFallbackTranslations(locale: Locale) {
+  if (loadedTranslations.has(locale)) return;
+
+  try {
+    const data = await localeLoaders[locale]();
+    loadedTranslations.set(locale, data);
+  } catch (error) {
+    console.error(`Failed to preload fallback translations for ${locale}:`, error);
   }
 }
 
@@ -112,6 +125,9 @@ export function useI18n() {
         document.documentElement.lang = newLocale;
       }
       await loadTranslations(newLocale);
+      if (newLocale !== 'en-US') {
+        await preloadFallbackTranslations('en-US');
+      }
 
       // 保存到localStorage
       localStorage.setItem('astrbot-locale', newLocale);

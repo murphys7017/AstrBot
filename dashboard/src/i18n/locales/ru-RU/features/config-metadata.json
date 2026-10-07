@@ -13,7 +13,13 @@
             "agent_runner": {
                 "mode": {
                     "description": "Режим",
-                    "labels": ["Встроенный агент", "Dify", "Coze", "Alibaba Cloud Bailian", "DeerFlow"]
+                    "labels": [
+                        "Встроенный агент",
+                        "Dify",
+                        "Coze",
+                        "Alibaba Cloud Bailian",
+                        "DeerFlow"
+                    ]
                 },
                 "provider_id": {
                     "description": "ID внешнего провайдера Agent Runner"
@@ -26,7 +32,10 @@
             "core_execution": {
                 "executor_id": {
                     "description": "Исполнитель",
-                    "labels": ["Встроенный Core AstrBot", "Codex CLI"]
+                    "labels": [
+                        "Встроенный Core AstrBot",
+                        "Codex CLI"
+                    ]
                 },
                 "codex_cli": {
                     "provider_id": {
@@ -104,7 +113,8 @@
             "kb_agentic_mode": {
                 "description": "Агентский режим извлечения (Agentic Retrieval)",
                 "hint": "Если включено, извлечение из базы знаний становится инструментом (Tool) для LLM, позволяя модели самой решать, когда обращаться к базе. Требует поддержки вызова функций (function calling) в модели."
-            }
+            },
+            "hint": ""
         },
         "websearch": {
             "description": "Поиск в сети",
@@ -134,8 +144,13 @@
                 "websearch_baidu_app_builder_key": {
                     "description": "API-ключ Baidu Qianfan APP Builder",
                     "hint": "Ссылка: [https://console.bce.baidu.com/iam/#/iam/apikey/list](https://console.bce.baidu.com/iam/#/iam/apikey/list)"
+                },
+                "websearch_exa_key": {
+                    "description": "Ключ API Exa",
+                    "hint": "Можно добавить несколько ключей для ротации. Получите ключ на https://dashboard.exa.ai"
                 }
-            }
+            },
+            "hint": ""
         },
         "file_extract": {
             "description": "Извлечение из файлов",
@@ -148,7 +163,8 @@
                         "description": "API-ключ Moonshot AI"
                     }
                 }
-            }
+            },
+            "hint": "Используйте Moonshot AI для извлечения содержимого загруженных файлов."
         },
         "agent_computer_use": {
             "description": "Использование компьютера (Agent Computer Use)",
@@ -156,7 +172,12 @@
             "provider_settings": {
                 "computer_use_runtime": {
                     "description": "Среда выполнения (Runtime)",
-                    "hint": "Среда, к которой разрешён доступ Agent: `local` — локальная среда компьютера, `sandbox` — изолированная песочница, `none` — запретить доступ к любым средам."
+                    "hint": "Среда, к которой разрешён доступ Agent: `local` — локальная среда компьютера, `sandbox` — изолированная песочница, `none` — запретить доступ к любым средам.",
+                    "labels": [
+                        "Нет",
+                        "Локально",
+                        "Песочница"
+                    ]
                 },
                 "computer_use_require_admin": {
                     "description": "Требовать права администратора AstrBot",
@@ -164,7 +185,12 @@
                 },
                 "sandbox": {
                     "booter": {
-                        "description": "Драйвер среды песочницы"
+                        "description": "Драйвер среды песочницы",
+                        "labels": [
+                            "Shipyard Neo",
+                            "Shipyard",
+                            "CUA"
+                        ]
                     },
                     "shipyard_neo_endpoint": {
                         "description": "Эндпоинт Shipyard Neo API",
@@ -188,7 +214,13 @@
                     },
                     "cua_os_type": {
                         "description": "Тип ОС CUA",
-                        "hint": "Тип операционной системы песочницы CUA. По умолчанию linux."
+                        "hint": "Тип операционной системы песочницы CUA. По умолчанию linux.",
+                        "labels": [
+                            "Linux",
+                            "macOS",
+                            "Windows",
+                            "Android"
+                        ]
                     },
                     "cua_idle_timeout": {
                         "description": "Таймаут простоя CUA",
@@ -268,6 +300,10 @@
                 "fallback_max_context_tokens": {
                     "description": "Запасной размер окна контекста",
                     "hint": "Если max_context_tokens равен 0 и модель отсутствует во встроенных метаданных, используется это значение. По умолчанию: 128000."
+                },
+                "llm_compress_keep_recent_ratio": {
+                    "description": "Доля недавнего контекста, сохраняемая после сжатия",
+                    "hint": "Сохраняет последние полные ходы диалога исходя из текущего количества токенов контекста. Диапазон: от 0 до 0,3. По умолчанию: 0,15."
                 }
             }
         },
@@ -1011,7 +1047,8 @@
                 },
                 "active_reply": {
                     "enable": {
-                        "description": "Активный ответ"
+                        "description": "Активный ответ",
+                        "hint": "Сообщения выборочно формируются в кандидатов Personal. Решение ответить, делегировать или промолчать принимается тем же структурированным выражением Personal; эта настройка напрямую не вызывает модель."
                     },
                     "possibility_reply": {
                         "description": "Вероятность ответа",

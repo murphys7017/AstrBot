@@ -20,6 +20,19 @@
             "阿里云百炼应用",
             "DeerFlow"
           ]
+        },
+        "mode": {
+          "description": "运行模式",
+          "labels": [
+            "内置 Agent",
+            "Dify",
+            "Coze",
+            "阿里云百炼应用",
+            "DeerFlow"
+          ]
+        },
+        "provider_id": {
+          "description": "第三方 Agent Runner 提供商 ID"
         }
       }
     },
@@ -27,14 +40,30 @@
       "description": "Dify 配置",
       "agent_runner": {
         "config": {
-          "dify_api_type": { "description": "应用类型" },
-          "dify_api_key": { "description": "API Key" },
-          "dify_api_base": { "description": "API Base URL" },
-          "dify_workflow_output_key": { "description": "Workflow 输出变量名" },
-          "dify_query_input_key": { "description": "Prompt 输入变量名" },
-          "variables": { "description": "变量" },
-          "timeout": { "description": "超时时间（秒）" },
-          "proxy": { "description": "代理地址" }
+          "dify_api_type": {
+            "description": "应用类型"
+          },
+          "dify_api_key": {
+            "description": "API Key"
+          },
+          "dify_api_base": {
+            "description": "API Base URL"
+          },
+          "dify_workflow_output_key": {
+            "description": "Workflow 输出变量名"
+          },
+          "dify_query_input_key": {
+            "description": "Prompt 输入变量名"
+          },
+          "variables": {
+            "description": "变量"
+          },
+          "timeout": {
+            "description": "超时时间（秒）"
+          },
+          "proxy": {
+            "description": "代理地址"
+          }
         }
       }
     },
@@ -42,12 +71,24 @@
       "description": "Coze 配置",
       "agent_runner": {
         "config": {
-          "coze_api_key": { "description": "API Key" },
-          "bot_id": { "description": "Bot ID" },
-          "coze_api_base": { "description": "API Base URL" },
-          "auto_save_history": { "description": "由 Coze 管理对话记录" },
-          "timeout": { "description": "超时时间（秒）" },
-          "proxy": { "description": "代理地址" }
+          "coze_api_key": {
+            "description": "API Key"
+          },
+          "bot_id": {
+            "description": "Bot ID"
+          },
+          "coze_api_base": {
+            "description": "API Base URL"
+          },
+          "auto_save_history": {
+            "description": "由 Coze 管理对话记录"
+          },
+          "timeout": {
+            "description": "超时时间（秒）"
+          },
+          "proxy": {
+            "description": "代理地址"
+          }
         }
       }
     },
@@ -55,17 +96,35 @@
       "description": "阿里云百炼应用配置",
       "agent_runner": {
         "config": {
-          "dashscope_app_type": { "description": "应用类型" },
-          "dashscope_api_key": { "description": "API Key" },
-          "dashscope_app_id": { "description": "应用 ID" },
-          "rag_options": {
-            "pipeline_ids": { "description": "知识库 Pipeline ID" },
-            "file_ids": { "description": "文件 ID" },
-            "output_reference": { "description": "输出引用" }
+          "dashscope_app_type": {
+            "description": "应用类型"
           },
-          "variables": { "description": "变量" },
-          "timeout": { "description": "超时时间（秒）" },
-          "proxy": { "description": "代理地址" }
+          "dashscope_api_key": {
+            "description": "API Key"
+          },
+          "dashscope_app_id": {
+            "description": "应用 ID"
+          },
+          "rag_options": {
+            "pipeline_ids": {
+              "description": "知识库 Pipeline ID"
+            },
+            "file_ids": {
+              "description": "文件 ID"
+            },
+            "output_reference": {
+              "description": "输出引用"
+            }
+          },
+          "variables": {
+            "description": "变量"
+          },
+          "timeout": {
+            "description": "超时时间（秒）"
+          },
+          "proxy": {
+            "description": "代理地址"
+          }
         }
       }
     },
@@ -73,18 +132,42 @@
       "description": "DeerFlow 配置",
       "agent_runner": {
         "config": {
-          "deerflow_api_base": { "description": "API Base URL" },
-          "deerflow_api_key": { "description": "API Key" },
-          "deerflow_auth_header": { "description": "Authorization Header" },
-          "deerflow_assistant_id": { "description": "Assistant ID" },
-          "deerflow_model_name": { "description": "模型名称覆盖" },
-          "deerflow_thinking_enabled": { "description": "启用思考模式" },
-          "deerflow_plan_mode": { "description": "启用计划模式" },
-          "deerflow_subagent_enabled": { "description": "启用子智能体" },
-          "deerflow_max_concurrent_subagents": { "description": "子智能体最大并发数" },
-          "deerflow_recursion_limit": { "description": "递归深度上限" },
-          "timeout": { "description": "超时时间（秒）" },
-          "proxy": { "description": "代理地址" }
+          "deerflow_api_base": {
+            "description": "API Base URL"
+          },
+          "deerflow_api_key": {
+            "description": "API Key"
+          },
+          "deerflow_auth_header": {
+            "description": "Authorization Header"
+          },
+          "deerflow_assistant_id": {
+            "description": "Assistant ID"
+          },
+          "deerflow_model_name": {
+            "description": "模型名称覆盖"
+          },
+          "deerflow_thinking_enabled": {
+            "description": "启用思考模式"
+          },
+          "deerflow_plan_mode": {
+            "description": "启用计划模式"
+          },
+          "deerflow_subagent_enabled": {
+            "description": "启用子智能体"
+          },
+          "deerflow_max_concurrent_subagents": {
+            "description": "子智能体最大并发数"
+          },
+          "deerflow_recursion_limit": {
+            "description": "递归深度上限"
+          },
+          "timeout": {
+            "description": "超时时间（秒）"
+          },
+          "proxy": {
+            "description": "代理地址"
+          }
         }
       }
     },
@@ -116,6 +199,14 @@
         },
         "image_caption_prompt": {
           "description": "图片转述提示词"
+        },
+        "default_provider_id": {
+          "description": "默认对话模型",
+          "hint": "留空时使用第一个模型"
+        },
+        "fallback_chat_models": {
+          "description": "回退对话模型列表",
+          "hint": "主聊天模型请求失败时，按顺序切换到这些模型。"
         }
       },
       "provider_stt_settings": {
@@ -147,7 +238,9 @@
       "agent_runner": {
         "config": {
           "persona": {
-            "persona_id": { "description": "默认采用的人格" },
+            "persona_id": {
+              "description": "默认采用的人格"
+            },
             "safety_mode": {
               "description": "健康模式",
               "hint": "引导模型输出健康、安全的内容，避免有害或敏感话题。"
@@ -157,6 +250,11 @@
               "hint": "选择健康模式的实现策略。"
             }
           }
+        }
+      },
+      "provider_settings": {
+        "default_personality": {
+          "description": "默认采用的人格"
         }
       }
     },
@@ -237,7 +335,8 @@
             "description": "Moonshot AI API Key"
           }
         }
-      }
+      },
+      "hint": "使用 Moonshot AI 解析上传文件内容。"
     },
     "agent_computer_use": {
       "description": "使用电脑能力",
@@ -246,7 +345,11 @@
         "computer_use_runtime": {
           "description": "运行环境",
           "hint": "允许 Agent 访问的环境。",
-          "labels": ["不允许任何环境", "本机环境", "第三方沙箱环境"]
+          "labels": [
+            "不允许任何环境",
+            "本机环境",
+            "第三方沙箱环境"
+          ]
         },
         "computer_use_local_permissions": {
           "description": "本地权限策略"
@@ -257,7 +360,12 @@
         },
         "sandbox": {
           "booter": {
-            "description": "沙箱环境驱动器"
+            "description": "沙箱环境驱动器",
+            "labels": [
+              "Shipyard Neo",
+              "Shipyard",
+              "CUA"
+            ]
           },
           "shipyard_neo_endpoint": {
             "description": "Shipyard Neo API Endpoint",
@@ -281,7 +389,13 @@
           },
           "cua_os_type": {
             "description": "CUA 操作系统类型",
-            "hint": "CUA 沙箱操作系统类型，默认 linux。"
+            "hint": "CUA 沙箱操作系统类型，默认 linux。",
+            "labels": [
+              "Linux",
+              "macOS",
+              "Windows",
+              "Android"
+            ]
           },
           "cua_idle_timeout": {
             "description": "CUA 空闲超时(秒)",
@@ -390,7 +504,10 @@
             },
             "overflow_strategy": {
               "description": "历史超限或上下文接近上限时的处理方式",
-              "labels": ["按对话轮数截断", "由 LLM 压缩上下文"],
+              "labels": [
+                "按对话轮数截断",
+                "由 LLM 压缩上下文"
+              ],
               "hint": "普通会话历史仅在超过\"压缩前最多保留对话轮数\"后执行该策略；请求发送前也会在上下文 token 接近模型窗口时使用同一策略保护本次请求。"
             },
             "instruction": {
@@ -411,6 +528,40 @@
             }
           }
         }
+      },
+      "provider_settings": {
+        "context_limit_reached_strategy": {
+          "description": "超出模型上下文窗口时的处理方式",
+          "hint": "",
+          "labels": [
+            "按对话轮数截断",
+            "由 LLM 压缩上下文"
+          ]
+        },
+        "dequeue_context_length": {
+          "description": "丢弃对话轮数",
+          "hint": "超出最多携带对话轮数时, 一次丢弃的聊天轮数"
+        },
+        "fallback_max_context_tokens": {
+          "description": "上下文窗口兜底值",
+          "hint": "当 max_context_tokens 为 0 且模型不在内置元数据中时，使用此值作为上下文窗口大小。默认 128000。"
+        },
+        "llm_compress_instruction": {
+          "description": "上下文压缩提示词",
+          "hint": "如果为空则使用默认提示词。"
+        },
+        "llm_compress_keep_recent_ratio": {
+          "description": "压缩时保留最近上下文比例",
+          "hint": "按当前上下文 token 比例保留最近完整对话轮，范围 0 到 0.3，默认 0.15。"
+        },
+        "llm_compress_provider_id": {
+          "description": "用于上下文压缩的模型提供商 ID",
+          "hint": "留空时将降级为“按对话轮数截断”的策略。"
+        },
+        "max_context_length": {
+          "description": "最多携带对话轮数",
+          "hint": "超出这个数量时丢弃最旧的部分，一轮聊天记为 1 条；-1 表示不设置用户上限，但 Core 仍使用 64 轮安全上限"
+        }
       }
     },
     "others": {
@@ -418,11 +569,16 @@
       "agent_runner": {
         "config": {
           "misc": {
-            "max_steps": { "description": "工具调用轮数上限" },
+            "max_steps": {
+              "description": "工具调用轮数上限"
+            },
             "tool_schema_mode": {
               "description": "工具调用模式",
               "hint": "skills-like 先下发工具名称与描述，再下发参数；full 一次性下发完整参数。",
-              "labels": ["Skills-like（两阶段）", "Full（完整参数）"]
+              "labels": [
+                "Skills-like（两阶段）",
+                "Full（完整参数）"
+              ]
             },
             "tool_call_timeout": {
               "description": "工具调用超时时间(秒)"
@@ -508,11 +664,41 @@
           "max_size": {
             "description": "输入图片最大边长",
             "hint": "发送给模型的图片最长边（像素），系统会在必要时进一步压缩。"
+          },
+          "quality": {
+            "description": "压缩质量",
+            "hint": "JPEG 输出质量，范围为 1-100。值越高，画质越好，文件也越大。"
           }
         },
         "reachability_check": {
           "description": "提供商可达性检测",
           "hint": "/provider 命令列出模型时并发检测连通性。开启后会主动调用模型测试连通性,可能产生额外 token 消耗。"
+        },
+        "image_compress_enabled": {
+          "description": "启用图片压缩",
+          "hint": "启用后，发送给多模态模型前会先压缩本地大图片。"
+        },
+        "llm_safety_mode": {
+          "description": "健康模式",
+          "hint": "引导模型输出健康、安全的内容，避免有害或敏感话题。"
+        },
+        "max_agent_step": {
+          "description": "工具调用轮数上限"
+        },
+        "sanitize_context_by_modalities": {
+          "description": "按模型能力清理历史上下文",
+          "hint": "开启后，在每次请求 LLM 前会按当前模型提供商中所选择的模型能力删除对话中不支持的图片/工具调用结构（会改变模型看到的历史）"
+        },
+        "tool_call_timeout": {
+          "description": "工具调用超时时间（秒）"
+        },
+        "tool_schema_mode": {
+          "description": "工具调用模式",
+          "hint": "skills-like 先下发工具名称与描述，再下发参数；full 一次性下发完整参数。",
+          "labels": [
+            "Skills-like（两阶段）",
+            "Full（完整参数）"
+          ]
         }
       },
       "provider_tts_settings": {
@@ -520,6 +706,24 @@
           "description": "开启 TTS 时同时输出语音和文字内容"
         }
       }
+    },
+    "core_execution": {
+      "core_execution": {
+        "codex_cli": {
+          "provider_id": {
+            "description": "Codex CLI 执行体提供商 ID"
+          }
+        },
+        "executor_id": {
+          "description": "执行体",
+          "labels": [
+            "AstrBot 内置 Core",
+            "Codex CLI"
+          ]
+        }
+      },
+      "description": "Core 内部执行体",
+      "hint": "仅决定 Personal 委派后的 Core 执行体。它不替代普通对话的 Agent Runner。"
     }
   },
   "platform_group": {
@@ -969,6 +1173,14 @@
         },
         "empty_mention_waiting": {
           "description": "只 @ 机器人是否触发等待"
+        },
+        "personal_runtime_observation_targets": {
+          "description": "人格运行时观察目标",
+          "hint": "选择允许人格心跳和环境观察的会话。留空时兼容使用主动消息默认目标；不会改变未指定目标的插件或定时消息发送位置。"
+        },
+        "proactive_message_target": {
+          "description": "主动消息默认目标",
+          "hint": "选择主动消息默认发送到的适配器和会话。该设置供未携带明确目标的主动能力使用，不会覆盖已经指定目标的定时任务或插件消息。"
         }
       },
       "wake_prefix": {
@@ -1098,6 +1310,15 @@
           }
         }
       }
+    },
+    "t2i": {
+      "description": "文本转图像",
+      "t2i": {
+        "description": "文本转图像输出"
+      },
+      "t2i_word_threshold": {
+        "description": "文本转图像字数阈值"
+      }
     }
   },
   "plugin_group": {
@@ -1187,7 +1408,8 @@
         },
         "active_reply": {
           "enable": {
-            "description": "主动回复"
+            "description": "主动回复",
+            "hint": "仅抽样形成 Personal 候选。是否回复、委派或静默由同一次 Personal 结构化表达决定；该设置不直接调用模型。"
           },
           "method": {
             "description": "主动回复方法"
@@ -1200,6 +1422,30 @@
             "description": "主动回复白名单",
             "hint": "为空时不启用白名单过滤。使用 /sid 获取 ID。"
           }
+        },
+        "group_context_max_chars": {
+          "description": "上下文最大字符数",
+          "hint": "从最新消息向前保留，达到总字符预算后停止；用于限制群聊上下文的 token 占用。"
+        },
+        "group_context_record_max_chars": {
+          "description": "单条上下文最大字符数",
+          "hint": "超长群消息会在记录时截断，避免单条消息挤占整个上下文。"
+        },
+        "image_caption_cache_size": {
+          "description": "图片转述缓存数量",
+          "hint": "按图片内容、模型和提示词去重，避免重复图片重复调用模型。"
+        },
+        "image_caption_max_chars": {
+          "description": "图片转述最大字符数",
+          "hint": "过长的图片转述会截断后写入群聊上下文。"
+        },
+        "image_caption_prompt": {
+          "description": "群聊图片转述提示词",
+          "hint": "留空时回退到 provider_settings.image_caption_prompt。"
+        },
+        "image_caption_whitelist": {
+          "description": "群聊图片预转述白名单",
+          "hint": "仅限制群聊上下文构建时的图片预转述；为空时不限制。可填写 /sid 获取的 ID 或群号。"
         }
       }
     },
@@ -2079,6 +2325,22 @@
       },
       "no_proxy": {
         "description": "直连地址列表"
+      },
+      "t2i_active_template": {
+        "description": "当前应用的文转图渲染模板",
+        "hint": "此处的值由文转图模板管理页面进行维护。"
+      },
+      "t2i_endpoint": {
+        "description": "文本转图像服务 API 地址",
+        "hint": "为空时使用 AstrBot API 服务"
+      },
+      "t2i_strategy": {
+        "description": "文本转图像策略",
+        "hint": "文本转图像策略。`remote` 为使用远程基于 HTML 的渲染服务，`local` 为使用 PIL 本地渲染。当使用 local 时，将 ttf 字体命名为 'font.ttf' 放在 data/ 目录下可自定义字体。"
+      },
+      "t2i_template": {
+        "description": "文本转图像自定义模版",
+        "hint": "启用后可自定义 HTML 模板用于文转图渲染。"
       }
     }
   },
@@ -2175,7 +2437,6 @@
           "工具使用"
         ]
       },
-
       "custom_headers": {
         "description": "自定义请求头",
         "hint": "此处添加的键值对将被合并到 OpenAI SDK 的 default_headers 中，用于自定义 HTTP 请求头。值必须为字符串。"
