@@ -4,14 +4,14 @@
 
 <h1 align="center">AG99</h1>
 
-<p align="center"><strong>Persona-first 多平台对话 Runtime</strong></p>
+<p align="center"><strong>桌面优先的 Persona-first 智能体主应用</strong></p>
 
 <p align="center">
-  由 YakumoAki 创建，基于 AstrBot 独立演进，为连续对话、复杂执行与受控主动性提供统一运行时。
+  由 YakumoAki 创建，基于 AstrBot 独立演进，为桌面陪伴、连续人格、复杂执行与受控主动性提供统一主应用。
 </p>
 
 <p align="center">
-  <code>Persona-first</code> · <code>Multi-platform</code> · <code>Bounded initiative</code>
+  <code>Desktop-first</code> · <code>Persona-first</code> · <code>Bounded initiative</code>
 </p>
 
 <p align="center">
@@ -24,6 +24,8 @@
 ---
 
 ## 核心定位
+
+AG99 是以桌面体验为中心的智能体主应用，负责用户入口、Persona、会话、记忆、主动行为、工具和统一管理。AG99live 是 AG99 的身体运行时，负责本地感知、即时反应、Live2D 表现、语音播放和设备交互。消息平台、WebUI、CLI 和无界面运行仍然是 AG99 可连接或可部署的形态，不改变桌面主应用的产品重心。
 
 AG99 把 Persona 作为所有用户可见输出的统一边界。即时回复、插件材料、任务进度和 Core 最终
 结果均由同一表达层处理；工具、检索、定时任务和其他复杂执行留在 Core 中完成。
@@ -66,7 +68,7 @@ AG99 不是 AstrBot 的替代品，也不以复制上游为目标。它保留 As
 
 | 对比维度 | 官方 AstrBot | AG99 |
 | --- | --- | --- |
-| **公开定位** | 面向个人与群聊的 Agentic AI 助手，强调 IM 接入、插件扩展与通用 Agent 能力编排。 | Persona-first 多平台对话 Runtime，把“持续存在的交互主体”作为产品体验的起点。 |
+| **公开定位** | 面向个人与群聊的 Agentic AI 助手，强调 IM 接入、插件扩展与通用 Agent 能力编排。 | 以桌面体验为中心的 Persona-first 智能体主应用，把“持续存在的交互主体”作为产品体验的起点。 |
 | **AI 能力组织** | Chat Provider 负责模型回复，Agent Runner 负责多轮规划、工具调用与执行。 | 保留并复用这些能力，但由 Personal Response Plan 决定何时直接表达、何时委派 Core；Core 结果必须回到 Persona。 |
 | **Persona 的位置** | 内置 Agent Runner 可以使用 Persona 功能。 | Persona 是所有用户可见表达的统一入口，并覆盖即时回复、任务进度、最终结果和受控主动表达。 |
 | **主动与状态** | 提供可扩展的 Bot、插件和 Agent 基础能力。 | 将 Observation、Gate、Policy 与 ActionIntent 作为显式边界，让主动性在可检查的约束下发生。 |

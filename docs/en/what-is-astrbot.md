@@ -4,11 +4,13 @@ outline: deep
 
 # What is AG99?
 
-AG99 is the public project name used by this repository. Created by YakumoAki and based on AstrBot, it is a persona-first, continuously running conversation runtime for multi-platform chats: one Persona can retain bounded state across turns and delegate substantial work to a separate Core execution layer when needed.
+AG99 is the public project name used by this repository. Created by YakumoAki and based on AstrBot, it is a desktop-first, persona-first agent application with a continuously running conversation runtime: one Persona can retain bounded state across turns and delegate substantial work to a separate Core execution layer when needed. AG99live is AG99's body runtime for local sensing, immediate reactions, Live2D presentation, voice playback, and device interaction.
 
 This page keeps the `what-is-astrbot` path for existing bookmarks and inherited links. The Python package, CLI, plugin prefix, and some configuration keys still use `astrbot` as a compatibility boundary; this repository is not merely an upstream AstrBot configuration fork. See [Project identity](/Yakumo/project-identity) for the full boundary. Yakumo is the author's name, not the project name.
 
 ## Core Flow
+
+The AG99 desktop application organizes the user entry point, Persona, sessions, memory, proactive behavior, tools, and unified management experience. Messaging platforms, the WebUI, and the CLI remain supported input or deployment forms; AG99live connects as the body and does not duplicate Persona, Memory, or proactive policy.
 
 ```text
 Platform Adapter

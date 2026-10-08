@@ -1,12 +1,12 @@
 # AG99 项目身份
 
-AG99 是这个仓库当前对外使用的项目名称，由作者 YakumoAki 创建并基于 AstrBot 独立演进而来。它是一个以持续人格、低延迟表达和多平台会话为核心的对话 Runtime，目标不是把每条消息简单地交给一个 Agent，而是让一个 Persona 在多个 turn、会话和受控观察事件之间持续运行。
+AG99 是这个仓库当前对外使用的项目名称，由作者 YakumoAki 创建并基于 AstrBot 独立演进而来。它是一个以桌面体验为中心、以持续人格和低延迟表达为核心的智能体主应用。AG99 内部包含持续运行的对话 Runtime，目标不是把每条消息简单地交给一个 Agent，而是让一个 Persona 在多个 turn、会话和受控观察事件之间持续运行。
 
 Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关模块名称会继续保留，作为作者的架构文档命名空间，并避免破坏已有链接和内部设计记录。
 
 ## 一句话定位
 
-> AG99 是一个 Persona-first、持续运行的多平台对话 Runtime，兼容 AstrBot 的平台适配器、Provider、插件和 CLI 基础设施。
+> AG99 是一个以桌面体验为中心的 Persona-first 智能体主应用，内含持续运行的对话 Runtime，并兼容 AstrBot 的平台适配器、Provider、插件和 CLI 基础设施。AG99live 是它的身体运行时，负责本地感知、即时反应、Live2D 表现、语音播放和设备交互。
 
 ## AG99 与 AstrBot 的关系
 
@@ -18,7 +18,7 @@ Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关�
 - 从 AstrBot 上游学习并选择性吸收的修复仍会记录在
   [上游参考吸收记录](./upstream-merge-ledger.md) 中；该记录不表示本仓库以合并上游历史为目标。
 
-但 AG99 已经不是只改变默认配置的 AstrBot 分支。当前仓库新增并持续维护自己的运行时边界：
+但 AG99 已经不是只改变默认配置的 AstrBot 分支。当前仓库新增并持续维护自己的运行时边界。产品形态以桌面主应用为中心；平台适配器、Dashboard、CLI 和无界面运行仍是可复用的部署与接入形态：
 
 - **Interaction Middleware**：在官方 EventBus / Pipeline 完成过滤、权限和 Handler 准入后统一维护 interaction turn。
 - **Personal Runtime**：按人格、会话和隐私范围复用跨 turn 状态，管理主动观察、冷却、预算和连续对话 owner。
@@ -28,6 +28,8 @@ Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关�
 - **Observation 链路**：后台事实经过 `Observation → Gate → Policy → ActionIntent → Persona → Output`，不会直接唤醒模型或发送消息。
 
 ## 核心流程
+
+桌面主应用负责组织用户入口、人格、会话、记忆、主动行为、工具和统一管理体验；AG99live 通过 Adapter 作为身体接入。没有身体时，AG99 仍可通过消息平台、WebUI 或 CLI 运行；身体不应自行复制 Persona、Memory 或主动策略。
 
 ```text
 Platform Adapter

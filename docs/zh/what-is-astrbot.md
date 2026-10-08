@@ -4,11 +4,13 @@ outline: deep
 
 # 什么是 AG99？
 
-AG99 是这个仓库当前对外使用的项目名称，由 YakumoAki 创建并基于 AstrBot 独立演进。它是一个以持续人格、低延迟表达和多平台会话为核心的对话 Runtime：同一个 Persona 可以跨 turn 保留受控状态，并在需要时把实质任务交给 Core 执行层。
+AG99 是这个仓库当前对外使用的项目名称，由 YakumoAki 创建并基于 AstrBot 独立演进。它是一个以桌面体验为中心、以持续人格和低延迟表达为核心的智能体主应用：同一个 Persona 可以跨 turn 保留受控状态，并在需要时把实质任务交给 Core 执行层。AG99live 是 AG99 的身体运行时，负责本地感知、即时反应、Live2D 表现、语音播放和设备交互。
 
 本页面路径继续使用 `what-is-astrbot`，是为了兼容已有书签和上游文档链接。代码包、CLI、插件前缀和部分配置项仍使用 `astrbot`，这属于兼容边界，不代表本项目仍然只是上游 AstrBot 的配置分支。完整关系见 [项目身份](/Yakumo/project-identity)。Yakumo 是作者名（YakumoAki），不是项目名。
 
 ## 核心流程
+
+AG99 的桌面主应用负责组织用户入口、人格、会话、记忆、主动行为、工具和统一管理体验。消息平台、WebUI 和 CLI 仍可作为输入或部署形态；AG99live 作为身体接入，不复制 Persona、Memory 或主动策略。
 
 ```text
 平台适配器
