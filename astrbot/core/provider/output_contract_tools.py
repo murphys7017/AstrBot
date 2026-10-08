@@ -6,6 +6,16 @@ from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
 
 
+def _mark_strict_output_contract_tool(
+    tool: FunctionTool,
+    *,
+    strict: bool,
+) -> FunctionTool:
+    """Mark a protocol tool for providers with provider-specific strict modes."""
+    setattr(tool, "_astrbot_strict_output_contract", strict)
+    return tool
+
+
 def build_single_tool_set_from_contract(
     contract: OutputContract,
     *,
@@ -17,11 +27,14 @@ def build_single_tool_set_from_contract(
 
     tool_set = ToolSet()
     tool_set.add_tool(
-        FunctionTool(
-            name=tool_name,
-            description=description,
-            parameters=_build_tool_parameters_from_contract(contract),
-            handler=None,
+        _mark_strict_output_contract_tool(
+            FunctionTool(
+                name=tool_name,
+                description=description,
+                parameters=_build_tool_parameters_from_contract(contract),
+                handler=None,
+            ),
+            strict=contract.strict,
         )
     )
     return tool_set
@@ -40,11 +53,14 @@ def build_single_tool_set_from_compiled_contract(
 
     tool_set = ToolSet()
     tool_set.add_tool(
-        FunctionTool(
-            name=tool_name,
-            description=description,
-            parameters=_normalize_tool_schema(compiled_contract.tool_schema),
-            handler=None,
+        _mark_strict_output_contract_tool(
+            FunctionTool(
+                name=tool_name,
+                description=description,
+                parameters=_normalize_tool_schema(compiled_contract.tool_schema),
+                handler=None,
+            ),
+            strict=compiled_contract.contract.strict,
         )
     )
     return tool_set

@@ -67,6 +67,11 @@ const metadata = {
         type: 'object',
         items: {},
       },
+      personal_policy: {
+        description: 'interaction_middleware_group.personal_policy.description',
+        type: 'object',
+        items: {},
+      },
     },
   },
 };
@@ -78,6 +83,9 @@ test('normalizeConfigMetadata projects mapped ai sections into their workspaces'
     'ai_group__persona',
     'ai_group__agent_runner',
     'ai_group__custom_extension',
+    'interaction_middleware_group__expression',
+    'interaction_middleware_group__planner',
+    'interaction_middleware_group__personal_policy',
     'platform_group',
     'ai_group__knowledgebase',
   ]);
@@ -101,8 +109,6 @@ test('normalizeConfigMetadata keeps only extension groups for extension configur
   const normalized = normalizeConfigMetadata(metadata, 'extension');
 
   assert.deepEqual(Object.keys(normalized), [
-    'interaction_middleware_group__expression',
-    'interaction_middleware_group__planner',
     'ext_group__segmented_reply',
     'ext_group__ltm',
   ]);
@@ -110,9 +116,22 @@ test('normalizeConfigMetadata keeps only extension groups for extension configur
   assert.equal(normalized.ext_group__segmented_reply.workspace, 'operations');
 });
 
-test('normalizeConfigMetadata keeps all extension sections in the system workspace', () => {
+test('normalizeConfigMetadata keeps non-model interaction sections in extension configuration', () => {
   const normalized = normalizeConfigMetadata({
-    interaction_middleware_group: metadata.interaction_middleware_group,
+    interaction_middleware_group: {
+      name: 'interaction_middleware_group.name',
+      metadata: {
+        general: { description: 'interaction_middleware_group.general.description' },
+        plugin: { description: 'interaction_middleware_group.plugin.description' },
+        context: { description: 'interaction_middleware_group.context.description' },
+        expression: metadata.interaction_middleware_group.metadata.expression,
+        planner: metadata.interaction_middleware_group.metadata.planner,
+        personal_policy: metadata.interaction_middleware_group.metadata.personal_policy,
+        personal_runtime_policy: { description: 'interaction_middleware_group.personal_runtime_policy.description' },
+        progress: { description: 'interaction_middleware_group.progress.description' },
+        future_section: { description: 'interaction_middleware_group.future_section.description' },
+      },
+    },
     memory_group: {
       name: 'memory_group.name',
       metadata: {
@@ -121,7 +140,33 @@ test('normalizeConfigMetadata keeps all extension sections in the system workspa
     },
   }, 'extension');
 
-  assert.equal(normalized.interaction_middleware_group__expression.workspace, 'operations');
-  assert.equal(normalized.interaction_middleware_group__planner.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__general.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__plugin.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__context.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__personal_runtime_policy.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__progress.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__future_section.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__expression, undefined);
+  assert.equal(normalized.interaction_middleware_group__planner, undefined);
+  assert.equal(normalized.interaction_middleware_group__personal_policy, undefined);
   assert.equal(normalized.memory_group.workspace, 'operations');
+
+  const unknownOnly = normalizeConfigMetadata({
+    interaction_middleware_group: {
+      name: 'interaction_middleware_group.name',
+      metadata: {
+        future_section: { description: 'interaction_middleware_group.future_section.description' },
+      },
+    },
+  }, 'extension');
+  assert.equal(unknownOnly.interaction_middleware_group.workspace, 'operations');
+});
+
+test('normal config places interaction model routing in intelligence workspace', () => {
+  const normalized = normalizeConfigMetadata(metadata, 'normal');
+  for (const section of ['expression', 'planner', 'personal_policy']) {
+    const entry = normalized[`interaction_middleware_group__${section}`];
+    assert.equal(entry.workspace, 'intelligence');
+    assert.equal(entry.scope, 'profile');
+  }
 });

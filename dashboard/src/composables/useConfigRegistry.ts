@@ -23,10 +23,25 @@ interface ConfigSectionRegistryEntry extends ConfigGroupRegistryEntry {
   section: string;
 }
 
+interface ConfigMetadataSectionEntry {
+  key: string;
+  value: any;
+  registry: ConfigGroupRegistryEntry;
+  sectionKey: string | undefined;
+}
+
 const EXTENSION_ONLY_GROUPS = new Set([
   'ext_group',
-  'interaction_middleware_group',
   'memory_group',
+]);
+
+// Interaction middleware metadata contains both profile-level model routing and
+// system-level extension controls. Keep the two sets on their existing config
+// tabs while allowing the model routing sections to appear in Intelligence.
+const INTELLIGENCE_INTERACTION_SECTIONS = new Set([
+  'expression',
+  'planner',
+  'personal_policy',
 ]);
 
 const CONFIG_GROUP_REGISTRY: Record<string, ConfigGroupRegistryEntry> = {
@@ -58,9 +73,9 @@ const CONFIG_SECTION_REGISTRY: Record<string, ConfigSectionRegistryEntry> = {
   'interaction_middleware_group.general': { group: 'interaction_middleware_group', section: 'general', workspace: 'operations', scope: 'system', order: 10 },
   'interaction_middleware_group.plugin': { group: 'interaction_middleware_group', section: 'plugin', workspace: 'capabilities', scope: 'system', order: 15 },
   'interaction_middleware_group.context': { group: 'interaction_middleware_group', section: 'context', workspace: 'persona', scope: 'persona', order: 15 },
-  'interaction_middleware_group.expression': { group: 'interaction_middleware_group', section: 'expression', workspace: 'persona', scope: 'persona', order: 20 },
-  'interaction_middleware_group.planner': { group: 'interaction_middleware_group', section: 'planner', workspace: 'intelligence', scope: 'profile', order: 50 },
-  'interaction_middleware_group.personal_policy': { group: 'interaction_middleware_group', section: 'personal_policy', workspace: 'persona', scope: 'persona', order: 30 },
+  'interaction_middleware_group.expression': { group: 'interaction_middleware_group', section: 'expression', workspace: 'intelligence', scope: 'profile', order: 50 },
+  'interaction_middleware_group.planner': { group: 'interaction_middleware_group', section: 'planner', workspace: 'intelligence', scope: 'profile', order: 60 },
+  'interaction_middleware_group.personal_policy': { group: 'interaction_middleware_group', section: 'personal_policy', workspace: 'intelligence', scope: 'profile', order: 70 },
   'interaction_middleware_group.personal_runtime_policy': { group: 'interaction_middleware_group', section: 'personal_runtime_policy', workspace: 'automation', scope: 'persona', order: 20 },
   'interaction_middleware_group.progress': { group: 'interaction_middleware_group', section: 'progress', workspace: 'operations', scope: 'system', order: 20 },
 };
@@ -75,10 +90,22 @@ function getWorkspaceRank(workspace: string): number {
 }
 
 function shouldKeepGroup(groupKey: string, configType: string): boolean {
+  if (groupKey === 'interaction_middleware_group') {
+    return true;
+  }
   if (configType === 'extension') {
     return EXTENSION_ONLY_GROUPS.has(groupKey);
   }
   return !EXTENSION_ONLY_GROUPS.has(groupKey);
+}
+
+function shouldKeepSection(groupKey: string, sectionKey: string | undefined, configType: string): boolean {
+  if (groupKey !== 'interaction_middleware_group') {
+    return true;
+  }
+  const isIntelligenceSection = sectionKey !== undefined
+    && INTELLIGENCE_INTERACTION_SECTIONS.has(sectionKey);
+  return configType === 'extension' ? !isIntelligenceSection : isIntelligenceSection;
 }
 
 function getGroupRegistryEntry(groupKey: string): ConfigGroupRegistryEntry {
@@ -94,7 +121,10 @@ function getSectionRegistryEntry(
   sectionKey: string,
   configType = 'normal',
 ): ConfigGroupRegistryEntry {
-  if (configType === 'extension' && EXTENSION_ONLY_GROUPS.has(groupKey)) {
+  if (
+    configType === 'extension'
+    && (EXTENSION_ONLY_GROUPS.has(groupKey) || groupKey === 'interaction_middleware_group')
+  ) {
     return {
       workspace: 'operations',
       scope: 'system',
@@ -125,7 +155,11 @@ function normalizeGroupValue(
   };
 }
 
-function splitGroupIntoWorkspaceSections(groupKey: string, groupValue: any, configType = 'normal') {
+function splitGroupIntoWorkspaceSections(
+  groupKey: string,
+  groupValue: any,
+  configType = 'normal',
+): ConfigMetadataSectionEntry[] {
   const baseValue = isPlainObject(groupValue) ? groupValue : {};
   const metadata = isPlainObject(baseValue.metadata) ? baseValue.metadata : {};
   const sectionEntries = Object.entries(metadata);
@@ -142,7 +176,7 @@ function splitGroupIntoWorkspaceSections(groupKey: string, groupValue: any, conf
     }];
   }
 
-  return sectionEntries.map(([sectionKey, sectionValue]) => {
+  return sectionEntries.map(([sectionKey, sectionValue]): ConfigMetadataSectionEntry => {
     const registry = getSectionRegistryEntry(groupKey, sectionKey, configType);
     const sectionName = isPlainObject(sectionValue) && sectionValue.description
       ? sectionValue.description
@@ -165,10 +199,12 @@ export function normalizeConfigMetadata(metadata: Record<string, any> = {}, conf
   return Object.entries(metadata || {})
     .filter(([groupKey]) => shouldKeepGroup(groupKey, configType))
     .flatMap(([groupKey, groupValue], groupIndex) => (
-      splitGroupIntoWorkspaceSections(groupKey, groupValue, configType).map((entry, sectionIndex) => ({
-        ...entry,
-        index: groupIndex * 100 + sectionIndex,
-      }))
+      splitGroupIntoWorkspaceSections(groupKey, groupValue, configType)
+        .filter((entry) => shouldKeepSection(groupKey, entry.sectionKey, configType))
+        .map((entry, sectionIndex) => ({
+          ...entry,
+          index: groupIndex * 100 + sectionIndex,
+        }))
     ))
     .sort((left, right) => {
       const leftWorkspaceRank = getWorkspaceRank(left.registry.workspace);

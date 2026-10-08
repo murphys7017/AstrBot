@@ -1,3 +1,72 @@
+task:
+  date: '2026-10-06'
+  class: maintenance
+  risk: medium
+  phase: complete
+  scope: >-
+    Delete obsolete global snapshots, closed task records, and executor
+    implementation stages superseded by later retained records.
+context:
+  confidence: limited
+  verified: []
+  open: []
+  assumptions:
+    - Retained dated records describe prior observations, not verified current runtime state.
+    - Pending acceptance and validation gaps were preserved without claiming completion.
+  known_issues: []
+  unresolved_questions: []
+architecture:
+  stability: not_reviewed
+  boundary_changes: []
+verification:
+  checks_run:
+    - Strict YAML parsing, unique keys, and string-list types passed.
+    - All 54 retained task records match their pre-cleanup content.
+    - python tools/validate_runtime.py passed.
+    - git diff --check -- .ai/state.yaml passed.
+  checks_failed: []
+  validation_gap: >-
+    This cleanup validates only the state file. Historical runtime and live
+    acceptance gaps remain in the retained task records and were not re-tested.
+runtime:
+  mode: minimal_v1
+  current_batch: null
+
+upstream_beneficial_updates_20261006:
+  date: '2026-10-06'
+  class: maintenance
+  risk: high
+  status: in_progress
+  scope: >-
+    Audit official history through upstream/master 42972e932, reuse the existing
+    intake ledger, and adapt beneficial missing functionality to AG99. Each
+    effective upstream update is committed separately as explicitly requested.
+    Preserve the uncommitted deletion of openspec/config.yaml.
+  non_goals: >-
+    Do not wholesale replace upstream files, rewrite AG99 Prompt/Personal/Core
+    ownership, rewrite Git history, push, restart the running instance, or
+    modify production configuration or data except deploying built data/dist.
+  validation: >-
+    Thirteen beneficial source updates adapted in fourteen implementation
+    commits, including one reasoning acceptance followup. Slack upload, reusable
+    tokens, detached task cancellation, Telegram SDK conversion, static gzip,
+    SDK/Core budget reminders, and bounded Persona image checks passed. Related
+    delivery/DeerFlow checks and invalid-log-base public delivery passed. Edge
+    verified extension search, visible-only selection, text draft refresh/session
+    separation, reasoning following/reader intent, and fullscreen search colors
+    using isolated API fixtures. Frontend typecheck/production build passed;
+    dashboard/dist deployed to data/dist; 698 files hash-verified, and the
+    running service serves the new entry document. Backend changes
+    require the user's later restart; do not restart production.
+  remaining: >-
+    Whole intake remains in progress. The 789 non-merge upstream-only commits
+    are inventoried in docs/Yakumo/upstream-intake/2026-10-06.json. Prior ledger
+    references and patch-equivalent commits are not current functional proof.
+    Known gaps include history pagination, resumable uploads, managed shell
+    sessions, role policies, and Native Core/caption/animation image preparation.
+    Third-party attachment conversion changes lack live provider acceptance.
+    Preserve the concurrent state-file cleanup and do not stage this mixed file.
+
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'
   class: bugfix
@@ -42,76 +111,6 @@ dashboard_auth_runtime_acceptance:
     backup payload. The UI download button itself and production deployment were
     not exercised. Full startup made an automatic models.dev metadata request.
     No test suite was run. The app was stopped after the check.
-
-plugin_archive_update_review:
-  date: '2026-10-01'
-  class: bugfix
-  risk: high
-  status: committed
-  scope: >-
-    Review the committed plugin archive update transaction, cap plugin archive
-    downloads by advertised and actual bytes, replace quadratic archive-root
-    member scanning with a linear path trie, and bound core updater archive
-    download and extraction while preserving existing root selection.
-  non_goals: >-
-    Do not introduce per-plugin dependency environments, roll back global
-    site-packages mutations, or modify unrelated dirty files.
-  validation: >-
-    The prior focused updater, plugin manager, and plugin transaction test run
-    reported 73 passing; tests were not rerun this turn per user preference.
-    Scoped Ruff check/format, py_compile, and git diff --check passed. An isolated
-    runtime ZIP smoke accepted valid core/plugin archives, rejected traversal,
-    over-deep paths, 20,001 actual entries, oversized central directories, and
-    forged EOCD counts, rejected all six COM/LPT superscript aliases, and verified
-    core archive root placement.
-    No remote update, live plugin load, or application restart was run.
-    Dependency installation still changes the shared Python environment and is
-    not reversed if plugin loading later fails; per-plugin isolation remains
-    outside this task.
-
-dashboard_fastapi_migration:
-  date: '2026-10-01'
-  class: refactor
-  risk: high
-  status: merged_runtime_cutover_verified
-  scope: >-
-    Migrate the Dashboard HTTP and WebSocket host to FastAPI on the dedicated
-    codex/fastapi-migration worktree, preserve legacy public contracts and
-    local Profile/plugin/Personal/Core/output behavior, separate API routing
-    from services, and complete isolated acceptance before proposing a merge.
-  isolation: >-
-    Initial migration validation used a copied data directory. At final
-    cutover verification, the active process was already started from the
-    main AstrBot worktree using its virtual environment; ports 6185 and 6199
-    belonged to that process. Main-worktree data was newer than the migration
-    copy and was retained without copying over it.
-    Transient data/temp and tmp_pytest folders were not mirrored due to local
-    ACLs, but tracked runtime configuration, database, plugins, plugin data,
-    memory, and Dashboard assets were verified copied. Do not start both
-    instances concurrently because their data directories will diverge.
-  commits: >-
-    The user explicitly requested small reviewed and validated migration
-    commits for traceability. Do not merge or push without a separate request.
-  validation: >-
-    The migration branch now uses native FastAPI. Existing Dashboard (48),
-    external API-Key (11), knowledge-base (5) and platform-response (2) tests
-    passed, as did the focused Plugin Manager and Dashboard run (92 tests),
-    frontend typecheck, and Vite build. The copied-data process was previously
-    exercised on ports 6185 and 6199. Both ports were still listening at the
-    final merge review; no service was stopped or restarted for this merge. A real
-    browser rendered the authenticated Iris plugin view: the iframe loaded its full
-    dashboard, exposed
-    AstrBotPluginView with AstrBotPluginPage as a compatibility alias, and
-    the legacy #/plugin-page route redirected to #/plugin-view. External
-    cloud.astrbot.app repository metadata remains blocked by local CORS/network
-    policy. The user authorized merging into master. The existing master SSE
-    pacing optimization is preserved in chat_service; focused chat tests passed
-    (3). Main-worktree runtime cutover is verified: deployed index.html matches
-    the local production build by SHA256 and HTTP content, and the entry JS,
-    CSS, and Monaco editor worker are accessible. No process restart or data
-    replacement was needed. The migration worktree remains available for
-    rollback. Full provider conversations were not repeated during cutover.
-    See docs/Yakumo/dev/fastapi-migration/03-progress.md for checkpoints.
 
 knowledge_base_cleaning_and_async_io_repair:
   date: '2026-09-30'
@@ -629,63 +628,6 @@ native_default_body_port:
     settlement retain the same lifecycle behavior before deleting compatibility
     paths or claiming complete Executor replaceability.
 
-executor_run_contract:
-  date: '2026-09-22'
-  class: refactor
-  risk: high
-  status: implemented_pending_review
-  scope: >-
-    Implement R2 of the internal executor replacement plan: establish a
-    platform-neutral ExecutorRun contract and a Native adapter without changing
-    production executor selection, Personal, output delivery, or Core terminal
-    ownership.
-  validation: >-
-    Focused Native adapter tests passed (22). Scoped Ruff and compileall passed.
-    No service restart or live platform validation was performed because the
-    current production path still uses NativeExecutionOutputBridge directly.
-  followup: >-
-    R3 may add one shared runtime coordinator and migrate the ordinary and
-    proactive assembly points only after this contract review is accepted.
-
-executor_run_coordinator:
-  date: '2026-09-22'
-  class: refactor
-  risk: high
-  status: implemented_pending_review
-  scope: >-
-    Implement R3's shared in-process executor-run coordinator and migrate the
-    non-visible proactive Native execution path to it. Preserve ordinary
-    Interaction's Native message-chain output bridge until R5 supplies a
-    neutral shared result bridge.
-  validation: >-
-    Proactive execution, Native adapter, and coordinator checks passed 36
-    cases. Scoped Ruff, compileall, and git diff checks passed. No restart or
-    live Cron/OLV acceptance occurred.
-  followup: >-
-    R4 should replace Personal's Native follow-up dependency with a narrow
-    Core input-control contract. Do not migrate ordinary streamed output before
-    R5 can preserve its existing output behavior.
-
-core_follow_up_control:
-  date: '2026-09-22'
-  class: refactor
-  risk: high
-  status: implemented_pending_review
-  scope: >-
-    Implement R4 by replacing Personal Runtime's direct Native executor and
-    ticket control with a Core Head-owned follow-up input control. Preserve the
-    existing accepted/consumed/withdrawn ticket behavior at the Native Body
-    boundary.
-  validation: >-
-    Core execution, proactive, Native adapter, and executor coordinator checks
-    passed 84 cases. Personal Runtime capability tests have two pre-existing
-    duplicate autonomous-expression expectation failures; the directly changed
-    group follow-up coverage passed. Ruff and compileall passed.
-  followup: >-
-    R5 must introduce a shared result/output bridge before ordinary Interaction
-    can use the executor-neutral run contract without losing message-chain,
-    streaming, TTS, or tool-status behavior.
-
 executor_result_and_selection_foundation:
   date: '2026-09-22'
   class: refactor
@@ -709,30 +651,6 @@ executor_result_and_selection_foundation:
     validate output, cancellation, supplemental input, asset delivery, and
     Cron delivery receipt. Do not claim that a non-Native executor is available
     to ordinary Interaction until its adapter preserves those contracts.
-
-native_executor_live_smoke_acceptance:
-  date: '2026-09-22'
-  class: validation
-  risk: high
-  status: accepted_as_native_baseline
-  scope: >-
-    Record the user's September 22, 2026 manual OLV/Cron smoke acceptance of
-    the current Native execution baseline before continuing executor assembly
-    convergence.
-  evidence: >-
-    The user confirmed the prior-day experiment had no blocking issue. The
-    retained OLV trace records current-bot capability snapshots, Personal
-    expression, visible-turn settlement, image input handling, and completed
-    turn diagnostics. Cron traces are retained in the same log window.
-  limits: >-
-    This accepts the current Native baseline for the next refactor batch. It
-    does not certify all interruption edge cases, replace the required R8
-    adapter acceptance, or establish that a non-Native executor is available.
-  next: >-
-    Move the remaining ordinary-interaction Native construction behind the
-    shared executor assembly boundary, preserving its existing rich output
-    bridge. Commit that bounded refactor separately before any result-bridge
-    production migration.
 
 native_executor_assembly_convergence:
   date: '2026-09-22'
@@ -820,6 +738,7 @@ persona_context_image_fix:
     through agent message binding with and without a separate request prompt.
     Ruff and diff checks passed. Two existing dependency deprecation warnings.
     No live model request or QQ image acceptance performed.
+
 scheduled_output_review_fixes:
   date: '2026-09-19'
   class: bugfix
@@ -845,6 +764,7 @@ scheduled_output_review_fixes:
     rejection smoke checks. Ruff lint, compile and diff checks passed; the existing
     test file still has whole-file formatting differences outside the edited region.
     Frontend deployment and service restart were not performed.
+
 scheduled_output_closure:
   date: '2026-09-19'
   class: bugfix
@@ -876,6 +796,7 @@ scheduled_output_closure:
     Operator restarts manually and validates reminder creation, trigger, one
     Personal output, TTS and platform delivery. These changes do not complete
     the broader Output Adapter or replaceable Executor Body migration.
+
 turn_diagnostics_and_routing:
   date: '2026-09-19'
   class: bugfix
@@ -893,6 +814,7 @@ turn_diagnostics_and_routing:
     Prior broader run had 94 passed and two video-path assertion failures;
     that unchanged suite was not rerun for this slice.
   next: Review shared fact ownership and task failure reporting before changing execution behavior.
+
 plugin_capability_cleanup:
   date: '2026-09-18'
   class: refactor
@@ -917,586 +839,7 @@ plugin_capability_cleanup:
     remains pending; AstrBot was not started or restarted. Commit excludes ignored
     local config and generated browser artifacts.
   local_config: Old target maps removed from ignored test config; new target overrides reset to empty.
-task:
-  class: refactor
-  risk: high
-  phase: core_head_session_foundation
-  closure_review:
-    status: core_head_sync_entrypoint_implemented_pending_owner_migration
-    date: '2026-09-16'
-    changes: >-
-      Introduce a provider-neutral Core execution event journal for Interaction Native execution, then establish the first in-process Core Head session contract (CoreCommand, CoreEvent, CoreExecutionHead, CoreExecutionSession). The existing InternalAgentSubStage now acts only as a Native lifecycle adapter: after Hook authorization it starts an event-scoped CoreExecutionHead on the final CoreExecutionSpec. Head owns the public in-process command/event entry point and delegates session sequencing, cancellation command/terminal semantics, terminal Ledger-status normalization, and terminal evidence projection to the Lifecycle, while the existing journal/trace remains the Interaction projection. Native adapter paths now persist completed, failed, cancelled, and deadline-exhausted attempts through one execution-idempotent Ledger projection without mutating visible conversation history for cancellation. Outer deadline/task cancellation remains cancelled even if the runner has a concurrent stop marker; terminal error evidence is bounded at the Lifecycle projection and every terminal Ledger write failure is diagnosed consistently. Head publication now isolates subscriber failures, validates Head/Lifecycle/Session identity, deduplicates artifact facts by stable artifact_id, and has an explicit Interaction journal/trace consumer bound to its local event stream. The bounded journal always preserves terminal facts by evicting progress first and then artifacts; cancellation publishes its terminal fact before invoking the Executor stop callback, while a callback failure becomes a separate non-fatal trace diagnostic. CoreExecutionOutcome now exposes one lifecycle-owned terminal status, bounded terminal evidence, and confirmed artifact facts. CoreExecutionLedgerPreparation now converts that terminal outcome into the existing Ledger's status, error, and result material without coupling Core to SQLite; Native Stage retains only runner evidence, conversation/token facts, and the current Ledger call.
-      validation: Focused Core execution-event and Ledger tests pass (34 passed), Head/smoke tests pass (34 passed), affected Ruff, compileall, YAML parsing, scoped git diff --check, and VitePress documentation build pass. The Head boundary tests cover legacy Lifecycle publication, subscriber isolation, identity rejection, artifact replay including facts emitted before journal binding, direct Head journal projection, artifact-saturated terminal retention, cancellation ordering, direct deadline stop callback diagnostics, execution-scoped Ledger settlement, deduplication, fallback, and failure traces, terminal Outcome aggregation, terminal/fallback LedgerPreparation, read-only Personal deadline binding, and late terminal suppression. A trace audit grouped the currently readable core_execution_event records into one failed max_steps_exhausted chain and one submitted/working/progress/artifact_ready/completed chain, with no post-terminal or duplicate-terminal sequence detected.
-    gaps: The pre-fix failed event remains in historical trace as expected. The available trace sample has no cancelled, deadline-expiry, late-result, or stop-callback-failure record, so real OLV deadline/late-result Interaction validation is still pending. Third-party runner, persisted execution-event history, callback retry policy, a persistent Ledger port, and Output Port migration remain deferred; Native cancellation now persists its terminal evidence but cleanup ownership remains in the current runner and Stage. Early failures/cancellations before lifecycle binding use an explicit fallback preparation. Real OLV/platform validation of the new Head journal consumer path remains pending.
-  scope: >-
-    Continue execution-backend preparation with a bounded in-process Core Head session contract. Native Interaction Core continues to emit submitted, working, progress, artifact-ready, completed, failed, or cancelled facts into its owning turn journal. CoreCommand/CoreEvent/CoreExecutionHead/CoreExecutionSession define directional command, sequenced event, identity, idempotence, terminal-state, and terminal-evidence facts; CoreExecutionHead now owns the synchronous command/event entry point and delegates state to CoreExecutionLifecycle, while the current InternalAgentSubStage starts it as a transitional Native adapter and projects the final Native evidence/status to CoreExecutionLedger. Preserve existing Persona, Output Runtime, Core Ledger, Event/Pipeline/plugin compatibility, Personal turn lifecycle, and Native-only execution behavior. Do not create a Backend abstraction, remote protocol, transport queue, persistent event store, or change visible output policy.
-context:
-  confidence: high
-  verified:
-    - Ordinary addressed turns and eligible group candidates now use one Personal Response Plan: the immediate persona_expression contract requires turn_action=reply|delegate, permits silent only for eligible group candidates, and preserves the existing spoken_reply, speech_cues, and effect_calls contract.
-    - Router source, prompt target, configuration, dashboard metadata, and Coordinator task ownership are removed from the ordinary Interaction path. Core Planner runs only after delegate and must produce an executable CoreTaskSpec.
-    - Persona history now admits up to 300 candidate turns, preserves a token-bounded recent suffix, and adds token-bounded older anchors selected from current input, quoted text, topic state, and short-term memory without changing Core or Planner budgets.
-    - Core execution events are immutable, bounded, non-visible facts attached to the owning Interaction turn and keyed by the existing CoreExecutionSpec identity.
-    - Native Interaction execution emits submitted, working, visible-progress, artifact-ready, completed, failed, and cancelled facts at existing lifecycle boundaries; terminal first-write wins and retained progress is evicted first when the journal reaches its bound.
-    - Focused Core execution-event and bridge tests passed, along with targeted Ruff, compileall, and git diff --check.
-    - CoreExecutionHead now provides the explicit in-process command/event entry point; its subscription and cancellation routing are covered by the focused event tests.
-    - NativeExecutorAdapter now provides the first Core-internal Native control/observation
-      boundary for stop, completion, cancellation, final response, messages, stats, and
-      provider facts; normal, cancellation, failure, history, and provider-stat paths use
-      the adapter consistently.
-    - CoreExecutionHead isolates subscriber failures, rejects inconsistent Head/Lifecycle/Session bindings, and uses artifact_id-scoped replay keys for artifact events.
-    - Interaction journal and trace are now a Head-bound local event consumer, so direct Head facts share the same projection path as Native compatibility calls.
-    - Interaction journal binding subscribes before replaying retained Head events, so pre-bind facts are projected once in sequence; ProcessStage deadline cancellation records any non-fatal Executor stop callback failure through the same Interaction trace boundary.
-    - Native Ledger persistence now emits one execution-scoped settlement trace with terminal provenance and inserted/deduplicated outcome; persistence failures retain the same execution identity for real trace audits.
-    - CoreExecutionHead now owns the one-shot Ledger settlement claim/release coordination through `settle_ledger(append)`. The Native stage supplies the persistence callback; Core remains independent of SQLite and concrete Ledger storage.
-    - CoreExecutionLedgerPreparation derives Ledger status, error, and result policy from the Core terminal outcome while leaving runner evidence and SQLite persistence at their existing boundaries.
-    - InteractionTurnState is now the typed owner for the event interaction state, CoreExecutionSpec, and plugin output transaction state; legacy event.extra keys remain one-way projections. Plugin branch events clear the typed owner to prevent parent/branch mutation sharing.
-    - The owner migration slice passed 80 focused Core/Interaction/Plugin tests, compileall, Ruff, and git diff --check.
-    - CoreExecutionDeadlineView is a read-only projection of Personal's TurnDeadlineBudget; only Personal/ProcessStage reports expiry, while Core Head owns cancellation and stop-callback ordering.
-    - Deadline cancellation is terminal and idempotent: late Native terminal facts are ignored by the existing Interaction bridge after `cancelled` is recorded.
-    - Interaction base InputCollector no longer performs media enrichment when building the shared facts pack.
-    - Non-vision media enrichment is branch-local and vision Providers retain original image slots.
-    - Persona, Planner, and Core projections preserve their documented separation; direct Interaction Provider calls sanitize context modalities.
-    - Unified Persona Expression keeps configured persona history and no longer uses a fixed fast-persona history/slot split.
-    - Core Planner carries requires_visual_understanding independently from workspace_io.
-    - Persona Provider fallback preserves original image references before normalization and derives captions for a text-only fallback without replaying lifecycle hooks.
-    - Targeted validation passed: 145 tests, compileall, Ruff, and git diff --check.
-  open:
-    - ProviderRequest extra inventory is complete for the first pass: canonical Main Agent request, lifecycle Hook exposure, and plugin delegated request are separate semantics. Output Runtime owner inventory is also complete for the first pass; next define DeliveryReceipt identity before changing write paths.
-    - Core tool-stage observation task/state is now typed on InteractionTurnState with legacy extra projections; logical output receipt ownership remains unresolved.
-    - Plugin output mode/kind/effect metadata is now typed on InteractionTurnState with legacy extra projections; physical delivery receipt ownership remains unresolved.
-    - Logical message delivery receipts are recorded on InteractionTurnState and trace with delivered/partial/failed status; inline Plugin Artifact receipts now carry one serialized delivery key, while delayed artifact-group receipts carry the group and serialized keys. The internal identity is stripped before platform sending, and Runtime ledger reservation/disposition remains the artifact owner.
-    - Validate Personal reply, delegate, and eligible group silent decisions against real provider and platform traces before changing the default parallel-plugin runtime switch or output policy.
-    - Validate the Native execution event sequence against a real Core tool-call trace before routing events to new observers, user-visible progress policy, or a future Core Head Executor adapter.
-    - Complete the Personal/Core Head asynchronous consumption boundary and validate the
-      CoreExecution session ownership/command direction without coupling it to Personal
-      turn locks or directly releasing a Personal turn on delegation.
-    - Define the Native Adapter execution-event/stream contract before removing its
-      transitional runner bridge; do not introduce a fake close or migrate Output, TTS,
-      Ledger persistence, or Personal turn ownership in that slice.
-    - Validate deadline expiry, outer task cancellation, repeated cancellation, and late-result isolation through real Interaction traces before introducing any Executor Adapter.
-    - Run real OLV/platform regression with vision and text-only Providers.
-    - Decide whether unavailable visual fallback should become a typed Core failure rather than existing empty-enrichment behavior.
-  assumptions:
-    - Personal is the sole ordinary user-turn decision and visible-expression boundary. Core Head receives only explicit delegate work; Planner refines that work but cannot re-admit, suppress, or directly answer the turn.
-    - Personal Runtime currently prioritizes proactive expression; Policy actions are limited to ignore, observe, express, and defer until a separately reviewed background-execution permission model exists.
-    - Deferred, cooldown-held, and quiet-hours-held Observation batches must retain their facts and be re-evaluated by one lifecycle-owned wake scheduler without synthetic user messages or per-runtime polling loops.
-    - Runtime diagnostics are read-only, exclude raw Observation payloads and reply material, and report only operational state needed to validate proactive behavior.
-    - PersonalState keeps process-local conversational and diagnostic fields while a narrow repository persists only last expression, cooldown, mute, and daily usage control fields by full PersonalRuntimeKey.
-    - Completion Feedback is formed once at turn lease release; delivery success requires a visible utterance delivery receipt and is not inferred from send intent or final-output status alone.
-    - Policy express creates an internal ActionIntent with a reliable action_id; only its confirmed visible delivery can write proactive daily usage, while every confirmed visible reply starts the shared autonomous-expression cooldown.
-    - Policy may only evaluate a batch-owned, unsettled material revision. Normal user turns and Heartbeat do not create proactive Policy material; Heartbeat ignores an empty Inbox and only waits for a retained held batch. Non-coalesced facts and changed coalesced Sensor payloads advance revision, while reject, ignore, observe, fail-closed, discarded, and express-before-delivery outcomes settle it. Hold and defer retain it, so later facts are not consumed and failed sends still do not write cooldown or quota.
-    - Only Policy-approved PersonalActionIntent expression is compared with the previous delivered visible reply. Explicit Context.send_message, Cron, and plugin proactive output retain exact-send compatibility behavior.
-    - Autonomous expression deduplication uses an irreversible normalized fingerprint from physical delivery feedback persisted by the Personal Runtime control-state repository; Persona Conversation history remains an additional semantic source, while raw reply text is not added to PersonalState or diagnostics.
-    - A duplicate autonomous expression is suppressed before effects, TTS, platform delivery, Conversation persistence, cooldown, or proactive quota accounting.
-    - Ordinary addressed user messages and bounded group candidates use one Personal Response Plan. Personal owns immediate visible delivery; `reply` completes the turn, `delegate` starts Planner/Core after its acknowledgement, and Personal Policy applies only to background and ambient RuntimeObservation batches.
-    - Personal action, immediate-reply status, and final turn outcome are independent facts. `silent` is available only to eligible group candidates and may suppress only uncommitted Personal work; committed or emitted output remains replied, and Core Planner never owns reply admission.
-    - Canonical Conversation history supplies semantic context but does not grant wake permission by itself. Only the user who explicitly triggered the Bot through a wake command, Bot mention, or Bot reply may own a group continuation. Handler-only turns without an explicit Bot trigger and messages aimed at other members neither establish nor clear that owner. An active same-owner message is absorbed only when a compatible Runner exists and no Handler takeover candidate is present; otherwise it safely becomes a queued direct continuation. After a delivered visible reply, the configured direct window defaults to 10 seconds and does not allow `silent`; the remainder of the bounded continuation window remains same-owner-only and may allow `silent`.
-    - RuntimeObservationEvent and submit_runtime_observation_event remain post-decision proactive-output adapters and are not the generic Observation Inbox API.
-    - PersonalSessionRuntime idle deletion must become bounded TTL/LRU retention before it can own cross-turn state; initial planning bounds are 24 hours and 1024 idle runtimes.
-    - Restart-safe state plus mute, quiet-hours, cooldown-duration, and output-budget configuration are present; defer writes a no-action deadline, every delivered visible reply writes reply cooldown, and only delivered ActionIntent output writes proactive usage.
-    - Personal Runtime control-state persistence is serialized per Runtime so concurrent completion feedback and Policy usage updates cannot overwrite each other; repository restore failure degrades to process-local state, while final-save failure is diagnosed without aborting Core shutdown.
-    - PersonalHeartbeatSource is lifecycle-owned and applies one independent due time per configured Runtime observation target. An empty target list falls back to the legacy default proactive-message target; Heartbeat never creates an event, acquires a turn lease, or invokes Persona, Core, or Output. It ignores an empty Inbox and may request reevaluation only for retained material that has no later lifecycle-owned wake deadline.
-    - The Interaction master switch is also the deterministic Observation Gate feature switch. Equal quiet-hours bounds mean an all-day quiet window and reject rather than retain batches because no future wake boundary exists.
-    - Plugin PromptExtension targets are restricted to persona and core. Core Planner never mounts plugin extensions, plugin capability directories, plugin tools, or plugin LLM lifecycle hooks; only explicitly trusted AstrBot core collectors may provide its structured task facts such as recent group context.
-    - Official async-generator plugin handlers retain yield ProviderRequest delegation through call_handler and ProcessStage; call_event_hook is a separate coroutine-only LLM lifecycle interface.
-    - Context resolves the global Runtime observation target registry across loaded configuration profiles, retaining only targets whose UMO resolves back to an effective profile that declares them. ConversationActivitySource is default-disabled and limited to non-self, non-live, non-addressed text in one of those group targets; the event-matched configuration controls its feature flag and Runtime/Policy settings. Waking only preserves an eligible candidate, while the official whitelist and session-status stages retain their authority before the tap submits a structural fact and stops the original event before rate limiting, plugins, Personal, or Core.
-    - Plugin Runtime Sensors register stable plugin_id/source_id ownership in Context and receive only a restricted submit handle; Context resolves the target, Lifecycle dispatches to existing PersonalRuntimeManager.submit_observation, and plugin unload removes registrations so stale handles cannot submit.
-    - Plugin Sensor payloads are immutable structured facts with a finite expiry. They reject known message/reply/prompt fields and cannot supply events, ProviderRequest, ToolSet, platform connections, or visible reply material.
-    - Explicit persona-mode plugin streams buffer semantic text and run through one final Persona output; direct-mode plugin streams retain real-time compatibility delivery.
-    - PostprocessManager owns all background after-message and after-turn tasks; it rejects new tasks during shutdown and is explicitly reopened by Core lifecycle startup.
-    - Core shutdown settles Personal Runtime and PostprocessManager before plugin, Provider, knowledge-base, memory, platform, and database teardown.
-    - EventBus isolates configuration lookup and task-scheduling failures to the affected event, logs them, and continues consuming later events.
-    - CoreExecutionSpec owns deep-copied ContextPack slots and metadata, TaskSpec, execution history, and serializable capability descriptions; the Native ToolSet remains the explicit live execution handle until the future capability binding boundary.
-    - InteractionTurnState owns the canonical Interaction base ContextPack plus turn-local target enrichment packs; the unused _interaction_prompt_context_pack extra mirror is removed.
-    - InteractionTurnState owns the canonical Core-delegation state for ordinary forwarded turns.
-    - Prompt branches retain RenderResult locally, and InteractionContextMaterial retains its snapshot in Turn State; unused event-extra render and snapshot mirrors are removed.
-    - InteractionStreamState is the sole owner of stream buffers, observations, completion flags, and interjection counts; duplicate Turn State fields and unread event-extra mirrors are removed.
-    - InteractionTurnState is the sole owner of persona, lifecycle, completion, failure, finalization, and output-arbitration state; event extras retain only compatibility flags, references, and diagnostics rather than mirrors of those fields.
-    - Phase 1 removes only confirmed private duplicate Interaction extra mirrors and moves Middleware-owned preparation, route idempotence, Core delegation, and delivered assistant artifacts into InteractionTurnState; it also removes confirmed write-only control-timeout, observation-input, duplicate expression completion/failure, record-normalization failure, silent-completion, and plugin-stream-consumption markers. Each admitted turn freezes its InteractionAgentConfig there so Persona, Planner/Core, and Output share one interaction-policy snapshot. `_interaction_enabled`, Event send interception, and parallel Plugin Job paths remain compatibility boundaries until separately validated. `_interaction_output_controller` remains an Event compatibility reference declared by the platform layer so Interaction and Pipeline do not introduce a reverse platform dependency.
-    - A generic submit_observation boundary writes immutable facts into a per-runtime bounded inbox without EventBus insertion, synthetic user messages, proactive-message capability requirements, or immediate turn-lease acquisition.
-    - Personal Policy gets a dedicated read-only Prompt target and continues to use the canonical Collectors -> ContextPack -> projection -> Render Profile -> Renderer pipeline.
-    - The Personal Policy Prompt collection adapter is not a send-capable RuntimeObservationEvent and never enters EventBus or Conversation history.
-    - The official EventBus and Pipeline are the only production inbound path; InteractionMiddleware.handle_inbound, its spawn path, core_queue dependency, and enqueue_core branches have been removed.
-    - RuntimeObservation is immutable structured system input and is never projected as a user message.
-    - Generic observation intake shares the same PersonalSessionRuntime identity as platform turns but does not acquire the turn lock and bypasses EventBus, Pipeline, Personal, Planner, Core, Persona, and Output.
-    - Policy-approved autonomous expression requires the Adapter to explicitly declare both proactive-message and Personal Runtime delivery support before target admission or session locking; explicit Context, Cron, and plugin sends retain the proactive-message compatibility boundary, while generic submit_observation accepts unsupported targets because observation is not delivery.
-    - Each PersonalSessionRuntime owns at most 64 pending observations and one fixed 1.5-second aggregation task; new observations do not extend the deadline, and explicit coalesce identity is kind + source + coalesce_key.
-    - Observation evaluation closes an immutable diagnostic batch and runs a deterministic Gate over batch facts, PersonalState, Runtime busy state, and target capability. It cannot invoke Policy, a provider, Persona, Core, Output, or create RuntimeObservationEvent.
-    - Gate hold restores the original batch to the same bounded Inbox. Runtime-busy holds are reevaluated when the active turn settles; quiet-hours and cooldown holds are re-evaluated by the lifecycle-owned Wake Scheduler.
-    - Generic intake still accepts targets without proactive-message support; the deterministic Gate rejects those batches before any future Policy or output work.
-    - Runtime observation handlers receive both the compatibility event and the canonical PersonalTurnContext; cancellation and failure emit terminal lifecycle stages.
-    - RuntimeObservationEvent is only the official platform-send compatibility sink; all visible observation output still passes through InteractionOutputController interception.
-    - A RuntimeObservationEvent target with explicit Personal Runtime support preserves Record and Plain components sharing one TTS output-segment identity as one physical chain at the Output Controller delivery boundary. Platform proactive sending remains the established send_by_session contract, while default Record standalone delivery remains unchanged for other paths.
-    - Observation conversation persistence is assistant-only and turn-idempotent; it never inserts an empty or synthetic user message.
-    - Memory represents an assistant-only turn with an empty user_message payload; nonempty text or media user payloads without canonical identity remain warnings.
-    - Phase 0 investigation deferred speculative tests; implementation batches validate their affected production boundary.
-    - InteractionMemoryStore and its prompt slot were removed because production had no writer; existing local data files are left untouched as user data, but no runtime path reads them.
-    - Local master is also a fork branch and is never treated as the official baseline; official boundary checks use the upstream remote plus current production call relationships.
-    - The unused Interaction registry scaffold was removed; active contributor registration remains owned by Context. Provider-owned output-contract tool helpers remain because OpenAI and Anthropic sources import them directly.
-    - Independent Input Bus/Input Gateway plans are superseded by the official EventBus/Pipeline plus Personal Runtime Adapter boundary.
-    - PersonalRuntimeKey is config_id + persona_id + audience_key + privacy_scope; actor and conversation_id remain turn facts rather than runtime identity.
-    - After official filters and preprocess, the adapter reserves, binds, and admits a PendingTurn before Plugin Handler execution. Persona identity is resolved from official conversation, session rule, and config facts before the three-line coordinator starts; a later Handler ProviderRequest cannot rebind the active Personal turn.
-    - PendingTurn transitions are reserved -> bound -> queued|active -> settled; reserved turns do not own conversational completion.
-    - One runtime key has one conversational turn with user-visible completion ownership by default; new messages are offered as follow-up first and otherwise queued.
-    - Phase 1 reuses InteractionTurnState as the only writable turn state and records plugin/Subagent/background task handles without migrating their lifecycle ownership before the later plugin-task phase.
-    - Interaction event output and proactive text from Context.send_message go through Personal Runtime and Output Controller; media-only proactive output remains the explicit raw-platform boundary.
-    - Native and Third-party execution still diverge before execution, but both now run under Personal Runtime turn admission and serialization.
-    - ThirdPartyAgentSubStage preserves a plugin-yielded ProviderRequest and only builds one from the event when no explicit request exists; it still bypasses canonical Prompt and Capability preparation.
-    - ProviderRequest remains an official plugin compatibility input and low-level hook projection; it is not the future immutable Execution Preparation contract.
-    - Existing Dify, Coze, DashScope, and DeerFlow runners are compatibility targets rather than templates for the future Backend interface.
-    - Execution Preparation owns TaskSpec, Context/Prompt projection, normalized current input, CapabilitySnapshot, and runtime identity before backend selection; adapters own protocol projection, remote thread state, streaming, cancellation/close, and error translation.
-    - Official OnLLMRequest remains after final low-level request projection and before execution; Agent/LLM/Tool hooks are preserved only where the backend exposes the corresponding lifecycle.
-    - Executor Body decoupling is deliberately last and remains inside Core Head; current work first replaces transitional structures before execution preparation.
-    - Personal is the sole owner of unified external output; Core Head owns task coordination and normalized execution facts, while Executor Body only performs delegated complex work.
-    - Compatibility protects official public plugin, Pipeline, platform, configuration, and data boundaries, not internal event method replacement, extra mirrors, parallel Agent SubStages, or private callback wiring.
-    - Each migration establishes one new owner and removes the replaced internal write path; long-lived dual main paths are not an accepted compatibility strategy.
-    - Personal Runtime is the control layer; InteractionPersonaRuntime is the Personal Expression facade and delegates expression-scoped plugin tool execution to the shared ToolLoopAgentRunner rather than owning a second tool loop.
-    - Personal Runtime is a control layer and never a plugin mount target. Plugin placement is defined per contribution rather than by the legacy API that happens to invoke it.
-    - Persona-facing prompt/context, relationship, entertainment, effect, and LLM lifecycle contributions default to Personal Expression. Executable FunctionTools independently default to Core; a tool declaration or user plugin_tool_targets override must explicitly opt a tool into Personal Expression.
-    - The parallel Plugin path removes Official Pipeline Handler body latency from Personal startup. Prompt construction now uses a canonical base-facts single-flight plus one prefetched plugin-enrichment single-flight. Persona consumes enrichment only when already ready, Core Planner uses base facts, and Core awaits the same task, so dynamic Prompt Extension and Interaction Prompt Contributor latency no longer blocks the first Personal reply or task refinement.
-    - The normal Persona flow resolves only explicitly authorized Persona tools and always enters one shared Agent loop, even when the business-tool inventory is empty. Core-result rewriting and runtime-observation expression still expose no business tools. Final persona_expression remains a terminal structured-response protocol and is never executed as a plugin tool.
-    - Persona request hooks receive the branch-local PromptApplyResult while the rendered ProviderRequest is bound, so canonical Prompt extensions are not reinjected by legacy request bridges and the marker cannot leak into a later Core branch.
-    - Persona, Native Core, and third-party Agent execution share AgentRequestLifecycle as the production Hook owner; astr_agent_hooks.py remains compatibility-only and is not referenced by the production Main Agent.
-    - A Persona fallback retains the same post-Hook ProviderRequest and public Agent context, changes only the Provider binding and executable ToolSet binding, rejects an incompatible strict terminal contract, and never replays Hook or completed business-tool side effects.
-    - Core OnLLMRequest mutations are deterministically reauthorized into one effective CapabilitySnapshot that is written back to ProviderRequest, MainAgentBuildResult, CoreExecutionSpec, capability schema, and diagnostics.
-    - One TurnDeadlineBudget starts at Personal Runtime reservation and is the sole timeout allocation owner for runtime binding, follow-up admission, session queueing, Personal, Planner, Persona, Core, Provider calls and fallback, tool execution, Runtime Observation, and completion feedback.
-    - Configured Planner and Persona limits can only shorten their stage; turn_limited is decided when a stage budget is allocated so scheduler precision cannot misclassify total-deadline expiry.
-    - OpenAI-compatible SDK retries are disabled; the adapter retries only after classified state-changing recovery, allows one transient network retry, and never retries a stream after output has started.
-    - Required protocol tools are never removed by OpenAI-compatible recovery. An unsupported required tool call fails outward so the existing Provider fallback can preserve the request contract.
-    - A follow-up that remains unresolved when its new turn admission expires is withdrawn from the old Agent before timeout delivery, preventing delayed double consumption.
-    - Deadline cancellation awaits turn-owned tasks and pending tool-result tasks before releasing the session lock. Failure delivery reuses InteractionOutputController and never starts another model request.
-    - PersonaEffect is not an executable Persona Tool. It extends the final persona_expression structured-output contract with validated declarative effect_calls; its protocol-level tool-call encoding exists only to enforce output shape. Effects run after expression through output handling, never enter the Persona ToolSet or tool loop, and are Persona-only.
-    - Interaction model IDs are optional per-stage overrides. Empty expression and Planner IDs resolve to the event's currently selected official chat provider, while explicit IDs retain precedence.
-    - Terminal plugin Handlers are Pipeline-level response owners, not Persona mounts. A keyword/command Handler that returns a terminal reply may stop the event and prevent Persona or Core from starting; its output can be delivered directly or explicitly persona-rewritten, but that delivery choice does not transfer reply ownership to Persona. A Handler that yields ProviderRequest retains the existing Core-delegation path.
-    - The default-disabled parallel Plugin path starts Personal and one Runtime-owned Official Plugin Job from the same t0. The first window-valid final resolves HANDLED and closes only the current T1 artifact snapshot; later final artifacts from the same Handler chain wait for T1 settlement and use low-priority T2. STOPPED blocks Personal and Core without freezing an empty artifact snapshot, so final output formed after T1 settlement also uses T2. ProviderRequest after terminal Gate resolution is rejected.
-    - Plugin delivery-key records live through one Job's T1 and T2 settlement, then are released by plugin_job_id; shutdown clears any remaining records so the deduplication ledger cannot grow with process lifetime.
-    - Legacy LLM lifecycle hooks are target-aware. One Persona run preserves Waiting, LLMRequest, AgentBegin, actual business-tool hooks, LLMResponse, and AgentDone in that order. Request hooks run once before the shared Agent loop, fallback retains the same public Agent context, and no separate internal tool-preflight lifecycle exists. Core-targeted hooks retain their existing Core lifecycle.
-    - Official Pipeline handler location, filters, priorities, ProviderRequest yield semantics, and Context.send_message public call shape remain compatible. Persona-facing legacy request hooks receive a branch-local ProviderRequest view, so they may modify Persona material without replacing shared Core event extras or its strict output contract. Mutation snapshots recursively clone plain containers but retain opaque ToolSet, plugin, Provider, Conversation, and other live runtime handles by reference.
-    - This preparation phase does not create ExecutionBackend, Capability Gateway, remote protocols, or Subagent Service abstractions.
-    - Official plugin Handler location, filters, priorities, ProviderRequest yield semantics, and Context.send_message public call shape remain compatible; proactive text now enters Personal Runtime by design.
-    - Interaction pipeline results preserve official response-safety and OnDecoratingResult hooks through one shared PreOutputProcessor without reapplying ordinary TTS/t2i/prefix/segmentation decoration; the former event-extra callback bridge is removed.
-    - RespondStage-driven and direct Persona Interaction replies share one TurnDeliveryCoordinator-owned OnAfterMessageSent, visible-completion, postprocess, and deferred-finalization boundary. InteractionOutputController remains a compatibility facade, while direct non-Interaction event.send paths retain their existing semantics.
-    - Personal Response Plan is the sole ordinary-turn classifier and expression boundary. `silent` is exposed only for bounded group model-continuation candidates and explicit plugin-submitted group reply candidates. With the parallel Plugin switch enabled, Personal and the Official Plugin Job start from the same t0; otherwise Personal starts after Handler takeover settles. A valid Personal-plan failure falls back to a local reply rather than escalating to Planner/Core. Neither branch retracts committed or delivered output. Candidate metadata is a low-level event contract and never mutates explicit wake fields; legacy plugins that do not use the opt-in candidate API preserve existing wake behavior.
-    - Core Planner runs only for a Personal `delegate` and must produce one executable CoreTaskSpec.
-    - Prompt collectors build one canonical base ContextPack per interaction turn, then one single-flight plugin-enrichment pack for Persona and Core; every model branch renders an isolated target projection from the appropriate layer.
-    - Interaction uses an explicit base collector profile before routing; the Core overlay adds only execution-specific collectors and never recollects shared session, memory, or explicit provider context.
-    - Persona admits a 300-turn candidate pool by default, then retains a recent contiguous suffix and relevant older anchors within its token budget. Interaction collects one canonical conversation.history fact set; Planner, Policy, Persona, delegated Core, and legacy Core compatibility rendering apply isolated target budgets without recollecting or mutating canonical history.
-    - Personal-plan and Core Planner decisions are never inserted into the canonical ContextPack or supplied to one another.
-    - Planner output is internal execution material; every user-visible acknowledgement, result, and failure remains owned by the unified Persona Expression layer.
-    - Protocol commands and live audio continue to bypass conversational Personal planning and Core Planner.
-    - Planner failures never grant Core execution; an already emitted Persona reply may finalize the turn with the Planner failure retained, while turns without visible Persona output remain fail-fast.
-    - The retired decision_provider_id, decision_temperature, and decision_timeout compatibility fields are removed rather than repurposed for Planner.
-    - AstrBot upstream is a reference intake source: adopt only topic-scoped behavior that remains relevant to AG99, usually by local rewrite; do not treat history alignment or broad merge as a project goal.
-    - Prompt, memory, postprocess, and interaction architecture remain local source of truth.
-    - Simple upstream items can be marked absorbed when local behavior is functionally equivalent even if git cherry still shows them as upstream-only.
-    - "Bundled WebUI should take precedence over `data/dist` only when the user dist version is older than the current core version and the bundled dist exists."
-    - WebUI font stack polish is limited to existing global Sass variables and does not change app routing or component behavior.
-    - "Several remaining `git cherry +` commits are functionally present by local rewrites; ledger entries are needed to avoid re-reviewing them as missing."
-    - "The current batch keeps provider prompt-renderer boundaries explicit: Xiaomi standard API is OpenAI-compatible, Xiaomi Token Plan is Anthropic-compatible."
-    - Xiaomi Token Plan should follow the existing token-plan pattern by injecting Authorization as a default custom header instead of introducing a separate auth path.
-    - Dashboard auth migration must change backend and WebUI login protocol together; frontend login now sends plaintext password for PBKDF2/legacy verification.
-    - Existing legacy MD5 configs should remain recoverable by logging in with the real plaintext password, but the stored MD5 string itself must not authenticate.
-    - "`dashboard.password` is retained as a legacy compatibility hash while `dashboard.pbkdf2_password` is the upgraded storage path."
-    - "First-use empty dashboard passwords should be replaced with a generated or `ASTRBOT_DASHBOARD_INITIAL_PASSWORD` password and require setup/change before normal use."
-    - Knowledge-base and sandbox upstream positives may remain visible in `git cherry` even when current local code already contains equivalent rewrites.
-    - The current pass updates the merge ledger when code is already equivalent; it does not rewrite working implementation unnecessarily.
-    - Runtime/media/message-tool upstream positives should be absorbed by confirming existing local behavior and adding focused tests where coverage is missing.
-    - User explicitly requested the previously skipped version, CI dependency, README, and deploy-script/docs items; this pass absorbs the low-risk release-maintenance subset without broad docs rewrites.
-    - The current pass absorbs the latest small upstream fixes by local rewrite while preserving the fork's customized chat, plugin, and provider request paths.
-    - The current pass absorbs 20 v4.25.2 upstream commits (file→mtime 2026-05-30..2026-06-05) via topic rewrite; yakumo's prompt/memory/postprocess/interaction architecture is preserved.
-    - Provider stats persistence retries transient SQLite `database is locked` errors with bounded exponential backoff instead of dropping usage records.
-    - Empty `modalities=[]` is intentionally treated as text-only in this fork, diverging from upstream's empty-as-unconfigured compatibility patch.
-    - Reply components emit a strict OneBot V11 `{"type":"reply","data":{"id":str(id)}}` payload so aiocqhttp stops returning `retcode=100`.
-    - Plugin page security headers (X-Frame-Options/frame-ancestors) are relaxed only when `ASTRBOT_LAUNCHER` env is set, leaving standalone deployments' CSP posture unchanged.
-    - Follow-up 4/5/6 upstream rewrite absorbs MiniMax Token Plan model discovery/M3 default, Anthropic tool_choice schema conversion, selected platform/plugin/template/provider fixes, and the future-task cron backend/manual-run contract.
-    - The current follow-up absorbs upstream version 4.25.2, Markdown-aware KB chunking, LLM compression prompt polish, ChatUI recording staging, FIRST_NOTICE EULA/ru-RU notice, and the existing local CronJobPage frontend wiring for manual run/optional delivery session.
-    - Prompt memory injection must resolve identity from the current event; a shared group conversation's latest stored turn is not a valid proxy for the current speaker.
-    - Memory technical identifiers remain available in structured storage and provenance. Normal Personal semantic prompts omit them by default, while explicit diagnostics, management, debugging, and exact-reference paths may include them when required.
-    - Memory scope reads may include USER, GROUP, and GLOBAL, while ordinary turn contributions default to USER and GROUP only. GLOBAL contribution requires an explicit later policy rather than being inferred from every turn.
-    - The scoped Memory schema does not migrate pre-Phase-2 local Memory data. Existing memory.db files must be rebuilt when adopting scope_context, revision, and fingerprint columns.
-    - PersonaState automatic evolution is USER-scoped, default-disabled, and derived only from consolidated semantic memory. It never rewrites static Persona and remains invisible to Planner and Core.
-    - PersonaState mutations go through one service and one Store transaction that validates the prior state, writes the new state and evolution log together, and supports conflict-safe explicit rollback.
-    - First-version PersonaState is one USER-global state; static persona_id is optional provenance and does not partition the state or enter ordinary prompts.
-    - Group-chat prompt records use stable sender IDs when available, while nicknames remain display labels only.
-    - Prompt target selection is deterministic code projection over the canonical base facts and, for Persona/Core only, the shared plugin-enrichment pack; the removed LLM/rule Prompt Selector is not part of the current architecture.
-    - Core Planner, Persona, and Core target projections define distinct context boundaries over the layered ContextPack pipeline.
-    - Persona projection excludes extension.capability even when a plugin targets it to Persona; stable capability contracts remain available to Core targets.
-    - Static prompt collectors are cached only within one event/config/ProviderRequest identity and must not be treated as cross-turn global cache.
-    - Canonical Dialogue History is owned by Personal Runtime output and stores normalized user input plus final Personal Expression; Core tool calls and results persist in a separate Core Execution Ledger.
-    - AssetRef stores content identity when already available, otherwise an explicitly non-resolvable source reference; it never persists temporary paths, URLs, or binary media. A managed Asset Store remains future work.
-    - CoreExecutionSpec is the executor-neutral fact contract and contains no rendered prompt or ProviderRequest; NativeExecutionAdapter is the only Native ProviderRequest boundary, and this is not yet a complete Backend/Event abstraction.
-    - CoreCapabilitySnapshot no longer models Subagent as a first-class portable capability. Native ContextPack and ToolSet still carry handoff compatibility data until capability binding is separated; future Backends are not required to implement AstrBot Subagent.
-    - Official on_llm_request remains a post-render low-level ProviderRequest hook; preserving it does not restore removed legacy/shadow prompt modes or internal duplicate injectors.
-    - DeepSeek thinking mode is controlled only by the effective Provider `thinking.type`; both thinking and non-thinking requests preserve caller-supplied `tool_choice` instead of silently changing contract semantics.
-    - Persona effect applicability is plugin-owned and evaluated against the current event; Core must not hard-code platform-specific effect names or domains.
-    - Slot-level meta.targets is a fail-closed model-visibility contract; malformed declarations are not treated as unrestricted access.
-    - TTS state is read-only and text-free; plugins observe requested/generating/succeeded/failed but cannot rewrite synthesis input through the lifecycle hook.
-    - Logical output segment IDs and physical visible-message IDs are separate identities; physical splitting never infers logical ownership from send order.
-    - The rich non-streaming platform boundary is send_message_with_extras; the replaced send_interaction_message name and dual delivery callbacks are removed rather than retained as compatibility wrappers.
-  known_issues:
-    - AG99live Remote Operator currently registers the same execution-routing prompt through both a generic Prompt Extension Collector and an Interaction Prompt Contributor. The latter defaults to the Persona target, so the Core-only JSON execution protocol can leak into Personal Expression. Split the contribution into planner/Core capability and Core protocol material; do not register it for Persona.
-    - The MiniMax Coding Plan MCP server fails before initialization because its resolved MCP SDK does not provide mcp.server.fastmcp. The MCP connection-test log also prints the configured API key. Pin a compatible server dependency set, rotate the exposed key, and redact environment secrets from MCP diagnostics.
-    - Prompt base collection still awaits the registered collectors in list order. Independent collectors do not yet have an explicit dependency graph or parallel scheduler, so non-LLM I/O in one collector can extend the base Context Material critical path even when other collectors are ready.
-    - Persona plugin enrichment is user-configurable, but the current default remains `persona_plugin_context_mode=wait_complete`; a slow Prompt Contributor can therefore delay the first Persona reply unless the operator selects `best_effort`. This is a product/performance default issue, not a missing capability.
-    - Prompt target visibility is enforced by a mixed model of explicit `meta.targets`, target-specific allowlists, blocked slot sets, and group-name defaults. The Context Catalog declares lifecycle and redaction metadata, but those declarations are not yet the single runtime source of truth; newly added slots still require manual projection review.
-    - ContextPack merge and target projection defensively deep-copy slot values. This preserves isolation, but large history, media metadata, or capability payloads can be copied repeatedly across base/enrichment/target views; the real warm-path cost and any safe structural-sharing opportunity still need measurement.
-    - Memory recall is now served from a turn-shared snapshot with stale-while-revalidate background refresh, but Prompt quality still depends on validating that Persona, Planner, and Core consume the intended projection of the same snapshot without duplicate reads or accidental provenance/debug-field exposure.
-  unresolved_questions:
-    - Provider renderer family, output-contract support, and executable tool capability are not yet represented by one validated capability contract.
-    - DeepSeek first-turn marker state now reads canonical official conversation history, but its applied flag remains event-scoped rather than conversation-scoped.
-    - Context Catalog declares lifecycle and redaction rules that are not consistently enforced at runtime.
-architecture:
-  stability: review_required
-  boundary_changes:
-    - TurnDeadlineBudget is the canonical per-turn timing boundary. ProcessStage owns platform-turn enforcement and timeout failure delivery, PersonalRuntime owns binding/queue/lease cleanup, and ToolLoopAgentRunner owns deadline-bound Provider and tool cancellation.
-    - Voice Service is the sole owner of TTS request IDs and generation terminal states; ordinary Pipeline and Interaction only project the returned state onto output components.
-    - Message components carry non-serialized delivery metadata through the existing message-chain splitter, and every physical send receives one metadata mapping through send_message_with_extras.
-    - Interaction Turn State allocates logical output-segment IDs independently from physical visible-message IDs; TTS dual output and segmented delivery preserve the logical ID without a positional ID queue.
-    - ProcessStage -> InteractionMiddleware.handle_pipeline_event is now the only production Interaction inbound boundary; Middleware marks Core delegation but never reinserts events into the official queue.
-    - Personal Response Plan decisions project to the existing `persona`, `hybrid`, or `silent` route diagnostics; live audio and protocol commands use an internal Core bypass rather than manufacturing a Personal plan.
-    - With the parallel Plugin switch enabled, ordinary addressed turns and unaddressed group continuation/plugin candidates start Personal Expression and the Official Plugin Job concurrently under one TurnExecutionScope after Handler discovery and turn admission. The disabled compatibility path still waits for Handler takeover to settle. Eligible `silent` and Core-final reservation cancel only uncommitted Personal work and never retract delivered output.
-    - Persona and Planner share one turn-local base Context Material single-flight; Persona non-blockingly inspects and Core awaits one prefetched plugin-enrichment single-flight. Cancelling one waiter does not cancel collection needed by another branch, and one failed Interaction Prompt Contributor is recorded and skipped instead of invalidating the whole enrichment pack.
-    - Current interaction Turn State stores a pure InteractionRouteDecision; immediate replies and effect calls travel only with the PersonaExpressionResult that produced them.
-    - Core final output is returned to Middleware through core_reply_handler, rendered by the single Persona Runtime, then delivered as an explicit prepared result by Output Controller.
-    - InteractionResultView exposes route_decision and phase-local effect_calls; final contributors cannot observe stale immediate effects through route state.
-    - InteractionOutputContribution no longer defines motion_hints; concrete motion behavior remains plugin-owned through generic effect_calls, platform_extras, or client_objects.
-    - Interaction plugins can register a read-only lifecycle observer; middleware/output runtime publish generic turn stages while thinking/tool-running remain reserved for execution backends.
-    - Interaction completion distinguishes active/completed/failed/cancelled, and visible output snapshots retain utterance message identity.
-    - Plugin unbind clears prompt/result/stream/lifecycle/effect runtime registrations by module prefix so reload cannot reactivate stale contributors.
-    - SQLite async engines now use NullPool and connect-time PRAGMAs in core and knowledge-base DB paths.
-    - "`documents.doc_id` now gets a guarded unique index migration when no duplicate legacy IDs exist."
-    - Dashboard markdown rendering receives streaming state for smooth incremental output.
-    - Plugin list responses now include lightweight `pages` names for direct WebUI entry buttons.
-    - QQ Official outgoing messages are split into one-media chunks for both event replies and proactive session sends.
-    - Xiaomi OpenAI-compatible and Xiaomi Token Plan Anthropic-compatible LLM providers are now registered and exposed through provider templates/WebUI icons.
-    - "CLI initialization can seed PBKDF2 and legacy dashboard password hashes from `ASTRBOT_DASHBOARD_INITIAL_PASSWORD` without overwriting existing configs."
-    - "`astrbot password` now writes PBKDF2 plus legacy dashboard password hashes and can optionally update the dashboard username."
-    - Dashboard login/setup routes now expose setup status, authenticated setup completion, legacy password hints, and password-upgrade hints.
-    - Dashboard account-edit UI now sends plaintext current/new passwords to match the PBKDF2 backend verification path.
-    - Knowledge-base sparse retrieval uses FTS5 when available and falls back to BM25; EPUB/RST/ADOC uploads and blank-prompt retrieval skip are present locally.
-    - Computer-use sandbox behavior includes CUA native upload/write fallback, CUA idle expiry, CUA idle-timeout config exposure, Shipyard Neo explicit/auto profile handling, and readiness/cleanup guards.
-    - Media conversion recognizes Tencent SILK magic bytes, MiniMax TTS timber weights tolerate empty/bad config, send_message_to_user fails closed on missing media paths, and no-parameter tool calls tolerate `None` arguments.
-    - NVIDIA and Ollama embedding providers are already available locally through provider sources, provider manager registration, and default config templates.
-    - Dashboard auth now uses PBKDF2 storage with legacy MD5 migration compatibility; WebUI login and account edit send plaintext passwords, while setup page handles required password changes.
-    - CLI package version, core runtime version, and `pyproject.toml` project version are aligned to upstream `4.25.2`.
-    - Docs-public install scripts are now present as operational documentation assets and do not change local runtime startup/config behavior.
-    - File component downloads now sanitize remote filenames before writing to temp storage.
-    - Markdown knowledge-base uploads use a heading-aware chunker for `.md`, `.markdown`, `.mkd`, and `.mdx` files while other formats keep the configured default chunker.
-    - WebUI voice recordings now stage as `record` attachments through the common chat file upload path.
-    - The existing local future-task page can manually run jobs, surfaces last errors, and allows empty delivery session to match cron runtime fallback behavior.
-    - Quoted images are no longer captioned twice when the selected chat provider supports image input, and the main provider is no longer used as an implicit quoted-image caption fallback without a configured caption provider.
-    - Command APIs expose normalized per-config wake prefixes for dashboard command suggestions.
-    - Plugin APIs expose `marketplace_name` so local plugin entries can match marketplace names that differ only by underscore/hyphen normalization.
-    - Builtin group chat context uses one structured prompt-extension exit on the canonical Core path; an Apply-marker-protected `on_llm_request` bridge preserves group context for official agent runners outside ContextPack without duplicating Core injection.
-    - Plugin execution-surface routing policy is owned by a lightweight Core module so Prompt collectors can filter tool inventories without importing the eager Interaction package; the previous Interaction module remains a compatibility re-export.
-    - LLM context compression now uses round-based token-ratio recent preservation and compression-provider modality sanitization; it remains a runner-level request/messages optimization and does not own Yakumo memory storage or retrieval.
-    - Memory snapshot reads accept an explicit current-event identity override; legacy callers without an identity retain latest-turn fallback behavior.
-    - Session prompt metadata marks the current speaker and distinguishes group multi-user scope from private single-user scope.
-    - One canonical base ContextPack is projected into Persona, Core Planner, and Core views; one shared plugin-enrichment pack is projected into Persona and Core views, with extension targets filtered consistently at both layers.
-    - Persona expression uses a structured output contract so spoken replies and plugin hints can be returned together.
-    - Delegated Core receives official conversation history, group context, explicit plugin contexts, and execution capabilities, while persona and interaction-specific effect state remain excluded.
-    - Core Planner projections omit shared Persona enrichment, Persona contributor caches are isolated by expression phase, and delegated Core retains plugin-supplied contexts while stripping conversation-history prefixes.
-    - Core Planner receives attachment summaries instead of image/file payloads, while Anthropic Persona contexts convert local image URLs to base64 image blocks.
-    - Shared structured-output parsing uses json-repair only after standard JSON parsing fails, and still accepts repaired mappings only.
-    - PromptRenderEngine applies target-local PromptRenderProfile policy after projection; PromptTreeBuilder depends on PromptLayoutInterface, while provider renderers only compile the completed semantic tree.
-    - Builder-based prompt collection rejects conflicting duplicate slots and supports explicit cross-phase replacement; Interaction cross-phase enrichment now uses PromptContextBuilder(base=...) instead of direct shared-pack mutation.
-    - Conversation persistence consumes the prompt pipeline's scaffold-free user message instead of saving internal request_context/user_input markup.
-    - Model-visible facts come from ContextPack collection; target system/request prompts, output contracts, input suffixes, and hidden-slot rules come from PromptRenderProfile rather than business-module request assembly.
-    - Persona begin dialogs, official conversation history, plugin explicit contexts, and current input have a stable ownership-based message order.
-    - The exported apply_interaction_core_task_spec direct-request interface remains available for plugin compatibility, while the canonical Main Agent path uses CoreTaskCollector exclusively.
-    - Persona effect registrations may provide an event filter; Persona output contracts include only effects applicable to the current event, while unscoped registry listing remains available for management and diagnostics.
-    - All Prompt render paths filter llm_exposure=never; explicit target projections additionally enforce slot-level targets before target-specific allowlists.
-    - PromptLayoutInterface exposes one explicit render_group contract; PromptTreeBuilder no longer depends on dynamically named layout methods.
-    - Persona Expression is already running before hybrid planning; execute starts Core immediately on both queue and official Pipeline paths without injecting Planner task material into Persona. A Core final result committed first suppresses pending Persona output.
-    - Core Planner parsing now enforces its declared closed schema instead of repairing missing fields or coercing wrong types.
-verification:
-  checks_run:
-    - "2026-08-31 OLV Persona Expression runtime smoke: a real protocol-v2 input.text turn initially exposed that MiniMax can call the required persona_expression tool while still returning effect_calls=[]; backend validation correctly rejected the missing required ag99live.motion and emitted one local fallback segment. The root cause was provider-side nested-schema noncompliance reinforced by ambiguous effect wording. Effect descriptions, the generated effect_calls schema description, and the Persona system prompt now explicitly require exactly one motion effect with neutral valid arguments when needed. After restart, a second real OLV turn produced exactly one output.segment with a present engine.motion_intent.v4 motion payload and one control.turn_finished, with no duplicate output or required-effect warning. Focused Interaction/Effect/Plugin Runtime tests passed (69), changed-file Ruff and git diff checks passed."
-    - "2026-08-14 Phase 5B batch 1 hotfix: production logs exposed a missing AgentLifecycleOverlay.force_stopped field that caused Persona Hook event.is_stopped() to fail and trigger local fallback. The field and a direct stop-state assertion were added; the lifecycle boundary and existing Persona Hook compatibility case passed (2 tests), with affected Ruff, py_compile, and git diff checks passing."
-    - "2026-08-14 Phase 5B batch 1 lifecycle isolation: Persona AgentRequestLifecycle now uses a task-local overlay for Hook-visible extras, ProviderRequest, PromptApplyResult, result, stop state, and reasoning state, so concurrent Core lifecycle scopes cannot overwrite or clear each other through the shared event. The minimal overlap boundary and existing Persona Hook compatibility case passed (2 tests); affected Ruff, py_compile, and git diff checks passed."
-    - "2026-08-08 line-by-line review closure: all Phase 5B core files (execution types/runtime, handler executor, branch event, coordinator, ProcessStage, delayed/artifact delivery, media lease, assistant artifacts, visible fingerprint) were reviewed line by line against the frozen decisions. Confirmed sound: Gate/Job state machine first-wins transitions, wait_for_gate shield semantics without future leaks, provider bridge no-deadlock invariant, DELEGATED full-artifact delivery after job terminal, deadline backstop for detached waits, ContextVar isolation, reload draining without lease deadlock, parent-conversation commit ordering behind the t1_settled barrier, and media materialization versus parent temp-file cleanup ordering. Remediation already applied on 2026-08-07/08: module-draining admission fail-opens to PASSED instead of failing the turn; _combine_messages preserves MessageChain type/markdown/t2i flags so duplicate-visible-output fingerprinting stays effective; semantic artifacts with media or non-plain components route to delayed_plugin_direct so T2 cannot drop them; DELEGATED no longer appends a redundant wait_completed barrier; delivery_group_id is populated from an explicit branch group or the Handler invocation. Verified 193 focused interaction/personal/plugin/prompt_target/group_chat/waking tests plus 43 PluginManager tests passed with isolated basetemp, and affected Ruff passed. The global switch remains false pending real private-chat and target-group traces."
-    - "2026-08-07 Phase 5B runtime-selection observability: ProcessStage now emits one INFO DIAG interaction.parallel_plugin_runtime_selected record only after it actually selects the enabled Coordinator path, including platform/session/turn, activated Handler count, and group-candidate status. The real-log acceptance guide requires this record before interpreting the subsequent timing snapshots. Four existing ProcessStage ownership and Handler recovery cases passed; affected Ruff, py_compile, and git diff checks passed. The global switch remains false pending real traces."
-    - "2026-08-07 Phase 5B live-log audit: the current runtime configuration still keeps parallel_plugin_runtime_enabled=false. Retained Alice private/group logs predate the enabled three-line path, while current DIAG interaction.parallel_turn entries are test/demo diagnostics from unit execution and are not production evidence. The Phase 5B plan now includes a minimal operator acceptance sequence for 815049548 and group 1083316872; real traces remain mandatory before enabling the switch."
-    - "2026-08-07 Phase 5B Persona prompt critical-path closure: base Context Material now starts one turn-owned plugin-enrichment prefetch; Persona selects the plugin pack only when already ready and otherwise records base_fallback without awaiting it, while Core awaits and reuses the same task. Interaction Prompt Contributors no longer use a local per-contributor timeout, and one failed or invalid contributor is recorded and skipped instead of invalidating the whole pack. Thirty-seven existing Persona/Router tests, non-blocking/single-flight and contributor-isolation smokes, affected Ruff, py_compile, and git diff checks passed. Real 815049548 and target-group traces remain required before enabling the parallel switch."
-    - "2026-08-07 Phase 5B Prompt critical-path and final review closure: Interaction now builds canonical base facts without ordinary plugin contributors for Router/Core Planner, then collects one Persona/Core plugin-enrichment pack through a turn-local single-flight. Plugin-scope diagnostics report only newly collected plugin extension collectors. Review also closed nested artifact metadata isolation and bounded the delivery-key ledger to one Job's T1/T2 lifetime. The focused Prompt/Interaction suite previously passed 49 tests; an additional 14 Plugin Runtime/Handler/branch boundaries and delivery-ledger lifecycle smoke passed, with affected Ruff, py_compile, YAML, and git diff checks. Main Agent/Core Planner validation passed 68 of 70 cases; the two failures are pre-existing Windows file-URI video path expectations in the unmodified InputCollector (`path/to` versus `/path/to`). The global parallel switch remains false pending real private/group traces."
-    - "2026-08-07 Phase 5B final ownership review: a raw Plugin Gate FAILED now fails open to Router and Personal instead of being treated as plugin takeover. Official Handler exceptions continue through their existing error artifact plus stop semantics, while executor, media, branch-sink, or Runtime failures retain diagnostics without cancelling Router, suppressing Personal, or swallowing T1. Delayed output with no fixed parent conversation skips assistant-only history instead of creating or binding a new conversation. T1 and T2 direct/media output now share one assistant-artifact serializer, preventing successful pure-media T1 delivery from ending with missing canonical history material; serializer fallback also tolerates third-party components without a type attribute. Nine focused Plugin Runtime cases and eight Personal/Router/Handler ownership cases passed, with affected Ruff, changed-module py_compile, JSON/YAML parse, and git diff checks passing. The global parallel switch remains false pending real private/group traces."
-    - "2026-08-07 Phase 5B resumed delivery review: HANDLED now freezes the exact first-final T1 artifact boundary, while STOPPED remains an immediate control result without freezing an empty snapshot; official stop-before-yield output is delivered by T1 when available and otherwise by ledger-protected T2. Same-session pure-media Context.send_message now enters the branch sink instead of bypassing directly to the platform. Forty-five focused public-boundary tests passed with affected Ruff, py_compile, YAML, and diff checks."
-    - "2026-08-07 Phase 5B resumed static closure: the enabled path now refuses silent fallback when its Coordinator, delivery, or Personal Runtime dependencies are unavailable, and respects the Interaction master switch before selecting the three-line owner. Plugin branch extras recursively detach plain mutable containers while retaining opaque runtime handles, so detached Handlers cannot mutate the old turn through nested config or Handler parameter structures. Tool start/respond lifecycle Hooks now carry the same Personal/Core execution surface as all other Agent lifecycle Hooks. Three existing public-boundary cases passed; affected Ruff, py_compile, and git diff checks passed. The global switch remains false pending real traces."
-    - "2026-08-07 Phase 5B-8 diagnostic closure: the Coordinator now emits same-turn control_resolved, t1_settled, and plugin_completed snapshots with Personal start/complete/physical-emission timing, Router mode, Plugin Gate/Job timing, Core Gate reason, and plugin delay. Handler invocation, delayed T2 reservation/delivery/history/duplicate/target details, and Runtime active/detached/oldest/background counters are separately observable. Background counters now include only Jobs that actually outlive T1. Ninety-seven focused plugin-runtime, Personal Runtime, and PluginManager tests passed; affected Ruff, py_compile, and git diff checks passed. The global switch remains false pending real 815049548 and target-group traces."
-    - "2026-08-07 Phase 5B Coordinator ownership closure: when the default-disabled switch is enabled, every eligible ordinary turn now enters InteractionTurnCoordinator even with no activated Handler; the empty-Handler path creates no branch, Plugin Job, watcher, or plugin wait and resolves PASSED at t0. Coordinator now initializes pending Personal state and owns pending-Personal cancellation for silent or terminal Plugin Gate results through one turn-state primitive; ProcessStage executes the resolution without separate cancellation arbitration. Focused empty-Handler, delegated bridge, and runtime cases passed; real traces remain required before enabling the switch."
-    - "2026-08-07 Phase 5B resumed architecture review: PluginManager reload, update, uninstall, failed-install cleanup, and disable now enter Runtime draining before plugin termination or unbind; update keeps the management lock and drain across file replacement plus reload, full reload iterates a snapshot, cancelled drain admission clears the draining marker, and synchronous plugin destructors complete before draining ends. ProviderRequest bridge cancellation now cancels its completion future and closes the bridge, while delayed artifact history summarizes both base64:// and data: media instead of persisting inline payloads. Twenty-six focused runtime, Handler, branch-media, configuration, and plugin-manager cases passed; all affected Python passed Ruff and py_compile, bridge/drain/artifact and destructor-order smokes passed, locale JSON and state YAML parsed, and git diff checks passed. The parallel switch stays false pending real traces."
-    - "2026-08-07 Phase 5B pure-media duplicate closure: successful T1 sends now retain a deterministic full MessageChain fingerprint, while delayed T2 compares text-only output by normalized text and media or mixed output by the component-chain fingerprint. Empty media fields remain empty, remote media uses exact URLs, inline payloads use length plus SHA-256, and local files use normalized path metadata without scanning large content. The focused public-boundary suite passed 5 tests; affected Ruff, py_compile, and diff checks passed. Real 815049548 and target-group traces remain required before enabling the switch."
-    - "2026-08-07 Phase 5B production closure: ProcessStage now wires the default-disabled same-t0 Personal/Router/Plugin path, real plugin_resolved_at Core Gate, EXPIRED detach, branch media leases, Runtime delivery ledger, and low-priority delayed expression/direct delivery. HANDLED closes only the first T1 artifact snapshot; later final artifacts wait for T1 settlement and use T2, preventing silent loss and stale duplicate checks. The two focused plugin-runtime suites passed 17 tests, four directly affected Handler/branch/media/scheduler boundaries passed, and affected Ruff, py_compile, locale JSON, state YAML, and git diff checks passed. Real 815049548 and target-group traces remain required before enabling the switch."
-    - "2026-08-07 Phase 5B lifecycle remediation: pending Persona suppression now cancels and detaches without making TurnExecutionScope.close or Personal Runtime lease release wait; emitted Persona uses the recorded visible reply without waiting for trailing bookkeeping; T1 artifact and final-output reservations close on delivery exceptions; ProcessStage rejects stale discovery Handler objects after reload/unbind. The focused Plugin Runtime and Personal Runtime suites passed 60 tests, with affected Ruff, py_compile, and git diff checks passing. The global switch remains false pending real private/group traces."
-    - "2026-08-07 Phase 5B takeover cleanup: Plugin Gate HANDLED/STOPPED/DELEGATED now cancels and detaches the parallel Router task instead of leaving scope shutdown to await it; Plugin artifacts populate delivery_group_id from an explicit branch group or their Handler invocation by default. Focused Plugin Runtime tests passed 22 cases with Ruff, py_compile, and git diff checks passing. DELEGATED completion remains the documented in-window compatibility path, and Job CANCELLED remains observable separately from the fail-open Gate FAILED state."
-    - "2026-08-07 Phase 5B resumed verification: latest delivery_group_id wiring and coordinated runtime boundaries passed the focused Plugin Runtime, Interaction Plugin Runtime, and Personal Runtime suite (60 passed); affected Ruff, py_compile, state YAML parsing, and git diff checks passed. No new correctness issue was found. The global switch remains false pending real private/group traces; DELEGATED completion and Job CANCELLED versus Gate FAILED remain documented semantic follow-ups."
-    - "2026-08-07 Phase 5B residual cleanup: DELEGATED ProviderRequest driving no longer appends a redundant wait_completed barrier after the Runtime Job task has already reached a terminal state; Coordinator diagnostics now distinguish a cancelled Job from an execution failure while retaining the fail-open Gate FAILED state. Focused Plugin Runtime and Personal Runtime tests passed 60 cases, Ruff and py_compile passed, and the previously running AstrBot process tree was terminated with its service ports released."
-    - "2026-08-07 Phase 5B line-review remediation: module draining admission now skips the whole Official Plugin Job and fail-opens the turn as PASSED instead of failing the user message or re-entering the old Handler path; delayed output preserves MessageChain type/markdown/t2i metadata when combining artifacts; semantic/persona artifacts containing media or other non-plain components use delayed_plugin_direct so T2 cannot discard them. Two public-boundary cases were added and the focused Plugin Runtime, Interaction Plugin Runtime, and Personal Runtime suite passed 62 tests; affected Ruff, py_compile, YAML parsing, and git diff checks passed."
-    - "2026-08-07 Phase 5B pre-commit review: no new blocking correctness issue was found across the current batch. The focused Plugin Runtime, Interaction Plugin Runtime, Personal Runtime, Expression Agent, and PluginManager selection passed 132 tests; all changed and new Python files passed Ruff and py_compile, locale JSON and state YAML parsed, key runtime imports succeeded, and git diff checks passed. Pytest retained the known aiosqlite event-loop-close warning. The global switch remains false pending real private/group trace validation."
-    - "2026-08-07 Phase 5B-5 delivery foundation: branch Handler yields now capture MessageEventResult artifacts, the branch sink satisfies transaction finalization, T1 final artifacts require Runtime-ledger reservation, and Middleware exposes coordinated route acceptance plus non-blocking pending-Personal suppression. The two focused plugin-runtime suites passed 17 tests; affected Ruff, py_compile, state YAML parse, and git diff checks passed. Production ProcessStage wiring remains disabled until detached delivery and T2 are complete."
-    - "2026-08-04 Router/Persona concurrency restoration: ordinary and bounded group-candidate turns preserve Handler takeover, then start Router and Persona together; silent suppresses only pending Persona, committed or delivered output is retained, and a later Router/Planner deadline does not emit a duplicate failure reply. Five focused public-flow cases, one deadline-delivery smoke, affected Ruff, py_compile, YAML parse, and git diff checks passed. Real Provider traces remain operator validation."
-    - "2026-08-04 Phase 5 commit review remediation: deadline scopes now distinguish their own cancellation from provider/plugin TimeoutError, unresolved follow-ups are withdrawn from the old Agent on admission failure, and required protocol tools cannot be removed by OpenAI-compatible recovery. OpenAI Provider 63 tests and follow-up 9 tests passed; affected Ruff, py_compile, git diff checks, deadline classification, and follow-up withdrawal smoke passed."
-    - "2026-08-04 Phase 3/4 closure review: post-OnLLMRequest Core capability binding is centralized for Native and third-party runners, Native Agent context processing reuses the projected Core history limit including the 64-turn fallback, and ToolLoopAgentRunner resolves its file-read overflow helper from the final post-Hook request instead of a cached pre-Hook handler. Focused Persona/plugin/Prompt/ToolRunner suites passed 170 tests; affected Ruff, py_compile, and git diff checks passed. Real Provider quality, token, and latency logs remain operator validation."
-    - "2026-08-04 turn deadline unification: OpenAI Provider, shared Tool Runner, Router, Planner, Persona, Output Lifecycle, plugin runtime, and Personal Runtime suites passed 196 tests; affected Ruff and py_compile passed; monotonic total-deadline cancellation and configured stage-timeout classification smoke passed. Final-output cancellation releases its reservation, queue cancellation cannot leak the session lock, and deadline diagnostics are emitted from the common submission-settle boundary. Initial OpenAI run had 9 environment-only tmp_path permission errors and passed fully after using a workspace temp directory. Real Provider long-turn and same-session queue latency remain pending runtime-log validation."
-    - "2026-08-03 Persona tool execution unification: 7 focused public-boundary tests passed for one-call Persona output, unused tools, one business-tool continuation, terminal non-execution, Hook compatibility, compiled output binding, and no fallback after tool execution. Duplicated provider-private tests, mixed edge-case tests, and assertions over private render counts or temporary object layout were removed; affected-file Ruff, py_compile, YAML parse, and git diff checks passed."
-    - "2026-08-03 output lifecycle review remediation: ordinary Pipeline and Interaction now share one response-safety evaluator, selector replacement is bounded per config ID, and after-send stop propagation has observable coverage. 94 focused lifecycle, Interaction, content-safety, Prompt, delivery, expression, and Personal Runtime tests passed; affected Ruff, py_compile, cold imports, YAML parse, VitePress production build, and git diff checks passed. A separate 98-test selection including the full Core lifecycle suite had 97 pass and one pre-existing test fixture failure because a MagicMock asyncio.Task belongs to a different event loop; core stop code is outside this diff."
-    - "2026-08-03 output lifecycle consolidation: 169 focused output, Interaction, Personal Runtime, content-safety, plugin-compatibility, event, and lifecycle tests passed. Cold imports, affected Ruff and py_compile, YAML parse, VitePress production build, and git diff checks passed."
-    - "2026-08-03 post-review root remediation: cold Prompt/API/DeepSeek imports passed; 104 provider/media/memory/group tests, 5 Router-candidate tests, 47 Persona/plugin-expression tests, 17 Prompt projection tests, and 82 Prompt collector tests passed. Affected Ruff, compileall, YAML parse, and git diff checks passed."
-    - Persona after-send and Prompt apply-marker repair: the full affected Prompt, Group Context, Interaction, and Personal Runtime suite passed 151 tests, including cold-import and completion-order regressions. Ruff, compileall, YAML parse, and git diff checks passed.
-    - Autonomous Personal Runtime Gate configuration: public config/Gate smoke covered mute, cross-midnight quiet hours, and proactive output budget; Ruff, py_compile, and three locale JSON parses passed; no test file was added.
-    - Autonomous Personal Runtime Phase 4 persistence prerequisite: dedicated SQLite repository create/update/reload smoke, Ruff, py_compile, Core Lifecycle import, and git diff checks passed; no test file was added.
-    - Autonomous Personal Runtime Phase 1B: delivered/failed/cancelled/suppressed completion feedback smoke, interaction package import, Ruff, py_compile, YAML parse, VitePress build, and git diff checks passed; no implementation-detail test files were added.
-    - Autonomous Personal Runtime Phase 1A: PersonalState and diagnostics import smoke, focused valid Core lifecycle stop tests (2 passed), Ruff, py_compile, YAML parse, docs build, and git diff checks passed; one existing cross-event-loop MagicMock task test fails before the new shutdown boundary and was not used as implementation evidence.
-    - TTS lifecycle/output segment direct-path refactor: affected Voice Service, event delivery, message-chain delivery, Respond/Postprocess, Interaction Middleware, and Interaction Output Controller suite passed 236 tests; Ruff, py_compile, VitePress build, YAML parse, and git diff checks passed. Pytest retained known aiosqlite event-loop-close warnings.
-    - Dead pre-Pipeline path removal: project-venv Interaction Middleware suite passed 57 tests; production reference scan, Ruff, Python compile, VitePress build, YAML parse, and git diff checks passed. Pytest retained an existing aiosqlite event-loop-close warning.
-    - Executor preparation/output compatibility: Prompt/Main Agent/Tool Loop/Interaction suite passed 321 tests; event/message/memory suite passed 178 tests; suppressed Interaction output preserves the prior send-operation state; Ruff, py_compile, Mermaid render, VitePress build, YAML parse, and git diff checks passed.
-    - All explicit tests/unit/test_interaction_*.py files passed 200 tests after the broader unit collection command was blocked by local data/cmd_config.json permissions; postprocess and pipeline scheduler coverage passed 34 tests.
-    - Router/Persona review cleanup: context single-flight/cancellation, Core handoff, and Planner recovery tests (73 passed); broad Interaction/Prompt/Main Agent suite (421 passed).
-    - Router/Persona speculative concurrency: all interaction unit tests (195 passed), broad Interaction/Prompt/Main Agent suite (419 passed), Middleware race tests (53 passed), Ruff, py_compile, YAML parse, and git diff checks passed.
-    - Prompt/Planner boundary fixes: focused Prompt/Planner/Middleware suite (223 passed), broad Prompt/Interaction/Main Agent suite (417 passed), Middleware concurrency suite (52 passed), Ruff, py_compile, YAML parse, and git diff checks passed.
-    - Prompt boundary documentation sync: VitePress production build passed, docs tests passed (27), public Prompt Extension import smoke test passed, Node config syntax passed, YAML parse passed, and git diff checks passed.
-    - Prompt render dependency cleanup: focused Prompt/Interaction tests (104 passed), broad Prompt/Interaction/Main Agent tests (454 passed), tool-loop/postprocess/memory boundary tests (138 passed), and Ruff passed.
-    - Canonical ContextPack enrichment follow-up: focused Prompt/Interaction tests (118 passed), broad Prompt/Interaction/Main Agent tests (452 passed), tool-loop/postprocess/memory boundary tests (138 passed), Ruff, and py_compile passed.
-    - Event-scoped Persona effects and Router session context: all interaction unit tests (199 passed), focused prompt/context tests (111 passed), AG99live plugin unit tests (288 passed), Ruff, YAML parse, and git diff checks passed.
-    - DeepSeek thinking/non-thinking tool-choice and reasoning round-trip preservation: provider tests (8 passed), Persona Expression tests (24 passed), output-contract/request-adapter/tool-loop boundary tests (13 passed), and ruff (passed); broader OpenAI provider suite has 6 unrelated pre-existing Windows path/diagnostic failures
-    - Official-hook compatibility follow-up: focused group-context/prompt/internal-agent tests (69 passed), broad prompt/interaction/Main Agent tests (455 passed), postprocess/memory/tool-loop tests (138 passed), ruff, and public import smoke test (passed)
-    - .venv\Scripts\python.exe -m pytest tests\unit -q -k "prompt or interaction or group_chat_context_wiring or astr_main_agent" --basetemp .tmp\pytest-prompt-review (450 passed, 707 deselected)
-    - .venv\Scripts\python.exe -m pytest tests\unit\test_postprocess.py tests\unit\test_memory_runtime.py tests\test_tool_loop_agent_runner.py -q --basetemp .tmp\pytest-prompt-review-post (138 passed)
-    - Public filter.on_llm_request and apply_interaction_core_task_spec import check, focused Core bridge/prompt integration tests, ruff, and git diff --check (passed)
-    - .venv\Scripts\python.exe -m pytest tests/unit -q -k "prompt or interaction or group_chat_context_wiring or astr_main_agent" (481 passed, 707 deselected)
-    - .venv\Scripts\python.exe -m pytest tests/unit/test_postprocess.py tests/unit/test_memory_runtime.py tests/test_tool_loop_agent_runner.py -q (138 passed)
-    - .venv\Scripts\python.exe -m ruff check prompt/interaction/main-agent/internal-stage/group-context implementation and affected tests (passed)
-    - .venv\Scripts\python.exe -m py_compile prompt builder/targets/tree/engine, main agent, interaction context builder, and internal stage (passed)
-    - python -m pytest all interaction unit files -q (198 passed)
-    - python -m pytest tests/unit/test_config.py -q -k interaction_middleware (3 passed)
-    - python -m ruff check changed interaction files and tests (passed)
-    - JSON locale parse and git diff --check (passed)
-    - .venv\Scripts\python.exe -m pytest full interaction boundary suite -q (193 passed)
-    - .venv\Scripts\python.exe -m pytest tests/unit/test_postprocess.py tests/unit/test_memory_runtime.py -q (103 passed)
-    - .venv\Scripts\python.exe -m ruff check changed interaction boundary files and tests (passed)
-    - Python compile, state YAML parse, boundary legacy-reference scan, and git diff --check (passed)
-    - python -m pytest tests/test_plugin_manager.py -q (39 passed)
-    - python -m pytest plugin runtime cleanup plus lifecycle observer tests -q (6 passed)
-    - python -m pytest all tests/unit/test_interaction_*.py -q (193 passed)
-    - python -m pytest tests/unit/test_postprocess.py tests/unit/test_memory_runtime.py -q (103 passed)
-    - python -m ruff check all lifecycle implementation and affected interaction tests
-    - YAML parse check for .ai/state.yaml and git diff --check
-    - .venv\Scripts\python -m pytest tests/agent/test_context_manager.py tests/unit/test_message_tools.py -q
-    - .venv\Scripts\python -m pytest tests/test_openai_source.py::test_query_stream_extracts_usage_from_empty_choices_chunk tests/test_openai_source.py::test_query_stream_filters_empty_assistant_message -q
-    - .venv\Scripts\python -m pytest tests/test_tool_loop_agent_runner.py::test_skills_like_requery_passes_extra_user_content_parts tests/test_tool_loop_agent_runner.py::test_skills_like_requery_preserves_original_visible_reply tests/test_epub_parser.py -q
-    - .venv\Scripts\python -m pytest tests/test_main.py::test_should_use_bundled_dashboard_dist_when_data_dist_is_stale tests/test_main.py::test_should_keep_data_dist_when_version_file_is_malformed tests/test_main.py::test_check_dashboard_files_uses_bundled_dist_when_data_dist_is_stale tests/test_dashboard.py::test_dashboard_uses_bundled_dist_when_data_dist_is_stale -q
-    - .venv\Scripts\python -m ruff check astrbot/core/provider/sources/openai_source.py astrbot/core/agent/context/compressor.py astrbot/core/utils/t2i/network_strategy.py astrbot/builtin_stars/astrbot/main.py astrbot/core/pipeline/result_decorate/stage.py astrbot/core/config/default.py tests/agent/test_context_manager.py tests/unit/test_message_tools.py
-    - .venv\Scripts\python -m ruff check astrbot/core/agent/runners/tool_loop_agent_runner.py astrbot/core/knowledge_base/parsers/util.py tests/test_tool_loop_agent_runner.py tests/test_epub_parser.py
-    - .venv\Scripts\python -m ruff check astrbot/core/utils/io.py astrbot/dashboard/server.py main.py tests/test_main.py tests/test_dashboard.py
-    - pnpm --dir dashboard typecheck
-    - utf-8-sig JSON parse check for dashboard knowledge-base detail locales
-    - git diff --check
-    - .venv\Scripts\python -m ruff check astrbot/cli/__init__.py astrbot/core/config/default.py
-    - .venv\Scripts\python -m pytest tests/unit/test_config.py tests/test_main.py::test_should_use_bundled_dashboard_dist_when_data_dist_is_stale tests/test_main.py::test_should_keep_data_dist_when_version_file_is_malformed -q
-    - TOML/YAML parse and install-script BOM check
-    - git diff --check
-    - pnpm --dir dashboard exec node scripts/subset-mdi-font.mjs
-    - .venv\Scripts\python -m pytest tests/test_dashboard.py::test_do_update tests/unit/test_astr_main_agent.py::TestSelectProvider -q
-    - .venv\Scripts\python -m ruff check astrbot/core/astr_main_agent.py astrbot/core/pipeline/process_stage/method/agent_sub_stages/internal.py astrbot/core/updator.py astrbot/core/utils/io.py astrbot/core/zip_updator.py astrbot/dashboard/routes/update.py tests/test_dashboard.py tests/unit/test_astr_main_agent.py
-    - .venv\Scripts\python -m ruff check astrbot/core/astr_main_agent.py astrbot/core/provider/sources/mimo_tts_api_source.py astrbot/core/provider/sources/openai_source.py astrbot/dashboard/routes/plugin.py tests/test_mimo_api_sources.py tests/test_openai_source.py tests/unit/test_astr_main_agent.py tests/test_dashboard.py
-    - git diff --check
-    - pnpm --dir dashboard install --lockfile-only
-    - .venv\Scripts\python -m ruff check astrbot/core/db/__init__.py astrbot/core/db/vec_db/faiss_impl/document_storage.py astrbot/core/knowledge_base/kb_db_sqlite.py tests/unit/test_document_storage_fts.py
-    - .venv\Scripts\python -m pytest tests/unit/test_document_storage_fts.py -q
-    - pnpm --dir dashboard typecheck
-    - git diff --check
-    - .venv\Scripts\python -m pytest tests/test_dashboard.py::test_plugin_get_includes_scanned_page_names tests/test_dashboard.py::test_plugin_detail_includes_scanned_page_component tests/unit/test_qqofficial_message_split.py -q
-    - .venv\Scripts\python -m ruff check astrbot/dashboard/routes/plugin.py astrbot/core/platform/sources/qqofficial/qqofficial_message_event.py astrbot/core/platform/sources/qqofficial/qqofficial_platform_adapter.py tests/test_dashboard.py tests/unit/test_qqofficial_message_split.py
-    - pnpm --dir dashboard typecheck
-    - git diff --check
-    - .venv\Scripts\python -m pytest tests/test_xiaomi_sources.py -q
-    - .venv\Scripts\python -m ruff check astrbot/core/provider/sources/xiaomi_source.py astrbot/core/provider/sources/xiaomi_token_plan_source.py astrbot/core/provider/manager.py tests/test_xiaomi_sources.py
-    - pnpm --dir dashboard typecheck
-    - git diff --check
-    - .venv\Scripts\python -m pytest tests/test_dashboard.py::test_plugin_web_api_supports_dynamic_route tests/test_dashboard.py::test_plugin_page_content_issues_scoped_asset_token tests/test_plugin_manager.py::test_load_plugin_metadata_includes_pages tests/test_plugin_manager.py::test_load_plugin_metadata_includes_i18n -q
-    - .venv\Scripts\python -m ruff check tests/test_plugin_manager.py docs/Yakumo/upstream-merge-ledger.md
-    - .venv\Scripts\python -m pytest tests/test_cli_init.py tests/test_cli_password.py -q
-    - .venv\Scripts\python -m ruff check astrbot/cli/commands/cmd_init.py astrbot/cli/commands/cmd_password.py astrbot/cli/commands/__init__.py astrbot/cli/__main__.py tests/test_cli_init.py tests/test_cli_password.py
-    - .venv\Scripts\python -m pytest tests/unit/test_document_storage_fts.py tests/unit/test_sparse_retriever.py tests/test_epub_parser.py tests/test_computer_fs_tools.py::test_file_read_tool_reads_epub_via_parser_and_magic tests/unit/test_cua_computer_use.py::test_cua_idle_timeout_shuts_down_session_proactively tests/unit/test_cua_computer_use.py::test_cua_idle_timeout_refreshes_on_reuse tests/unit/test_cua_computer_use.py::test_cua_idle_timeout_zero_disables_proactive_shutdown tests/unit/test_cua_computer_use.py::test_cua_upload_file_prefers_native_files_upload tests/unit/test_cua_computer_use.py::test_cua_upload_file_uses_native_write_bytes_when_upload_missing tests/unit/test_cua_computer_use.py::test_cua_upload_file_fallback_rejects_non_posix_os_type tests/test_shipyard_neo_booter.py tests/test_profile_aware_tools.py -q
-    - .venv\Scripts\python -m ruff check astrbot/core/config/default.py tests/test_profile_aware_tools.py docs/Yakumo/upstream-merge-ledger.md astrbot/core/db/vec_db/faiss_impl/document_storage.py astrbot/core/knowledge_base/retrieval/sparse_retriever.py astrbot/core/knowledge_base/parsers/epub_parser.py astrbot/core/computer/computer_client.py astrbot/core/computer/booters/cua.py astrbot/core/computer/booters/shipyard_neo.py
-    - pnpm --dir dashboard typecheck
-    - .venv\Scripts\python -m pytest tests/test_media_utils.py tests/test_mimo_api_sources.py::test_minimax_tts_empty_timber_weight_uses_default tests/test_mimo_api_sources.py::test_minimax_tts_invalid_timber_weight_uses_default tests/unit/test_message_tools.py::test_send_message_missing_image_path_stops_before_send tests/test_openai_source.py::test_parse_openai_completion_raises_empty_model_output_error -q
-    - .venv\Scripts\python -m ruff check tests/test_media_utils.py tests/test_mimo_api_sources.py tests/unit/test_message_tools.py docs/Yakumo/upstream-merge-ledger.md astrbot/core/utils/media_utils.py astrbot/core/provider/sources/minimax_tts_api_source.py astrbot/core/tools/message_tools.py astrbot/core/provider/sources/openai_source.py astrbot/core/agent/runners/tool_loop_agent_runner.py
-    - .venv\Scripts\python -m pytest tests/test_media_utils.py tests/test_mimo_api_sources.py::test_minimax_tts_empty_timber_weight_uses_default tests/test_mimo_api_sources.py::test_minimax_tts_invalid_timber_weight_uses_default tests/unit/test_message_tools.py::test_send_message_missing_image_path_stops_before_send tests/test_openai_source.py::test_parse_openai_completion_raises_empty_model_output_error tests/test_updator_socks.py::test_repo_unzip_file_normalizes_windows_extended_length_paths tests/test_updator_socks.py::test_plugin_unzip_file_normalizes_windows_extended_length_paths tests/test_updator_socks.py::test_repo_unzip_file_rejects_archive_roots_outside_target_dir tests/test_updator_socks.py::test_repo_unzip_file_handles_archives_without_explicit_root_dir_entry -q
-    - .venv\Scripts\python -m py_compile astrbot\core\utils\auth_password.py astrbot\dashboard\password_state.py astrbot\dashboard\routes\auth.py astrbot\dashboard\routes\stat.py astrbot\dashboard\server.py astrbot\cli\commands\cmd_conf.py astrbot\cli\commands\cmd_init.py astrbot\cli\commands\cmd_password.py
-    - .venv\Scripts\python -m pytest tests\test_cli_init.py tests\test_cli_password.py tests\unit\test_config.py tests\test_dashboard.py tests\test_api_key_open_api.py tests\test_kb_import.py -q
-    - .venv\Scripts\python -m ruff check astrbot/core/utils/auth_password.py astrbot/dashboard/password_state.py astrbot/dashboard/routes/auth.py astrbot/dashboard/routes/stat.py astrbot/dashboard/server.py astrbot/dashboard/routes/static_file.py astrbot/core/config/astrbot_config.py astrbot/core/config/default.py astrbot/cli/commands/cmd_conf.py astrbot/cli/commands/cmd_init.py astrbot/cli/commands/cmd_password.py tests/test_dashboard.py tests/test_api_key_open_api.py tests/test_kb_import.py tests/test_cli_init.py tests/test_cli_password.py tests/unit/test_config.py
-    - pnpm --dir dashboard typecheck
-    - JSON parse check for dashboard auth and header locale files
-    - YAML parse check for .ai/state.yaml
-    - git diff --check
-    - .venv\Scripts\python -m pytest tests/unit/test_file_message_component.py tests/unit/test_astr_main_agent.py::TestBuildMainAgent::test_build_main_agent_skips_quoted_image_caption_for_vision_provider tests/unit/test_astr_main_agent.py::TestBuildMainAgent::test_build_main_agent_skips_quoted_image_caption_without_caption_provider tests/test_dashboard.py::test_plugin_get_includes_scanned_page_names tests/test_dashboard.py::test_plugin_detail_stringifies_non_string_repo tests/test_dashboard.py::test_plugin_detail_includes_scanned_page_component tests/test_dashboard.py::test_commands_api tests/test_dashboard.py::test_commands_api_returns_config_wake_prefix -q
-    - .venv\Scripts\python -m ruff check astrbot/core/message/components.py astrbot/core/astr_main_agent.py astrbot/core/prompt/collectors/input_collector.py astrbot/core/pipeline/result_decorate/stage.py astrbot/dashboard/routes/command.py astrbot/dashboard/routes/plugin.py astrbot/dashboard/server.py tests/unit/test_file_message_component.py tests/unit/test_astr_main_agent.py tests/test_dashboard.py
-    - pnpm --dir dashboard typecheck
-    - YAML parse check for .ai/state.yaml and JSON parse check for extension locale files
-    - git diff --check
-    - .venv\Scripts\python -m ruff check astrbot/dashboard/routes/file.py astrbot/core/tools/message_tools.py astrbot/core/provider/sources/whisper_api_source.py astrbot/core/utils/media_utils.py astrbot/core/config/default.py astrbot/dashboard/routes/static_file.py astrbot/core/provider/sources/gemini_embedding_source.py astrbot/core/provider/sources/openai_embedding_source.py astrbot/core/provider/sources/openai_source.py astrbot/core/message/components.py tests/test_openai_source.py tests/unit/test_aiocqhttp_reply.py astrbot/core/platform/sources/wecom_ai_bot/wecomai_event.py astrbot/core/astr_main_agent.py astrbot/core/agent/runners/tool_loop_agent_runner.py astrbot/core/pipeline/process_stage/method/agent_sub_stages/internal.py astrbot/dashboard/routes/plugin.py
-    - .venv\Scripts\python -m pytest tests/test_openai_source.py::test_resolve_image_part_preserves_base64_png_mime_type tests/test_openai_source.py::test_resolve_image_part_supports_base64_scheme tests/test_openai_source.py::test_encode_image_bs64_supports_base64_scheme tests/test_openai_source.py::test_encode_image_bs64_supports_file_uri tests/test_openai_source.py::test_image_ref_to_data_url_mode_controls_invalid_file_behavior tests/test_openai_source.py::test_encode_image_bs64_invalid_file_raises tests/test_openai_source.py::test_encode_image_bs64_missing_file_raises tests/test_media_utils.py tests/unit/test_aiocqhttp_reply.py tests/test_tool_loop_agent_runner.py::test_tool_result_includes_all_calltoolresult_content -q
-    - .venv\Scripts\python -m pytest tests/agent/test_context_manager.py tests/unit/test_group_chat_context_wiring.py -q
-    - .venv\Scripts\python -m ruff check astrbot/core/agent/context/compressor.py astrbot/core/agent/context/config.py astrbot/core/agent/context/manager.py astrbot/core/agent/context/round_utils.py astrbot/core/agent/runners/tool_loop_agent_runner.py astrbot/core/astr_main_agent.py astrbot/core/pipeline/process_stage/method/agent_sub_stages/internal.py astrbot/builtin_stars/astrbot/group_chat_context.py astrbot/builtin_stars/astrbot/main.py astrbot/builtin_stars/builtin_commands/commands/conversation.py tests/agent/test_context_manager.py tests/unit/test_group_chat_context_wiring.py
-    - .venv\Scripts\python -c "import ast, pathlib; p=pathlib.Path('astrbot/core/config/default.py'); ast.parse(p.read_text(encoding='utf-8')); print('default.py ast ok')"
-    - .venv\Scripts\python -m pytest tests/ -q --ignore=tests/test_openai_source.py --ignore=tests/test_anthropic_source.py --ignore=tests/test_aiocqhttp_platform.py -p no:cacheprovider
-    - vue-tsc dashboard typecheck (no errors in any touched dashboard files)
-    - git diff --check
-    - .venv\Scripts\python -m pytest tests\unit\test_group_chat_context_wiring.py tests\unit\test_prompt_context_collect.py::test_collect_context_pack_collects_session_slots_for_private_chat tests\unit\test_prompt_context_collect.py::test_collect_context_pack_collects_group_session_info tests\unit\test_prompt_context_collect.py::test_collect_context_pack_memory_skips_empty_snapshot tests\unit\test_prompt_request_adapter.py::test_request_adapter_reconstructs_rendered_user_message_order tests\unit\test_prompt_tree_renderer.py::test_render_engine_escapes_markup_text_in_system_and_structured_input -q -p no:cacheprovider --basetemp .tmp\pytest-prompt-identity\run
-    - .venv\Scripts\python -m pytest tests\unit\test_memory_runtime.py::test_memory_snapshot_current_identity_does_not_inherit_previous_group_sender -q -p no:cacheprovider --basetemp .tmp\pytest-memory-identity\run
-    - .venv\Scripts\python -m pytest tests\unit\test_prompt_context_collect.py::test_collect_context_pack_collects_memory_slots_from_snapshot -q -p no:cacheprovider --basetemp .tmp\pytest-prompt-identity\collector-run
-    - .venv\Scripts\python -m ruff check astrbot\core\memory\snapshot_builder.py astrbot\core\memory\service.py astrbot\core\prompt\collectors\memory_collector.py astrbot\builtin_stars\astrbot\group_chat_context.py astrbot\core\prompt\collectors\session_collector.py astrbot\core\prompt\render\interfaces.py tests\unit\test_group_chat_context_wiring.py tests\unit\test_prompt_context_collect.py tests\unit\test_memory_runtime.py
-    - .venv\Scripts\python -m pytest tests\unit\test_prompt_pipeline_integration.py::test_prompt_pipeline_replaces_pre_render_request_with_group_context_extension -q -p no:cacheprovider --basetemp .tmp\pytest-prompt-owner
-    - .venv\Scripts\python -m ruff check tests\unit\test_prompt_pipeline_integration.py
-    - git diff --check
-    - .venv\Scripts\python.exe -m ruff check on all files changed by the interaction prompt-profile refactor
-    - .venv\Scripts\python.exe -m py_compile astrbot/core/astr_main_agent.py astrbot/core/interaction/expression_agent.py astrbot/core/interaction/router_agent.py astrbot/core/interaction/middleware.py astrbot/core/prompt/profiles.py
-    - git diff --check
-    - .venv\Scripts\python.exe -m pytest tests/unit/test_interaction_expression_agent.py tests/unit/test_interaction_router_agent.py tests/unit/test_interaction_middleware.py tests/unit/test_interaction_decision_agent.py tests/unit/test_interaction_context_builder.py tests/unit/test_interaction_output_controller.py and focused interaction Core context tests -q
-    - .venv\Scripts\python.exe -m ruff check on the Router view, Persona phase cache, Core profile, explicit-context compatibility, and related tests
-    - .venv\Scripts\python.exe -m py_compile astrbot/core/astr_main_agent.py astrbot/core/interaction/contributors.py astrbot/core/interaction/context_builder.py astrbot/core/interaction/expression_agent.py astrbot/core/interaction/router_agent.py
-    - .venv\Scripts\python.exe -m pytest interaction prompt/runtime tests plus tests/test_anthropic_kimi_code_provider.py -q
-    - .venv\Scripts\python.exe -m ruff check Router attachment-summary and Anthropic local-context-image changes
-    - .venv\Scripts\python.exe -m pytest prompt selector and interaction structured-output parser suites -q
-    - uv lock --check
-    - pnpm --dir docs docs:build
-    - YAML parse check for .ai/state.yaml after Personal Runtime transition-cleanup plan update
-    - git diff --check after Personal Runtime transition-cleanup plan update
-    - .venv\Scripts\python.exe -m pytest Personal Runtime, Prompt integration, Interaction Middleware, Core Lifecycle, and smoke suites -q (103 passed)
-    - .venv\Scripts\ruff.exe check affected Interaction, Pipeline, Lifecycle, and test files (passed)
-    - py_compile for all affected runtime modules (passed)
-    - npm --dir docs run docs:build (passed)
-    - YAML parse check for .ai/state.yaml and git diff --check after Personal Runtime owner implementation (passed)
-    - uv run ruff check and py_compile for Phase 2A Observation, Inbox, Runtime, state, context, and persona-resolution modules (passed)
-    - Minimal public submit_observation smoke covered coalesce, overflow, expiry, unsupported-proactive targets, one evaluation task, batch close, diagnostics, and shutdown (passed)
-    - uv run ruff check, py_compile, project-environment import smoke, and git diff --check for Phase 2B Gate, Inbox, Runtime, and state modules (passed)
-    - Minimal Gate smoke covered accepted, target rejection, runtime-busy hold, mute and cooldown, cross-midnight quiet hours, policy/output budgets, feature aggregation, held-batch restoration, and settle-triggered reevaluation (passed)
-    - YAML parse check and pnpm VitePress production build after Phase 2B documentation and Mermaid flow updates (passed)
-    - Phase 3 Ruff, py_compile, import, JSON/YAML, public submit_observation shadow-policy, and VitePress checks (passed)
-    - Phase 7/P1 Ruff and py_compile over all changed runtime, pipeline, prompt, lifecycle, and postprocess modules (passed)
-    - Minimal Phase 7/P1 boundary smoke covered background-Core knowledge retrieval from CoreTaskSpec.execution_prompt, PostProcessManager shutdown/restart admission, and EventBus continuation after one invalid event (passed)
-    - pnpm --dir docs docs:build and git diff --check after Phase 7/P1 documentation and governance updates (passed)
-    - Phase 8 snapshot-ownership Ruff, py_compile, and minimal CoreExecutionSpec input-output smoke covering ContextPack, TaskSpec, execution-history, and capability fact isolation while retaining the Native ToolSet handle (passed)
-    - pnpm --dir docs docs:build after Phase 8 snapshot-ownership documentation updates (passed)
-    - "Personal Runtime post-review remediation: tests/unit/test_personal_runtime_capability.py public Context/Cron compatibility and platform-send failure accounting checks (6 passed); affected-file Ruff, py_compile, and git diff --check passed"
-    - "Personal Runtime log-review remediation: Interaction, delivery, Prompt target/catalog, Policy, Runtime accounting, and assistant-only Memory checks passed (100 tests); focused Ruff, py_compile, YAML parses, VitePress build, and git diff checks passed. Default Record standalone behavior and Personal Runtime composite TTS behavior were both covered."
-    - "Autonomous expression deduplication: 75 Interaction, Persona, Policy, Runtime, Context/Cron compatibility, and deterministic suppression tests passed; focused Ruff, py_compile, YAML parse, VitePress build, and diff checks passed."
-    - "Superseded historical bounded-group validation: the former zero-Persona silent path passed 62 focused checks before the 2026-08-04 concurrent Router/Persona arbitration restoration."
-    - "Superseded historical batch-ownership validation: the former Router-before-Handler continuation path passed 141 focused checks before Handler takeover and shared Router/Persona orchestration were restored on 2026-08-04."
-    - "Restart-safe autonomous-expression deduplication: 27 focused Personal Runtime and SQLite tests passed, covering delivered fingerprint persistence, restored-runtime suppression without Conversation fallback, and legacy SQLite column upgrade; affected-file Ruff, py_compile, YAML parse, diff check, and VitePress build passed."
-    - "Persona request mutation snapshot remediation: runtime-bound FunctionTool handlers containing asyncio.Future remain usable without deepcopy; 176 focused plugin, expression, tool execution, Context, Prompt, Runtime capability, and event tests passed with Ruff, compileall, YAML parse, and diff checks."
-    - "Persona structured-response hook remediation: parsed persona_expression text now populates a derived hook-visible MessageChain, so protocol tool-call responses with an empty provider chain remain compatible with legacy response hooks and do not trigger a false empty-output fallback; 26 expression tests passed with Ruff and diff checks."
-    - "Persona tool and context-window remediation: 117 Router, Persona, plugin-runtime, Prompt-target, Core-planner/bridge, provider-resolution, effect, and Personal Runtime tests passed; Core-result expression skips FunctionTools, zero-execution opt-in tool text is discarded, and Persona history uses an independent 16-turn target-local window. Executable tools later moved to an independent Core-default target policy with explicit Persona opt-in."
-    - "Core-default plugin tool targeting: plugin LLM lifecycle targets remain Persona-first while executable tools resolve independently through user override, tool declaration, then Core default; 39 Persona/plugin-runtime and 83 Core tool-path tests passed, including request-hook injection filtering. Affected Ruff, py_compile, YAML/default-config parse, git diff check, and VitePress production build passed."
-    - "Plugin target WebUI: the Interaction configuration page now uses a dedicated lifecycle/tool target map editor with installed-plugin and plugin-tool suggestions, manual compatibility keys, duplicate/target validation, and complete zh-CN/en-US/ru-RU metadata; focused config metadata tests, dashboard typecheck/production build, JSON parse, Ruff, py_compile, and diff checks passed."
-    - "Plugin-submitted group reply admission: the public candidate API, Handler-settlement Router gate, silent fail-closed path, plugin-specific Router guidance, and 50-turn Persona default passed 56 focused Interaction/Runtime/config tests; AngelHeart capability fallback and 42 plugin tests passed, with affected Ruff, API import, compile/structure, JSON/YAML, VitePress build, and diff checks passing."
-    - "Personal turn ContextVar lifecycle: cross-Task ProcessStage closure and scheduler-owned downstream plugin scope passed 54 Personal Runtime, group-reply, plugin-runtime, and smoke tests; affected Ruff, py_compile, and diff checks passed."
-    - "Capability snapshot unification: Core and Persona now share one resolver for target, persona whitelist, active state, and session plugin admission; CapabilitySnapshot derives detached schema from its execution handles, ToolsCollector only projects snapshots, SystemCollector has no private Collector dependency, and Persona rejects subagents as a non-configurable Core-only invariant. Eleven focused public-boundary tests, Ruff, py_compile, YAML parse, and git diff checks passed. Final post-render Hook consistency remains a Phase 3 acceptance item."
-    - "Context target budget unification: ConversationHistoryCollector now preserves canonical facts, Interaction Core no longer recollects shared history, Router/Planner/Policy/Persona use 4/8/6/50 turns, Core uses configured max_context_length or a 64-turn hard fallback, and execution-ledger plus memory trimming occurs only in projection. Fourteen public-boundary tests, focused Ruff, and py_compile passed; real-runtime quality and latency validation remains operator-owned."
-    - "ProviderRequest lifecycle unification: Persona, Native Core, and third-party runners now share one lifecycle owner; Persona request snapshots and mutation replay were removed; post-Hook Core tools are reauthorized into one effective capability snapshot. Focused plugin-runtime, Prompt integration, and Main Agent checks produced 74 passes; two pre-existing Windows video URI assertions remain unrelated. Focused Ruff, py_compile, YAML, diff, VitePress, and live-Future capability-binding smoke checks passed."
-    - "Personal-primary Router arbitration correction: Personal delivery before a delayed Router, late silent preserving replied outcome, pending silent suppression, hybrid media execution without Planner reply suppression, and Persona tool visibility produced 5 focused passes; affected Ruff, py_compile, YAML parse, and git diff checks passed."
-    - "Runtime boundary audit remediation: group-continuation guards, explicit PromptExtension targets, Heartbeat retained-batch wake, all-day quiet rejection, group-context Planner visibility, and persona-effect module-boundary cleanup passed 44 focused tests plus a direct Gate/Heartbeat smoke; affected Ruff, compileall, prompt-extension collection, and git diff checks passed."
-    - "Parallel plugin runtime foundation: the global path switch remains disabled; Handler discovery and body timings are separated; ProcessStage delegates legacy Handler generators and repeated ProviderRequest/post-yield recovery to one PluginHandlerExecutor. Branch-local events snapshot prompt-visible input and isolate output; the lifecycle-owned PluginExecutionRuntime now owns Gate/Job state, detached tasks, module leases, reload draining, and an atomic delivery ledger. Focused public-boundary tests, affected Ruff, py_compile, JSON/YAML parse, lifecycle smoke, and git diff checks passed."
-    - "Parallel plugin turn coordinator foundation: InteractionTurnCoordinator owns same-t0 Personal, Router, Runtime Plugin Job, and absolute-window task creation; window-valid ProviderRequest uses an explicit T1 rendezvous, Plugin Jobs run under a branch-local ContextVar, and plugin_resolved_at drives the isolated Router/Gate race. Eleven focused boundary checks, affected Ruff, py_compile, YAML, Markdown whitespace, and diff checks passed; the global production path remains disabled until Gate delivery, detach, and T2 are coherent."
-    - "Parallel plugin late-ProviderRequest boundary: a ProviderRequest arriving after Gate detach now closes only its originating Handler invocation and then resumes later activated Handlers in official order; the underlying plugin async generator is explicitly closed. The existing repeated ProviderRequest recovery case and one detached public-boundary case passed, with affected Ruff, py_compile, and git diff checks passing."
-    - "2026-08-18 Memory Phase 2 stabilization: SQLite atomic Short-Term upsert removed concurrent unique-key failures and preserves monotonic fingerprint revisions; FAISS thread operations now settle before cancellation propagates; recall and contribution scope APIs are explicit; the Prompt-ID boundary was corrected to default omission rather than permanent prohibition. A fresh production Memory database initialized with scope_context/revision/fingerprint, a direct 8-writer concurrency and cancellation smoke passed, 10 focused Memory/FAISS tests passed, and affected Ruff, compileall, and git diff checks passed."
-    - "2026-08-18 Memory Phase 3 asynchronous recall: Prompt snapshots now read Topic, Short-Term, and Persona state synchronously, derive recall queries from Short-Term summary/focus, and serve cached Long-Term/Experience results while one keyed background refresh runs. Seven MemoryCollector tests, eight snapshot regressions, a stale-while-revalidate single-flight smoke, affected Ruff, compileall, YAML parse, and git diff checks passed. USER/GROUP/GLOBAL scoped retrieval remains a later phase."
-    - "2026-08-18 Memory Phase 4 scoped memory completed: Prompt recall merges USER, GROUP, and GLOBAL scopes, while group turns now contribute USER and GROUP independently. GROUP consolidation aggregates turns from different members by stable scope owner, and GROUP Long-Term promotion uses an independent scope cursor; the contributor remains provenance only. Four focused consolidation/service tests, a two-member GROUP storage smoke, Ruff, compileall, and git diff checks passed."
-    - "2026-08-18 Memory Phase 5 first batch: MemoryJobScheduler now owns background consolidation and Long-Term promotion after Postprocessor writes, serializes work per scope, coalesces repeated conversations, and records consumed background failures. Direct MemoryService.update_from_postprocess calls retain synchronous execution and exception propagation. Three focused Memory service tests, affected Ruff, memory compileall, import smoke, and git diff checks passed; Recall refresh, dirty vector sync, and PersonaState evolution remain outside this batch."
-    - "2026-08-18 Memory Phase 5 second batch: MemoryJobScheduler now also owns Recall refresh and explicit dirty vector repair submissions through typed job kinds and dedupe keys. Recall retains stale-while-revalidate behavior; synchronous vector repair remains available for management callers. Six focused Memory service/vector/snapshot tests, scheduler coalescing smoke, affected Ruff, memory compileall, and git diff checks passed. PersonaState automatic evolution remains intentionally unimplemented pending trigger, review, rollback, and scope decisions."
-    - "2026-08-18 Memory Phase 6A: PersonaStateService now owns USER-only neutral baselines, reflection interval checks, confidence and delta bounds, atomic state plus evolution-log writes, ordered log reads, and conflict-safe explicit rollback. Twelve focused Store/PersonaState tests, affected Ruff, memory compileall, public import smoke, YAML parse, and git diff checks passed; Provider analysis and background scheduling remain disabled and unimplemented."
-    - "2026-08-18 Memory Phase 6B: persona_reflect_v1 analyzer contract and default prompt are registered; USER consolidation success submits a default-disabled persona_reflection job through MemoryJobScheduler. The job sends semantic SessionInsight/Experience fields only, applies validated delta results through PersonaStateService, and fails open without affecting consolidation or promotion. Eleven analyzer tests, twelve Store/PersonaState tests, a scheduler/job smoke, affected Ruff, compileall, import smoke, and diff checks passed. The existing memory config test still has a stale top-level-key assertion that omits recall."
-    - "2026-08-18 Memory Phase 6C: MemoryService now exposes PersonaState read, ordered evolution-log listing, explicit rollback, and combined scheduler/reflection diagnostics. Reflection counters cover submitted/skipped/applied/rejected/failed/rolled_back; three focused PersonaState tests, affected Ruff, memory compileall, YAML, and diff checks passed. Real runtime observation and enabling the default-off switches remain pending."
-    - "2026-08-19 Memory PersonaState follow-up: reflection interval checks now gate both scheduler submission and analyzer execution, same-user reflection jobs coalesce by USER scope, partial analysis configs inherit new default analyzers/stages, Store PersonaState write primitives are internal-only, and USER-global PersonaState semantics are documented. Basic PersonaState, Prompt target, Store snapshot, and config checks passed; Ruff and git diff checks passed."
-    - "2026-08-28 Persona Phase 2 third batch: Interaction base and Personal Policy now use a dedicated PersonaRelationshipCollector for memory.persona_state while Native Core keeps MemoryCollector compatibility; event-scoped MemorySnapshot reuse prevents duplicate reads while distinguishing recall read profiles, InteractionContextMaterial stores EffectivePersonaContext, and Persona Expression/Policy retain the domain snapshot as non-model metadata. Prompt/Persona/Policy/Expression/Runtime regression (216 passed, including 87 Prompt Context tests), Ruff, compileall, YAML, and git diff checks passed."
-    - "2026-08-28 Interaction state/logging cleanup follow-up: removed remaining final-output/effect/raw-router and visible-output event-extra mirrors, kept the core-context compatibility alias, and made visible-output reads non-mutating so non-interaction events do not acquire turn state. Focused interaction, output-lifecycle, plugin-runtime, and Prompt tests passed (159), with affected Ruff, compileall, and diff checks passing."
-    - "2026-08-30 Cleanup continuation: restored the historical `get_or_build_interaction_core_context_pack` import alias while retaining the clearer plugin-context implementation name; context-builder/core bridge tests (23) and affected Ruff, compileall, YAML, and diff checks passed."
-    - "2026-08-31 OLV core-progress delivery smoke: after restarting AstrBot, a real protocol-v2 tool turn emitted independent immediate_reply, core_progress, and core_reply segments, then completed synth and playback without output_segment_text_conflict or Interaction output was not delivered errors. Segment-ID precedence was verified with direct boundary assertions, message_utils py_compile, one focused Personal Runtime test, and git diff --check."
-  checks_failed:
-    - Kook card serialization compatibility: the broad test run reaches `tests/test_kook/test_kook_types.py::test_all_kook_card_type`, where `KookBaseSendDataClass.to_json()` passes `ensure_ascii` to the installed Pydantic `model_dump_json()` and raises `TypeError`. Kook is not in the currently used platform set, so this is recorded as a deferred, non-blocking compatibility item rather than scope for the Interaction cleanup batch.
-    - 2026-08-29 full `tests/unit` validation: 1170 passed and 9 failed in existing/unrelated coverage (AIOCQHTTP Poke helper, video attachment path expectations, local Python execution, config metadata locale keys, core lifecycle cross-loop task fixture, prompt integration MagicMock fixture, and builtin tool permission fixture). The affected Interaction/Output/Runtime suites for this batch remain passing.
-    - Phase 2A targeted Pyright was not run because the project environment does not provide a `pyright` executable; Ruff, py_compile, import smoke, and the public input-output smoke passed.
-    - A broad tests/unit collection command failed during conftest import because local data/cmd_config.json returned PermissionError; explicit affected suites and all interaction unit files passed.
-    - Initial empty-password CLI test expected local validation text, but Click aborts repeated empty prompts before local validation; test was corrected to cover invalid username validation instead.
-    - Initial knowledge-base/sandbox targeted run found Shipyard Neo profile auto-selection tests failing because default config still set `shipyard_neo_profile` to `python-default`; fixed by making the default blank and adding explicit-default-profile coverage.
-    - One runtime/media targeted pytest command referenced a plugin cleanup test name that is not present in the current test file; reran the valid runtime/media/updater targeted set successfully.
-    - Context/LTM cross-check run `tests/unit/test_prompt_context_collect.py tests/unit/test_prompt_pipeline_integration.py` still shows existing apply-visible prompt-pipeline/test-fixture drift and a missing local quoted-image caption provider fixture; not caused by the new group-context collector.
-    - Context/LTM cross-check run `tests/unit/test_config.py` currently fails before tests because local `data/cmd_config.json` is not valid JSON; this is a local runtime data issue, not a `default.py` syntax issue.
-    - Expanded prompt-context validation still has one existing quoted-image caption fixture failure because the test expects the active provider to act as an implicit caption provider; current runtime requires a dedicated caption provider.
-    - Personal Runtime capability cross-check `tests/unit/test_core_lifecycle.py` still has an unrelated stop-task fixture failure where `MagicMock(spec=asyncio.Task)` is treated as a different-loop Future by `asyncio.gather`; the new capability/Cron suites, py_compile, Ruff, and diff check passed.
-    - The expanded log-review test run retained the existing background Metric/aiosqlite event-loop-close thread warning; the new direct-reply acceptance case passes alone without that warning.
-    - Expanded Prompt renderer collection remains blocked by an existing stale test import: tests/unit/test_prompt_tree_renderer.py imports COMPUTER_USE_DISABLED_SKILLS_PROMPT from astrbot.core.astr_main_agent_resources after that symbol moved to prompt resources; the other 117 relevant tests passed.
-    - Expanded Core tool-path collection including tests/unit/test_prompt_context_collect.py remains blocked by an existing stale import of CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT from astrbot.core.astr_main_agent_resources; the remaining 83 Core tool execution, manager, loop, and conflict-resolution tests passed.
-    - Phase 5 VitePress validation could not start in the managed Windows sandbox because the docs resolver was denied while reading parent directories for docs/.vitepress/config.mjs; source validation, YAML parsing, Ruff, py_compile, and focused tests remain available.
-  validation_gap: "Batch-owned material freshness is deterministic within one process, while the final delivered-expression fingerprint persists by RuntimeKey. Sensor payload fingerprints and batch revisions are intentionally process-local, so a restarted Runtime may treat a later Sensor report as fresh; persisted cooldown and daily limits remain enforced. Conditional continuation timing, pending-Personal silent suppression, late-silent replied outcomes, and Planner-independent Personal delivery are acceptance-tested, while real-group semantic classification quality still requires operator observation. Heartbeat, ambient group source, Personal Policy, plugin Sensor entry, and multi-target observation routing remain operator-configured capabilities rather than general defaults. Declared per-Sensor schemas, structured partial delivery receipts, external execution backends, and broader policy-quality data remain absent. The default-disabled parallel Plugin path still requires real private-chat and bounded-group log smokes to confirm one Personal provider call, same-t0 Personal/Plugin overlap, Personal delivery before Core planning, plugin gate timing, EXPIRED detach, delayed T2 ordering, and warm-path latency. Targeted Pyright remains unavailable."
-runtime:
-  mode: minimal_v1
-  current_batch:
-    phase: parallel_plugin_runtime_production_validation
-    scope:
-      - keep the Personal/Official Plugin two-owner design frozen
-      - keep the whole new Plugin Job path behind one default-disabled global switch and one absolute arbitration window
-      - run Personal and one Runtime-owned Official Plugin Job from the same t0 when the switch is enabled
-      - resolve Core only after Personal selects delegate and plugin gating permits it, without waiting for Plugin Job completion
-      - preserve window-valid ProviderRequest and post-yield compatibility through one explicit T1 rendezvous
-      - isolate branch result, stop, output, ContextVar, and temporary media from the original turn
-      - detach EXPIRED work without cancellation and reject ProviderRequest after the Plugin Gate loses T1 authority
-      - deliver EXPIRED output, post-HANDLED final artifacts, and post-T1 STOPPED final artifacts through low-priority expression or direct T2 profiles
-      - bind delayed history to the parent conversation and use one Runtime delivery ledger across T1 and T2
-      - keep one canonical base Context Pack for control-plane facts and one single-flight plugin extension Pack prefetched for Persona and awaited by Core
-      - keep Interaction user turns in one output lifecycle: a HandoffTool request or a FunctionTool declared as background executes in the current Core turn instead of creating a Cron completion turn; legacy non-Interaction background behavior remains unchanged
-    non_goals:
-      - per-plugin claim, timeout, routing model, or mixed old/new Handler execution
-      - enabling the global switch by default before real private-chat and target-group trace validation
-      - detached-job capacity rejection or a second background TTL before real diagnostics justify one
-      - introducing a global media-content hashing subsystem in this batch
-      - group reply-frequency tuning or Phase 6 admission-policy redesign
-    confirmed_gaps:
-      - "2026-08-16 QQ incident resolved after the operator restarted NapCat. A post-reconnect private message from 815049548 traversed aiocqhttp, EventBus, Personal/Plugin coordination, and completed with turn_outcome=replied; treat the earlier silence as an external OneBot event-forwarding outage rather than a Personal/Plugin defect."
-      - real private-chat 815049548 and bounded-group traces must confirm same-t0 Personal/Plugin overlap, Personal delivery before Core planning, plugin gate timing, EXPIRED detach, delayed T2 ordering, and warm-path latency
-      - real traces must confirm Handler discovery and Handler body timing separately from Personal/Core timing on the enabled path
-      - real Provider and platform traces must confirm delayed expression and direct output preserve parent conversation history without duplicate visible delivery
-      - real traces must confirm Personal and Core Planner proceed after scope=base without waiting for scope=plugin
-      - real traces must confirm the repaired DELEGATED recovery boundary: a T1 Core exception, deadline, or cancellation records delegated_t1_failure_type, detaches the Plugin Job, never replays ProviderRequest, and permits still-undelivered artifacts present when the Job completes to use the existing low-priority T2 ledger path
-      - real traces must validate both user-selected Persona plugin-context modes: best_effort must emit from base while enrichment remains pending, and wait_complete must use the same completed task without duplicate Contributor execution
-      - MiniMax can ignore nested effect_calls minItems even when tool_choice=required; the Persona schema and backend validator remain authoritative, while explicit required-effect wording now reduces this provider compliance gap. Keep observing real provider/model combinations for residual violations.
-      - DELEGATED remains the documented in-window ProviderRequest compatibility path; a slow delegated Job still consumes T1 turn budget until the surrounding turn deadline, so real same-session queue latency must be observed
-      - Job CANCELLED remains observable separately from the fail-open Gate FAILED state in diagnostics; a cancelled Job with a pending Gate resolves as fail-open
-    arbitration_review:
-      - Plugin takeover is intentionally best-effort. HANDLED, STOPPED, or DELEGATED suppress only pending Persona work; an already committed or emitted Personal reply is never recalled, so the review claim that takeover is unreachable is overstated
-      - Core start waits for Personal `delegate` plus plugin gate resolution. The resulting delay up to plugin_parallel_window_seconds is a frozen parallel-Plugin tradeoff and is diagnosed separately; decoupling takeover authority from Core start permission would be a new architecture decision
-      - DELEGATED intentionally preserves the official async-generator ProviderRequest rendezvous and is synchronous after delegation. Truly asynchronous agent-style plugin work requires a separate public API rather than changing the compatibility contract
-      - Plugin Job failures before takeover are fail-open. Delegated ordinary Core Exceptions are normally converted into Core error output, while cancellation or unusual BaseException can still escape the rendezvous; this is a narrow recovery-boundary risk rather than a confirmed broad plugin-output-loss defect
-      - Group continuation ownership is Manager-scoped by config/audience/privacy, with frozen per-turn eligibility and turn-id guarded completion; Persona Runtime instances no longer independently create or restore group owners
-      - Starting Personal for turns later handled by a terminal plugin intentionally spends speculative work to preserve same-t0 latency. Preclassifying terminal handlers would require new metadata or filter inference and conflicts with the decision that official handlers run and decide internally
-      - The old and coordinated orchestration paths remain while the global switch is default-disabled, and duplicated terminal branches in resolve_control are maintenance debt to consolidate only after production validation
-      - event.stop_event remains behaviorally meaningful after coordinated plugin delivery because it prevents downstream Pipeline and ordinary ResultDecorate or Respond processing; it is not only a diagnostic marker
-    dependency_review:
-      core_modules: 474
-      runtime_import_sccs: 0
-      fixed:
-        - Process SubStages now import the pipeline Stage base directly
-        - star_manager imports StarMetadata from its defining module instead of relying on package initialization order
-        - Prompt-owned instruction resources no longer live under astr_main_agent_resources
-        - Interaction base Context Material no longer waits for ordinary Prompt Extension or Interaction Prompt Contributor collection
-        - Persona consumes the single plugin extension Pack only when ready, while Core awaits and reuses the same task without overwriting the canonical base Pack
-        - plugin ProviderRequest generators resume after delegated Core execution
-        - DELEGATED T1 failures now detach the Plugin Job and preserve completed artifacts through the existing delayed-delivery ledger without changing the historical Gate result or replaying ProviderRequest
-        - detached ProviderRequest closes only its originating Handler invocation while later activated Handlers continue
-        - session admission and lease acquisition now happen before plugin handlers
-        - TurnExecutionScope owns Personal, Context Material, and stream-observation tasks
-        - pending Persona suppression detaches cancelled speculative work instead of waiting during turn-scope shutdown
-        - T1 artifact delivery closes both artifact and final-output reservations on delivery failure
-        - ProcessStage rejects discovery Handler metadata replaced or unbound by plugin reload before lease acquisition
-        - plugin module draining now has a 15-second safety bound; timeout reports active leases/jobs, clears draining, and aborts reload/unload without unloading leased plugin code
-        - Plugin takeover detaches pending Personal work, and Handler artifacts carry a populated delivery group
-        - immediate Persona, Core final, and finalized proactive plugin output share one atomic turn-lock reservation
-        - Persona AgentRequestLifecycle Hook state uses a task-local overlay for temporary extras, results, stop state, and reasoning instead of mutating the shared Core event
-        - proactive text output and same-session tool progress use Personal Runtime and Output Controller
-        - assistant-only history projects into Prompt and Memory without a synthetic user message
-        - Provider output-contract tool adapters no longer import Prompt
+
 runtime_boundary_convergence:
   date: '2026-09-23'
   class: bugfix
@@ -1737,45 +1080,6 @@ file_extract_configuration_cleanup:
     restart before introducing a second provider through an explicit typed
     provider-role design.
 
-legacy_group_context_implementation_cleanup:
-  date: '2026-09-24'
-  class: maintenance
-  risk: low
-  status: validated
-  scope: >-
-    Delete the unreferenced built-in plugin long_term_memory.py implementation,
-    which duplicated and predated the active GroupChatContext integration.
-  evidence: >-
-    No runtime, test, metadata, or documentation import referenced the module.
-    The built-in plugin Main constructs GroupChatContext directly and registers
-    it as the sole prompt-extension collector; it also owns external-runner
-    decoration and delivery cursor advancement.
-  validation: >-
-    GroupChatContext wiring tests passed (17), the built-in Main import smoke
-    passed, and git diff --check passed. No restart required.
-
-legacy_persona_configuration_cleanup:
-  date: '2026-09-24'
-  class: refactor
-  risk: medium
-  status: validated
-  scope: >-
-    Remove the top-level v3 Persona JSON list and its database migration path.
-    Current Persona storage and runtime resolution remain database-owned.
-  compatibility: >-
-    This is intentionally breaking during development: a remaining data_v3.db
-    will no longer import its legacy Persona JSON. Existing database Personas
-    and memory.persona configuration are unrelated and unaffected.
-  validation: >-
-    Focused configuration tests passed (60), the migration entry-point import
-    and signature smoke passed, and scoped Ruff, compilation, reference scan,
-    and git diff checks passed. The default config and three local Profiles
-    were loaded through AstrBotConfig and persisted without the retired key.
-    No service restart was performed.
-  followup: >-
-    Validate loading an old config removes the retired key, then continue the
-    field inventory without treating current database Persona APIs as config.
-
 provider_pool_configuration_cleanup:
   date: '2026-09-24'
   class: refactor
@@ -1957,18 +1261,6 @@ legacy_nested_log_configuration_cleanup:
     already exercises the top-level log and trace fields; pytest was not run
     for this low-risk migration. No restart was performed.
 
-configuration_audit_followups_2026_09_24:
-  date: '2026-09-24'
-  class: review
-  risk: low
-  status: documented
-  findings: >-
-    config_version has no business-runtime reader but remains a public format
-    marker covered by docs and configuration-format tests, so it is deferred
-    until a real version/migration policy exists. platform_settings.path_mapping
-    was incorrectly documented as deprecated while inbound and outbound runtime
-    consumers remain; documentation now states its active scope.
-
 retired_interaction_projection_cleanup:
   date: '2026-09-24'
   class: refactor
@@ -2043,112 +1335,6 @@ cron_future_task_creator_ownership:
     truthful creator explanation. Confirm Dashboard-created tasks remain
     manageable in the Dashboard and are not attributed to a group member.
 
-conversation_exclusion_boundary_repair:
-  date: '2026-09-27'
-  class: bugfix
-  risk: medium
-  status: validated
-  scope: >-
-    Restore the documented exclude_ids behavior for conversation listing: match
-    only an exact UMO or a complete platform segment and treat SQL LIKE wildcard
-    characters in supplied IDs literally. Keep the retained v3 migration reader
-    consistent with the active SQLAlchemy SQLite implementation.
-  non_goals: >-
-    Change Dashboard conversation layout, remove any conversations by default,
-    alter ordinary platform or message-type filtering, or migrate stored data.
-  validation: >-
-    Focused database regression test passed for astrbot versus astrbotweb and a
-    literal percent-sign platform ID. Scoped Ruff, Python compilation, and git
-    diff checks passed. No service restart or live Dashboard acceptance was
-    needed because this is a query-only behavior change.
-
-skills_like_streaming_fallback_repair:
-  date: '2026-09-27'
-  class: bugfix
-  risk: high
-  status: validated
-  scope: >-
-    Restore a visible streaming output for a skills_like parameter re-query
-    that returns an assistant answer instead of a tool call. The Runner emits
-    a streaming_delta after its existing llm_result so the Native output bridge
-    handles the reply like an ordinary streamed response.
-  non_goals: >-
-    Change tool execution, agent completion hooks, Core execution terminal
-    facts, OLV segment finalization, or non-streaming/general output behavior.
-  validation: >-
-    Focused Runner regression coverage passed. Scoped Runner Ruff and Python
-    compilation, state YAML parsing, and git diff checks passed. The existing
-    test module has an unrelated duplicate-test-name Ruff F811 finding, so a
-    whole-file Ruff run is not counted as passing. No live platform test or
-    service restart is required for this in-memory output-contract repair.
-
-webchat_conversation_title_fallback:
-  date: '2026-09-27'
-  class: bugfix
-  risk: medium
-  status: validated
-  scope: >-
-    Let conversation search and Dashboard serialization use a WebChat session
-    display name as a fallback only when the conversation has no explicit title.
-    Search keeps a raw-text branch for relational fields and a JSON-escaped
-    branch for persisted history content.
-  non_goals: >-
-    Change conversation persistence, WebChat session ownership, other platform
-    titles, Dashboard layout, or user-provided conversation titles.
-  validation: >-
-    Focused database coverage passed for a session-title search. Scoped Ruff
-    and Python compilation, state YAML parsing, and git diff checks passed. No
-    restart is required for this query and response-shape repair.
-
-github_default_branch_archive_download:
-  date: '2026-09-27'
-  class: bugfix
-  risk: medium
-  status: validated
-  scope: >-
-    Resolve an unspecified GitHub repository branch through the archive HEAD
-    reference, replacing the Releases lookup and master-branch fallback in the
-    local plugin updater.
-  non_goals: >-
-    Change explicit branch downloads, plugin installation staging, extraction,
-    replacement, rollback, or repository URL parsing.
-  validation: >-
-    Focused updater coverage passed, along with scoped Ruff checks, Python
-    compilation, YAML parsing, and git diff checks. No live network download
-    is performed.
-
-third_party_new_conversation_selection:
-  date: '2026-09-27'
-  class: bugfix
-  risk: medium
-  status: validated
-  scope: >-
-    After /new clears a third-party Agent Runner's remote session state, create
-    and select a new local conversation just as the native Runner path does.
-  non_goals: >-
-    Change /reset semantics, command permissions, remote cleanup behavior,
-    Persona inheritance, provider selection, or group and long-term context
-    cleanup.
-  validation: >-
-    Focused command coverage passed, along with scoped Ruff checks, Python
-    compilation, YAML parsing, and git diff checks. No remote Runner or
-    platform service was invoked.
-
-webchat_side_thread_model_selection:
-  date: '2026-09-27'
-  class: bugfix
-  risk: medium
-  status: validated
-  scope: >-
-    Forward the parent WebChat composer's currently selected provider and model
-    when a side-thread submits its message.
-  non_goals: >-
-    Change provider selection state, side-thread persistence, server API
-    routing, WebChat adapter behavior, or default provider fallback.
-  validation: >-
-    Dashboard TypeScript typecheck and git diff checks passed. No live provider
-    or WebChat session was invoked.
-
 persona_context_views:
   date: '2026-09-28'
   class: refactor
@@ -2207,30 +1393,6 @@ prompt_contract_boundary_closure:
     skipped before a model call, progress has only its declared bounded facts
     plus one acknowledgement, and OnLLMRequest hooks cannot reintroduce
     prompt or media material.
-
-documentation_refresh_and_dashboard_plan_retirement:
-  date: '2026-09-29'
-  class: maintenance
-  risk: high
-  status: validated
-  scope: >-
-    Refresh the tracked AG99 documentation to match the current Persona,
-    Prompt, provider-fallback, and executor boundaries; rewrite the root
-    README as a product-facing entry point; and remove the completed,
-    unreferenced Dashboard workspace migration plan bundle.
-  deletion_decision: >-
-    The four files under docs/Yakumo/dashboard-refactor-plan described the
-    pre-migration workspace and metadata-registry design. Current Dashboard
-    navigation, routes, and ConfigPage workspace projection implement that
-    direction, and no tracked Markdown reference remains.
-  non_goals: >-
-    Modify AG99 plugin code, remove historical architecture and audit records
-    that still provide traceability, redesign Dashboard behavior, or commit
-    the documentation changes.
-  validation: >-
-    VitePress documentation build passed. Root README targets were checked,
-    no Markdown reference to the deleted plan remains, and git diff --check
-    passed with line-ending warnings only.
 
 logging_channel_consolidation:
   date: '2026-09-30'

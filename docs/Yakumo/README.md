@@ -102,6 +102,7 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 - `dev/internal-executor-replacement-implementation-guide.md`
 - `prompt-development-plan.md`
 - `dev/cost-context-runtime-plan.md`
+- `dev/desktop-application-and-body-integration-plan.md`
 
 Memory 子系统：
 
