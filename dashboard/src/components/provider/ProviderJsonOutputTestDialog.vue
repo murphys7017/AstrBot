@@ -113,19 +113,21 @@ const emit = defineEmits(['update:modelValue', 'testing-change'])
 
 const defaultTemplate = {
   turn_action: 'reply',
-  speech: '啊……怎么会这样？',
-  actions: ['lower_head'],
-  thought: '这件事出乎意料，让我感到遗憾',
-  tendency: {
-    Joy: 0,
-    Trust: 1,
-    Fear: 2,
-    Surprise: 8,
-    Sadness: 7,
-    Disgust: 0,
-    Anger: 1,
-    Anticipation: 0
-  },
+  segments: [{
+    speech: '啊……怎么会这样？',
+    actions: ['lower_head'],
+    thought: '这件事出乎意料，让我感到遗憾',
+    tendency: {
+      Joy: 0,
+      Trust: 1,
+      Fear: 2,
+      Surprise: 8,
+      Sadness: 7,
+      Disgust: 0,
+      Anger: 1,
+      Anticipation: 0
+    }
+  }],
   effect_calls: []
 }
 

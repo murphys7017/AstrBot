@@ -1046,17 +1046,18 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
     persisted = AsyncMock()
     event = Event()
     ensure_interaction_turn_state(event)
+    result = PersonaExpressionResult(speech="三分钟后提醒你。")
     set_interaction_turn_immediate_reply(event, "三分钟后提醒你。")
     set_interaction_turn_immediate_persona_state(
         event,
-        tendency={"Joy": 0, "Sadness": 0},
+        segments=result.segment_mappings,
     )
     controller = InteractionOutputController(persist_callback=persisted)
     controller._deliver_core_final_message = AsyncMock()
 
     await controller.deliver_prepared_core_reply(
         MessageChain([Plain("Core execution completed")]),
-        PersonaExpressionResult(speech="三分钟后提醒你。"),
+        result,
         event,
     )
 

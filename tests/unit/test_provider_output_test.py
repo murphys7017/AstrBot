@@ -16,10 +16,23 @@ from astrbot.dashboard.services.provider_output_test import (
 def persona_template():
     return {
         "turn_action": "reply",
-        "speech": "你好",
-        "actions": ["wave"],
-        "thought": "很高兴见到你",
-        "tendency": {"Joy": 8},
+        "segments": [
+            {
+                "speech": "你好",
+                "actions": ["wave"],
+                "thought": "很高兴见到你",
+                "tendency": {
+                    "Joy": 8,
+                    "Trust": 0,
+                    "Fear": 0,
+                    "Surprise": 0,
+                    "Sadness": 0,
+                    "Disgust": 0,
+                    "Anger": 0,
+                    "Anticipation": 0,
+                },
+            }
+        ],
         "effect_calls": [],
     }
 
@@ -28,10 +41,23 @@ def test_json_output_validator_checks_json_and_template_shape(persona_template):
     valid_output = json.dumps(
         {
             "turn_action": "delegate",
-            "speech": "真是个好消息！",
-            "actions": ["smile", "wave"],
-            "thought": "这让我很开心",
-            "tendency": {"Joy": 10},
+            "segments": [
+                {
+                    "speech": "真是个好消息！",
+                    "actions": ["smile", "wave"],
+                    "thought": "这让我很开心",
+                    "tendency": {
+                        "Joy": 10,
+                        "Trust": 0,
+                        "Fear": 0,
+                        "Surprise": 0,
+                        "Sadness": 0,
+                        "Disgust": 0,
+                        "Anger": 0,
+                        "Anticipation": 0,
+                    },
+                }
+            ],
             "effect_calls": [],
         },
         ensure_ascii=False,
@@ -45,11 +71,24 @@ def test_json_output_validator_checks_json_and_template_shape(persona_template):
 
 
 def test_json_output_validator_rejects_unstable_fields_and_types(persona_template):
-    wrong_type = json.dumps({**persona_template, "tendency": {"Joy": True}})
+    wrong_type = json.dumps(
+        {
+            **persona_template,
+            "segments": [
+                {
+                    **persona_template["segments"][0],
+                    "tendency": {
+                        **persona_template["segments"][0]["tendency"],
+                        "Joy": True,
+                    },
+                }
+            ],
+        }
+    )
     extra_field = json.dumps({**persona_template, "unexpected": "extra"})
     assert validate_json_output(persona_template, wrong_type) == (
         False,
-        "$.tendency.Joy:expected_integer",
+        "$.segments[0].tendency.Joy:expected_integer",
     )
     assert validate_json_output(persona_template, extra_field) == (
         False,

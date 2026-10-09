@@ -79,7 +79,7 @@ from .turn_state import (
     get_interaction_turn_config,
     get_interaction_turn_delivery_metadata,
     get_interaction_turn_finalized_material,
-    get_interaction_turn_immediate_persona_state,
+    get_interaction_turn_immediate_persona_segments,
     get_interaction_turn_immediate_reply,
     get_interaction_turn_plugin_output_transaction,
     get_interaction_turn_runtime_config,
@@ -420,6 +420,11 @@ class InteractionOutputController:
         if is_immediate:
             semantic_text = message.get_plain_text()
             message_id = self._next_output_segment_id(event, "immediate_reply")
+            tts_segments = (
+                prepared_expression.speech_segments
+                if prepared_expression is not None
+                else None
+            )
             contributions = await self._collect_result_contributions(
                 event,
                 core_result=None,
@@ -429,6 +434,11 @@ class InteractionOutputController:
                 candidate_message_id=message_id,
                 effect_calls=(
                     prepared_expression.effect_calls
+                    if prepared_expression is not None
+                    else ()
+                ),
+                segments=(
+                    prepared_expression.segment_mappings
                     if prepared_expression is not None
                     else ()
                 ),
@@ -461,6 +471,10 @@ class InteractionOutputController:
                     merged.final_text_override,
                 )
                 semantic_text = message.get_plain_text()
+                if prepared_expression is not None:
+                    tts_segments = prepared_expression.speech_segments_for_text(
+                        merged.final_text_override,
+                    )
             message = await self._prepare_model_expression(
                 event,
                 message,
@@ -472,6 +486,11 @@ class InteractionOutputController:
             set_interaction_turn_immediate_reply(event, semantic_text)
             set_interaction_turn_immediate_persona_state(
                 event,
+                segments=(
+                    prepared_expression.segment_mappings
+                    if prepared_expression is not None
+                    else ()
+                ),
                 actions=prepared_expression.actions if prepared_expression else (),
                 thought=(prepared_expression.thought if prepared_expression else ""),
                 tendency=prepared_expression.tendency if prepared_expression else {},
@@ -483,6 +502,7 @@ class InteractionOutputController:
                 event,
                 message,
                 message_id=message_id,
+                tts_segments=tts_segments,
             )
             delivered_message_ids = await self._deliver_visible_message(
                 event,
@@ -643,9 +663,13 @@ class InteractionOutputController:
                     message,
                     result.speech,
                 )
+                tts_segments = result.speech_segments
                 resolved_kind = "plugin_persona"
             else:
+                tts_segments = None
                 resolved_kind = "plugin_direct"
+        else:
+            tts_segments = None
 
         set_interaction_turn_plugin_output_metadata(event, kind=resolved_kind)
         if resolved_kind == "plugin_persona":
@@ -658,6 +682,7 @@ class InteractionOutputController:
                 candidate_message_kind=resolved_kind,
                 candidate_message_id=message_id,
                 effect_calls=result.effect_calls,
+                segments=result.segment_mappings,
                 actions=result.actions,
                 thought=result.thought,
                 tendency=result.tendency,
@@ -670,6 +695,9 @@ class InteractionOutputController:
             if result_contribution.final_text_override is not None:
                 message = replace_plain_text_preserving_components(
                     message,
+                    result_contribution.final_text_override,
+                )
+                tts_segments = result.speech_segments_for_text(
                     result_contribution.final_text_override,
                 )
             message = await self._prepare_model_expression(
@@ -701,6 +729,7 @@ class InteractionOutputController:
             message_kind=resolved_kind,
             result_is_model_result=resolved_mode is PluginOutputMode.PERSONA,
             message_id=message_id,
+            tts_segments=tts_segments,
         )
         resolved_platform_extras = platform_extras
         if result_contribution is not None:
@@ -1931,21 +1960,11 @@ class InteractionOutputController:
         event: AstrMessageEvent,
     ) -> None:
         immediate_reply = get_interaction_turn_immediate_reply(event)
-        immediate_persona_state = get_interaction_turn_immediate_persona_state(
-            event
-        ) or ((), "", {})
-        immediate_actions, immediate_thought, immediate_tendency = (
-            immediate_persona_state
+        immediate_persona_segments = (
+            get_interaction_turn_immediate_persona_segments(event) or ()
         )
-        final_tendency = result.tendency or {}
-        tendency_keys = set(immediate_tendency) | set(final_tendency)
-        same_persona_state = (
-            tuple(result.actions or ()) == immediate_actions
-            and (result.thought or "") == immediate_thought
-            and all(
-                immediate_tendency.get(key, 0) == final_tendency.get(key, 0)
-                for key in tendency_keys
-            )
+        same_persona_state = tuple(result.segment_mappings) == tuple(
+            immediate_persona_segments
         )
         if (
             immediate_reply
@@ -2013,6 +2032,11 @@ class InteractionOutputController:
                 message_id := self._next_output_segment_id(event, "core_reply")
             ),
             effect_calls=effect_calls,
+            segments=(
+                persona_expression.segment_mappings
+                if persona_expression is not None
+                else ()
+            ),
             actions=(persona_expression.actions if persona_expression else ()),
             thought=persona_expression.thought if persona_expression else "",
             tendency=(persona_expression.tendency if persona_expression else {}),
@@ -2024,11 +2048,20 @@ class InteractionOutputController:
             ),
         )
         merged = merge_result_contributions(contributions)
+        tts_segments = (
+            persona_expression.speech_segments
+            if persona_expression is not None
+            else None
+        )
         if merged.final_text_override is not None:
             final_message = replace_plain_text_preserving_components(
                 final_message,
                 merged.final_text_override,
             )
+            if persona_expression is not None:
+                tts_segments = persona_expression.speech_segments_for_text(
+                    merged.final_text_override,
+                )
 
         final_message = await self._prepare_model_expression(
             event,
@@ -2058,6 +2091,7 @@ class InteractionOutputController:
             message_kind="core_reply",
             result_is_model_result=True,
             message_id=message_id,
+            tts_segments=tts_segments,
         )
         delivered_message_ids = await self._deliver_visible_message(
             event,
@@ -2181,6 +2215,7 @@ class InteractionOutputController:
         candidate_message_kind: str,
         candidate_message_id: str,
         effect_calls: Sequence[Any] = (),
+        segments: Sequence[Mapping[str, Any]] = (),
         actions: Sequence[str] = (),
         thought: str = "",
         tendency: Mapping[str, int] | None = None,
@@ -2251,6 +2286,7 @@ class InteractionOutputController:
             core_result=core_result,
             final_result=final_result,
             effect_calls=effect_calls,
+            segments=tuple(deepcopy(dict(segment)) for segment in segments),
             actions=tuple(actions),
             thought=thought,
             tendency=dict(tendency or {}),
@@ -2429,6 +2465,7 @@ class InteractionOutputController:
         message_kind: str,
         result_is_model_result: bool = False,
         message_id: str | None = None,
+        tts_segments: Sequence[str] | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         options = self._resolve_outbound_options(event)
         materialization: dict[str, Any] = {
@@ -2453,6 +2490,7 @@ class InteractionOutputController:
                 options=options,
                 result_is_model_result=result_is_model_result,
                 message_id=message_id,
+                tts_segments=tts_segments,
             )
         except VoiceServiceError as exc:
             logger.error(
@@ -2499,6 +2537,7 @@ class InteractionOutputController:
         message: MessageChain,
         *,
         message_id: str | None = None,
+        tts_segments: Sequence[str] | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         options = self._resolve_outbound_options(event)
         materialization: dict[str, Any] = {
@@ -2517,6 +2556,7 @@ class InteractionOutputController:
                 options=options,
                 result_is_model_result=True,
                 message_id=message_id,
+                tts_segments=tts_segments,
             )
         except VoiceServiceError as exc:
             logger.error(
@@ -2590,6 +2630,7 @@ class InteractionOutputController:
         options: OutboundMaterializationOptions,
         result_is_model_result: bool,
         message_id: str | None = None,
+        tts_segments: Sequence[str] | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         should_try_tts = (
             options.tts_enabled
@@ -2599,46 +2640,81 @@ class InteractionOutputController:
         )
         if not should_try_tts:
             return message, {}
+
+        segmented_tts = tts_segments is not None
+        segment_inputs: list[tuple[int | None, str]] | None = None
+        segment_count = 0
+        target_plain_index: int | None = None
+        if tts_segments is not None:
+            resolved_tts_segments = self._resolve_interaction_tts_segments(
+                message,
+                tts_segments,
+            )
+            if resolved_tts_segments is None:
+                return message, {}
+            target_plain_index, segment_inputs, segment_count = resolved_tts_segments
+
         new_chain = []
         converted: list[dict[str, Any]] = []
-        for comp in message.chain:
-            if not isinstance(comp, Plain) or len(comp.text) <= 1:
-                new_chain.append(comp)
-                continue
-            try:
-                current_message_id = message_id or self._next_output_segment_id(
-                    event, "tts"
-                )
-                message_id = None
-                logger.debug("Interaction TTS request: text_length=%s", len(comp.text))
-                result = await synthesize_text(
-                    self.plugin_context,
-                    event,
-                    comp.text,
-                    stage="interaction.outbound_tts",
-                    use_file_service=options.tts_use_file_service,
-                    callback_api_base=options.callback_api_base,
-                    require_file_registration_config=True,
-                    turn_id=str(event.get_extra("_turn_id", "") or ""),
-                    message_id=current_message_id,
-                )
-                logger.debug(
-                    "Interaction TTS completed: audio_available=%s",
-                    bool(result.audio_path),
-                )
-                new_chain.append(
-                    Record(
-                        file=result.delivered_file,
-                        url=result.delivered_file,
-                        text=result.text,
-                        delivery_metadata=build_tts_delivery_metadata(
-                            result.state,
-                            audio_attachment="present",
-                        ),
+        for component_index, comp in enumerate(message.chain):
+            if segment_inputs is not None:
+                if component_index != target_plain_index:
+                    new_chain.append(comp)
+                    continue
+                inputs = segment_inputs
+            else:
+                if not isinstance(comp, Plain) or len(comp.text) <= 1:
+                    new_chain.append(comp)
+                    continue
+                inputs = [(None, comp.text)]
+
+            for segment_index, segment_text in inputs:
+                try:
+                    current_message_id = message_id or self._next_output_segment_id(
+                        event, "tts"
                     )
-                )
-                converted.append(
-                    {
+                    message_id = None
+                    logger.debug(
+                        "Interaction TTS request: text_length=%s segment_index=%s",
+                        len(segment_text),
+                        segment_index,
+                    )
+                    result = await synthesize_text(
+                        self.plugin_context,
+                        event,
+                        segment_text,
+                        stage="interaction.outbound_tts",
+                        use_file_service=options.tts_use_file_service,
+                        callback_api_base=options.callback_api_base,
+                        require_file_registration_config=True,
+                        turn_id=str(event.get_extra("_turn_id", "") or ""),
+                        message_id=current_message_id,
+                    )
+                    logger.debug(
+                        "Interaction TTS completed: audio_available=%s segment_index=%s",
+                        bool(result.audio_path),
+                        segment_index,
+                    )
+                    delivery_metadata = build_tts_delivery_metadata(
+                        result.state,
+                        audio_attachment="present",
+                    )
+                    if segment_index is not None:
+                        delivery_metadata.update(
+                            {
+                                "persona_segment_index": segment_index,
+                                "persona_segment_count": segment_count,
+                            }
+                        )
+                    new_chain.append(
+                        Record(
+                            file=result.delivered_file,
+                            url=result.delivered_file,
+                            text=result.text,
+                            delivery_metadata=delivery_metadata,
+                        )
+                    )
+                    converted_item = {
                         "tts_source_text": result.text,
                         "tts_audio_path": result.audio_path,
                         "tts_audio_url": result.audio_url,
@@ -2646,25 +2722,44 @@ class InteractionOutputController:
                         "tts_request_id": result.state.tts_request_id,
                         "message_id": result.state.message_id,
                     }
-                )
-                if options.tts_dual_output:
-                    new_chain.append(
-                        Plain(
-                            comp.text,
-                            delivery_metadata=build_tts_delivery_metadata(
-                                result.state,
-                                audio_attachment="absent",
-                            ),
+                    if segment_index is not None:
+                        converted_item.update(
+                            {
+                                "persona_segment_index": segment_index,
+                                "persona_segment_count": segment_count,
+                            }
                         )
+                    converted.append(converted_item)
+                    if options.tts_dual_output and not segmented_tts:
+                        text_delivery_metadata = build_tts_delivery_metadata(
+                            result.state,
+                            audio_attachment="absent",
+                        )
+                        if segment_index is not None:
+                            text_delivery_metadata.update(
+                                {
+                                    "persona_segment_index": segment_index,
+                                    "persona_segment_count": segment_count,
+                                }
+                            )
+                        new_chain.append(
+                            Plain(
+                                segment_text,
+                                delivery_metadata=text_delivery_metadata,
+                            )
+                        )
+                except VoiceServiceError as exc:
+                    self._record_outbound_materialization_failure(
+                        event,
+                        "tts",
+                        exc.reason,
                     )
-            except VoiceServiceError as exc:
-                self._record_outbound_materialization_failure(
-                    event,
-                    "tts",
-                    exc.reason,
-                )
-                logger.error(traceback.format_exc())
-                raise
+                    logger.error(traceback.format_exc())
+                    raise
+            if options.tts_dual_output and segmented_tts:
+                # Keep one integrated text component for text platforms;
+                # only the audio records follow Persona speech boundaries.
+                new_chain.append(Plain(comp.text))
         if not converted:
             return message.derive(new_chain), {}
         return (
@@ -2675,6 +2770,73 @@ class InteractionOutputController:
                 "tts_status": "succeeded",
             },
         )
+
+    @staticmethod
+    def _resolve_interaction_tts_segments(
+        message: MessageChain,
+        tts_segments: Sequence[str],
+    ) -> tuple[int, list[tuple[int | None, str]], int] | None:
+        """Keep Persona speech boundaries while honoring visible text rewrites.
+
+        The normal path has one Plain component whose text is the concatenation
+        of all Persona segment speech. Text added around that speech is assigned
+        to the first or last segment. If a later hook replaces the text, spread
+        the final text over the existing segment boundaries so TTS never reads
+        stale speech or silently collapses a segmented Persona result.
+        """
+
+        segment_texts = [str(text or "") for text in tts_segments]
+        if not any(text.strip() for text in segment_texts):
+            return None
+        joined_text = "".join(segment_texts)
+        candidates = [
+            (index, component)
+            for index, component in enumerate(message.chain)
+            if isinstance(component, Plain) and component.text.strip()
+        ]
+        if not candidates:
+            return None
+        for index, component in candidates:
+            if component.text == joined_text:
+                projected = segment_texts
+                break
+            text_offset = component.text.find(joined_text)
+            if text_offset >= 0:
+                prefix = component.text[:text_offset]
+                suffix = component.text[text_offset + len(joined_text) :]
+                projected = list(segment_texts)
+                projected[0] = prefix + projected[0]
+                projected[-1] = projected[-1] + suffix
+                break
+        else:
+            # A decorating hook may rewrite the speech after the model result.
+            # Use the last Plain component, which is the speech component in
+            # the interaction paths that also contain reasoning text.
+            index, component = candidates[-1]
+            original_total = sum(len(text) for text in segment_texts)
+            if original_total <= 0:
+                projected = [component.text] + ["" for _ in segment_texts[1:]]
+            else:
+                projected = []
+                offset = 0
+                for segment_index, text in enumerate(segment_texts):
+                    if segment_index == len(segment_texts) - 1:
+                        projected.append(component.text[offset:])
+                        break
+                    target_length = round(
+                        len(component.text) * len(text) / original_total
+                    )
+                    target_length = max(
+                        0,
+                        min(target_length, len(component.text) - offset),
+                    )
+                    projected.append(component.text[offset : offset + target_length])
+                    offset += target_length
+        return index, [
+            (segment_index, text)
+            for segment_index, text in enumerate(projected)
+            if text.strip()
+        ], len(projected)
 
     @staticmethod
     def _attach_tts_failure_segment(

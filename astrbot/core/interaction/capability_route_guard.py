@@ -69,7 +69,7 @@ def correct_contradictory_capability_denial(
         return False
 
     expression.turn_action = PersonalResponseAction.DELEGATE
-    expression.speech = "我去查一下，稍等。"
+    expression.replace_visible_speech("我去查一下，稍等。")
     expression.metadata = dict(expression.metadata or {})
     expression.metadata["route_correction_reason"] = (
         "capability_denial_route_corrected"

@@ -534,7 +534,7 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 - `express_visible_reply(...)` — 统一 persona visible-reply 入口，接收“待表达材料”请求
 - `render_plugin_output(...)` / `render_core_reply(...)` / `render_stream_interjection(...)` 只是同一入口的薄包装
 - 本身不做 LLM 调用，只做编排
-- 当前默认输出契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，返回 `turn_action`、`speech`、`actions`、`thought`、八维 `tendency` 与 `effect_calls`，且 `allow_text_fallback=False`
+- 当前默认输出契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，返回 `turn_action`、`segments` 与 `effect_calls`；每个 segment 含 `speech`、`actions`、`thought` 和八维 `tendency`，且 `allow_text_fallback=False`
 - renderer/provider 必须支持协议级 tool call；不支持的候选在请求前排除，不降级为 Persona JSON 文本
 - Persona Runtime 的表达规则、最终 request prompt 和输出契约由目标 `PromptRenderProfile` 提供；本轮待表达语义、核心流式 `observed_text / total_text / pending_text` 等事实由 Collector 写入原生 `input.visible_reply_material`
 - 对 DeepSeek-V4 / `deepseek-reasoner` 这类 reasoning 模型，首轮 persona user input 会额外注入一次“角色沉浸模式” marker，
@@ -563,19 +563,23 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 ```json
 {
   "turn_action": "reply",
-  "speech": "string",
-  "actions": ["lower_head"],
-  "thought": "角色当前的简短心理想法",
-  "tendency": {
-    "Joy": 0,
-    "Trust": 0,
-    "Fear": 0,
-    "Surprise": 0,
-    "Sadness": 0,
-    "Disgust": 0,
-    "Anger": 0,
-    "Anticipation": 0
-  },
+  "segments": [
+    {
+      "speech": "string",
+      "actions": ["lower_head"],
+      "thought": "角色当前的简短心理想法",
+      "tendency": {
+        "Joy": 0,
+        "Trust": 0,
+        "Fear": 0,
+        "Surprise": 0,
+        "Sadness": 0,
+        "Disgust": 0,
+        "Anger": 0,
+        "Anticipation": 0
+      }
+    }
+  ],
   "effect_calls": [
     {
       "name": "effect.name",
@@ -585,7 +589,7 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 }
 ```
 
-`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`speech` 是唯一用户可见文本，也是当前输出层交给 TTS 的文本来源；TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
 开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 

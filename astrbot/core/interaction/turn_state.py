@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
@@ -341,6 +341,7 @@ class InteractionTurnState:
     core_provider_id: str | None = None
     finalized_turn_material: dict[str, Any] | None = None
     immediate_reply: str | None = None
+    immediate_segments: tuple[Mapping[str, Any], ...] | None = None
     immediate_actions: tuple[str, ...] | None = None
     immediate_thought: str | None = None
     immediate_tendency: dict[str, int] | None = None
@@ -1763,14 +1764,53 @@ def get_interaction_turn_immediate_reply(event) -> str | None:
 def set_interaction_turn_immediate_persona_state(
     event,
     *,
+    segments: Sequence[Mapping[str, Any]] | None = None,
     actions: tuple[str, ...] | list[str] = (),
     thought: str = "",
     tendency: Mapping[str, int] | None = None,
 ) -> None:
     state = ensure_interaction_turn_state(event)
+    if segments is not None:
+        normalized_segments = tuple(
+            deepcopy(dict(segment))
+            for segment in segments
+            if isinstance(segment, Mapping)
+        )
+        state.immediate_segments = normalized_segments
+        if normalized_segments:
+            state.immediate_actions = tuple(
+                action
+                for segment in normalized_segments
+                for action in segment.get("actions", ())
+                if isinstance(action, str)
+            )
+            state.immediate_thought = "\n".join(
+                str(segment.get("thought", "") or "")
+                for segment in normalized_segments
+                if str(segment.get("thought", "") or "")
+            )
+            last_tendency = normalized_segments[-1].get("tendency", {})
+            state.immediate_tendency = (
+                dict(last_tendency) if isinstance(last_tendency, Mapping) else {}
+            )
+        else:
+            state.immediate_actions = ()
+            state.immediate_thought = ""
+            state.immediate_tendency = {}
+        return
+    state.immediate_segments = None
     state.immediate_actions = tuple(actions)
     state.immediate_thought = str(thought or "")
     state.immediate_tendency = dict(tendency or {})
+
+
+def get_interaction_turn_immediate_persona_segments(
+    event,
+) -> tuple[Mapping[str, Any], ...] | None:
+    state = get_interaction_turn_state(event)
+    if state is None or state.immediate_segments is None:
+        return None
+    return tuple(deepcopy(dict(segment)) for segment in state.immediate_segments)
 
 
 def get_interaction_turn_immediate_persona_state(

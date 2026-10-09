@@ -10,24 +10,28 @@
 ```json
 {
   "turn_action": "reply",
-  "speech": "啊……怎么会这样？",
-  "actions": ["lower_head"],
-  "thought": "这件事出乎意料，让我感到遗憾",
-  "tendency": {
-    "Joy": 0,
-    "Trust": 1,
-    "Fear": 2,
-    "Surprise": 8,
-    "Sadness": 7,
-    "Disgust": 0,
-    "Anger": 1,
-    "Anticipation": 0
-  },
+  "segments": [
+    {
+      "speech": "啊……怎么会这样？",
+      "actions": ["lower_head"],
+      "thought": "这件事出乎意料，让我感到遗憾",
+      "tendency": {
+        "Joy": 0,
+        "Trust": 1,
+        "Fear": 2,
+        "Surprise": 8,
+        "Sadness": 7,
+        "Disgust": 0,
+        "Anger": 1,
+        "Anticipation": 0
+      }
+    }
+  ],
   "effect_calls": []
 }
 ```
 
-Schema 对象 `additionalProperties=false`，并要求且只接受这六个顶层字段。缺字段、多余字段、错误类型或不满足语义限制时不构造成功的 Persona 结果。
+Schema 对象 `additionalProperties=false`，并要求且只接受三个顶层字段：`turn_action`、`segments`、`effect_calls`。缺字段、多余字段、错误类型或不满足语义限制时不构造成功的 Persona 结果。
 
 ## 字段定义
 
@@ -41,9 +45,9 @@ Schema 对象 `additionalProperties=false`，并要求且只接受这六个顶�
 
 `delegate` 表示 Personal 将工作委派给 Core；它不是另一个工具调用数组，也不携带 Core task specification。`silent` 只能用于允许静默的群聊候选。
 
-### `speech`
+### `segments[].speech`
 
-必填字符串，是唯一用户可见的表达文本，也是当前输出层交给 TTS 的文本来源。正常可见回复要求它非空；仅明确允许为空的特定请求（例如流式 interjection）可以返回空字符串。TTS 标签嵌入、Prompt 注入及清理尚未实现。
+必填字符串，表示这一段的用户可见表达。平台文本发送时按 `segments` 顺序拼接为一个整合文本；TTS 消费时逐段读取这些字符串并保持原顺序，不先把它们合并成一个 TTS 请求。正常可见回复要求至少有一个非空 speech；仅明确允许为空的特定请求可以返回空字符串。TTS 标签嵌入、Prompt 注入及清理尚未实现。
 
 ### `actions`
 
@@ -78,10 +82,10 @@ Schema 对象 `additionalProperties=false`，并要求且只接受这六个顶�
 
 ## 跨字段约束
 
-- `silent` 时 `speech`、`actions`、`effect_calls` 必须为空；`thought` 仍是必填字符串，`tendency` 仍须提供完整八维对象。
+- `silent` 时 `segments`、`effect_calls` 必须为空；`thought` 和 `tendency` 约束只适用于存在的 segment。
 - `delegate` 时由 Persona Request Prompt 限定 `speech` 为简短处理中确认；后续 task 由 Core Planner 生成。
 - 所有表达字段均来自同一次结构化结果，不能从自由文本或 provider 私有日志补猜缺值。
 
 ## 旧字段
 
-Core 不再接受 `spoken_reply` 或 `speech_cues`，也不映射到新字段。`speech_cues` 时序信息不得作为并行结果数组使用；未来 TTS 控制标签应由 TTS 适配器注入 `speech`，并在 TTS 边界清理。外部插件的私有字段迁移由插件维护者单独完成。
+Core 不再接受 `spoken_reply` 或 `speech_cues`，也不映射到新字段。TTS 的时序边界直接来自 `segments[].speech`；不要另建并行 cue 数组。未来 TTS 控制标签应由 TTS 适配器注入各段 `speech`，并在 TTS 边界清理。外部插件的私有字段迁移由插件维护者单独完成。

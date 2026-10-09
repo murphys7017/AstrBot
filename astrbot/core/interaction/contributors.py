@@ -314,6 +314,9 @@ class InteractionResultView:
     metadata: dict[str, Any] = field(default_factory=dict)
     purpose: InteractionResultPurpose = "unknown"
     effect_calls: tuple[Any, ...] = field(default_factory=tuple)
+    segments: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
+    # Flattened fields remain available to existing in-process contributors;
+    # new consumers should use ``segments`` so per-segment state is preserved.
     actions: tuple[str, ...] = field(default_factory=tuple)
     thought: str = ""
     tendency: Mapping[str, int] = field(default_factory=dict)
@@ -332,6 +335,7 @@ class InteractionResultView:
                 "core_result": self.core_result,
                 "final_result": self.final_result,
                 "effect_calls": freeze_interaction_snapshot(self.effect_calls),
+                "segments": freeze_interaction_snapshot(self.segments),
                 "actions": freeze_interaction_snapshot(self.actions),
                 "thought": self.thought,
                 "tendency": freeze_interaction_snapshot(self.tendency),
@@ -357,6 +361,7 @@ class InteractionResultView:
             route_decision=freeze_interaction_snapshot(self.route_decision),
             output_draft=freeze_interaction_snapshot(self.output_draft),
             effect_calls=freeze_interaction_snapshot(self.effect_calls),
+            segments=freeze_interaction_snapshot(self.segments),
             actions=freeze_interaction_snapshot(self.actions),
             tendency=freeze_interaction_snapshot(self.tendency),
             visible_outputs=freeze_interaction_snapshot(self.visible_outputs),

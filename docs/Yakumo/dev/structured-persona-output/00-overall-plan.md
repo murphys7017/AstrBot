@@ -1,8 +1,8 @@
 # Persona 结构化输出总计划
 
-**文档状态：** 按当前代码核对并更新
+**文档状态：** 2026-10-09 按当前代码复核
 **更新时间：** 2026-10-09  
-**代码基线：** `eda87adb8`（Persona 插件结果与即时状态修复）
+**代码基线：** `149dd0485`（当前 HEAD；包含 `d4f9f69d3` 的 Provider JSON 稳定性诊断）
 **实施方式：** 分阶段破坏性协议迁移
 
 ## 1. 目标与边界
@@ -18,29 +18,33 @@
 ```json
 {
   "turn_action": "reply",
-  "speech": "啊……怎么会这样？",
-  "actions": ["lower_head"],
-  "thought": "这件事出乎意料，让我感到遗憾",
-  "tendency": {
-    "Joy": 0,
-    "Trust": 1,
-    "Fear": 2,
-    "Surprise": 8,
-    "Sadness": 7,
-    "Disgust": 0,
-    "Anger": 1,
-    "Anticipation": 0
-  },
+  "segments": [
+    {
+      "speech": "啊……怎么会这样？",
+      "actions": ["lower_head"],
+      "thought": "这件事出乎意料，让我感到遗憾",
+      "tendency": {
+        "Joy": 0,
+        "Trust": 1,
+        "Fear": 2,
+        "Surprise": 8,
+        "Sadness": 7,
+        "Disgust": 0,
+        "Anger": 1,
+        "Anticipation": 0
+      }
+    }
+  ],
   "effect_calls": []
 }
 ```
 
-顶层必须且只能包含 `turn_action`、`speech`、`actions`、`thought`、`tendency`、`effect_calls`。六个字段都是必填项；无内容时分别使用调用场景允许的空值。额外顶层字段会被拒绝。
+顶层必须且只能包含 `turn_action`、`segments`、`effect_calls`。三个字段都是必填项；额外顶层字段会被拒绝。`segments` 按说话时动作或状态变化分段，每段都包含 `speech`、`actions`、`thought` 和 `tendency`。
 
 | 字段 | 当前代码约束 | 当前消费者 |
 | --- | --- | --- |
 | `turn_action` | 单个字符串；Schema 按请求限制可选值。 | Personal 路由和本轮执行控制。 |
-| `speech` | 字符串；正常回复不能为空。 | 用户可见输出和当前 TTS 文本输入。 |
+| `speech` | 字符串；正常回复不能为空。 | 所在分段的用户可见文本；平台文本发送时按 `segments` 顺序整合，TTS 消费时保留分段边界。 |
 | `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
 | `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
 | `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `-10..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
@@ -48,13 +52,13 @@
 
 情绪维度为 `Joy`（喜悦）、`Trust`（信任）、`Fear`（恐惧）、`Surprise`（惊讶）、`Sadness`（悲伤）、`Disgust`（厌恶）、`Anger`（愤怒）、`Anticipation`（期待）。
 
-`silent` 仅对允许静默的群聊候选开放，并要求 `speech`、`actions`、`effect_calls` 为空；Schema 仍要求返回 `thought` 和完整八维 `tendency`。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
+`silent` 仅对允许静默的群聊候选开放，并要求 `segments`、`effect_calls` 为空。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
 
 ### 字段流向
 
 ```text
 turn_action  -> Personal 路由与 reply / delegate / silent 仲裁
-speech       -> 用户可见消息；当前输出层将其作为 TTS 文本输入
+segments[].speech -> 按顺序拼接为文本平台使用的整合文本；TTS 按段顺序消费每个 speech
 actions      -> InteractionResultView；需要外部动作输出时由插件生成 contribution
 thought      -> InteractionResultView；不自动投递、不进入普通对话历史
 tendency     -> InteractionResultView；不自动投递、不进入普通对话历史
@@ -82,7 +86,7 @@ Provider 原始响应中的 persona_expression tool call
         ↓
 PersonaExpressionResult
         ↓
-turn_action 路由 / speech 输出与 TTS / InteractionResultView 插件贡献
+turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 ```
 
 当前 Persona 契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona 主路径不会因 Provider 不支持强制 tool call 而降级成 JSON 文本或自由文本；候选会在请求前筛除，缺少 terminal tool call 时解析失败。通用 `OutputContract` 中的 JSON 模式或 Provider 通用解析能力不等于 Persona 已切换到该输出模式。
@@ -95,9 +99,11 @@ turn_action 路由 / speech 输出与 TTS / InteractionResultView 插件贡献
 | --- | --- | --- |
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
 | 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
-| 第二阶段：Provider 输出策略 | 部分准备 | Provider 页面已增加可编辑 JSON 示例的 10 次稳定性诊断；原生 JSON mode / JSON Schema 的 Provider 接入、能力矩阵和 Persona 路径验收仍未完成，Persona 继续使用严格 tool call。XML/Markdown 稳定性测试待定义格式规则。 |
+| 第二阶段 2A：JSON Prompt 稳定性诊断 | 完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型独立请求 10 次，检查 JSON 语法、对象字段和示例推断出的类型；该诊断不调用原生 JSON mode / JSON Schema，也不改变 Persona 主路径。 |
+| 第二阶段 2B：Provider 能力矩阵与 JSON mode | 未开始 | 按 Provider、模型和 endpoint 记录 tool call、JSON mode 和请求/响应差异；尚未接入原生 JSON mode Persona 路径。 |
+| 第二阶段 2C：原生 JSON Schema / structured output | 未开始 | 尚未实现 Schema 投影、Provider-specific 请求参数、响应提取和端到端验收。 |
 | 第三阶段：文本格式解析 | 未开始 | 为 XML/Markdown 等定义明确 grammar 和 parser；示例仅为设计草案。 |
-| 第四阶段：TTS 标签 | 未开始 | TTS 适配器负责 prompt 注入、将标签放入 `speech` 并在 TTS 边界清理。 |
+| 第四阶段：TTS 分段与标签 | 分段消费已实施；标签未开始 | 文本平台使用拼接文本，TTS 按 `segments[].speech` 分段消费；后续由 TTS 适配器负责 Prompt 注入、标签清理和 Provider-specific 验收。 |
 | 文档与集成验收 | Core 文档已同步；外部验收未完成 | 外部插件依赖、Provider 实例、平台投递和 TTS 端到端仍需分别验收。 |
 
 阶段 2–4 不得仅凭接口声明启用；每种策略都需经过实际请求构造、解析语义校验和 Provider/模型数据验证。
@@ -117,7 +123,7 @@ turn_action 路由 / speech 输出与 TTS / InteractionResultView 插件贡献
 
 1. Persona 成功响应必须带 `persona_expression` tool call；纯文本不得被误认为成功。
 2. Canonical 顶层字段必须精确匹配，`tendency` 八维和值域有效。
-3. `speech` 是唯一普通用户可见文本和当前 TTS 输入来源。
+3. `segments[].speech` 按顺序拼接成文本平台使用的整合文本；TTS 不使用拼接结果，而是按原分段顺序逐段合成。
 4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。
 5. `actions` 和 `effect_calls` 维持不同含义与消费者。
 6. 同文本但动作、心理想法或情绪状态变化的 Core 最终回复不能被错误去重。

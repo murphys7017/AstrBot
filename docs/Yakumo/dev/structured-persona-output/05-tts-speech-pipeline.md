@@ -1,18 +1,19 @@
 # 第四阶段：TTS 与 speech 处理
 
-**状态：未实施。** 当前结构化协议只定义 speech 为用户可见文本和输出层交给 TTS 的文本来源；Persona Prompt 尚未按 TTS 标签规范注入要求，Core 也没有 Persona speech cue 数组或统一的标签清理链路。
+**状态：分段消费已实施；TTS 标签适配未实施。** 当前文本平台收到的是按 `segments[].speech` 顺序整合的一条普通文本；TTS 消费保留每个 speech 分段并按顺序逐段调用。Persona Prompt 尚未按 TTS 标签规范注入要求，Core 也没有通用的标签清理链路。
 
 ## 当前边界
 
-- Persona 的 speech 是当前用户可见文本和 TTS 文本输入来源。
-- 当前执行顺序是 Persona 先生成 speech，OutputController 再把 Plain 文本交给 synthesize_text；TTS 调用发生在 Persona Prompt 完成之后。
+- Persona 的 `segments[].speech` 是分段用户可见文本和 TTS 输入来源。
+- 文本平台路径先按 `segments[].speech` 顺序整合成一个 Plain 文本，便于一次发送；TTS 路径保留分段，OutputController 按顺序把每个非空 speech 段交给 `synthesize_text`。
+- 一个 Persona 结果对应一个文本消息，但可以对应多个有序 TTS Record；每个音频 Record 带有 `persona_segment_index` 和 `persona_segment_count`，用于保持消费顺序和关联。
 - actions、thought、tendency 和 effect_calls 不会自动拼接进 speech。
-- speech_cues、phrase_index、before、after 等外置时序结构不是 Canonical Schema。
+- speech_cues、phrase_index、before、after 等外置时序结构不是 Canonical Schema；分段本身就是 TTS 的时序边界。
 - 个别 TTS Provider 会格式化自己的合成请求。例如 [MiMo TTS adapter](../../../../astrbot/core/provider/sources/mimo_tts_api_source.py) 可将 style/dialect 包成 `<style>...` 前缀加到 TTS 请求文本；这是合成请求的 Provider-specific 处理，不会反向注入 Persona 生成 Prompt，也不提供通用 speech 标签解析或清理。
 
 ## 目标设计
 
-需要标签的语音能力必须把其格式要求注入生成 speech 的模型请求 Prompt，再由模型将标签直接写进 speech 的正确位置。TTS 接收带内嵌标签的原始 speech 文本，才能保持标签与词句的时序关系。
+需要标签的语音能力必须把其格式要求注入生成各段 speech 的模型请求 Prompt，再由模型将标签直接写进对应 speech 的正确位置。TTS 接收带内嵌标签的原始 speech 分段，才能保持标签与词句的时序关系。
 
 后续实现应明确：
 
@@ -26,15 +27,15 @@
 
 ## 与其他字段的关系
 
-- speech：唯一承载语音标签和文本时序的结构化输出字段。
+- segments[].speech：承载语音标签和文本时序的结构化输出字段；平台文本消费使用其拼接结果，TTS 消费其原始分段。
 - thought：角色心理想法，不进入用户文本或 TTS。
 - tendency：角色当前情绪。是否以及如何影响语音生成，需由未来适配方案明确，当前不能当作已生效的 TTS cue。
 - actions：动作意图数组，由独立动作模型或插件解释，不进入 TTS 文本。
 - effect_calls：插件 effect 调用，保持现有独立消费链路。
 
-本阶段不得重新引入与 speech 并行的通用 cue 数组。TTS 标签仍属于 speech 内容的一部分，字段之外的数据不能代替其时间位置。
+本阶段不得重新引入与 `segments[].speech` 并行的通用 cue 数组。TTS 标签仍属于 speech 内容的一部分，字段之外的数据不能代替其时间位置。
 
 ## 验收要求
 
-启用前按目标 TTS Provider 验证 Prompt 注入、标签生成、原始 speech 到 TTS 的顺序保真、文本侧清理边界以及失败诊断。没有针对某种 Provider 的注入和解析实现时，不应声称该 Provider 已支持 Persona 内嵌 TTS 标签。
+已完成的分段链路验证应覆盖：多段 speech 按原顺序合成、文本平台仍收到拼接文本、空 speech 段不生成音频、Record 的分段元数据连续。TTS 标签能力启用前还需按目标 Provider 验证 Prompt 注入、标签生成、原始 speech 到 TTS 的顺序保真、文本侧清理边界以及失败诊断。没有针对某种 Provider 的注入和解析实现时，不应声称该 Provider 已支持 Persona 内嵌 TTS 标签。
 

@@ -16,6 +16,7 @@ from astrbot.core.interaction.expression_agent import (
     PersonaExpressionIntent,
     PersonaExpressionRequest,
     PersonaExpressionResult,
+    PersonaExpressionSegment,
     _build_expression_prompt,
     build_persona_expression_output_contract_for_effects,
     build_persona_expression_tool_parameters,
@@ -51,10 +52,14 @@ def _provider_context_text(call: dict) -> str:
 def _persona_payload(speech: str = "", **overrides):
     payload = {
         "turn_action": "reply",
-        "speech": speech,
-        "actions": [],
-        "thought": "",
-        "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
+        "segments": [
+            {
+                "speech": speech,
+                "actions": [],
+                "thought": "",
+                "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
+            }
+        ],
         "effect_calls": [],
     }
     payload.update(overrides)
@@ -78,6 +83,21 @@ def test_persona_expression_empty_result_without_effects_is_rejected():
         )
 
     assert exc_info.value.reason == "empty_output"
+
+
+def test_persona_speech_truncation_preserves_segment_boundaries():
+    result = PersonaExpressionResult(
+        segments=[
+            PersonaExpressionSegment(speech="AB"),
+            PersonaExpressionSegment(speech="CDE"),
+            PersonaExpressionSegment(speech="FGHI"),
+        ],
+    )
+
+    result.truncate_speech(5)
+
+    assert result.speech == "ABCDE"
+    assert result.speech_segments == ("AB", "CDE", "")
 
 
 def test_personal_response_plan_requires_an_allowed_action_and_reply():
@@ -132,10 +152,7 @@ def test_personal_response_plan_schema_requires_turn_action():
 
     assert schema["required"] == [
         "turn_action",
-        "speech",
-        "actions",
-        "thought",
-        "tendency",
+        "segments",
         "effect_calls",
     ]
     assert schema["properties"]["turn_action"]["enum"] == [
@@ -155,10 +172,7 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
 
     assert set(schema["properties"]) == {
         "turn_action",
-        "speech",
-        "actions",
-        "thought",
-        "tendency",
+        "segments",
         "effect_calls",
     }
     assert schema["additionalProperties"] is False
@@ -168,7 +182,15 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
         "delegate",
         "silent",
     ]
-    tendency = schema["properties"]["tendency"]
+    segment_schema = schema["properties"]["segments"]["items"]
+    assert segment_schema["additionalProperties"] is False
+    assert segment_schema["required"] == [
+        "speech",
+        "actions",
+        "thought",
+        "tendency",
+    ]
+    tendency = segment_schema["properties"]["tendency"]
     assert tendency["additionalProperties"] is False
     assert tendency["required"] == list(PERSONA_TENDENCY_DIMENSIONS)
     assert all(
@@ -191,7 +213,11 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
     ],
 )
 def test_persona_expression_rejects_invalid_or_legacy_tool_fields(field, value):
-    payload = _persona_payload("hello", **{field: value})
+    payload = _persona_payload("hello")
+    if field in {"actions", "tendency"}:
+        payload["segments"][0][field] = value
+    else:
+        payload[field] = value
     response = LLMResponse(
         role="assistant",
         completion_text="",
@@ -618,10 +644,7 @@ def test_persona_expression_defaults_to_strict_tool_call_contract():
     assert contract.preferred_tool_name == "persona_expression"
     assert schema["required"] == [
         "turn_action",
-        "speech",
-        "actions",
-        "thought",
-        "tendency",
+        "segments",
         "effect_calls",
     ]
 

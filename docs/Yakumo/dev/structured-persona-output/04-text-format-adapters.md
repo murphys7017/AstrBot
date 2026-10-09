@@ -39,7 +39,7 @@ Markdown 需要一个可机读的固定 grammar，例如固定标题或受控代
 
 ## 启用条件
 
-某一格式只有在 grammar、Prompt、parser、Schema 校验和 provider/model 实测均准备好后，才可按特定组合启用。验收须覆盖六个顶层字段、八维 tendency、silent 规则、动态 effect_calls、流式/非流式响应和格式错误。
+某一格式只有在 grammar、Prompt、parser、Schema 校验和 provider/model 实测均准备好后，才可按特定组合启用。验收须覆盖三个顶层字段、segments 内的八维 tendency、silent 规则、动态 effect_calls、流式/非流式响应和格式错误。
 
 XML、Markdown 不作为 JSON/tool-call 的隐式 fallback，也不因此改变 Canonical Schema 或字段消费者。
 

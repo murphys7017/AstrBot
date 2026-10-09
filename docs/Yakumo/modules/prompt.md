@@ -173,7 +173,7 @@ OutputContract
   -> response parser
 ```
 
-Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 通过虚拟 `persona_expression` tool call 返回 `turn_action`、唯一用户可见文本 `speech`、动作词数组 `actions`、角色心理想法 `thought`、角色当前八维情绪 `tendency`，以及按当前事件过滤后的 `effect_calls`。`turn_action` 是 `reply | delegate | silent` 三选一的字符串，具体调用场景可以限制可选值。`persona_expression` 是终端输出契约，不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
+Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 通过虚拟 `persona_expression` tool call 返回 `turn_action`、`segments` 和按当前事件过滤后的 `effect_calls`；每个 segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和当前八维情绪 tendency。`turn_action` 是 `reply | delegate | silent` 三选一的字符串，具体调用场景可以限制可选值。`persona_expression` 是终端输出契约，不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
 
 Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect，因为 effect 是同一用户可见 segment 的输出契约，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 
