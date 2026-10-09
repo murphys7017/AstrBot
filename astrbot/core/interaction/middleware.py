@@ -114,7 +114,7 @@ from .types import (
 )
 
 LOCAL_FAST_EXPRESSION_FALLBACK_RESULT = PersonaExpressionResult(
-    spoken_reply="模型服务暂时不可用，请稍后再试。",
+    speech="模型服务暂时不可用，请稍后再试。",
     turn_action=PersonalResponseAction.REPLY,
 )
 
@@ -514,7 +514,7 @@ class InteractionMiddleware:
         expression: PersonaExpressionResult,
     ) -> bool:
         current_fingerprint = fingerprint_personal_expression(
-            expression.spoken_reply
+            expression.speech
         )
         if current_fingerprint is None:
             return False
@@ -1145,7 +1145,10 @@ class InteractionMiddleware:
             # Persona bookkeeping just to complete the control-plane turn.
             reply = get_interaction_turn_immediate_reply(event)
             return (
-                PersonaExpressionResult(spoken_reply=reply)
+                PersonaExpressionResult(
+                    speech=reply,
+                    turn_action=PersonalResponseAction.REPLY,
+                )
                 if reply
                 else None
             )
@@ -1207,7 +1210,7 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         expression: PersonaExpressionResult | None,
     ) -> None:
-        if expression is None or not expression.spoken_reply.strip():
+        if expression is None or not expression.speech.strip():
             record_interaction_turn_failure(
                 event,
                 stage="persona_expression",
@@ -1546,7 +1549,7 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         expression: PersonaExpressionResult,
     ) -> bool:
-        if not expression.spoken_reply.strip():
+        if not expression.speech.strip():
             return False
         return await self.output_controller.emit_immediate_spoken_reply(
             expression,

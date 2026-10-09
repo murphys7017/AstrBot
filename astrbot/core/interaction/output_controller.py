@@ -123,7 +123,11 @@ from .turn_state import (
     set_interaction_turn_tool_stage_observation_records,
     update_interaction_turn_stream_buffer,
 )
-from .types import InteractionAgentConfig, InteractionRouteMode
+from .types import (
+    InteractionAgentConfig,
+    InteractionRouteMode,
+    PersonalResponseAction,
+)
 from .visible_message_fingerprint import fingerprint_visible_message
 
 PLUGIN_OUTPUT_TRANSACTION_ACTIVE_EXTRA_KEY = (
@@ -347,7 +351,10 @@ class InteractionOutputController:
             return False
         try:
             delivered = await self.emit_immediate_spoken_reply(
-                PersonaExpressionResult(spoken_reply=reply),
+                PersonaExpressionResult(
+                    speech=reply,
+                    turn_action=PersonalResponseAction.REPLY,
+                ),
                 event,
             )
             if not delivered:
@@ -375,7 +382,7 @@ class InteractionOutputController:
         result: PersonaExpressionResult,
         event: AstrMessageEvent,
     ) -> bool:
-        reply = (result.spoken_reply or "").strip()
+        reply = (result.speech or "").strip()
         if not reply:
             return False
         set_interaction_turn_emitting_immediate_reply(event)
@@ -421,6 +428,27 @@ class InteractionOutputController:
                     prepared_expression.effect_calls
                     if prepared_expression is not None
                     else ()
+                ),
+                actions=(
+                    prepared_expression.actions
+                    if prepared_expression is not None
+                    else ()
+                ),
+                thought=(
+                    prepared_expression.thought
+                    if prepared_expression is not None
+                    else ""
+                ),
+                tendency=(
+                    prepared_expression.tendency
+                    if prepared_expression is not None
+                    else {}
+                ),
+                turn_action=(
+                    prepared_expression.turn_action.value
+                    if prepared_expression is not None
+                    and prepared_expression.turn_action is not None
+                    else None
                 ),
             )
             merged = merge_result_contributions(contributions)
@@ -602,7 +630,7 @@ class InteractionOutputController:
                     )
                 message = replace_plain_text_preserving_components(
                     message,
-                    result.spoken_reply,
+                    result.speech,
                 )
                 resolved_kind = "plugin_persona"
             else:
@@ -1540,7 +1568,7 @@ class InteractionOutputController:
             or has_interaction_turn_final_output_claimed(event)
         ):
             return StreamObservationDecision(reason="turn_output_closed")
-        reply = result.spoken_reply.strip()
+        reply = result.speech.strip()
         return StreamObservationDecision(
             should_interject=bool(reply),
             reply=reply or None,
@@ -1863,7 +1891,7 @@ class InteractionOutputController:
         immediate_reply = get_interaction_turn_immediate_reply(event)
         if (
             immediate_reply
-            and fingerprint_personal_expression(result.spoken_reply)
+            and fingerprint_personal_expression(result.speech)
             == fingerprint_personal_expression(immediate_reply)
             and not result.effect_calls
             and not result.metadata.get("persona_tool_attachments")
@@ -1882,7 +1910,7 @@ class InteractionOutputController:
             return
         final_message = source_message.derive(
             [
-                Plain(result.spoken_reply),
+                Plain(result.speech),
                 *self._persona_tool_attachment_components(result),
             ]
         )
@@ -1891,6 +1919,7 @@ class InteractionOutputController:
             final_message,
             event,
             effect_calls=result.effect_calls,
+            persona_expression=result,
         )
 
     async def deliver_raw_core_reply(
@@ -1912,6 +1941,7 @@ class InteractionOutputController:
         event: AstrMessageEvent,
         *,
         effect_calls: Sequence[Any] = (),
+        persona_expression: PersonaExpressionResult | None = None,
     ) -> None:
         core_result_text = source_message.get_plain_text()
         contributions = await self._collect_result_contributions(
@@ -1924,6 +1954,15 @@ class InteractionOutputController:
                 message_id := self._next_output_segment_id(event, "core_reply")
             ),
             effect_calls=effect_calls,
+            actions=(persona_expression.actions if persona_expression else ()),
+            thought=persona_expression.thought if persona_expression else "",
+            tendency=(persona_expression.tendency if persona_expression else {}),
+            turn_action=(
+                persona_expression.turn_action.value
+                if persona_expression is not None
+                and persona_expression.turn_action is not None
+                else None
+            ),
         )
         merged = merge_result_contributions(contributions)
         if merged.final_text_override is not None:
@@ -2083,6 +2122,10 @@ class InteractionOutputController:
         candidate_message_kind: str,
         candidate_message_id: str,
         effect_calls: Sequence[Any] = (),
+        actions: Sequence[str] = (),
+        thought: str = "",
+        tendency: Mapping[str, int] | None = None,
+        turn_action: str | None = None,
     ) -> list[InteractionResultContribution]:
         if self.plugin_context is None:
             return []
@@ -2139,6 +2182,10 @@ class InteractionOutputController:
             core_result=core_result,
             final_result=final_result,
             effect_calls=effect_calls,
+            actions=tuple(actions),
+            thought=thought,
+            tendency=dict(tendency or {}),
+            turn_action=turn_action,
             visible_outputs=self._snapshot_result_visible_outputs(event),
             utterances=self._snapshot_result_utterances(event),
             turn_material_snapshot=get_interaction_turn_finalized_material(event),

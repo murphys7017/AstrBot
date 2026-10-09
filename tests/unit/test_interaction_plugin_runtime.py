@@ -979,7 +979,7 @@ async def test_core_result_returns_through_unified_persona_expression():
 
     async def render_visible_reply(_event, request):
         rendered_requests.append(request)
-        return PersonaExpressionResult(spoken_reply="人格化后的执行结果")
+        return PersonaExpressionResult(speech="人格化后的执行结果")
 
     controller = InteractionOutputController(
         visible_reply_renderer=render_visible_reply,
@@ -998,7 +998,7 @@ async def test_core_result_returns_through_unified_persona_expression():
     assert rendered_requests[0].immediate_reply == "我先看看。"
     controller.deliver_prepared_core_reply.assert_awaited_once_with(
         source_message,
-        PersonaExpressionResult(spoken_reply="人格化后的执行结果"),
+        PersonaExpressionResult(speech="人格化后的执行结果"),
         event,
     )
 
@@ -1049,7 +1049,7 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
 
     await controller.deliver_prepared_core_reply(
         MessageChain([Plain("Core execution completed")]),
-        PersonaExpressionResult(spoken_reply="三分钟后提醒你。"),
+        PersonaExpressionResult(speech="三分钟后提醒你。"),
         event,
     )
 
@@ -1109,7 +1109,7 @@ async def test_persona_route_allows_explicitly_targeted_function_tools():
     async def generate_expression(_event, _config, *, request):
         requests.append(request)
         return PersonaExpressionResult(
-            spoken_reply="ok",
+            speech="ok",
             turn_action=PersonalResponseAction.REPLY,
         )
 
@@ -1188,7 +1188,7 @@ async def test_persona_materializes_turn_before_delivery_completion():
 
     await middleware._complete_persona_only_turn(
         event,
-        PersonaExpressionResult(spoken_reply="persona reply"),
+        PersonaExpressionResult(speech="persona reply"),
     )
 
     assert order == ["materialize", "complete", "finalize"]
@@ -1208,7 +1208,7 @@ async def test_suppressed_persona_reply_does_not_materialize_raw_expression():
             self._extras[key] = value
 
     async def suppressed_expression():
-        return PersonaExpressionResult(spoken_reply="must not enter history")
+        return PersonaExpressionResult(speech="must not enter history")
 
     event = Event()
     turn_state = ensure_interaction_turn_state(event)
@@ -1558,7 +1558,7 @@ async def test_plugin_persona_output_keeps_non_text_components():
     controller = object.__new__(InteractionOutputController)
     delivered = []
     controller._render_visible_reply = AsyncMock(
-        return_value=PersonaExpressionResult(spoken_reply="rewritten reply")
+        return_value=PersonaExpressionResult(speech="rewritten reply")
     )
     controller._next_output_segment_id = lambda _event, _kind: "segment-1"
     controller._begin_plugin_output_transaction = lambda _event: False

@@ -1078,7 +1078,7 @@ async def test_personal_reply_completes_with_one_reply_plan(monkeypatch):
     async def start_persona(*_args, **_kwargs):
         persona_started.set()
         return PersonaExpressionResult(
-            spoken_reply="hello",
+            speech="hello",
             turn_action=PersonalResponseAction.REPLY,
         )
 
@@ -1195,7 +1195,7 @@ async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
     )
     async def generate_delegated(*_args, **_kwargs):
         return PersonaExpressionResult(
-            spoken_reply="我来查一下。",
+            speech="我来查一下。",
             turn_action=PersonalResponseAction.DELEGATE,
         )
 
@@ -1308,7 +1308,7 @@ async def test_duplicate_autonomous_expression_is_suppressed_without_accounting(
         fallback_on_error,
     ):
         expression_requests.append((request, fallback_on_error))
-        return PersonaExpressionResult(spoken_reply=" direct REPLY!!! ")
+        return PersonaExpressionResult(speech=" direct REPLY!!! ")
 
     middleware._generate_expression = generate_expression
 
@@ -1398,7 +1398,7 @@ async def test_autonomous_expression_deduplicates_after_runtime_state_restore(tm
         ):
             assert request.avoid_previous_reply is True
             assert fallback_on_error is False
-            return PersonaExpressionResult(spoken_reply=" direct REPLY!!! ")
+            return PersonaExpressionResult(speech=" direct REPLY!!! ")
 
         middleware._generate_expression = generate_expression
         result = await restored_manager.submit_runtime_observation_event(

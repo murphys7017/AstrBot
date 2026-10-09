@@ -74,7 +74,7 @@ class InteractionPersonaRuntime:
             )
         return replace_plain_text_preserving_components(
             message,
-            result.spoken_reply,
+            result.speech,
         )
 
     async def render_core_reply(
@@ -95,7 +95,7 @@ class InteractionPersonaRuntime:
                 immediate_reply=immediate_reply,
             ),
         )
-        return result.spoken_reply
+        return result.speech
 
     async def render_stream_interjection(
         self,
@@ -124,4 +124,4 @@ class InteractionPersonaRuntime:
                 ),
             ),
         )
-        return result.spoken_reply.strip()
+        return result.speech.strip()

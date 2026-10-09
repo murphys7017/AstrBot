@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,7 @@ from astrbot.core.capabilities import CapabilitySnapshot
 from astrbot.core.interaction.collectors import PersonaVisibleReplyCollector
 from astrbot.core.interaction.effects import PersonaEffectCall, PersonaEffectSpec
 from astrbot.core.interaction.expression_agent import (
+    PERSONA_TENDENCY_DIMENSIONS,
     InteractionExpressionAgent,
     InteractionExpressionError,
     PersonaExpressionIntent,
@@ -46,6 +48,19 @@ def _provider_context_text(call: dict) -> str:
     return "\n".join(str(message) for message in call.get("contexts", []))
 
 
+def _persona_payload(speech: str = "", **overrides):
+    payload = {
+        "turn_action": "reply",
+        "speech": speech,
+        "actions": [],
+        "thought": "",
+        "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
+        "effect_calls": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _persona_capabilities(tools: ToolSet) -> CapabilitySnapshot:
     return CapabilitySnapshot(
         target="personal_expression",
@@ -59,7 +74,7 @@ def test_persona_expression_empty_result_without_effects_is_rejected():
     with pytest.raises(InteractionExpressionError) as exc_info:
         validate_persona_expression_result(
             PersonaExpressionRequest(),
-            PersonaExpressionResult(spoken_reply=""),
+            PersonaExpressionResult(speech=""),
         )
 
     assert exc_info.value.reason == "empty_output"
@@ -71,7 +86,10 @@ def test_personal_response_plan_requires_an_allowed_action_and_reply():
     with pytest.raises(InteractionExpressionError) as exc_info:
         validate_persona_expression_result(
             request,
-            PersonaExpressionResult(spoken_reply="我来处理。"),
+            PersonaExpressionResult(
+                speech="我来处理。",
+                turn_action=None,
+            ),
         )
 
     assert exc_info.value.reason == "missing_personal_response_action"
@@ -114,8 +132,10 @@ def test_personal_response_plan_schema_requires_turn_action():
 
     assert schema["required"] == [
         "turn_action",
-        "spoken_reply",
-        "speech_cues",
+        "speech",
+        "actions",
+        "thought",
+        "tendency",
         "effect_calls",
     ]
     assert schema["properties"]["turn_action"]["enum"] == [
@@ -124,11 +144,74 @@ def test_personal_response_plan_schema_requires_turn_action():
     ]
 
 
+def test_persona_expression_schema_contains_canonical_structured_fields():
+    schema = build_persona_expression_tool_parameters(
+        allowed_turn_actions=(
+            PersonalResponseAction.REPLY,
+            PersonalResponseAction.DELEGATE,
+            PersonalResponseAction.SILENT,
+        ),
+    )
+
+    assert set(schema["properties"]) == {
+        "turn_action",
+        "speech",
+        "actions",
+        "thought",
+        "tendency",
+        "effect_calls",
+    }
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["turn_action"]["type"] == "string"
+    assert schema["properties"]["turn_action"]["enum"] == [
+        "reply",
+        "delegate",
+        "silent",
+    ]
+    tendency = schema["properties"]["tendency"]
+    assert tendency["additionalProperties"] is False
+    assert tendency["required"] == list(PERSONA_TENDENCY_DIMENSIONS)
+    assert all(
+        tendency["properties"][dimension]
+        == {"type": "integer", "minimum": -10, "maximum": 10}
+        for dimension in PERSONA_TENDENCY_DIMENSIONS
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tendency", {**dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), "Joy": True}),
+        ("tendency", {**dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), "Joy": 11}),
+        ("tendency", json.dumps(dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0))),
+        ("actions", [{"name": "lower_head"}]),
+        ("actions", json.dumps(["lower_head"])),
+        ("spoken_reply", "legacy"),
+        ("speech_cues", []),
+    ],
+)
+def test_persona_expression_rejects_invalid_or_legacy_tool_fields(field, value):
+    payload = _persona_payload("hello", **{field: value})
+    response = LLMResponse(
+        role="assistant",
+        completion_text="",
+        tools_call_name=["persona_expression"],
+        tools_call_args=[payload],
+    )
+
+    with pytest.raises(InteractionExpressionError):
+        extract_persona_expression_result(
+            "",
+            llm_response=response,
+            output_contract=build_persona_expression_output_contract_for_effects(),
+        )
+
+
 def test_persona_expression_allows_effect_only_reply_when_request_explicitly_allows_empty():
     validate_persona_expression_result(
         PersonaExpressionRequest(allow_empty=True),
         PersonaExpressionResult(
-            spoken_reply="",
+            speech="",
             effect_calls=[
                 PersonaEffectCall(
                     name="ag99live.motion",
@@ -144,7 +227,7 @@ def test_persona_expression_still_requires_reply_for_first_response_even_with_ef
         validate_persona_expression_result(
             PersonaExpressionRequest(),
             PersonaExpressionResult(
-                spoken_reply="",
+                speech="",
                 effect_calls=[
                     PersonaEffectCall(
                         name="ag99live.motion",
@@ -167,7 +250,7 @@ def test_persona_expression_rejects_missing_required_effect():
     with pytest.raises(InteractionExpressionError) as exc_info:
         validate_persona_expression_result(
             PersonaExpressionRequest(),
-            PersonaExpressionResult(spoken_reply="嗯。"),
+            PersonaExpressionResult(speech="嗯。"),
             effects=[effect],
         )
 
@@ -183,7 +266,7 @@ def test_persona_expression_rejects_invalid_required_effect():
         metadata={"required_per_segment": True},
     )
     result = PersonaExpressionResult(
-        spoken_reply="嗯。",
+        speech="嗯。",
         metadata={
             "effect_parse_issues": [
                 {"name": "ag99live.motion", "reason": "arguments_invalid"}
@@ -213,7 +296,7 @@ def test_persona_expression_rejects_duplicate_exactly_one_required_effect():
         },
     )
     result = PersonaExpressionResult(
-        spoken_reply="嗯。",
+        speech="嗯。",
         effect_calls=[
             PersonaEffectCall(name="ag99live.motion", arguments={}),
             PersonaEffectCall(name="ag99live.motion", arguments={}),
@@ -231,11 +314,22 @@ def test_persona_expression_rejects_duplicate_exactly_one_required_effect():
 
 
 def test_persona_expression_repairs_truncated_json_from_provider():
-    text = (
-        '{"spoken_reply": "……你倒是说句话啊，发个问号是什么意思。", '
-        '"effect_calls": [{"name":"ag99live.motion","arguments":{"axes":{"head_yaw":40,'
-        '"head_pitch":45,"head_roll":50},"resource_id":"embarrassed_lookaway"}}]'
+    text = json.dumps(
+        _persona_payload(
+            "……你倒是说句话啊，发个问号是什么意思。",
+            effect_calls=[
+                {
+                    "name": "ag99live.motion",
+                    "arguments": {
+                        "axes": {"head_yaw": 40, "head_pitch": 45, "head_roll": 50},
+                        "resource_id": "embarrassed_lookaway",
+                    },
+                }
+            ],
+        ),
+        ensure_ascii=False,
     )
+    text = text[:-1]
     effect = PersonaEffectSpec(
         plugin_id="plugin_a",
         name="ag99live.motion",
@@ -252,7 +346,7 @@ def test_persona_expression_repairs_truncated_json_from_provider():
 
     result = extract_persona_expression_result(text, effects=[effect])
 
-    assert result.spoken_reply == "……你倒是说句话啊，发个问号是什么意思。"
+    assert result.speech == "……你倒是说句话啊，发个问号是什么意思。"
     assert result.effect_calls == [
         PersonaEffectCall(
             name="ag99live.motion",
@@ -283,11 +377,22 @@ def test_persona_expression_parses_effect_calls_from_json_fallback():
     )
 
     result = extract_persona_expression_result(
-        '{"spoken_reply":"嗯。","effect_calls":[{"name":"ag99live.motion","arguments":{"axes":{"head_yaw":40}}}]}',
+        json.dumps(
+            _persona_payload(
+                "嗯。",
+                effect_calls=[
+                    {
+                        "name": "ag99live.motion",
+                        "arguments": {"axes": {"head_yaw": 40}},
+                    }
+                ],
+            ),
+            ensure_ascii=False,
+        ),
         effects=[effect],
     )
 
-    assert result.spoken_reply == "嗯。"
+    assert result.speech == "嗯。"
     assert result.effect_calls == [
         PersonaEffectCall(
             name="ag99live.motion",
@@ -319,10 +424,19 @@ def test_persona_expression_parses_tool_args_from_string_payload():
         completion_text="",
         tools_call_name=["persona_expression"],
         tools_call_args=[
-            """{
-                "spoken_reply":"嗯。",
-                "effect_calls":"[{\\"name\\":\\"ag99live.motion\\",\\"arguments\\":{\\"axes\\":{\\"head_yaw\\":\\"55\\"}}}]"
-            }"""
+            json.dumps(
+                _persona_payload(
+                    "嗯。",
+                    effect_calls=json.dumps(
+                        [
+                            {
+                                "name": "ag99live.motion",
+                                "arguments": {"axes": {"head_yaw": "55"}},
+                            }
+                        ]
+                    ),
+                )
+            )
         ],
     )
 
@@ -335,7 +449,7 @@ def test_persona_expression_parses_tool_args_from_string_payload():
         effects=[effect],
     )
 
-    assert result.spoken_reply == "嗯。"
+    assert result.speech == "嗯。"
     assert result.effect_calls == [
         PersonaEffectCall(
             name="ag99live.motion",
@@ -359,7 +473,15 @@ def test_persona_expression_records_effect_parse_issues_in_metadata():
     )
 
     result = extract_persona_expression_result(
-        '{"spoken_reply":"嗯。","effect_calls":[{"name":"ag99live.motion","arguments":{}},{"name":"unknown.effect","arguments":{}}]}',
+        json.dumps(
+            _persona_payload(
+                "嗯。",
+                effect_calls=[
+                    {"name": "ag99live.motion", "arguments": {}},
+                    {"name": "unknown.effect", "arguments": {}},
+                ],
+            )
+        ),
         effects=[effect],
     )
 
@@ -398,7 +520,7 @@ def test_persona_expression_rejects_plain_text_when_protocol_tool_call_required(
     assert exc_info.value.reason == "missing_persona_expression_tool_call"
 
 
-def test_persona_expression_accepts_json_when_tool_call_contract_degrades_to_prompt_only():
+def test_persona_expression_rejects_json_when_protocol_tool_call_is_missing():
     effect = PersonaEffectSpec(
         plugin_id="plugin_a",
         name="ag99live.motion",
@@ -417,25 +539,17 @@ def test_persona_expression_accepts_json_when_tool_call_contract_degrades_to_pro
         degrade_reason="renderer_has_no_protocol_support",
     )
 
-    result = extract_persona_expression_result(
-        '{"spoken_reply":"嗯。","effect_calls":[{"name":"ag99live.motion","arguments":{"emotion_label":"focused"}}]}',
-        output_contract=contract,
-        compiled_output_contract=compiled,
-        effects=[effect],
-    )
-
-    assert result.spoken_reply == "嗯。"
-    assert result.effect_calls == [
-        PersonaEffectCall(
-            name="ag99live.motion",
-            arguments={"emotion_label": "focused"},
-            plugin_id="plugin_a",
-            source="persona",
+    with pytest.raises(InteractionExpressionError) as exc_info:
+        extract_persona_expression_result(
+            _persona_payload("嗯。"),
+            output_contract=contract,
+            compiled_output_contract=compiled,
+            effects=[effect],
         )
-    ]
+    assert exc_info.value.reason == "missing_persona_expression_tool_call"
 
 
-def test_persona_expression_repairs_json_when_tool_call_degrades_to_prompt_only():
+def test_persona_expression_rejects_json_when_protocol_tool_call_is_missing_even_if_truncated():
     effect = PersonaEffectSpec(
         plugin_id="plugin_a",
         name="ag99live.motion",
@@ -454,25 +568,17 @@ def test_persona_expression_repairs_json_when_tool_call_degrades_to_prompt_only(
         degrade_reason="renderer_has_no_protocol_support",
     )
 
-    result = extract_persona_expression_result(
-        '{"spoken_reply":"嗯。","effect_calls":[{"name":"ag99live.motion","arguments":{"emotion_label":"focused"}}]',
-        output_contract=contract,
-        compiled_output_contract=compiled,
-        effects=[effect],
-    )
-
-    assert result.spoken_reply == "嗯。"
-    assert result.effect_calls == [
-        PersonaEffectCall(
-            name="ag99live.motion",
-            arguments={"emotion_label": "focused"},
-            plugin_id="plugin_a",
-            source="persona",
+    with pytest.raises(InteractionExpressionError) as exc_info:
+        extract_persona_expression_result(
+            '{"speech":"嗯。"',
+            output_contract=contract,
+            compiled_output_contract=compiled,
+            effects=[effect],
         )
-    ]
+    assert exc_info.value.reason == "missing_persona_expression_tool_call"
 
 
-def test_persona_expression_rejects_plain_text_when_tool_call_degrades_to_prompt_only():
+def test_persona_expression_rejects_plain_text_when_protocol_tool_call_is_missing():
     effect = PersonaEffectSpec(
         plugin_id="plugin_a",
         name="ag99live.motion",
@@ -499,7 +605,7 @@ def test_persona_expression_rejects_plain_text_when_tool_call_degrades_to_prompt
             effects=[effect],
         )
 
-    assert exc_info.value.reason == "invalid_persona_expression_json"
+    assert exc_info.value.reason == "missing_persona_expression_tool_call"
 
 
 def test_persona_expression_defaults_to_strict_tool_call_contract():
@@ -510,7 +616,14 @@ def test_persona_expression_defaults_to_strict_tool_call_contract():
     assert contract.strict is True
     assert contract.allow_text_fallback is False
     assert contract.preferred_tool_name == "persona_expression"
-    assert schema["required"] == ["spoken_reply", "speech_cues", "effect_calls"]
+    assert schema["required"] == [
+        "turn_action",
+        "speech",
+        "actions",
+        "thought",
+        "tendency",
+        "effect_calls",
+    ]
 
 
 def test_persona_expression_tool_requires_exactly_one_required_effect_per_segment():
@@ -1061,13 +1174,12 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                     completion_text="",
                     tools_call_name=["persona_expression"],
                     tools_call_args=[
-                        {
-                            "spoken_reply": "Original reply",
-                            "speech_cues": [],
-                            "effect_calls": [
+                        _persona_payload(
+                            "Original reply",
+                            effect_calls=[
                                 {"name": "ag99live.motion", "arguments": {}}
                             ],
-                        }
+                        )
                     ],
                 )
             return LLMResponse(
@@ -1075,15 +1187,15 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[
-                    {
-                        "spoken_reply": "嗯，我来看看。",
-                        "effect_calls": [
+                    _persona_payload(
+                        "嗯，我来看看。",
+                        effect_calls=[
                             {
                                 "name": "ag99live.motion",
                                 "arguments": {"emotion_label": "focused"},
                             }
                         ],
-                    }
+                    )
                 ],
             )
 
@@ -1163,7 +1275,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
         PersonaExpressionRequest(),
     )
 
-    assert result.spoken_reply == (
+    assert result.speech == (
         "Original reply" if needs_correction else "嗯，我来看看。"
     )
     assert result.effect_calls == [
@@ -1196,7 +1308,7 @@ async def test_persona_expression_rejects_prompt_only_contract_before_model_call
             self.calls.append(kwargs)
             return LLMResponse(
                 role="assistant",
-                completion_text='{"spoken_reply":"嗯。","effect_calls":[]}',
+                completion_text='{"speech":"嗯。","effect_calls":[]}',
             )
 
     class Event:
@@ -1320,7 +1432,7 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "由兼容回退完成", "effect_calls": []}],
+                tools_call_args=[_persona_payload("由兼容回退完成")],
             )
 
     class Event:
@@ -1385,7 +1497,7 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
 
     assert primary.calls == []
     assert len(fallback.calls) == 1
-    assert result.spoken_reply == "由兼容回退完成"
+    assert result.speech == "由兼容回退完成"
     assert not event.get_extra("_interaction_expression_fallback_used", False)
 
 
@@ -1399,7 +1511,12 @@ async def test_invalid_turn_plan_result_never_reaches_persona_result_hook(monkey
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "我来处理。", "effect_calls": []}],
+                tools_call_args=[
+                    {
+                        **_persona_payload("我来处理。"),
+                        "turn_action": "invalid",
+                    }
+                ],
             )
 
     class Event:
@@ -1500,7 +1617,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
                 completion_text="",
                 result_chain=MessageChain(),
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "初始回复", "effect_calls": []}],
+                tools_call_args=[_persona_payload("初始回复")],
             )
 
     class Event:
@@ -1609,7 +1726,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
     assert "plugin context" not in context_text
     assert provider.calls[0]["output_contract"] is contract
     assert provider.calls[0]["compiled_output_contract"] is compiled
-    assert result.spoken_reply == "插件修饰后的回复"
+    assert result.speech == "插件修饰后的回复"
     assert observed_events == [original_event] * len(observed_hooks)
     assert original_event.get_extra("provider_request") is None
     assert original_event.get_extra(PROMPT_APPLY_RESULT_EXTRA_KEY) is None
@@ -1643,7 +1760,7 @@ async def test_persona_expression_dispatches_official_tool_hooks_once(
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "完成了", "effect_calls": []}],
+                tools_call_args=[_persona_payload("完成了")],
             )
 
     class Event:
@@ -1773,7 +1890,7 @@ async def test_persona_expression_dispatches_official_tool_hooks_once(
     ]
     assert len(provider.calls) == 2
     assert "工具事实" in _provider_context_text(provider.calls[1])
-    assert result.spoken_reply == "完成了"
+    assert result.speech == "完成了"
 
 
 @pytest.mark.asyncio
@@ -1790,7 +1907,7 @@ async def test_persona_request_hook_cannot_inject_core_tools_into_persona(monkey
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "无需工具", "effect_calls": []}],
+                tools_call_args=[_persona_payload("无需工具")],
             )
 
     class Event:
@@ -1873,7 +1990,7 @@ async def test_persona_request_hook_cannot_inject_core_tools_into_persona(monkey
     )
 
     assert provider.calls[0]["func_tool"] is None
-    assert result.spoken_reply == "无需工具"
+    assert result.speech == "无需工具"
 
 
 @pytest.mark.asyncio
@@ -1896,7 +2013,7 @@ async def test_persona_tools_available_but_unused_need_one_model_call(
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "直接人格回复", "effect_calls": []}],
+                tools_call_args=[_persona_payload("直接人格回复")],
             )
 
     class Event:
@@ -1969,7 +2086,7 @@ async def test_persona_tools_available_but_unused_need_one_model_call(
 
     assert len(provider.calls) == 1
     agent._resolve_personal_expression_capabilities.assert_awaited_once()
-    assert result.spoken_reply == "直接人格回复"
+    assert result.speech == "直接人格回复"
 
 
 @pytest.mark.asyncio
@@ -1991,7 +2108,7 @@ async def test_persona_tool_failure_does_not_restart_the_tool_loop(monkeypatch):
                     role="assistant",
                     completion_text="",
                     tools_call_name=["persona_expression"],
-                    tools_call_args=[{"spoken_reply": "不应回退", "effect_calls": []}],
+                    tools_call_args=[_persona_payload("不应回退")],
                 )
             if len(self.calls) == 1:
                 return LLMResponse(
@@ -2122,7 +2239,7 @@ async def test_persona_request_hook_context_mutation_survives_business_tool_loop
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "完成了", "effect_calls": []}],
+                tools_call_args=[_persona_payload("完成了")],
             )
 
     class Event:
@@ -2244,7 +2361,7 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[
-                    {"spoken_reply": "由回退模型完成", "effect_calls": []}
+                    _persona_payload("由回退模型完成")
                 ],
             )
 
@@ -2389,7 +2506,7 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
         PersonaExpressionRequest(),
     )
 
-    assert result.spoken_reply == "由回退模型完成"
+    assert result.speech == "由回退模型完成"
     fallback_context = _provider_context_text(fallback.calls[0])
     assert "persona" in fallback_context
     assert "earlier question" in fallback_context

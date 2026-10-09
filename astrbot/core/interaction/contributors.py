@@ -313,6 +313,10 @@ class InteractionResultView:
     metadata: dict[str, Any] = field(default_factory=dict)
     purpose: InteractionResultPurpose = "unknown"
     effect_calls: tuple[Any, ...] = field(default_factory=tuple)
+    actions: tuple[str, ...] = field(default_factory=tuple)
+    thought: str = ""
+    tendency: Mapping[str, int] = field(default_factory=dict)
+    turn_action: str | None = None
 
     def as_read_only_mapping(self) -> MappingProxyType:
         return MappingProxyType(
@@ -327,6 +331,10 @@ class InteractionResultView:
                 "core_result": self.core_result,
                 "final_result": self.final_result,
                 "effect_calls": freeze_interaction_snapshot(self.effect_calls),
+                "actions": freeze_interaction_snapshot(self.actions),
+                "thought": self.thought,
+                "tendency": freeze_interaction_snapshot(self.tendency),
+                "turn_action": self.turn_action,
                 "visible_outputs": freeze_interaction_snapshot(self.visible_outputs),
                 "utterances": freeze_interaction_snapshot(self.utterances),
                 "turn_material_snapshot": freeze_interaction_snapshot(
@@ -348,6 +356,8 @@ class InteractionResultView:
             route_decision=freeze_interaction_snapshot(self.route_decision),
             output_draft=freeze_interaction_snapshot(self.output_draft),
             effect_calls=freeze_interaction_snapshot(self.effect_calls),
+            actions=freeze_interaction_snapshot(self.actions),
+            tendency=freeze_interaction_snapshot(self.tendency),
             visible_outputs=freeze_interaction_snapshot(self.visible_outputs),
             utterances=freeze_interaction_snapshot(self.utterances),
             turn_material_snapshot=freeze_interaction_snapshot(

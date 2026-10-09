@@ -1822,7 +1822,25 @@ async def test_terminal_tool_finishes_without_executing_it():
                 role="assistant",
                 completion_text="",
                 tools_call_name=["persona_expression"],
-                tools_call_args=[{"spoken_reply": "done", "effect_calls": []}],
+                tools_call_args=[
+                    {
+                        "turn_action": "reply",
+                        "speech": "done",
+                        "actions": [],
+                        "thought": "",
+                        "tendency": {
+                            "Joy": 0,
+                            "Trust": 0,
+                            "Fear": 0,
+                            "Surprise": 0,
+                            "Sadness": 0,
+                            "Disgust": 0,
+                            "Anger": 0,
+                            "Anticipation": 0,
+                        },
+                        "effect_calls": [],
+                    }
+                ],
                 tools_call_ids=["call-terminal"],
             )
 

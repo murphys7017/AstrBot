@@ -62,15 +62,14 @@ def correct_contradictory_capability_denial(
         return False
 
     normalized_request = str(request_text or "").strip().lower()
-    normalized_reply = str(expression.spoken_reply or "").strip().lower()
+    normalized_reply = str(expression.speech or "").strip().lower()
     if not any(marker in normalized_request for marker in _WEB_RESEARCH_REQUEST_MARKERS):
         return False
     if not any(marker in normalized_reply for marker in _CAPABILITY_DENIAL_MARKERS):
         return False
 
     expression.turn_action = PersonalResponseAction.DELEGATE
-    expression.spoken_reply = "我去查一下，稍等。"
-    expression.speech_cues = []
+    expression.speech = "我去查一下，稍等。"
     expression.metadata = dict(expression.metadata or {})
     expression.metadata["route_correction_reason"] = (
         "capability_denial_route_corrected"

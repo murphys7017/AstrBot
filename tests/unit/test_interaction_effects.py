@@ -54,7 +54,14 @@ def test_empty_effect_list_does_not_generate_effect_calls_schema():
 
     assert schema["properties"]["effect_calls"] == {"type": "array", "items": False}
     assert "metadata" not in schema["properties"]
-    assert schema["required"] == ["spoken_reply", "speech_cues", "effect_calls"]
+    assert schema["required"] == [
+        "turn_action",
+        "speech",
+        "actions",
+        "thought",
+        "tendency",
+        "effect_calls",
+    ]
 
 
 def test_effect_schema_freezes_effect_call_shape_per_effect():

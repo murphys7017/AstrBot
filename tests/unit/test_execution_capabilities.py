@@ -56,8 +56,7 @@ def test_web_research_capability_supports_action_level_declarations():
 def test_capability_denial_guard_delegates_without_exposing_core_tools():
     expression = SimpleNamespace(
         turn_action=PersonalResponseAction.REPLY,
-        spoken_reply="我这轮没有联网工具，天气查不了。",
-        speech_cues=[{"kind": "pause"}],
+        speech="我这轮没有联网工具，天气查不了。",
         metadata={},
     )
     summary = ExecutionCapabilitySummary(
@@ -77,8 +76,7 @@ def test_capability_denial_guard_delegates_without_exposing_core_tools():
         capability_summary=summary,
     )
     assert expression.turn_action is PersonalResponseAction.DELEGATE
-    assert expression.spoken_reply == "我去查一下，稍等。"
-    assert expression.speech_cues == []
+    assert expression.speech == "我去查一下，稍等。"
     assert expression.metadata["route_correction_reason"] == (
         "capability_denial_route_corrected"
     )
@@ -87,8 +85,7 @@ def test_capability_denial_guard_delegates_without_exposing_core_tools():
 def test_capability_denial_guard_leaves_ordinary_reply_unchanged():
     expression = SimpleNamespace(
         turn_action=PersonalResponseAction.REPLY,
-        spoken_reply="今天想聊点什么？",
-        speech_cues=[],
+        speech="今天想聊点什么？",
         metadata={},
     )
     summary = ExecutionCapabilitySummary(
