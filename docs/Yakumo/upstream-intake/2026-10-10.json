@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-10",
+  "purpose": "Track the upstream dashboard layout increment by AG99 capability and plugin-compatibility impact, not by source-code identity.",
+  "previous_reference": "33ef43be3fd2f99c5a11ce803402376cead25b0a",
+  "current_reference": "9fa49087b1260e78cbe15fb157f71fa6ce803380",
+  "fork_point": "67c7445d253846c232477a1ebcb2823a522a029c",
+  "local_version": "4.29.0-beta.1",
+  "upstream_version": "4.29.0-beta.1",
+  "counts": {
+    "previous_non_merge": 816,
+    "increment_non_merge": 1,
+    "current_non_merge": 817,
+    "adapted": 1,
+    "equivalent": 0,
+    "not_selected": 0
+  },
+  "policy": {
+    "goal": "Improve AG99 while preserving plugin compatibility.",
+    "source_code_sync": false,
+    "version_alignment": "Use AstrBot's version and public plugin contracts as compatibility anchors; do not bump the version only to mirror commit history.",
+    "frontend_deployment": "Frontend changes require a production build and synchronization to data/dist after validation.",
+    "layout_boundary": "Adapt the fixed content frame and internal scrolling to AG99's 50px header and preserve AG99 sidebar customization. Do not lock long Config, Settings, Providers, or Platforms pages without matching internal scrolling."
+  },
+  "commits": [
+    {
+      "sha": "9fa49087b1260e78cbe15fb157f71fa6ce803380",
+      "title": "fix(dashboard): keep content frame fixed and remove sidebar customization (#10480)",
+      "status": "adapted",
+      "local_commits": ["0e51e5535"],
+      "compatibility": "AG99 adopts a fixed rounded content frame and moves ordinary page scrolling into .page-content. Chat and embedded plugin pages retain locked layouts; plugin detail sticky state listens to the real scroll container, and embedded plugin iframes use the remaining frame height. AG99 sidebar customization and ordinary scrolling for Config, Settings, Providers, and Platforms are preserved instead of copying the upstream removals and route locks.",
+      "validation": "Dashboard production build passed with the existing two undefined MDI icon warnings. All 707 dashboard/dist files match data/dist by SHA-256. The running service was not restarted and no live browser acceptance was performed."
+    }
+  ]
+}

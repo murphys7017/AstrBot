@@ -1946,3 +1946,33 @@ deletion of plugin-provided and sandbox-preset Skills, so the read-only UI
 filter is backed by a server-side guard. The existing batch interaction has no
 dedicated focused UI test; this review verified the implemented path and the
 backend deletion boundary. The historical intake JSON remains unchanged.
+
+## 2026-10-10 Fixed Dashboard Content Frame
+
+Reviewed upstream reference: `9fa49087b` (`#10480`), against the previous
+reference `33ef43be3`.
+
+Absorbed by local rewrite in `0e51e5535`:
+
+- The full layout now keeps the main content frame at a stable height below
+  AG99's 50px header, with a rounded border on desktop and a borderless mobile
+  presentation.
+- Ordinary pages scroll through the nearest `.page-content` container. Chat and
+  embedded plugin pages keep their own locked layout; `/config`, `/settings`,
+  `/providers`, and `/platforms` remain ordinary scrolling pages because their
+  existing content is not structured as an independently bounded workbench.
+- Plugin detail header state now observes `.page-content` instead of the
+  document scroll, and the embedded plugin iframe fills the remaining card
+  height rather than using a viewport-based minimum height.
+- AG99's sidebar customization, migration dialog, and local page structure are
+  retained. The upstream removal of SidebarCustomizer and its Config/Settings
+  route locking were intentionally not copied.
+
+Validation:
+
+- Dashboard production build passed. The existing undefined `mdi-platform` and
+  `mdi-subset` warnings remain unchanged.
+- All 707 files in `dashboard/dist` match `data/dist` by SHA-256; destination-only
+  older hashed assets were retained.
+- No backend restart or live browser acceptance was performed, so visual
+  behavior on running pages remains pending.
