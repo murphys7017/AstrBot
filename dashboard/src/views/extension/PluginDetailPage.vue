@@ -537,13 +537,13 @@ const handleDocsClick = (event) => {
 };
 
 const updateHeaderStuckState = () => {
-  const scrollTop =
-    document.scrollingElement?.scrollTop ||
-    document.documentElement.scrollTop ||
-    window.scrollY ||
-    0;
+  const scrollTop = detailScrollContainer
+    ? detailScrollContainer.scrollTop
+    : window.scrollY || 0;
   isHeaderStuck.value = scrollTop > 0;
 };
+
+let detailScrollContainer = null;
 
 const fetchReadme = async () => {
   if (!props.plugin?.name) return;
@@ -624,19 +624,16 @@ watch(
 
 onMounted(() => {
   fetchConfigOptions();
+  detailScrollContainer = detailPageRef.value?.closest(".page-content") || window;
   updateHeaderStuckState();
-  window.addEventListener("scroll", updateHeaderStuckState, { passive: true });
-  document.addEventListener("scroll", updateHeaderStuckState, {
-    capture: true,
+  detailScrollContainer.addEventListener("scroll", updateHeaderStuckState, {
     passive: true,
   });
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("scroll", updateHeaderStuckState);
-  document.removeEventListener("scroll", updateHeaderStuckState, {
-    capture: true,
-  });
+  detailScrollContainer?.removeEventListener("scroll", updateHeaderStuckState);
+  detailScrollContainer = null;
 });
 </script>
 

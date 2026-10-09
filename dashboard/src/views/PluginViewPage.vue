@@ -695,21 +695,48 @@ watch(
 </template>
 
 <style scoped>
+.plugin-view-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.plugin-view-page > .d-flex {
+  flex-shrink: 0;
+}
+
 .plugin-view-card {
   background-color: rgb(var(--v-theme-surface));
   border-radius: 16px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
 }
 
+.plugin-view-card :deep(.v-card-text) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
 .plugin-view-frame {
+  display: block;
+  flex: 1;
+  height: 100%;
   width: 100%;
-  min-height: calc(100vh - 140px);
+  min-height: 0;
   border: 0;
   background: transparent;
 }
 
 .plugin-view-state {
-  min-height: calc(100vh - 140px);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

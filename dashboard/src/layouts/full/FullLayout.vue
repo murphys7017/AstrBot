@@ -24,6 +24,11 @@ const isPluginViewRoute = computed(
     route.path.startsWith('/plugin-page/'),
 );
 const isFullScreenRoute = computed(() => isCurrentChatRoute.value || isPluginViewRoute.value);
+const isViewportLockedRoute = computed(
+  () =>
+    isCurrentChatRoute.value ||
+    isPluginViewRoute.value,
+);
 const shouldMountChat = ref(isCurrentChatRoute.value);
 
 const showSidebar = computed(() => !isCurrentChatRoute.value)
@@ -114,24 +119,16 @@ onMounted(() => {
       />
       <VerticalHeaderVue />
       <VerticalSidebarVue v-if="showSidebar" />
-      <v-main :style="{
-        height: isCurrentChatRoute ? 'calc(100vh - 55px)' : undefined,
-        overflow: isCurrentChatRoute ? 'hidden' : undefined
-      }">
+      <v-main :class="{ 'chat-main': isCurrentChatRoute }">
         <v-container
           fluid
           class="page-wrapper"
-          :class="{ 'chat-mode-container': isCurrentChatRoute }"
-          :style="{
-            height: isFullScreenRoute ? '100%' : 'calc(100% - 8px)',
-            padding: isFullScreenRoute ? '0' : undefined,
-            minHeight: isFullScreenRoute ? 'unset' : undefined
-          }">
+          :class="{ 'fullscreen-container': isFullScreenRoute }">
           <div
+            class="page-content"
+            :class="{ 'page-content--locked': isViewportLockedRoute }"
             :style="{
-              height: '100%',
-              width: '100%',
-              overflow: isCurrentChatRoute ? 'hidden' : undefined,
+              padding: isFullScreenRoute ? '0' : undefined,
               position: isPluginViewRoute ? 'relative' : undefined
             }"
           >
@@ -158,9 +155,86 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.chat-mode-container {
-  min-height: unset !important;
-  height: 100% !important;
+.chat-main {
+  padding-top: 0 !important;
+}
+
+/* Keep the app shell fixed; regular pages scroll inside the content frame. */
+:global(html),
+:global(body) {
+  height: 100%;
+  overflow: hidden;
+}
+
+:global(.v-application),
+:global(.v-application__wrap) {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+:global(.v-main) {
+  height: calc(100vh - var(--astrbot-toolbar-height, 50px)) !important;
+  min-height: 0 !important;
+  padding-top: 0 !important;
   overflow: hidden !important;
+  --v-layout-top: 0px !important;
+}
+
+:global(.page-wrapper) {
+  --astrbot-content-gap: 6px;
+  height: calc(100vh - var(--astrbot-toolbar-height, 50px) - var(--astrbot-content-gap)) !important;
+  width: calc(100% - var(--astrbot-content-gap));
+  min-height: 0 !important;
+  margin: 0;
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 12px;
+}
+
+.page-content {
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.page-content::-webkit-scrollbar {
+  width: 0;
+  background: transparent;
+}
+
+.page-content--locked {
+  overflow: hidden;
+}
+
+/* Narrow layouts have no permanent sidebar gap or card frame. */
+@media (max-width: 959.98px) {
+  :global(.page-wrapper) {
+    --astrbot-content-gap: 0px;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+/* Keep the existing translucent macOS chrome treatment continuous behind the frame. */
+:global(html[data-astrbot-desktop-platform='macos']),
+:global(html[data-astrbot-desktop-platform='macos'] body),
+:global(html[data-astrbot-desktop-platform='macos'] .v-application),
+:global(html[data-astrbot-desktop-platform='macos'] .v-application__wrap) {
+  background: transparent !important;
+}
+
+:global(html[data-astrbot-desktop-platform='macos'] .v-main) {
+  background: var(--astrbot-vibrancy-tint, transparent) !important;
+}
+
+:global(html[data-astrbot-desktop-platform='macos'] .leftSidebar .v-list),
+:global(html[data-astrbot-desktop-platform='macos'] .chat-sidebar .v-list) {
+  background: transparent !important;
 }
 </style>
