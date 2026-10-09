@@ -75,6 +75,25 @@ async def test_materialize_image_ref_rejects_non_image_local_content(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_materialize_image_ref_rejects_non_regular_local_reference(
+    monkeypatch,
+    tmp_path,
+):
+    temp_root = tmp_path / "temp"
+    temp_root.mkdir()
+    directory = temp_root / "not-a-file"
+    directory.mkdir()
+    monkeypatch.setattr(
+        image_materializer,
+        "get_astrbot_temp_path",
+        lambda: str(temp_root),
+    )
+
+    with pytest.raises(ImageMaterializationError, match="regular file"):
+        await materialize_image_ref(str(directory))
+
+
+@pytest.mark.asyncio
 async def test_materialize_image_ref_only_reads_local_files_from_temp_media_root(
     monkeypatch,
     tmp_path,

@@ -15,6 +15,7 @@ import ipaddress
 import re
 import socket
 import ssl
+import stat
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -241,7 +242,12 @@ def _decode_base64(value: str, *, max_bytes: int) -> bytes:
 
 def _read_local_image(path: Path, max_bytes: int) -> bytes:
     try:
-        size = path.stat().st_size
+        file_stat = path.stat()
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise ImageMaterializationError(
+                "image reference does not point to a regular file"
+            )
+        size = file_stat.st_size
         if size > max_bytes:
             raise ImageMaterializationError("image exceeds the configured size limit")
         image_bytes = path.read_bytes()
