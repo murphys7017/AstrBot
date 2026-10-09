@@ -558,6 +558,36 @@ class ProviderAnthropic(Provider):
         logger.warning("Unknown Anthropic tool_choice %r; falling back to auto.", tool_choice)
         return {"type": "auto"}
 
+    def _prepare_custom_extra_body(self, payloads: dict) -> dict:
+        extra_body = self.provider_config.get("custom_extra_body") or {}
+        if not isinstance(extra_body, dict):
+            return {}
+
+        extra_body = dict(extra_body)
+        self._drop_provider_only_request_keys(extra_body)
+        custom_tools = extra_body.get("tools")
+        registered_tools = payloads.get("tools")
+        if isinstance(custom_tools, list) and isinstance(registered_tools, list):
+            merged_tools = []
+            named_tool_positions = {}
+            for tool in [*registered_tools, *custom_tools]:
+                name = tool.get("name") if isinstance(tool, dict) else None
+                if not isinstance(name, str) or not name:
+                    merged_tools.append(tool)
+                    continue
+
+                position = named_tool_positions.get(name)
+                if position is None:
+                    named_tool_positions[name] = len(merged_tools)
+                    merged_tools.append(tool)
+                else:
+                    merged_tools[position] = tool
+
+            payloads["tools"] = merged_tools
+            extra_body.pop("tools", None)
+
+        return extra_body
+
     async def _query(
         self,
         payloads: dict,
@@ -573,10 +603,7 @@ class ProviderAnthropic(Provider):
                     payloads.get("tool_choice", "auto")
                 )
 
-        extra_body = self.provider_config.get("custom_extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body = dict(extra_body)
-            self._drop_provider_only_request_keys(extra_body)
+        extra_body = self._prepare_custom_extra_body(payloads)
 
         if "max_tokens" not in payloads:
             payloads["max_tokens"] = 65536
@@ -690,10 +717,7 @@ class ProviderAnthropic(Provider):
         final_tool_calls = []
         id = None
         usage = TokenUsage()
-        extra_body = self.provider_config.get("custom_extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body = dict(extra_body)
-            self._drop_provider_only_request_keys(extra_body)
+        extra_body = self._prepare_custom_extra_body(payloads)
         reasoning_content = ""
         reasoning_signature = ""
 
