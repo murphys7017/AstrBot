@@ -3,8 +3,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import At, Plain
 from astrbot.core.platform.sources.slack.slack_adapter import SlackAdapter
+from astrbot.core.platform.sources.slack.slack_event import SlackMessageEvent
 from tests.fixtures.helpers import make_platform_config
 
 
@@ -115,3 +117,20 @@ def test_slack_quote_keeps_boundaries_around_mentions(before_mention, after_ment
         f"Question:\n{before_mention}{after_mention}\nNext paragraph"
     )
     assert [c.qq for c in components if isinstance(c, At)] == ["UOTHER"]
+
+
+@pytest.mark.asyncio
+async def test_slack_outbound_mentions_survive_block_and_fallback_sends(monkeypatch):
+    event = SlackMessageEvent.__new__(SlackMessageEvent)
+    event.web_client = AsyncMock()
+    event.web_client.chat_postMessage = AsyncMock(side_effect=[RuntimeError, None])
+    event.get_group_id = lambda: "CTEST"
+    event.get_sender_id = lambda: "UTEST"
+    monkeypatch.setattr(AstrMessageEvent, "send", AsyncMock())
+    message = MessageChain(chain=[Plain("Hello "), At(qq="UOTHER"), Plain("!")])
+
+    await event.send(message)
+
+    calls = event.web_client.chat_postMessage.await_args_list
+    assert calls[0].kwargs["blocks"][0]["text"]["text"] == "Hello <@UOTHER>!"
+    assert calls[1].kwargs["text"] == "Hello <@UOTHER>!"
