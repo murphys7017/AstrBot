@@ -123,10 +123,16 @@ class ExecuteShellTool(FunctionTool):
                     return (
                         "Error executing command: local shell component is unavailable."
                     )
+                creator_id = context.context.event.get_sender_id()
+                if not creator_id:
+                    return "Error executing command: sender identity is unavailable."
                 return json.dumps(
                     await sb.shell.exec_managed(
                         command,
                         owner_id=context.context.event.unified_msg_origin,
+                        creator_id=creator_id,
+                        creator_is_admin=context.context.event.role == "admin",
+                        sandboxed=False,
                         cwd=cwd,
                         env=env,
                         timeout=timeout,
@@ -232,7 +238,8 @@ class ShellSessionTool(FunctionTool):
     name: str = "astrbot_shell_session"
     description: str = (
         "List, poll, write to, interrupt, or terminate managed shell sessions. "
-        "Sessions are isolated to the current conversation."
+        "Sessions are isolated to the current conversation and sender. "
+        "Administrators can manage all sessions in the conversation."
     )
     parameters: dict = field(
         default_factory=lambda: {
@@ -305,8 +312,16 @@ class ShellSessionTool(FunctionTool):
                 return "Error managing shell session: local shell component is unavailable."
 
             owner_id = context.context.event.unified_msg_origin
+            requester_id = context.context.event.get_sender_id()
+            if not requester_id:
+                return "Error managing shell session: sender identity is unavailable."
+            requester_is_admin = context.context.event.role == "admin"
             if action == "list":
-                result = await sb.shell.list_sessions(owner_id)
+                result = await sb.shell.list_sessions(
+                    owner_id=owner_id,
+                    requester_id=requester_id,
+                    requester_is_admin=requester_is_admin,
+                )
             else:
                 if not session_id:
                     return (
@@ -316,6 +331,8 @@ class ShellSessionTool(FunctionTool):
                 if action == "poll":
                     result = await sb.shell.poll_session(
                         owner_id=owner_id,
+                        requester_id=requester_id,
+                        requester_is_admin=requester_is_admin,
                         session_id=session_id,
                         cursor=cursor,
                         yield_time_ms=yield_time_ms,
@@ -324,12 +341,16 @@ class ShellSessionTool(FunctionTool):
                 elif action == "write":
                     result = await sb.shell.write_session(
                         owner_id=owner_id,
+                        requester_id=requester_id,
+                        requester_is_admin=requester_is_admin,
                         session_id=session_id,
                         chars=chars,
                     )
                 elif action == "interrupt":
                     result = await sb.shell.interrupt_session(
                         owner_id=owner_id,
+                        requester_id=requester_id,
+                        requester_is_admin=requester_is_admin,
                         session_id=session_id,
                         yield_time_ms=yield_time_ms,
                         max_output_chars=max_output_chars,
@@ -337,6 +358,8 @@ class ShellSessionTool(FunctionTool):
                 elif action == "terminate":
                     result = await sb.shell.terminate_session(
                         owner_id=owner_id,
+                        requester_id=requester_id,
+                        requester_is_admin=requester_is_admin,
                         session_id=session_id,
                         max_output_chars=max_output_chars,
                     )
