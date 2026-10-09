@@ -67,6 +67,8 @@ Provider 宣称支持 JSON，不等于支持原生 JSON Schema。JSON mode 也�
 - effect_calls 符合本轮按事件筛选出的动态 effect schema 及必发规则。
 - 允许 silent 时，speech、actions、effect_calls 为空。
 
+当前 Core 对必发 effect 执行失败或一次纠正；解析器会记录并跳过无效的可选 effect，不承诺任何格式下的无效可选调用都会令整条 Persona 响应失败。
+
 ## 验证与启用门槛
 
 每个 Provider/模型/策略组合至少记录：

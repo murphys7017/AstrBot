@@ -24,7 +24,7 @@
 新插件或输出功能不应读取 Provider 的原始 tool-call 响应，也不应解析用户可见 speech 来反推动作或情绪。应注册 Interaction Result Contributor，并从只读 InteractionResultView 中读取其负责的数据：
 
 - actions、thought、tendency、turn_action：Persona 结构化状态快照。
-- effect_calls：本轮有效的插件 effect 调用；在 Contributor 快照中，每一项是含 name、arguments 和可选 call_id 的只读 mapping，消费方只处理自己注册的 effect。
+- effect_calls：本轮有效的插件 effect 调用；解析器会跳过无效项并把问题记录在结果 metadata，必发 effect 不合规时整次校验会失败或进入一次纠正。在 Contributor 快照中，每一项是含 name、arguments、call_id、plugin_id 和 source 的只读 mapping，消费方只处理自己注册的 effect。
 - purpose：区分 persona_reply、Persona 改写的 plugin_reply 和 core_reply。
 
 Contributor 返回 InteractionResultContribution 后，Core 可合并其 platform_extras 或 client_objects。Core 不会自动把 actions、thought 或 tendency 转成平台数据。直接 plugin_direct 输出绕过 Persona 改写链路，因此不会有 Persona Expression 的这些字段。

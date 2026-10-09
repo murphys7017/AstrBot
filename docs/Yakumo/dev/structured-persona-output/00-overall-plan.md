@@ -44,7 +44,7 @@
 | `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
 | `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
 | `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `-10..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
-| `effect_calls` | 固定必填数组；每个元素必须匹配本轮有效 effect 的名称和参数 schema。无有效 effect 时只能为空。 | Result Contributor / effect 插件；由插件解释执行。 |
+| `effect_calls` | 固定必填数组；tool-call Schema 按本轮有效 effect 生成 item schema。Core 解析时只保留已注册且参数通过校验的调用，并将解析问题写入结果 metadata；缺失或无效的必发 effect 会失败或进入既有纠正流程。无有效 effect 时使用空数组。 | Result Contributor / effect 插件；由插件解释执行。 |
 
 情绪维度为 `Joy`（喜悦）、`Trust`（信任）、`Fear`（恐惧）、`Surprise`（惊讶）、`Sadness`（悲伤）、`Disgust`（厌恶）、`Anger`（愤怒）、`Anticipation`（期待）。
 

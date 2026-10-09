@@ -27,7 +27,7 @@ Persona system prompt 声明六个字段语义；request prompt 再按本轮任�
 - `turn_action` 转成已知枚举并符合本次请求允许范围。
 - `speech`、`thought` 类型有效，`actions` 为非空字符串组成的数组。
 - `tendency` 恰好有八个规定键，值是非 bool 的 `-10..10` 整数。
-- `effect_calls` 按本轮动态 effect schema 解析；硬性 effect 缺失或数量错误会失败或进入既有一次纠正流程。
+- `effect_calls` 按本轮动态 effect schema 解析；无效或未注册调用会被丢弃并记录 parse issue。硬性 effect 缺失、无效或数量不符会失败或进入既有一次纠正流程。
 - `silent` 仅在请求允许时有效，且 `speech`、`actions`、`effect_calls` 必须为空。
 
 Provider/renderer 能力在发请求前核对。Persona 不接受编译为 `prompt_only` 的候选 Provider；若主 provider 不支持，可按现有候选策略查找支持协议级 tool call 的 provider，否则请求失败。

@@ -784,7 +784,7 @@ class Main(star.Star):
 - `view.finalized_turn_material`
 - `view.metadata`
 
-读取 Persona 新字段时直接从传入的 view 获取，不要解析 provider 原始响应。actions 是 tuple，tendency 是只读 mapping。effect_calls 中每项是包含 name、arguments 和可选 call_id 的只读 mapping；例如插件可按自身用途读取并映射动作与角色情绪：
+读取 Persona 新字段时直接从传入的 view 获取，不要解析 provider 原始响应。actions 是 tuple，tendency 是只读 mapping。effect_calls 中每项是含 name、arguments、call_id、plugin_id 和 source 的只读 mapping（call_id 可为空）；例如插件可按自身用途读取并映射动作与角色情绪：
 
 ```python
 persona_state = {
@@ -804,6 +804,8 @@ return InteractionResultContribution(
     ],
 )
 ```
+
+effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source`；`call_id` 可为空。
 
 插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。Persona 改写插件输出使用 plugin_reply；plugin_direct 不经过 Persona 改写，没有这组 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
 

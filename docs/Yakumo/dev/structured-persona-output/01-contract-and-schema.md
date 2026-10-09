@@ -72,7 +72,7 @@ Schema 对象 `additionalProperties=false`，并要求且只接受这六个顶�
 
 ### `effect_calls`
 
-必填数组。schema 按当前事件中已启用且适用的 `PersonaEffectSpec` 动态构造，每项包含注册 effect 的 `name` 和符合注册参数 schema 的 `arguments`。无可用 effect 时使用空数组。Core 负责限制、解析和校验；具体 effect 由注册插件消费和解释。
+必填数组。tool-call Schema 按当前事件中已启用且适用的 `PersonaEffectSpec` 动态构造，每项包含注册 effect 的 `name` 和符合注册参数 schema 的 `arguments`。无可用 effect 时使用空数组。Core 解析时只保留已注册且 arguments 通过 schema 校验的调用，并将无效项的解析问题记录在结果 metadata；对于必发 effect，缺失或无效会使本次结果校验失败并进入现有纠正流程（至多一次）。非必发的无效项会被丢弃，不一定使整次表达失败。具体 effect 由注册插件消费和解释。
 
 若有必发 effect，Schema 和语义校验会按注册元数据要求数量；允许 `silent` 的请求可返回空 effect 数组。`actions` 不替代任何必发 effect。
 
