@@ -304,8 +304,8 @@ class TestContextManager:
             assert result == messages
 
     @pytest.mark.asyncio
-    async def test_double_check_after_compression(self):
-        """Test that halving is applied if still over threshold after compression."""
+    async def test_double_check_after_compression_drops_oldest_rounds(self):
+        """Drop old rounds but keep the latest request when still over threshold."""
         config = ContextConfig(max_context_tokens=100)
         manager = ContextManager(config)
 
@@ -319,15 +319,52 @@ class TestContextManager:
         # Mock should_compress to return True twice (before and after compression)
         with patch.object(manager.compressor, "should_compress", return_value=True):
             with patch.object(manager.compressor, "__call__", new=mock_compress):
-                with patch.object(
-                    manager.truncator,
-                    "truncate_by_halving",
-                    return_value=long_messages[:5],
-                ) as mock_halving:
-                    _ = await manager.process(long_messages)
+                result = await manager.process(long_messages)
 
-                    # Halving should be called
-                    mock_halving.assert_called_once()
+        assert result == long_messages[-1:]
+
+    @pytest.mark.asyncio
+    async def test_failed_summary_drops_oldest_complete_round(self):
+        class CharTokenCounter:
+            def count_tokens(self, messages, trusted_token_usage=0):
+                return sum(
+                    len(message.content)
+                    for message in messages
+                    if isinstance(message.content, str)
+                )
+
+        provider = MockProvider()
+        provider.text_chat = AsyncMock(side_effect=RuntimeError("summary failed"))
+        messages = [
+            self.create_message("system", "s" * 10),
+            self.create_message("user", "a" * 300),
+            self.create_message("assistant", "b" * 300),
+            self.create_message("user", "c" * 50),
+            Message(
+                role="assistant",
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "lookup", "arguments": "{}"},
+                    }
+                ],
+            ),
+            Message(role="tool", content="d" * 100, tool_call_id="call_1"),
+            self.create_message("assistant", "e" * 50),
+            self.create_message("user", "f" * 20),
+        ]
+        manager = ContextManager(
+            ContextConfig(
+                max_context_tokens=1000,
+                llm_compress_provider=provider,  # type: ignore[arg-type]
+                custom_token_counter=CharTokenCounter(),
+            )
+        )
+
+        result = await manager.process(messages)
+
+        assert result == [messages[0], *messages[3:]]
 
     # ==================== Combined Truncation and Compression Tests ====================
 

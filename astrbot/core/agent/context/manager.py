@@ -3,6 +3,7 @@ from astrbot import logger
 from ..message import Message
 from .compressor import LLMSummaryCompressor, TruncateByTurnsCompressor
 from .config import ContextConfig
+from .round_utils import split_into_rounds
 from .token_counter import EstimateTokenCounter
 from .truncator import ContextTruncator
 
@@ -113,9 +114,36 @@ class ContextManager:
             messages, tokens_after_summary, self.config.max_context_tokens
         ):
             logger.info(
-                "Context still exceeds max tokens after compression, applying halving truncation..."
+                "Context still exceeds max tokens after compression, dropping oldest rounds..."
             )
-            # still need compress, truncate by half
-            messages = self.truncator.truncate_by_halving(messages)
+            first_non_system = next(
+                (i for i, message in enumerate(messages) if message.role != "system"),
+                len(messages),
+            )
+            system_messages = messages[:first_non_system]
+            rounds = [
+                [segment for segment in round_ if isinstance(segment, Message)]
+                for round_ in split_into_rounds(messages[first_non_system:])
+            ]
+            tokens = tokens_after_summary
+            dropped_rounds = 0
+            while len(rounds) > 1 and self.compressor.should_compress(
+                messages, tokens, self.config.max_context_tokens
+            ):
+                rounds.pop(0)
+                dropped_rounds += 1
+                messages = system_messages + [
+                    message for round_ in rounds for message in round_
+                ]
+                tokens = self.token_counter.count_tokens(messages)
+
+            logger.info(f"Dropped {dropped_rounds} oldest round(s).")
+            if self.compressor.should_compress(
+                messages, tokens, self.config.max_context_tokens
+            ):
+                logger.warning(
+                    "Context still exceeds max tokens with only the latest round left; "
+                    "sending it as is."
+                )
 
         return messages
