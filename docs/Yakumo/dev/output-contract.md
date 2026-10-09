@@ -141,8 +141,8 @@ Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。s
 运行规则：
 
 - `turn_action=reply`：Personal 直接完成本轮可见回复。
-- `turn_action=delegate`：`spoken_reply` 只能是简短处理中确认，随后由 Core Planner 为已委派任务生成 `execute + CoreTaskSpec`。
-- `turn_action=silent`：仅允许合格的群聊候选，且 `spoken_reply`、`speech_cues` 和 `effect_calls` 都必须为空。
+- `turn_action=delegate`：`speech` 只能是简短处理中确认，随后由 Core Planner 为已委派任务生成 `execute + CoreTaskSpec`。
+- `turn_action=silent`：仅允许合格的群聊候选，且 `speech`、`actions` 和 `effect_calls` 都必须为空；内部 `thought` 与角色情绪 `tendency` 仍按 Schema 返回。
 - 无论动作为何，`effect_calls` 都遵守当前事件过滤后的 effect schema 与必发约束；允许的 `silent` 必须为空。
 - 结构化输出不携带 Planner 推理、Core task spec 或用户不可见的控制理由。
 
@@ -156,7 +156,17 @@ persona visible-reply 是当前主要高约束消费者。
 - `strict=True`
 - `preferred_tool_name="persona_expression"`
 - `allow_text_fallback=False`
-- `schema` 固定为 `spoken_reply` + `effect_calls`
+- Schema 固定为 `turn_action`、`speech`、`actions`、`thought`、`tendency` 和 `effect_calls`
+
+字段含义：
+
+- `turn_action` 是 `reply | delegate | silent` 三选一的字符串；调用场景可限制可选值。
+- `speech` 是唯一用户可见文本，也是后续 TTS 的输入文本。
+- `actions` 是简单动作词数组，由后续动作模型解释，不带参数。
+- `thought` 是角色的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。
+- `tendency` 表示角色当前的 Plutchik 八维情绪：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`；每项为 `-10..10` 整数。
+- `effect_calls` 保持现有插件 effect 执行协议，与 `actions` 分开。
+- Core 不再接受 `spoken_reply` 或 `speech_cues`；TTS 标签注入与清理留待后续适配器阶段。
 
 运行规则：
 

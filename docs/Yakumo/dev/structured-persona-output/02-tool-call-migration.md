@@ -1,5 +1,7 @@
 # 第一阶段：当前 tool call 迁移
 
+**状态：已完成。** 本阶段完成 Persona Expression Schema、Prompt、严格 tool-call 解析校验和运行时字段消费迁移；未切换 provider 输出传输方式。
+
 ## 目标
 
 只修改现有 `persona_expression` tool call 的参数 Schema、Prompt、解析和运行时消费，不在本阶段切换 provider 的输出传输方式。
@@ -45,7 +47,7 @@ Prompt 中还要区分 `actions` 和 `effect_calls`：前者是动作意图，�
 - `speech` 的空值处理。
 - effect correction flow 中对字段的保留逻辑。
 
-严格 tool call 缺失时继续沿用当前错误和受控降级行为；本阶段不新增 JSON mode、XML 或 Markdown 解析路径。
+严格 tool call 缺失时继续沿用当前错误行为，并保持现有 Persona provider 兼容性筛选：不支持协议级 tool call 的候选在请求前排除；本阶段不新增 JSON mode、XML 或 Markdown 解析路径。
 
 ## 4. 运行时消费
 
@@ -79,4 +81,13 @@ AG99live 等外部消费方的迁移在独立兼容任务中处理，Core 不为
 - `speech` 是唯一进入输出和 TTS 的文本。
 - `effect_calls` 执行行为不变。
 - 不发生 provider 输出模式切换。
+
+## 7. 实施与验证记录
+
+- `PersonaExpressionResult` 与 `persona_expression` Schema 已迁移到 `turn_action`、`speech`、`actions`、`thought`、八维角色当前情绪 `tendency` 和 `effect_calls`；旧字段不再被 Core 接受。
+- Prompt、Middleware、Persona Runtime、Output Controller、路由校验和结果贡献视图已切换到新字段。用户可见文本与 TTS 输入继续只取 `speech`。
+- 缺少严格 `persona_expression` tool call 时维持失败；不接受 Persona JSON 文本降级。
+- Persona Expression 与 execution capability 定向测试通过（58 项）；Ruff 与 `git diff --check` 通过。
+- 六个相关测试文件合计 202 项通过、6 项失败。失败来自未修改的 effect-registry 事件 mock、既有 autonomous runtime 返回值断言和 stale Plugin Handler fixture；未触及本阶段的 Schema/解析/文本消费路径。
+- AG99live 等外部消费方的旧字段迁移保留为独立兼容任务；本阶段不改动被忽略的本地插件目录。
 

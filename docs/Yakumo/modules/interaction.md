@@ -534,8 +534,8 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 - `express_visible_reply(...)` — 统一 persona visible-reply 入口，接收“待表达材料”请求
 - `render_plugin_output(...)` / `render_core_reply(...)` / `render_stream_interjection(...)` 只是同一入口的薄包装
 - 本身不做 LLM 调用，只做编排
-- 当前默认输出契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，返回 `spoken_reply` 与 `effect_calls`，且 `allow_text_fallback=False`
-- 当 renderer/provider 明确不支持协议级 tool-call 时，才受控降级为 prompt-only JSON；这不是本轮动作选择的职责
+- 当前默认输出契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，返回 `turn_action`、`speech`、`actions`、`thought`、八维 `tendency` 与 `effect_calls`，且 `allow_text_fallback=False`
+- renderer/provider 必须支持协议级 tool call；不支持的候选在请求前排除，不降级为 Persona JSON 文本
 - Persona Runtime 的表达规则、最终 request prompt 和输出契约由目标 `PromptRenderProfile` 提供；本轮待表达语义、核心流式 `observed_text / total_text / pending_text` 等事实由 Collector 写入原生 `input.visible_reply_material`
 - 对 DeepSeek-V4 / `deepseek-reasoner` 这类 reasoning 模型，首轮 persona user input 会额外注入一次“角色沉浸模式” marker，
   用于约束 `<think>` 里的思维风格；稳定人格设定仍留在 `system`，marker 不作为长期人格本体
@@ -562,7 +562,20 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 
 ```json
 {
-  "spoken_reply": "string",
+  "turn_action": "reply",
+  "speech": "string",
+  "actions": ["lower_head"],
+  "thought": "角色当前的简短心理想法",
+  "tendency": {
+    "Joy": 0,
+    "Trust": 0,
+    "Fear": 0,
+    "Surprise": 0,
+    "Sadness": 0,
+    "Disgust": 0,
+    "Anger": 0,
+    "Anticipation": 0
+  },
   "effect_calls": [
     {
       "name": "effect.name",
@@ -571,6 +584,8 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
   ]
 }
 ```
+
+`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`speech` 是唯一用户可见文本，也是后续 TTS 的输入；`actions` 只含简单动作词，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。TTS 标签注入与结果清理在后续阶段实现。
 
 补充约束：
 
@@ -601,7 +616,7 @@ InteractionOutputController
 
 ## Effect 插件边界
 
-Persona Runtime 可以随 `spoken_reply` 生成通用 `effect_calls`。Core 只负责 effect spec 的注册、
+Persona Runtime 可以随 `speech` 生成通用 `effect_calls`。Core 只负责 effect spec 的注册、
 结构化结果校验和阶段性传递，不内置动作、灯光、Live2D 或其他客户端领域模型。
 
 插件负责：

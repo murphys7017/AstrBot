@@ -4,12 +4,14 @@ outline: deep
 
 # Persona Effects
 
-Persona Effects are an AG99 extension created by YakumoAki for structured persona output. A plugin can let Persona Runtime produce presentation intent, such as a Live2D motion, light state, or client expression, alongside `spoken_reply`.
+Persona Effects are an AG99 extension created by YakumoAki for structured persona output. A plugin can let Persona Runtime produce presentation intent, such as a Live2D motion, light state, or client expression, alongside the user-visible `speech`.
 
 A Persona Effect is not an Agent Tool. It never enters the Core Tool Loop. Effects
-are part of the structured Persona Expression result; the Personal Response Plan
-keeps the same `effect_calls` contract while selecting `reply`, `delegate`, or an
-eligible-group `silent`.
+are part of the structured Persona Expression result. The result includes
+`turn_action`, `speech`, simple `actions`, the character's brief `thought`, its
+current eight-dimensional Plutchik `tendency`, and `effect_calls`. Action intents
+and effect calls remain separate. The Personal Response Plan selects `reply`,
+`delegate`, or an eligible-group `silent`.
 
 ## Register an Effect
 
@@ -67,7 +69,20 @@ Persona Runtime always uses this shape:
 
 ```json
 {
-  "spoken_reply": "User-visible reply",
+  "turn_action": "reply",
+  "speech": "User-visible reply",
+  "actions": [],
+  "thought": "The character's brief current thought",
+  "tendency": {
+    "Joy": 0,
+    "Trust": 0,
+    "Fear": 0,
+    "Surprise": 0,
+    "Sadness": 0,
+    "Disgust": 0,
+    "Anger": 0,
+    "Anticipation": 0
+  },
   "effect_calls": [
     {
       "name": "my_plugin.expression",

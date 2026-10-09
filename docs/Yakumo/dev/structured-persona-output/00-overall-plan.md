@@ -113,14 +113,14 @@ turn_action 路由、speech 输出、TTS、actions、effect_calls、内部状态
 
 ## 5. 分阶段实施顺序
 
-| 阶段 | 目标 | 主要结果 |
-| --- | --- | --- |
-| 准备阶段 | 冻结 Canonical Schema | 字段、含义、范围、空值和失败规则确定 |
-| 第一阶段 | 迁移当前 tool call | 当前主路径输出新 Schema，删除旧字段 |
-| 第二阶段 | Provider 输出策略协商 | 支持并实测 tool call、原生 JSON Schema、JSON mode、prompt-only JSON |
-| 第三阶段 | 文本格式适配 | 增加 XML、Markdown 等明确 grammar 的 parser |
-| 第四阶段 | TTS 处理 | 将语音标签注入和清理集中到 `speech` |
-| 第五阶段 | 迁移与验证 | 更新文档、测试、插件接口和运行指标，分批启用 |
+| 阶段 | 目标 | 主要结果 | 状态 |
+| --- | --- | --- | --- |
+| 准备阶段 | 冻结 Canonical Schema | 字段、含义、范围、空值和失败规则确定 | 已完成 |
+| 第一阶段 | 迁移当前 tool call | 当前主路径输出新 Schema，删除旧字段 | 已完成 |
+| 第二阶段 | Provider 输出策略协商 | 支持并实测 tool call、原生 JSON Schema、JSON mode、prompt-only JSON | 后续 |
+| 第三阶段 | 文本格式适配 | 增加 XML、Markdown 等明确 grammar 的 parser | 后续 |
+| 第四阶段 | TTS 处理 | 将语音标签注入和清理集中到 `speech` | 后续 |
+| 第五阶段 | 迁移与验证 | 更新文档、测试、插件接口和运行指标，分批启用 | 后续 |
 
 每个阶段都需要先完成源码审阅和边界确认，再进入对应实现；不能用后续阶段的 fallback 掩盖前一阶段的协议错误。
 

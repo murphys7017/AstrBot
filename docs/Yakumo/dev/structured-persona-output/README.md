@@ -1,6 +1,6 @@
 # Persona 结构化输出计划
 
-这是 Yakumo Persona Expression 输出协议改造的计划目录。当前仅完成设计和源码审阅，尚未修改运行时代码、编译或运行测试。
+这是 Yakumo Persona Expression 输出协议改造的计划目录。准备阶段和第一阶段已完成；第一阶段已将运行时迁移到新的严格 `persona_expression` tool-call Schema。后续 provider 输出策略、文本格式适配、TTS 处理和外部插件兼容仍按计划单独推进。
 
 ## 文档索引
 
@@ -14,6 +14,9 @@
 
 ## 当前决定
 
+- 第一阶段已完成：Persona Expression 统一输出 `turn_action`、`speech`、`actions`、`thought`、八维角色当前情绪 `tendency` 和 `effect_calls`。
+- 第一阶段只迁移当前严格 tool-call 路径；不增加 JSON 文本 fallback、原生 JSON Schema/JSON mode、XML/Markdown parser 或 TTS 标签注入/清理。
+- `speech` 是唯一用户可见文本；`thought` 与 `tendency` 不进入普通对话历史；`actions` 与 `effect_calls` 分开。
 - 这是一次破坏性更新，不保留 `spoken_reply`、`speech_cues` 等旧字段兼容别名。
 - 第一批只修改现有 `persona_expression` tool call 的参数、Prompt、解析和运行时消费。
 - 第二批再根据具体 provider 和模型能力，评估 tool call、原生 JSON Schema、JSON mode、prompt-only JSON 等方式。

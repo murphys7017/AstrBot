@@ -4,9 +4,9 @@ outline: deep
 
 # Persona Effect
 
-Persona Effect 是 AG99（作者 YakumoAki）的拟人输出扩展协议。插件可以让 Persona Runtime 在生成 `spoken_reply` 的同时生成结构化表现意图，例如 Live2D 动作、灯光或客户端表情。
+Persona Effect 是 AG99（作者 YakumoAki）的拟人输出扩展协议。插件可以让 Persona Runtime 在生成唯一用户可见文本 `speech` 的同时生成结构化表现意图，例如 Live2D 动作、灯光或客户端表情。
 
-Persona Effect 不是 Agent Tool：它不会进入 Core Tool Loop，也不会提供给 Core Planner。普通 Personal 计划通过同一个严格 `persona_expression` 契约返回 `spoken_reply`、`speech_cues`、`effect_calls` 和 `turn_action`；effect 仍是声明式输出，不是可执行工具。
+Persona Effect 不是 Agent Tool：它不会进入 Core Tool Loop，也不会提供给 Core Planner。Persona 通过同一个严格 `persona_expression` 契约返回 `turn_action`、`speech`、`actions`、`thought`、角色当前八维 Plutchik 情绪 `tendency` 和 `effect_calls`；effect 仍是声明式输出，不是可执行工具。`actions` 是简单动作词意图，与 `effect_calls` 分开。
 
 ## 注册 Effect
 
@@ -64,7 +64,20 @@ Persona Runtime 的结构固定为：
 
 ```json
 {
-  "spoken_reply": "用户可见回复",
+  "turn_action": "reply",
+  "speech": "用户可见回复",
+  "actions": [],
+  "thought": "角色当前的简短心理想法",
+  "tendency": {
+    "Joy": 0,
+    "Trust": 0,
+    "Fear": 0,
+    "Surprise": 0,
+    "Sadness": 0,
+    "Disgust": 0,
+    "Anger": 0,
+    "Anticipation": 0
+  },
   "effect_calls": [
     {
       "name": "my_plugin.expression",
