@@ -6,6 +6,7 @@
 
 - Canonical Schema 和当前严格 `persona_expression` tool-call 主路径已完成迁移。
 - Core 会把结果解析并校验为 `PersonaExpressionResult`。Persona 请求要求协议级 tool call，不接受自由文本或 prompt-only JSON 作为成功结果；不兼容候选在发起请求前被排除。
+- Provider 页面提供 JSON 输出稳定性诊断：可编辑默认 Persona JSON 示例，对单个对话模型独立请求 10 次并检查字段结构和类型。该测试只评估 Prompt 遵循效果，不代表 Provider 原生 JSON mode / JSON Schema 支持，也不改变 Persona 主路径。
 - Core 已把新字段贯穿 Personal 路由、即时/最终输出和 Interaction Result Contributor。Persona 改写的插件文本使用 `plugin_reply` purpose；插件可以从只读 `InteractionResultView` 读取结构化结果。
 - Provider 原生 JSON Schema/JSON mode、XML/Markdown 解析器、TTS 标签注入与清理，以及外部插件的独立迁移和真实平台验收仍未完成。
 
@@ -49,7 +50,7 @@
 | --- | --- | --- |
 | 准备阶段：冻结 Canonical Schema | 已完成 | 六个字段、字段含义、情绪维度和值域已确定。 |
 | 第一阶段：迁移当前 tool call | 已完成 | Schema、Prompt、解析、校验、Personal/Core 输出消费和结果贡献视图已使用新字段。 |
-| 第二阶段：Provider 输出策略 | 未实施 | 目前 Persona 仍要求协议级 `persona_expression` tool call；通用契约类型的预留不等于 Persona 已接入。 |
+| 第二阶段：Provider 输出策略 | 部分准备 | 已有 Provider 页面 JSON 示例稳定性诊断；原生 JSON mode / JSON Schema Provider 路径和模型能力矩阵仍未实施，Persona 仍要求协议级 `persona_expression` tool call。 |
 | 第三阶段：XML、Markdown parser | 未实施 | 当前没有 Persona XML/Markdown parser。 |
 | 第四阶段：TTS 标签适配 | 未实施 | `speech` 是 TTS 文本来源；本协议尚未实现标签 Prompt 注入和清理。 |
 | 文档、插件迁移和运行验收 | 文档已按当前代码更新；外部集成验收待完成 | Core 破坏性移除旧字段；依赖方需分别迁移并进行真实平台验收。 |

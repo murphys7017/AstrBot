@@ -36,6 +36,7 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 ### Provider 输出策略
 
 - 按 Provider、模型、endpoint 建立 tool call、JSON mode、原生 JSON Schema 的能力矩阵。
+- 使用 Provider 页面 JSON 稳定性测试进行能力验收时，应一并记录所选 Provider/模型、测试模板、10 次字段结构与类型通过数、失败原因和单次延迟；该结果不作为原生 JSON mode / JSON Schema 支持证明。
 - 明确 JSON 文本仍由 Core 解析和校验；Provider 的 JSON mode 不等同于 Schema 强制。
 - 逐组合验证请求构造、响应提取、动态 effect schema、字段语义、失败行为、延迟和 token 成本。
 - 只有测试通过的组合才显式启用；不满足约束时必须提供诊断失败。

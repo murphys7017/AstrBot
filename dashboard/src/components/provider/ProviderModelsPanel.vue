@@ -97,9 +97,19 @@
                     icon="mdi-connection"
                     size="small"
                     variant="text"
-                    :disabled="!entry.provider.enable"
+                    :disabled="!entry.provider.enable || isProviderTesting(entry.provider.id) || isJsonProviderTesting(entry.provider.id)"
                     :loading="isProviderTesting(entry.provider.id)"
                     @click.stop="emit('test-provider', entry.provider)"
+                  ></v-btn>
+                  <v-btn
+                    icon="mdi-code-json"
+                    size="small"
+                    variant="text"
+                    :disabled="!entry.provider.enable || isProviderTesting(entry.provider.id) || isJsonProviderTesting(entry.provider.id)"
+                    :loading="isJsonProviderTesting(entry.provider.id)"
+                    :aria-label="tm('models.jsonTestButton')"
+                    :title="tm('models.jsonTestButton')"
+                    @click.stop="emit('test-json-output', entry.provider)"
                   ></v-btn>
                   <v-btn
                     icon="mdi-cog-outline"
@@ -240,6 +250,10 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  jsonTestingProviders: {
+    type: Array,
+    default: () => []
+  },
   tm: {
     type: Function,
     required: true
@@ -253,6 +267,7 @@ const emit = defineEmits([
   'open-provider-edit',
   'toggle-provider-enable',
   'test-provider',
+  'test-json-output',
   'delete-provider',
   'add-model-provider'
 ])
@@ -288,6 +303,7 @@ const capabilityIcons = (metadata) => {
 }
 
 const isProviderTesting = (providerId) => props.testingProviders.includes(providerId)
+const isJsonProviderTesting = (providerId) => props.jsonTestingProviders.includes(providerId)
 </script>
 
 <style scoped>

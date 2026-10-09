@@ -17,6 +17,7 @@
 | 通用 OutputContract.mode | 有 text、json_object、tool_call。 |
 | 通用编译策略类型 | 有 prompt_only、protocol_tool_call、protocol_native_json；protocol_native_json 目前是策略类型预留，不代表已经有通用 JSON Schema renderer/provider 路径。 |
 | 通用 JSON object Prompt | json_object 可生成 JSON-only Prompt 文本；这本身不表示 Provider 原生执行 JSON Schema 约束。 |
+| Provider 页面 JSON 稳定性测试 | 已提供手动诊断入口：用户可编辑 JSON 示例，系统对所选对话模型独立请求 10 次，并检查 JSON object 的字段结构和 JSON 类型；不修改配置，也不代表原生 JSON mode 或 JSON Schema 支持。 |
 | Persona JSON/XML/Markdown 输出 | 尚未接入 Persona 主路径；Persona 不以自由 JSON 文本作为成功 fallback。 |
 
 当前 persona_expression 的严格 tool-call 路径是唯一已完成并启用的结构化输出方案。评估通用契约代码时，需要区分类型或兼容入口的存在与 Persona 实际选择的请求路径。
@@ -33,6 +34,8 @@
 | Prompt-only JSON | 只在 Prompt 中要求 JSON，不由 Provider 协议强制。 | 普通文本。 | 格式失败率、有限修复策略；此能力目前不满足 Persona 的 fail-closed 主路径要求。 |
 
 Provider 宣称支持 JSON，不等于支持原生 JSON Schema。JSON mode 也不能免除本地 Canonical Schema 校验。
+
+Provider 页面中的稳定性测试用于快速观察模型能否遵循可编辑的 JSON 示例结构。它通过 Prompt 要求输出，不会请求 Provider 的原生 JSON mode 或 JSON Schema；结果只说明这 10 次响应是否符合示例字段和类型，不能据此直接启用 Persona 输出策略。当前首版只覆盖 JSON，XML 和 Markdown 的测试格式及判定规则仍待后续定义。
 
 ## 能力矩阵与选择
 

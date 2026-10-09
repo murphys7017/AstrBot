@@ -95,7 +95,7 @@ turn_action 路由 / speech 输出与 TTS / InteractionResultView 插件贡献
 | --- | --- | --- |
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
 | 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
-| 第二阶段：Provider 输出策略 | 未完成 | 评估并逐个验证原生 JSON Schema、JSON mode 或其他 Provider 格式；当前 Persona 仍用严格 tool call。 |
+| 第二阶段：Provider 输出策略 | 部分准备 | Provider 页面已增加可编辑 JSON 示例的 10 次稳定性诊断；原生 JSON mode / JSON Schema 的 Provider 接入、能力矩阵和 Persona 路径验收仍未完成，Persona 继续使用严格 tool call。XML/Markdown 稳定性测试待定义格式规则。 |
 | 第三阶段：文本格式解析 | 未开始 | 为 XML/Markdown 等定义明确 grammar 和 parser；示例仅为设计草案。 |
 | 第四阶段：TTS 标签 | 未开始 | TTS 适配器负责 prompt 注入、将标签放入 `speech` 并在 TTS 边界清理。 |
 | 文档与集成验收 | Core 文档已同步；外部验收未完成 | 外部插件依赖、Provider 实例、平台投递和 TTS 端到端仍需分别验收。 |

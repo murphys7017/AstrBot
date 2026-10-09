@@ -31,6 +31,11 @@ from astrbot.core.utils.webhook_utils import ensure_platform_webhook_config
 from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
+from .provider_output_test import (
+    MAX_JSON_TEMPLATE_LENGTH,
+    parse_json_template,
+    run_json_output_stability_test,
+)
 from .util import (
     config_key_to_folder,
     get_schema_item,
@@ -837,6 +842,49 @@ class ConfigService(DashboardService):
                 f"Critical error checking provider {provider_id}: {e}",
                 500,
             )
+
+    async def test_provider_json_output(self):
+        """Run ten prompt-only JSON shape checks against one chat provider."""
+        post_data = await request.json or {}
+        if not isinstance(post_data, dict):
+            return Response().error("请求内容必须是 JSON object").__dict__
+
+        provider_id = str(post_data.get("provider_id", "") or "").strip()
+        template_text = post_data.get("template")
+        if not provider_id:
+            return Response().error("缺少 provider_id").__dict__
+        if not isinstance(template_text, str) or not template_text.strip():
+            return Response().error("缺少 JSON 格式示例").__dict__
+        if len(template_text) > MAX_JSON_TEMPLATE_LENGTH:
+            return Response().error("JSON 格式示例过长").__dict__
+
+        try:
+            template = parse_json_template(template_text)
+        except ValueError:
+            return Response().error(
+                "JSON 格式示例必须是有效的 JSON object，且不能包含重复字段"
+            ).__dict__
+
+        provider_manager = self.core_lifecycle.provider_manager
+        provider = provider_manager.inst_map.get(provider_id)
+        if not isinstance(provider, Provider):
+            return Response().error(
+                f"未找到可测试的对话模型提供商: {provider_id}"
+            ).__dict__
+        if provider.provider_config.get("enable") is False:
+            return Response().error("该模型提供商未启用").__dict__
+
+        try:
+            result = await run_json_output_stability_test(provider, template)
+            result["provider_id"] = provider_id
+            result["model"] = provider.get_model()
+            return Response().ok(result).__dict__
+        except Exception:
+            logger.warning(
+                "JSON output stability test failed for provider %s",
+                provider_id,
+            )
+            return Response().error("JSON 格式测试未能完成").__dict__
 
     async def get_configs(self):
         # plugin_name 为空时返回 AstrBot 配置
