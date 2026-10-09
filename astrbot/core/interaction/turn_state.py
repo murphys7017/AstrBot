@@ -341,6 +341,9 @@ class InteractionTurnState:
     core_provider_id: str | None = None
     finalized_turn_material: dict[str, Any] | None = None
     immediate_reply: str | None = None
+    immediate_actions: tuple[str, ...] | None = None
+    immediate_thought: str | None = None
+    immediate_tendency: dict[str, int] | None = None
     personal_emitted_monotonic: float | None = None
     speculative_persona_status: InteractionSpeculativePersonaStatus = (
         InteractionSpeculativePersonaStatus.NOT_STARTED
@@ -1755,6 +1758,32 @@ def get_interaction_turn_immediate_reply(event) -> str | None:
     if state is not None:
         return state.immediate_reply
     return None
+
+
+def set_interaction_turn_immediate_persona_state(
+    event,
+    *,
+    actions: tuple[str, ...] | list[str] = (),
+    thought: str = "",
+    tendency: Mapping[str, int] | None = None,
+) -> None:
+    state = ensure_interaction_turn_state(event)
+    state.immediate_actions = tuple(actions)
+    state.immediate_thought = str(thought or "")
+    state.immediate_tendency = dict(tendency or {})
+
+
+def get_interaction_turn_immediate_persona_state(
+    event,
+) -> tuple[tuple[str, ...], str, dict[str, int]] | None:
+    state = get_interaction_turn_state(event)
+    if state is None or state.immediate_actions is None:
+        return None
+    return (
+        state.immediate_actions,
+        state.immediate_thought or "",
+        dict(state.immediate_tendency or {}),
+    )
 
 
 def mark_interaction_turn_personal_emitted(event) -> float:

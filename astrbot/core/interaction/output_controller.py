@@ -36,6 +36,7 @@ from .config import load_interaction_agent_config
 from .contributors import (
     InteractionOutputDraft,
     InteractionResultContribution,
+    InteractionResultPurpose,
     InteractionResultView,
     InteractionStreamView,
     merge_result_contributions,
@@ -78,6 +79,7 @@ from .turn_state import (
     get_interaction_turn_config,
     get_interaction_turn_delivery_metadata,
     get_interaction_turn_finalized_material,
+    get_interaction_turn_immediate_persona_state,
     get_interaction_turn_immediate_reply,
     get_interaction_turn_plugin_output_transaction,
     get_interaction_turn_runtime_config,
@@ -115,6 +117,7 @@ from .turn_state import (
     set_interaction_turn_core_streaming_active,
     set_interaction_turn_emitting_immediate_reply,
     set_interaction_turn_finalized_material,
+    set_interaction_turn_immediate_persona_state,
     set_interaction_turn_immediate_reply,
     set_interaction_turn_pipeline_output_suppressed,
     set_interaction_turn_plugin_output_metadata,
@@ -467,6 +470,12 @@ class InteractionOutputController:
                 return False
             semantic_text = message.get_plain_text()
             set_interaction_turn_immediate_reply(event, semantic_text)
+            set_interaction_turn_immediate_persona_state(
+                event,
+                actions=prepared_expression.actions if prepared_expression else (),
+                thought=(prepared_expression.thought if prepared_expression else ""),
+                tendency=prepared_expression.tendency if prepared_expression else {},
+            )
             (
                 message,
                 materialization,
@@ -608,6 +617,8 @@ class InteractionOutputController:
         set_interaction_turn_plugin_output_metadata(event, mode=mode)
         resolved_kind = "plugin_direct"
         resolved_mode = PluginOutputMode(mode)
+        result_contribution = None
+        message_id = None
 
         if resolved_mode == PluginOutputMode.PERSONA:
             plain = message.get_plain_text().strip()
@@ -638,6 +649,29 @@ class InteractionOutputController:
 
         set_interaction_turn_plugin_output_metadata(event, kind=resolved_kind)
         if resolved_kind == "plugin_persona":
+            message_id = self._next_output_segment_id(event, resolved_kind)
+            contributions = await self._collect_result_contributions(
+                event,
+                core_result=None,
+                final_result=result.speech,
+                phase="final" if finalize else "immediate",
+                candidate_message_kind=resolved_kind,
+                candidate_message_id=message_id,
+                effect_calls=result.effect_calls,
+                actions=result.actions,
+                thought=result.thought,
+                tendency=result.tendency,
+                turn_action=(
+                    result.turn_action.value if result.turn_action is not None else None
+                ),
+                purpose="plugin_reply",
+            )
+            result_contribution = merge_result_contributions(contributions)
+            if result_contribution.final_text_override is not None:
+                message = replace_plain_text_preserving_components(
+                    message,
+                    result_contribution.final_text_override,
+                )
             message = await self._prepare_model_expression(
                 event,
                 message,
@@ -645,8 +679,9 @@ class InteractionOutputController:
             )
             if message is None:
                 return False
+        if message_id is None:
+            message_id = self._next_output_segment_id(event, resolved_kind)
         semantic_text = message.get_plain_text()
-        message_id = self._next_output_segment_id(event, resolved_kind)
         deferred_by_transaction = finalize and self._begin_plugin_output_transaction(
             event
         )
@@ -667,11 +702,18 @@ class InteractionOutputController:
             result_is_model_result=resolved_mode is PluginOutputMode.PERSONA,
             message_id=message_id,
         )
+        resolved_platform_extras = platform_extras
+        if result_contribution is not None:
+            resolved_platform_extras = self.build_platform_output_base_extras(
+                event,
+                result_contribution=result_contribution,
+            )
+            resolved_platform_extras.update(platform_extras or {})
         delivered_message_ids = await self._deliver_visible_message(
             event,
             message,
             message_kind=resolved_kind,
-            platform_extras=platform_extras,
+            platform_extras=resolved_platform_extras,
             output_segment_id=message_id,
             allow_segmented_reply=True,
             semantic_text=semantic_text,
@@ -1889,10 +1931,27 @@ class InteractionOutputController:
         event: AstrMessageEvent,
     ) -> None:
         immediate_reply = get_interaction_turn_immediate_reply(event)
+        immediate_persona_state = get_interaction_turn_immediate_persona_state(
+            event
+        ) or ((), "", {})
+        immediate_actions, immediate_thought, immediate_tendency = (
+            immediate_persona_state
+        )
+        final_tendency = result.tendency or {}
+        tendency_keys = set(immediate_tendency) | set(final_tendency)
+        same_persona_state = (
+            tuple(result.actions or ()) == immediate_actions
+            and (result.thought or "") == immediate_thought
+            and all(
+                immediate_tendency.get(key, 0) == final_tendency.get(key, 0)
+                for key in tendency_keys
+            )
+        )
         if (
             immediate_reply
             and fingerprint_personal_expression(result.speech)
             == fingerprint_personal_expression(immediate_reply)
+            and same_persona_state
             and not result.effect_calls
             and not result.metadata.get("persona_tool_attachments")
         ):
@@ -2126,6 +2185,7 @@ class InteractionOutputController:
         thought: str = "",
         tendency: Mapping[str, int] | None = None,
         turn_action: str | None = None,
+        purpose: InteractionResultPurpose | None = None,
     ) -> list[InteractionResultContribution]:
         if self.plugin_context is None:
             return []
@@ -2142,7 +2202,16 @@ class InteractionOutputController:
         route_mode = (
             route_decision.route_mode.value if route_decision is not None else None
         )
-        purpose = "persona_reply" if phase == "immediate" else "core_reply"
+        resolved_purpose = purpose or (
+            "persona_reply" if phase == "immediate" else "core_reply"
+        )
+        output_source = (
+            "plugin"
+            if resolved_purpose == "plugin_reply"
+            else "core"
+            if phase == "final" and core_result
+            else "interaction"
+        )
         effect_calls = tuple(effect_calls)
         logger.debug(
             "DIAG result_view.effect_calls: platform_id=%s session_id=%s phase=%s payload_present=%s effect_calls=%s",
@@ -2156,7 +2225,7 @@ class InteractionOutputController:
         output_draft = InteractionOutputDraft(
             turn_id=str(event.get_extra("_turn_id", "") or ""),
             message_id=candidate_message_id,
-            source="core" if phase == "final" and core_result else "interaction",
+            source=output_source,
             route_mode=route_mode,
             phase=phase,
             text=output_text,
@@ -2175,7 +2244,7 @@ class InteractionOutputController:
             turn_id=str(event.get_extra("_turn_id", "") or ""),
             platform_id=event.get_platform_id(),
             session_id=event.unified_msg_origin,
-            purpose=purpose,
+            purpose=resolved_purpose,
             route_decision=route_payload,
             output_draft=output_draft.to_mapping(),
             immediate_reply=get_interaction_turn_immediate_reply(event),
@@ -2197,7 +2266,7 @@ class InteractionOutputController:
             finalized_turn_material=get_interaction_turn_finalized_material(event),
             metadata={
                 "phase": phase,
-                "purpose": purpose,
+                "purpose": resolved_purpose,
                 "message_kind": candidate_message_kind,
                 "is_immediate": phase == "immediate",
                 "is_final": phase == "final",

@@ -13,6 +13,7 @@ InteractionPromptPurpose = Literal[
 InteractionResultPurpose = Literal[
     "unknown",
     "persona_reply",
+    "plugin_reply",
     "core_reply",
 ]
 PromptViewPhase = Literal[

@@ -19,6 +19,7 @@ from astrbot.core.interaction.config import (
     load_interaction_agent_config,
 )
 from astrbot.core.interaction.contributors import InteractionResultContribution
+from astrbot.core.interaction.effects import PersonaEffectCall
 from astrbot.core.interaction.expression_agent import PersonaExpressionResult
 from astrbot.core.interaction.middleware import InteractionMiddleware
 from astrbot.core.interaction.output_adapter import InteractionEventOutputAdapter
@@ -31,6 +32,7 @@ from astrbot.core.interaction.turn_state import (
     get_interaction_turn_assistant_artifacts,
     get_interaction_turn_config,
     get_interaction_turn_delivery_receipts,
+    get_interaction_turn_immediate_persona_state,
     get_interaction_turn_immediate_reply,
     get_interaction_turn_runtime_config,
     get_interaction_turn_state,
@@ -42,6 +44,7 @@ from astrbot.core.interaction.turn_state import (
     reserve_interaction_turn_final_output,
     set_interaction_turn_config,
     set_interaction_turn_emitting_immediate_reply,
+    set_interaction_turn_immediate_persona_state,
     set_interaction_turn_immediate_reply,
     set_interaction_turn_pipeline_output_suppressed,
     set_interaction_turn_runtime_config,
@@ -1044,6 +1047,10 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
     event = Event()
     ensure_interaction_turn_state(event)
     set_interaction_turn_immediate_reply(event, "三分钟后提醒你。")
+    set_interaction_turn_immediate_persona_state(
+        event,
+        tendency={"Joy": 0, "Sadness": 0},
+    )
     controller = InteractionOutputController(persist_callback=persisted)
     controller._deliver_core_final_message = AsyncMock()
 
@@ -1055,6 +1062,102 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
 
     controller._deliver_core_final_message.assert_not_awaited()
     persisted.assert_awaited_once_with(event)
+
+
+@pytest.mark.parametrize(
+    ("immediate_state", "final_result"),
+    [
+        (
+            {"actions": ["lower_head"]},
+            PersonaExpressionResult(speech="三分钟后提醒你。", actions=["look_away"]),
+        ),
+        (
+            {"thought": "我已经安排好了"},
+            PersonaExpressionResult(speech="三分钟后提醒你。", thought="我有点担心"),
+        ),
+        (
+            {"tendency": {"Joy": 2}},
+            PersonaExpressionResult(
+                speech="三分钟后提醒你。",
+                tendency={"Joy": 3},
+            ),
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_duplicate_core_final_with_changed_persona_state_is_delivered(
+    immediate_state,
+    final_result,
+):
+    class Event:
+        def __init__(self):
+            self._extras = {"_turn_id": "turn-duplicate-persona-state"}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    event = Event()
+    ensure_interaction_turn_state(event)
+    set_interaction_turn_immediate_reply(event, "三分钟后提醒你。")
+    set_interaction_turn_immediate_persona_state(event, **immediate_state)
+    controller = InteractionOutputController()
+    controller._deliver_core_final_message = AsyncMock()
+
+    await controller.deliver_prepared_core_reply(
+        MessageChain([Plain("Core execution completed")]),
+        final_result,
+        event,
+    )
+
+    controller._deliver_core_final_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_immediate_output_records_persona_state_for_duplicate_arbitration():
+    class Event:
+        def __init__(self):
+            self._extras = {"_interaction_emitting_immediate_reply": True}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    controller = object.__new__(InteractionOutputController)
+    controller._collect_result_contributions = AsyncMock(return_value=[])
+    controller._next_output_segment_id = lambda _event, _kind: "segment-1"
+    controller._prepare_model_expression = AsyncMock(
+        side_effect=lambda _event, message, **_kwargs: message
+    )
+    controller.materialize_immediate_interaction_outbound_message = AsyncMock(
+        side_effect=lambda _event, message, **_kwargs: (message, {})
+    )
+    controller._deliver_visible_message = AsyncMock(return_value=["message-1"])
+    controller._record_visible_output = Mock()
+    event = Event()
+    result = PersonaExpressionResult(
+        speech="我先看看。",
+        actions=["lower_head"],
+        thought="这需要仔细确认",
+        tendency={"Curiosity": 4},
+    )
+
+    delivered = await controller.capture_message_chain(
+        MessageChain([Plain(result.speech)]),
+        event,
+        prepared_expression=result,
+    )
+
+    assert delivered is True
+    assert get_interaction_turn_immediate_persona_state(event) == (
+        ("lower_head",),
+        "这需要仔细确认",
+        {"Curiosity": 4},
+    )
 
 
 @pytest.mark.asyncio
@@ -1544,10 +1647,13 @@ async def test_immediate_output_policy_suppression_skips_materialization_and_del
 
 
 @pytest.mark.asyncio
-async def test_plugin_persona_output_keeps_non_text_components():
+async def test_plugin_persona_output_forwards_structured_result_and_components():
     class Event:
         def __init__(self):
             self._extras = {}
+            self.message_str = "source reply"
+            self.session_id = "session-1"
+            self.unified_msg_origin = "test:session-1"
 
         def get_extra(self, key, default=None):
             return self._extras.get(key, default)
@@ -1555,10 +1661,44 @@ async def test_plugin_persona_output_keeps_non_text_components():
         def set_extra(self, key, value):
             self._extras[key] = value
 
+        def get_platform_id(self):
+            return "test"
+
     controller = object.__new__(InteractionOutputController)
     delivered = []
+    observed_views = []
+    delivery_extras = []
+
+    class Contributor:
+        plugin_id = "persona-output-test"
+
+        async def collect(self, _event, _plugin_context, view):
+            observed_views.append(view)
+            return InteractionResultContribution(
+                plugin_id=self.plugin_id,
+                platform_extras={"persona_result_extra": "kept"},
+                client_objects=[{"type": "persona-state", "value": "kept"}],
+            )
+
+    controller.plugin_context = SimpleNamespace(
+        list_interaction_result_contributors=lambda *, event: [Contributor()]
+    )
+    controller._get_interaction_config = lambda _event: SimpleNamespace(
+        contributor_timeout=1.0
+    )
     controller._render_visible_reply = AsyncMock(
-        return_value=PersonaExpressionResult(speech="rewritten reply")
+        return_value=PersonaExpressionResult(
+            speech="rewritten reply",
+            actions=["lower_head"],
+            thought="我有些难过",
+            tendency={"Sadness": 5},
+            effect_calls=[
+                PersonaEffectCall(
+                    name="motion.nod",
+                    arguments={"speed": 1},
+                )
+            ],
+        )
     )
     controller._next_output_segment_id = lambda _event, _kind: "segment-1"
     controller._begin_plugin_output_transaction = lambda _event: False
@@ -1569,13 +1709,18 @@ async def test_plugin_persona_output_keeps_non_text_components():
     controller.materialize_interaction_outbound_message = AsyncMock(
         side_effect=lambda _event, message, **_kwargs: (message, {})
     )
-    controller._deliver_visible_message = AsyncMock(
-        side_effect=lambda _event, message, **_kwargs: delivered.append(message) or []
-    )
+    async def deliver_visible_message(_event, message, **kwargs):
+        delivered.append(message)
+        delivery_extras.append(kwargs.get("platform_extras"))
+        return []
+
+    controller._deliver_visible_message = AsyncMock(side_effect=deliver_visible_message)
     controller._record_visible_output = Mock()
     controller._materialize_finalized_turn = Mock()
     controller._persist_interaction_turn = AsyncMock()
     event = Event()
+    event._extras["_turn_id"] = "turn-plugin-persona"
+    ensure_interaction_turn_state(event)
 
     await controller.capture_plugin_output(
         MessageChain([Plain("source reply"), Image("attachment.png")]),
@@ -1586,6 +1731,20 @@ async def test_plugin_persona_output_keeps_non_text_components():
     assert len(delivered) == 1
     assert delivered[0].get_plain_text() == "rewritten reply"
     assert [type(component) for component in delivered[0].chain] == [Plain, Image]
+    assert len(observed_views) == 1
+    assert observed_views[0].purpose == "plugin_reply"
+    assert observed_views[0].final_result == "rewritten reply"
+    assert observed_views[0].output_draft["source"] == "plugin"
+    assert observed_views[0].actions == ("lower_head",)
+    assert observed_views[0].thought == "我有些难过"
+    assert observed_views[0].tendency == {"Sadness": 5}
+    assert observed_views[0].turn_action == "reply"
+    assert observed_views[0].effect_calls[0]["name"] == "motion.nod"
+    assert observed_views[0].effect_calls[0]["arguments"] == {"speed": 1}
+    assert delivery_extras[0]["persona_result_extra"] == "kept"
+    assert delivery_extras[0]["client_objects"] == [
+        {"type": "persona-state", "value": "kept"}
+    ]
 
 
 @pytest.mark.asyncio
