@@ -124,6 +124,7 @@
 | 无效 Cron 编辑保留现有排程 | `9c7329573` | equivalent | `CronJobManager.update_job()` 在持久化更新前验证候选 trigger；`tests/unit/test_cron_manager.py::test_invalid_edit_preserves_persisted_and_scheduled_job` 覆盖该边界。 |
 | Telegram 视频便笺转为 Video 组件 | `91ee48713` | equivalent | `TelegramPlatformAdapter.convert_message()` 已生成 `Comp.Video`；`tests/test_telegram_adapter.py::test_telegram_video_note_creates_video_component` 覆盖转换。 |
 | 保留自由格式 dict 配置键 | `610eab06c` | equivalent | 本地 `683e39ddc4` 已将 `type: dict` schema 作为自由映射保留；`tests/unit/test_config.py` 覆盖用户键保留及非映射值纠正。 |
+| Proactive Computer 运行时设置 | `ff86d3276` | adapted | 共享 admitted runtime snapshot 已存在；本次补齐缺省值不一致：缺少 `computer_use_runtime` 时统一按 `none` 处理，保留显式 `local`/`sandbox`。Core 配置、后台唤醒和 booter 定向测试通过。 |
 
 ## 优先待办
 
@@ -145,6 +146,7 @@
 - `pnpm run typecheck`、最终 `pnpm run build` 通过；构建有原有的两个未定义 MDI 图标告警，不影响此次新增图标。
 - 已同步 `dashboard/dist` 到 `data/dist`，698 个构建文件逐一哈希一致；入口文件最后替换，旧哈希资源保留，避免已打开页面丢失依赖。
 - 聊天历史分页的 5 项后端定向测试、Dashboard 类型检查和生产构建通过；本轮 707 个构建文件与 `data/dist` 逐项 SHA-256 一致，目标目录中 339 个未被新构建引用的旧资源保留。运行中页面滚动尚未验收。
+- Computer 缺省运行时修正的 4 项定向测试、Ruff、Python 编译和 Dashboard 生产构建通过；707 个新构建文件与 `data/dist` 逐项 SHA-256 一致，目标目录中 425 个旧资源保留。运行中的服务未重启。
 - 没有重启正在运行的后端，没有使用真实聊天或工具执行请求修改生产数据。浏览器验收不是外部平台/模型端到端测试。
 
 尚未覆盖：第三方附件转换的真实 provider 验收、真实平台发送、后台取消的实际业务资源回收、新后端代码重启后的整条链路。源码导入/编译和已有 Runner 测试不能替代这些验收。

@@ -202,7 +202,7 @@ class SkillsService(DashboardService):
             provider_settings = self.core_lifecycle.astrbot_config.get(
                 "provider_settings", {}
             )
-            runtime = provider_settings.get("computer_use_runtime", "local")
+            runtime = provider_settings.get("computer_use_runtime", "none")
             skill_mgr = SkillManager()
             skills = skill_mgr.list_skills(
                 active_only=False, runtime=runtime, show_sandbox_path=False

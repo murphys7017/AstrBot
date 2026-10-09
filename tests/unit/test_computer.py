@@ -487,6 +487,16 @@ class TestBoxliteBooter:
 class TestComputerClient:
     """Tests for computer_client module functions."""
 
+    @pytest.mark.asyncio
+    async def test_get_booter_without_runtime_setting_keeps_computer_use_disabled(self):
+        from astrbot.core.computer import computer_client
+
+        context = MagicMock()
+        context.get_config.return_value = {"provider_settings": {}}
+
+        with pytest.raises(RuntimeError, match="runtime is disabled"):
+            await computer_client.get_booter(context, "test-session-id")
+
     def test_get_local_booter(self):
         """Test get_local_booter returns singleton LocalBooter."""
         from astrbot.core.computer import computer_client

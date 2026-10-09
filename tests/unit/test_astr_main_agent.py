@@ -280,6 +280,14 @@ class TestMainAgentBuildConfig:
         assert config.kb_agentic_mode is False
         assert config.file_extract_enabled is False
         assert config.llm_safety_mode is True
+        assert config.computer_use_runtime == "none"
+
+    def test_missing_runtime_config_keeps_computer_use_disabled(self):
+        config = ama.MainAgentBuildConfig(tool_call_timeout=60).with_runtime_config(
+            {"provider_settings": {}}
+        )
+
+        assert config.computer_use_runtime == "none"
 
     def test_config_with_custom_values(self):
         """Test MainAgentBuildConfig with custom values."""

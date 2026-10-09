@@ -99,8 +99,9 @@
 | D17 | ✓ confirmed | 配置项保留兼容旧配置的注释。 | open |
 | D18* | ✓ implementation / △ live pending | `PluginManager.update_plugin()` 总是向 updater 传 `download_url`，但本地 `PluginUpdator.update()` 原签名不接收该参数，导致插件更新调用抛 `TypeError`；已吸收上游直链更新参数契约，真实更新验收待做。 | in_progress |
 | D19* | ✓ implementation / △ live pending | 主聊天记录已改为服务端分页和稳定游标加载，旧无参数接口仍保留最近 1000 条响应；去重、流式记录保留、会话切换隔离、失败重试和滚动锚定已实现，运行中页面滚动尚待服务重启后验收。 | in_progress |
+| D20* | ✓ implementation / △ live pending | `computer_use_runtime` 的全局配置默认是 `none`，但 Core、handoff、booter、Python 能力和 Skills 页面此前在字段缺失时回退到 `local`；现已统一缺省为 `none`，显式 `local`/`sandbox` 不变，重启后待确认旧配置不会意外启用本机能力。 | in_progress |
 
-`D18*` 和 `D19*` 是处理原清单时发现的补充问题，不计入原 102 项。
+`D18*`、`D19*` 和 `D20*` 是处理原清单时发现的补充问题，不计入原 102 项。
 
 ## E · 补丁式实现
 

@@ -1906,3 +1906,30 @@ Validation:
   `data/dist` by SHA-256; destination-only older hashed assets were retained.
 - Live browser scrolling, backend restart, and runtime API acceptance remain
   pending. The running application was not restarted.
+
+## 2026-10-09 Proactive Computer Runtime Defaults
+
+Reviewed upstream reference: `ff86d3276` (`#9971`), against the current
+`upstream/master` snapshot `33ef43be3`.
+
+Absorbed by local rewrite:
+
+- AG99 already derives proactive Main Agent work from the admitted runtime
+  configuration snapshot. Review found inconsistent fallbacks when the
+  `computer_use_runtime` key is absent: Core configuration, handoff tools,
+  booter selection, local Python checks, Skills inventory, and the Skills page
+  could treat the missing value as `local`, even though the shipped default is
+  `none`.
+- Missing values now consistently resolve to `none`. Explicit `local` and
+  `sandbox` settings retain their existing tool sets and behavior. No new
+  runtime mode, permission matrix, or settings UI was imported.
+
+Validation:
+
+- Four focused tests passed, covering MainAgent defaults and snapshot
+  projection, background wakeup configuration, and booter rejection when the
+  runtime setting is absent. Scoped Ruff and Python compilation passed.
+- Dashboard typecheck and production build passed. All 707 built files match
+  `data/dist` by SHA-256; 425 destination-only older assets were retained.
+- The running service was not restarted; runtime behavior with legacy Profiles
+  remains pending the next restart.

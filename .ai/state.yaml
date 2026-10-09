@@ -115,6 +115,28 @@ chat_history_pagination_20261009:
     scroll anchoring and runtime API behavior remain pending a manual service
     restart and live page acceptance.
 
+proactive_computer_runtime_default_20261009:
+  date: '2026-10-09'
+  class: bugfix
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Align all implicit computer_use_runtime fallbacks with the shipped default
+    none so missing legacy/profile values do not silently enable the local
+    computer runtime. Keep explicit local and sandbox configurations unchanged.
+  evidence: >-
+    MainAgentBuildConfig and several consumers previously fell back to local,
+    while the default config and Dashboard configuration default use none.
+    Proactive turns already derive their admitted runtime snapshot; the gap was
+    the missing-key fallback at downstream consumers.
+  validation: >-
+    Four focused tests passed for MainAgent default/snapshot behavior,
+    background wakeup configuration, and booter rejection when the runtime key
+    is absent. Scoped Ruff and Python compilation passed. Dashboard production
+    build passed; all 707 files match data/dist by SHA-256 and 425 older
+    destination-only assets were retained. The running service was not
+    restarted; legacy Profile behavior awaits live acceptance.
+
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'
   class: bugfix
