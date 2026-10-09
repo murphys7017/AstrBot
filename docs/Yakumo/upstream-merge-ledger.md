@@ -1933,3 +1933,16 @@ Validation:
   `data/dist` by SHA-256; 425 destination-only older assets were retained.
 - The running service was not restarted; runtime behavior with legacy Profiles
   remains pending the next restart.
+
+## Historical Equivalent: Skills Batch Deletion
+
+Reviewed upstream reference: `26e215bcd` (`#9906`), against the current
+`upstream/master` snapshot `33ef43be3`.
+
+No source change was needed. The local Skills page already provides
+multi-selection, confirmation, sequential per-skill deletion, partial-failure
+feedback, and retryable failed selections. The backend `SkillManager` rejects
+deletion of plugin-provided and sandbox-preset Skills, so the read-only UI
+filter is backed by a server-side guard. The existing batch interaction has no
+dedicated focused UI test; this review verified the implemented path and the
+backend deletion boundary. The historical intake JSON remains unchanged.

@@ -124,6 +124,7 @@
 | 无效 Cron 编辑保留现有排程 | `9c7329573` | equivalent | `CronJobManager.update_job()` 在持久化更新前验证候选 trigger；`tests/unit/test_cron_manager.py::test_invalid_edit_preserves_persisted_and_scheduled_job` 覆盖该边界。 |
 | Telegram 视频便笺转为 Video 组件 | `91ee48713` | equivalent | `TelegramPlatformAdapter.convert_message()` 已生成 `Comp.Video`；`tests/test_telegram_adapter.py::test_telegram_video_note_creates_video_component` 覆盖转换。 |
 | 保留自由格式 dict 配置键 | `610eab06c` | equivalent | 本地 `683e39ddc4` 已将 `type: dict` schema 作为自由映射保留；`tests/unit/test_config.py` 覆盖用户键保留及非映射值纠正。 |
+| Skills 批量删除 | `26e215bcd` | equivalent | `SkillsSection.vue` 已实现多选、确认、逐项结果和失败项保留；`SkillManager.delete_skill()` 服务端拒绝删除插件来源与 sandbox preset 技能。该功能本地早已存在，本轮不重复引入官方实现；没有专门的批量删除交互测试。 |
 | Proactive Computer 运行时设置 | `ff86d3276` | adapted | 共享 admitted runtime snapshot 已存在；本次补齐缺省值不一致：缺少 `computer_use_runtime` 时统一按 `none` 处理，保留显式 `local`/`sandbox`。Core 配置、后台唤醒和 booter 定向测试通过。 |
 
 ## 优先待办

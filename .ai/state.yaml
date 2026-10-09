@@ -137,6 +137,21 @@ proactive_computer_runtime_default_20261009:
     destination-only assets were retained. The running service was not
     restarted; legacy Profile behavior awaits live acceptance.
 
+skills_batch_delete_equivalence_20261009:
+  date: '2026-10-09'
+  class: review
+  risk: low
+  status: equivalent
+  scope: >-
+    Review upstream Skills batch deletion without re-implementing functionality
+    already present locally.
+  evidence: >-
+    The Skills UI has multi-selection, confirmation, sequential deletion,
+    partial-failure feedback, and failed-item retention. SkillManager rejects
+    deletion of plugin-provided and sandbox-preset Skills at the backend
+    boundary. No dedicated batch UI test exists; upstream intake JSON remains
+    an immutable historical snapshot.
+
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'
   class: bugfix
