@@ -38,7 +38,24 @@ class _FakeEvent:
 class _FakeConfig:
     def get_config(self, umo: str | None = None):
         del umo
-        return {"provider_settings": {"computer_use_require_admin": True}}
+        return {
+            "provider_settings": {
+                "computer_use_require_admin": True,
+                "computer_use_runtime": "local",
+                "computer_use_local_permissions": {
+                    "member": {
+                        "allow_execution": False,
+                        "allow_network": False,
+                        "filesystem_scope": "workspace",
+                    },
+                    "admin": {
+                        "allow_execution": True,
+                        "allow_network": True,
+                        "filesystem_scope": "host",
+                    },
+                },
+            }
+        }
 
 
 class _FakeAstrContext:

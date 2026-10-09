@@ -13,6 +13,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from ..registry import builtin_tool
 from .util import (
     check_admin_permission,
+    check_local_execution_permission,
     workspace_root,
 )
 from .util import (
@@ -142,8 +143,14 @@ class LocalPythonTool(FunctionTool):
         silent: bool = False,
         timeout: int = 30,
     ) -> ToolExecResult:
-        if permission_error := check_admin_permission(context, "Python execution"):
+        local_policy, permission_error = check_local_execution_permission(
+            context,
+            "Python execution",
+        )
+        if permission_error:
             return permission_error
+        if local_policy is None:
+            return "Error executing code: Local permission policy is unavailable."
         sb = get_local_booter()
         effective_timeout = (
             min(timeout, context.tool_call_timeout)

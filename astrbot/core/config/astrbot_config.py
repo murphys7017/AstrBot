@@ -1,3 +1,4 @@
+import copy
 import enum
 import json
 import logging
@@ -18,6 +19,34 @@ ASTRBOT_CONFIG_PATH = os.path.join(get_astrbot_data_path(), "cmd_config.json")
 DASHBOARD_INITIAL_PASSWORD_ENV = "ASTRBOT_DASHBOARD_INITIAL_PASSWORD"
 DASHBOARD_RESET_PASSWORD_ENV = "ASTRBOT_RESET_DASHBOARD_PASSWORD"
 logger = logging.getLogger("astrbot")
+
+
+def _migrate_local_permission_config(config: dict, default_config: dict) -> bool:
+    """Add role-based Local permissions to legacy global configurations."""
+    if default_config is not DEFAULT_CONFIG:
+        return False
+    provider_settings = config.get("provider_settings")
+    default_provider_settings = default_config.get("provider_settings")
+    if not isinstance(provider_settings, dict) or not isinstance(
+        default_provider_settings, dict
+    ):
+        return False
+    key = "computer_use_local_permissions"
+    if key not in default_provider_settings or key in provider_settings:
+        return False
+
+    permissions = copy.deepcopy(default_provider_settings[key])
+    member_policy = permissions.get("member")
+    if isinstance(member_policy, dict):
+        member_policy["allow_execution"] = (
+            member_policy.get("filesystem_scope") != "none"
+            and provider_settings.get("computer_use_require_admin", True) is False
+        )
+    admin_policy = permissions.get("admin")
+    if isinstance(admin_policy, dict):
+        admin_policy["filesystem_scope"] = "host"
+    provider_settings[key] = permissions
+    return True
 
 
 def _strip_memory_analyzer_model_fields(config: dict) -> bool:
@@ -439,6 +468,10 @@ class AstrBotConfig(dict):
         )
 
         migrated_execution_config = _migrate_execution_configuration(conf)
+        migrated_local_permission_config = _migrate_local_permission_config(
+            conf,
+            default_config,
+        )
 
         # 检查配置完整性，并插入
         has_new = self.check_config_integrity(default_config, conf, schema=schema)
@@ -475,6 +508,7 @@ class AstrBotConfig(dict):
             or stripped_retired_provider_projections
             or stripped_retired_dashboard_projections
             or migrated_execution_config
+            or migrated_local_permission_config
         ):
             self.save_config()
 

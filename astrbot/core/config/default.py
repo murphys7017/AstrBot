@@ -1,6 +1,7 @@
 """如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。"""
 
 import os
+import platform
 
 from astrbot import __version__
 from astrbot.core.computer.booters.cua_defaults import CUA_DEFAULT_CONFIG
@@ -8,6 +9,30 @@ from astrbot.core.memory_config_defaults import build_default_memory_config_payl
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 VERSION = __version__
+
+
+def get_local_permission_defaults(system: str | None = None) -> dict:
+    """Return fresh role-based defaults for the Local Computer runtime.
+
+    Windows does not currently have a workspace-scoped process sandbox in this
+    repository, so member access is disabled and administrators receive the
+    explicit host/full-trust policy.  POSIX members are confined to the
+    existing workspace filesystem roots; execution remains disabled until the
+    process sandbox runtime is available.
+    """
+    is_windows = (system or platform.system()).lower() == "windows"
+    return {
+        "member": {
+            "allow_execution": False,
+            "allow_network": False,
+            "filesystem_scope": "none" if is_windows else "workspace",
+        },
+        "admin": {
+            "allow_execution": True,
+            "allow_network": True,
+            "filesystem_scope": "host" if is_windows else "workspace",
+        },
+    }
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 PERSONAL_WECHAT_CONFIG_METADATA = {
     "weixin_oc_base_url": {
@@ -166,6 +191,7 @@ DEFAULT_CONFIG = {
             "add_cron_tools": True,
         },
         "computer_use_runtime": "none",
+        "computer_use_local_permissions": get_local_permission_defaults(),
         "computer_use_require_admin": True,
         "sandbox": {
             "booter": "shipyard_neo",
@@ -3557,10 +3583,58 @@ CONFIG_METADATA_3 = {
                         "labels": ["无", "本地", "沙箱"],
                         "hint": "选择 Computer Use 运行环境。",
                     },
+                    "provider_settings.computer_use_local_permissions": {
+                        "description": "本地权限策略",
+                        "type": "object",
+                        "full_width": True,
+                        "items": {
+                            "member": {
+                                "type": "object",
+                                "items": {
+                                    "allow_execution": {
+                                        "description": "允许执行代码",
+                                        "type": "bool",
+                                    },
+                                    "allow_network": {
+                                        "description": "允许网络访问",
+                                        "type": "bool",
+                                    },
+                                    "filesystem_scope": {
+                                        "description": "文件系统范围",
+                                        "type": "string",
+                                        "options": ["none", "workspace", "host"],
+                                        "labels": ["禁止", "工作区", "主机"],
+                                    },
+                                },
+                            },
+                            "admin": {
+                                "type": "object",
+                                "items": {
+                                    "allow_execution": {
+                                        "description": "允许执行代码",
+                                        "type": "bool",
+                                    },
+                                    "allow_network": {
+                                        "description": "允许网络访问",
+                                        "type": "bool",
+                                    },
+                                    "filesystem_scope": {
+                                        "description": "文件系统范围",
+                                        "type": "string",
+                                        "options": ["none", "workspace", "host"],
+                                        "labels": ["禁止", "工作区", "主机"],
+                                    },
+                                },
+                            },
+                        },
+                    },
                     "provider_settings.computer_use_require_admin": {
                         "description": "需要 AstrBot 管理员权限",
                         "type": "bool",
-                        "hint": "开启后，只有 AstrBot 管理员才能使用电脑能力。管理员 ID 在「渠道 -> 平台配置 -> 基本 -> 管理员 ID」中设置；使用 /sid 查看用户 ID。",
+                        "hint": "仅控制第三方沙箱运行时的管理员限制；本地运行时请使用本地权限策略。",
+                        "condition": {
+                            "provider_settings.computer_use_runtime": "sandbox",
+                        },
                     },
                     "provider_settings.sandbox.booter": {
                         "description": "沙箱环境驱动器",

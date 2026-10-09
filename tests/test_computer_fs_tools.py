@@ -23,12 +23,26 @@ def _make_context(
     role: str = "admin",
     runtime: str = "local",
     umo: str = "qq:friend:user-1",
+    admin_filesystem_scope: str = "host",
 ) -> ContextWrapper:
+    local_permissions = {
+        "member": {
+            "allow_execution": False,
+            "allow_network": False,
+            "filesystem_scope": "workspace",
+        },
+        "admin": {
+            "allow_execution": True,
+            "allow_network": True,
+            "filesystem_scope": admin_filesystem_scope,
+        },
+    }
     config_holder = SimpleNamespace(
         get_config=lambda umo=None: {
             "provider_settings": {
                 "computer_use_require_admin": require_admin,
                 "computer_use_runtime": runtime,
+                "computer_use_local_permissions": local_permissions,
             }
         }
     )
@@ -266,6 +280,47 @@ async def test_restricted_local_member_cannot_write_plugin_provided_skill(
     assert "Write access is restricted for this user." in result
     assert "data/plugins/*/skills" not in result
     assert plugin_skill.read_text(encoding="utf-8") == "# Demo Skill\n"
+
+
+@pytest.mark.asyncio
+async def test_restricted_local_member_cannot_write_installed_skill(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    _setup_local_fs_tools(monkeypatch, tmp_path)
+    installed_skill = tmp_path / "skills" / "custom-skill" / "SKILL.md"
+    installed_skill.parent.mkdir(parents=True)
+    installed_skill.write_text("# Installed Skill\n", encoding="utf-8")
+
+    result = await fs_tools.FileWriteTool().call(
+        _make_context(role="member"),
+        path=str(installed_skill),
+        content="# Changed\n",
+    )
+
+    assert "Write access is restricted for this user." in result
+    assert "data/skills" not in result
+    assert installed_skill.read_text(encoding="utf-8") == "# Installed Skill\n"
+
+
+@pytest.mark.asyncio
+async def test_restricted_local_admin_can_write_installed_skill(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    _setup_local_fs_tools(monkeypatch, tmp_path)
+    installed_skill = tmp_path / "skills" / "custom-skill" / "SKILL.md"
+    installed_skill.parent.mkdir(parents=True)
+    installed_skill.write_text("# Installed Skill\n", encoding="utf-8")
+
+    result = await fs_tools.FileWriteTool().call(
+        _make_context(role="admin", admin_filesystem_scope="workspace"),
+        path=str(installed_skill),
+        content="# Changed\n",
+    )
+
+    assert result.startswith("File written successfully:")
+    assert installed_skill.read_text(encoding="utf-8") == "# Changed\n"
 
 
 def test_detect_text_encoding_allows_utf8_probe_cut_mid_character():
