@@ -659,7 +659,7 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             origin_event=event,
         )
         if not turn.delivery_confirmed:
-            logger.info(
+            logger.warning(
                 "Background result processed without confirmed delivery: task_id=%s name=%s",
                 task_id, summary_name,
             )

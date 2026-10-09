@@ -842,6 +842,53 @@ async def test_background_wakeup_passes_provider_settings_to_main_agent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delivery_confirmed", [False, True])
+async def test_background_wakeup_warns_only_when_delivery_is_unconfirmed(
+    monkeypatch: pytest.MonkeyPatch,
+    delivery_confirmed: bool,
+):
+    from unittest.mock import MagicMock
+
+    selection = SimpleNamespace(runtime_config={"provider_settings": {}})
+
+    def _fake_resolve_selection(**_kwargs):
+        return selection
+
+    async def _fake_run_proactive_agent_turn(**_kwargs):
+        return SimpleNamespace(delivery_confirmed=delivery_confirmed)
+
+    monkeypatch.setattr(
+        "astrbot.core.proactive_agent_turn.resolve_proactive_configuration_selection",
+        _fake_resolve_selection,
+    )
+    monkeypatch.setattr(
+        "astrbot.core.proactive_agent_turn.run_proactive_agent_turn",
+        _fake_run_proactive_agent_turn,
+    )
+    logger = MagicMock()
+    monkeypatch.setattr("astrbot.core.astr_agent_tool_exec.logger", logger)
+
+    await FunctionToolExecutor._wake_main_agent_for_background_result(
+        _build_run_context(),
+        task_id="task-id",
+        tool_name="long_tool",
+        result_text="result",
+        tool_args={},
+        note="task finished",
+        summary_name="BackgroundTask",
+    )
+
+    warnings = [
+        call.args
+        for call in logger.warning.call_args_list
+        if call.args and "Background result processed" in call.args[0]
+    ]
+    assert len(warnings) == int(not delivery_confirmed)
+    if warnings:
+        assert warnings[0][1:] == ("task-id", "BackgroundTask")
+
+
+@pytest.mark.asyncio
 async def test_collect_handoff_image_urls_filters_extensionless_file_outside_temp_root(
     monkeypatch: pytest.MonkeyPatch,
 ):
