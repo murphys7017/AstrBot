@@ -703,13 +703,18 @@ export default {
 
       const targets = [...this.batchDeleteTargets];
       const requestErrors = [];
+      let succeeded = 0;
       this.batchDeleting = true;
 
       try {
         for (const name of targets) {
           try {
             const response = await axios.post('/api/tools/mcp/delete', { name });
-            if (response?.data?.status !== 'ok') requestErrors.push(name);
+            if (response?.data?.status === 'ok') {
+              succeeded += 1;
+            } else {
+              requestErrors.push(name);
+            }
           } catch (_error) {
             requestErrors.push(name);
           }
@@ -717,7 +722,13 @@ export default {
 
         this.batchDeleteDialog = false;
         this.batchDeleteTargets = [];
-        if (!(await this.getServers())) return;
+        if (!(await this.getServers())) {
+          this.showError(this.tm('mcpServers.batchDeleteRefreshFailure', {
+            succeeded,
+            uncertain: requestErrors.length,
+          }));
+          return;
+        }
 
         const availableNames = new Set(this.mcpServers.map(server => server.name));
         const failed = targets.filter(name => availableNames.has(name));

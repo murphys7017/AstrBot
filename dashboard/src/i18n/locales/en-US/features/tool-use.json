@@ -37,6 +37,7 @@
     "batchDeletePartial": "Configurations removed: {succeeded}; still present: {failed}",
     "batchDeleteRemovalWarning": "Removed {succeeded} configurations. {warnings} delete requests returned errors even though the configurations are gone; check those servers' runtime status.",
     "batchDeletePartialWithWarning": "Configurations removed: {succeeded}; still present: {failed}. {warnings} other requests returned errors after removal; check those servers' runtime status.",
+    "batchDeleteRefreshFailure": "Delete requests succeeded: {succeeded}; requests with errors: {uncertain}. The server list could not be refreshed, so the final configuration state cannot be verified. Refresh the page and check again.",
     "status": {
       "noTools": "No available tools",
       "availableTools": "Available tools",

@@ -37,6 +37,7 @@
     "batchDeletePartial": "已移除配置：{succeeded} 个；仍存在：{failed} 个",
     "batchDeleteRemovalWarning": "已移除 {succeeded} 个配置。有 {warnings} 个删除请求虽然报错，但对应配置已不存在；请检查这些服务器的运行状态。",
     "batchDeletePartialWithWarning": "已移除配置：{succeeded} 个；仍存在：{failed} 个。另有 {warnings} 个请求在配置移除后报错，请检查对应服务器的运行状态。",
+    "batchDeleteRefreshFailure": "删除请求成功：{succeeded} 个；返回错误：{uncertain} 个。服务器列表也无法刷新，最终配置状态暂时无法确认，请刷新页面后再检查。",
     "status": {
       "noTools": "无可用工具",
       "availableTools": "可用工具",
