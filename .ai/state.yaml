@@ -60,34 +60,32 @@ upstream_beneficial_updates_20261006:
   risk: high
   status: in_progress
   scope: >-
-    Audit official history through upstream/master 42972e932, reuse the existing
-    intake ledger, and adapt beneficial missing functionality to AG99. Each
-    effective upstream update is committed separately as explicitly requested.
-    Preserve the uncommitted deletion of openspec/config.yaml.
+    Continue the existing official-update intake through upstream/master
+    33ef43be3, using compatibility and AG99 capability impact rather than
+    source-code identity. Adapt applicable updates to local boundaries and
+    commit each effective update separately as explicitly requested.
   non_goals: >-
     Do not wholesale replace upstream files, rewrite AG99 Prompt/Personal/Core
     ownership, rewrite Git history, push, restart the running instance, or
     modify production configuration or data except deploying built data/dist.
   validation: >-
-    Thirteen beneficial source updates adapted in fourteen implementation
-    commits, including one reasoning acceptance followup. Slack upload, reusable
-    tokens, detached task cancellation, Telegram SDK conversion, static gzip,
-    SDK/Core budget reminders, and bounded Persona image checks passed. Related
-    delivery/DeerFlow checks and invalid-log-base public delivery passed. Edge
-    verified extension search, visible-only selection, text draft refresh/session
-    separation, reasoning following/reader intent, and fullscreen search colors
-    using isolated API fixtures. Frontend typecheck/production build passed;
-    dashboard/dist deployed to data/dist; 698 files hash-verified, and the
-    running service serves the new entry document. Backend changes
-    require the user's later restart; do not restart production.
+    The 2026-10-07 to 2026-10-09 increment contains 16 official non-merge
+    commits: 13 adapted, one equivalent, and two not selected. New local
+    adaptations include single-task tool-generator lifecycle, rejection of
+    non-regular image references, and a warning for unconfirmed background
+    delivery. Their focused tests, Ruff, compilation, and diff checks passed.
+    The computer-capability guidance update had three passing tests and a
+    production dashboard build with data/dist hash verification. Earlier
+    intake validations remain documented in docs/Yakumo/upstream-intake.
   remaining: >-
-    Whole intake remains in progress. The 789 non-merge upstream-only commits
-    are inventoried in docs/Yakumo/upstream-intake/2026-10-06.json. Prior ledger
-    references and patch-equivalent commits are not current functional proof.
-    Known gaps include history pagination, resumable uploads, managed shell
-    sessions, role policies, and Native Core/caption/animation image preparation.
-    Third-party attachment conversion changes lack live provider acceptance.
-    Preserve the concurrent state-file cleanup and do not stage this mixed file.
+    The current upstream baseline has 816 non-merge commits since the fork point;
+    the 16-commit latest increment is recorded in
+    docs/Yakumo/upstream-intake/2026-10-09.json. Historical classifications are
+    not current functional proof. Earlier known gaps include message-history
+    pagination, resumable-upload live acceptance, Computer role policies,
+    managed Shell sessions, and full Native Core image preparation. Continue
+    reviewing the older unreviewed inventory without inferring completion from
+    commit counts.
 
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'

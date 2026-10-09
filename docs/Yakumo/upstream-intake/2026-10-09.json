@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-09",
+  "purpose": "Track the upstream increment after the 2026-10-07 reference by AG99 capability and plugin-compatibility impact, not by source-code identity.",
+  "previous_reference": "8831d9502575f0aa6fbe5a2f77339b3e94954819",
+  "current_reference": "33ef43be3fd2f99c5a11ce803402376cead25b0a",
+  "fork_point": "67c7445d253846c232477a1ebcb2823a522a029c",
+  "local_version": "4.29.0-beta.1",
+  "upstream_version": "4.29.0-beta.1",
+  "counts": {
+    "previous_non_merge": 800,
+    "increment_non_merge": 16,
+    "current_non_merge": 816,
+    "adapted": 13,
+    "equivalent": 1,
+    "not_selected": 2
+  },
+  "policy": {
+    "goal": "Improve AG99 while preserving plugin compatibility.",
+    "source_code_sync": false,
+    "version_alignment": "Use AstrBot's version and public plugin contracts as compatibility anchors; do not bump the version only to mirror commit history.",
+    "frontend_deployment": "Frontend changes require a production build and synchronization to data/dist after validation.",
+    "permission_ui_boundary": "Adapt administrator guidance to AG99's existing computer-capability configuration. Do not add official local-permission mode hints without the matching AG99 setting and UI."
+  },
+  "commits": [
+    {
+      "sha": "65cbe98f9a3551ff78e4f1f40b11ffa75cf625e4",
+      "title": "feat: ship astrbot CLI in Docker image for in-container password reset (#10442)",
+      "status": "adapted",
+      "local_commits": ["93f2feec4"],
+      "compatibility": "The Docker image installs the project editable, exposes the astrbot CLI, and marks /AstrBot as initialized. Chinese and English Docker/FAQ guides describe password reset and restart requirements.",
+      "validation": "Dockerfile and guides reviewed against the upstream contract. A Docker image build/runtime check was not run."
+    },
+    {
+      "sha": "cae8f1d13a90b053d69de84093b8d947914a619c",
+      "title": "feat(dashboard): add distinct hints for local permission access modes (#10444)",
+      "status": "not_selected",
+      "local_commits": [],
+      "compatibility": "The feature depends on LocalPermissionMatrix and computer_use_local_permissions, neither of which exists in AG99's runtime config or dashboard. The confirmed administrator-path guidance is already adapted to AG99's computer-capability configuration in 9a1d235c1 and cf8322d54. Adding files/full mode hints alone would advertise controls that do not exist."
+    },
+    {
+      "sha": "eef971262106e0eb2198ad9d7999e0576e269706",
+      "title": "fix(computer-tools): point permission-denied hints at the Capabilities tab (#10445)",
+      "status": "adapted",
+      "local_commits": ["9a1d235c1", "cf8322d54"],
+      "compatibility": "Computer-tool permission guidance points to AG99's existing computer-capability configuration and identifies the actual platform administrator-ID setting.",
+      "validation": "Computer-tool permission tests passed (3); the dashboard production build and data/dist hash verification passed in the local adaptation."
+    },
+    {
+      "sha": "9248baf902f026f6ffa770a222e70a16fa982ed3",
+      "title": "test(computer-tools): expect the Capabilities path in permission error assertion (#10446)",
+      "status": "adapted",
+      "local_commits": ["cf8322d54"],
+      "compatibility": "The local permission assertion follows the AG99-specific guidance rather than importing the official Dashboard wording.",
+      "validation": "Included in the three passing computer-tool permission tests."
+    },
+    {
+      "sha": "30820a48fa9b4bc55c1b680885a642a75fdbe43d",
+      "title": "fix(provider): keep Anthropic tool calls whose streamed input is empty (#10432)",
+      "status": "adapted",
+      "local_commits": ["073176018"],
+      "compatibility": "Retains Anthropic tool-call start data when a stream emits no JSON input delta.",
+      "validation": "Focused Anthropic tests passed (8)."
+    },
+    {
+      "sha": "a8bb0803ef6469342a3dc56065c0645f4cac773d",
+      "title": "fix: fall back from a failed context summary without long retries (#10436)",
+      "status": "adapted",
+      "local_commits": ["7cc6ae619"],
+      "compatibility": "On summary failure, removes old history by complete conversation rounds while preserving the system message, tool-call chain, and newest round. The upstream retry parameter is not exposed by AG99's Provider API and was not fabricated.",
+      "validation": "Focused ContextManager tests passed (45)."
+    },
+    {
+      "sha": "6b2e41791e16460bfbde3f79911f4d258c6da944",
+      "title": "fix(provider): merge custom server tools with registered tools in Anthropic requests (#10437)",
+      "status": "adapted",
+      "local_commits": ["4c3cf7c6f"],
+      "compatibility": "Combines provider-server tools with registered tools while preserving local override behavior for duplicate names in regular and streaming requests.",
+      "validation": "Focused Anthropic tests passed (10)."
+    },
+    {
+      "sha": "d8ef9dd3b04d71d4096b7adb68ec0af0a7a606b2",
+      "title": "fix: send Discord video components as attachments (#10423)",
+      "status": "adapted",
+      "local_commits": ["27caafc09"],
+      "compatibility": "Maps Discord Video components to file attachments and preserves filename handling for URLs and local paths.",
+      "validation": "Video and Discord self-reply tests passed together (11)."
+    },
+    {
+      "sha": "5994167942214b03354f18166e32e835d36fb314",
+      "title": "fix: preserve links and mentions in Slack lists (#10447)",
+      "status": "adapted",
+      "local_commits": ["ff0fdbdca"],
+      "compatibility": "Preserves Slack link and mention entities when converting list blocks to plugin-visible text.",
+      "validation": "Focused Slack list tests passed (8)."
+    },
+    {
+      "sha": "03ce6525d8fa30358932ce76e62861dc91437a89",
+      "title": "fix: preserve outbound Slack user mentions (#10448)",
+      "status": "adapted",
+      "local_commits": ["3625a8f00"],
+      "compatibility": "Retains Slack user mention syntax through sending and plain-text fallback paths.",
+      "validation": "Focused Slack mention tests passed (7)."
+    },
+    {
+      "sha": "d2fb912e30211fd7b18bb17f61bebe5307c10031",
+      "title": "fix: prevent Discord self-reply loops (#10425)",
+      "status": "adapted",
+      "local_commits": ["503aec65e"],
+      "compatibility": "Ignores messages authored by the current Discord bot while preserving the allow-other-bots setting.",
+      "validation": "Focused Discord self-reply tests passed (6)."
+    },
+    {
+      "sha": "74465625ed441d89b4c33750763b15ed4ce677d3",
+      "title": "Fix/reject unresolvable image refs (#10434)",
+      "status": "adapted",
+      "local_commits": ["fb481ae2e"],
+      "compatibility": "AG99 already rejects missing image references and safely drops failed materialization. Added an explicit regular-file check so directories, FIFOs, sockets, or devices cannot be treated as provider images; retained AG99's temporary-root and provider-boundary model.",
+      "validation": "Provider image materialization tests passed (12), including a non-regular directory reference; Ruff, compilation, and diff checks passed."
+    },
+    {
+      "sha": "b01285aa75eb16cc5bbb7061dbec6e95c5510516",
+      "title": "chore(github): add plugin submission links to issue template config (#10455)",
+      "status": "not_selected",
+      "local_commits": [],
+      "compatibility": "Repository issue-template metadata does not affect runtime behavior or the AstrBot plugin contract."
+    },
+    {
+      "sha": "c6f415092c92ee48688738866c9a9ea10fb24860",
+      "title": "fix: avoid recording cron sends without a matching platform (#10468)",
+      "status": "equivalent",
+      "local_commits": [],
+      "compatibility": "CronMessageEvent already raises when its target platform does not confirm delivery, before marking the event as sent; this is stricter than returning early without recording a send. No source change was needed."
+    },
+    {
+      "sha": "28a10c17abaf3f3d2522a802d6fdc308c7a18662",
+      "title": "fix: warn when a background task result is not sent to the user (#10398)",
+      "status": "adapted",
+      "local_commits": ["a58f4e316"],
+      "compatibility": "Retains AG99's structured delivery confirmation and upgrades the undelivered-result diagnostic from INFO to WARNING so it is visible in default logs.",
+      "validation": "Focused delivery-confirmed true/false tests passed (2); Ruff, compilation, and diff checks passed."
+    },
+    {
+      "sha": "33ef43be3fd2f99c5a11ce803402376cead25b0a",
+      "title": "fix: keep async tool generators in one task (#10474)",
+      "status": "adapted",
+      "local_commits": ["7cab39c59"],
+      "compatibility": "Drives tool and plugin async iterators in stable owner tasks, explicitly closes nested local/MCP/handoff iterators, and waits for cleanup on stop or cancellation. Persona tool output capture, timeout, and result projection remain local.",
+      "validation": "Tool executor tests passed (20); focused task-affinity and stop-cleanup tests passed (2); Ruff, compilation, and diff checks passed."
+    }
+  ]
+}
