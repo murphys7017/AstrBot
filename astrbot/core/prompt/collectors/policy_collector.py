@@ -161,9 +161,9 @@ class PolicyCollector(ContextCollectorInterface):
     def _build_local_mode_prompt(self) -> str:
         system_name = platform.system() or "Unknown"
         shell_hint = (
-            "The runtime shell is Windows Command Prompt (cmd.exe). "
-            "Use cmd-compatible commands and do not assume Unix commands like "
-            "cat/ls/grep are available."
+            "The runtime shell is Windows PowerShell 5.1 (powershell.exe). "
+            "Use Windows PowerShell 5.1-compatible syntax and cmdlets; do not use "
+            "PowerShell 7-only syntax or assume Unix commands like cat/ls/grep are available."
             if system_name.lower() == "windows"
             else "The runtime shell is Unix-like. Use POSIX-compatible shell commands."
         )
@@ -171,5 +171,11 @@ class PolicyCollector(ContextCollectorInterface):
             "You have access to the host local environment and can execute shell "
             "commands and Python code. "
             f"Current operating system: {system_name}. "
-            f"{shell_hint}"
+            f"{shell_hint} "
+            "Local shell commands automatically return a managed session when they "
+            "outlive the initial wait. Use `astrbot_shell_session` to list, poll, "
+            "write raw text or complete lines to, interrupt, or terminate those sessions. "
+            "Use its `write_line` action for line-oriented programs so the session receives "
+            "a real line feed. Do not add `&`, `nohup`, or another detachment wrapper for "
+            "ordinary long-running commands."
         )
