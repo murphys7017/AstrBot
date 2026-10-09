@@ -76,7 +76,11 @@ upstream_beneficial_updates_20261006:
     delivery. Their focused tests, Ruff, compilation, and diff checks passed.
     The computer-capability guidance update had three passing tests and a
     production dashboard build with data/dist hash verification. Earlier
-    intake validations remain documented in docs/Yakumo/upstream-intake.
+    intake validations remain documented in docs/Yakumo/upstream-intake. A
+    historical Skills source-label update was adapted in 98248b22e; its focused
+    metadata tests, dashboard typecheck/build, runtime synchronization hashes,
+    Ruff, and diff checks passed. Three adjacent historical candidates were
+    verified as already equivalent locally.
   remaining: >-
     The current upstream baseline has 816 non-merge commits since the fork point;
     the 16-commit latest increment is recorded in

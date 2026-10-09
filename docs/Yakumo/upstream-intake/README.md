@@ -114,6 +114,17 @@
 
 另有 2 项与当前能力目标不匹配而不选入，1 项已有更严格的等价 Cron 发送保护；详见增量 JSON。
 
+## 历史候选复核（10 月 9 日）
+
+以下项目来自既有历史快照，不构成新的官方增量，因此不改变当前基线及 816 个非合并提交的统计。历史快照分类仍保留当时记录；本表记录本次对当前源码的补充核查。
+
+| 功能或修复 | 官方来源 | 当前判断 | AG99 证据 |
+| --- | --- | --- | --- |
+| Skills 来源标签显示插件展示名 | `44b5c1bd9` | adapted | `98248b22e`：Skills API 按插件目录名附带注册元数据中的 `display_name`，前端优先展示它；无展示名时保留现有回退。Skills 元数据测试 35 项通过，前端 typecheck/build 通过并同步 `data/dist`。 |
+| 无效 Cron 编辑保留现有排程 | `9c7329573` | equivalent | `CronJobManager.update_job()` 在持久化更新前验证候选 trigger；`tests/unit/test_cron_manager.py::test_invalid_edit_preserves_persisted_and_scheduled_job` 覆盖该边界。 |
+| Telegram 视频便笺转为 Video 组件 | `91ee48713` | equivalent | `TelegramPlatformAdapter.convert_message()` 已生成 `Comp.Video`；`tests/test_telegram_adapter.py::test_telegram_video_note_creates_video_component` 覆盖转换。 |
+| 保留自由格式 dict 配置键 | `610eab06c` | equivalent | 本地 `683e39ddc4` 已将 `type: dict` schema 作为自由映射保留；`tests/unit/test_config.py` 覆盖用户键保留及非映射值纠正。 |
+
 ## 优先待办
 
 1. **上传链路验收**：`f99c76ec1` 已由本地 `bfe8bd013`、`4528f7cb4`、`238a32b1f` 适配。重启后验证 owner/purpose 隔离、取消清理、过期回收、恢复上传和真实大附件链路；不能把 HTTP 总体积上限当成业务文件限制的替代品。
