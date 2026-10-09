@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from astrbot.core.skills.skill_manager import (
     SkillInfo,
     SkillManager,
@@ -488,6 +490,56 @@ def test_list_skills_includes_plugin_provided_skills(monkeypatch, tmp_path: Path
     assert skill.plugin_name == "astrbot_plugin_demo"
     assert skill.readonly is True
     assert skill.path.endswith("plugins/astrbot_plugin_demo/skills/demo-skill/SKILL.md")
+
+
+@pytest.mark.asyncio
+async def test_skills_api_includes_plugin_display_name(monkeypatch):
+    from types import SimpleNamespace
+
+    import astrbot.dashboard.services.skills_service as skills_service
+    from astrbot.core.star.star import StarMetadata
+
+    skill = SkillInfo(
+        name="demo-skill",
+        description="Plugin bundled skill.",
+        path="/plugins/astrbot_plugin_demo/skills/demo-skill/SKILL.md",
+        active=True,
+        source_type="plugin",
+        source_label="astrbot_plugin_demo",
+        plugin_name="astrbot_plugin_demo",
+        readonly=True,
+    )
+    local_skill = SkillInfo(
+        name="local-skill",
+        description="Local skill.",
+        path="/skills/local-skill/SKILL.md",
+        active=True,
+    )
+    manager = SimpleNamespace(
+        list_skills=lambda **_kwargs: [skill, local_skill],
+        get_sandbox_skills_cache_status=lambda: {"ready": True, "count": 0},
+    )
+    monkeypatch.setattr(skills_service, "SkillManager", lambda: manager)
+    monkeypatch.setattr(
+        skills_service,
+        "star_registry",
+        [
+            StarMetadata(
+                name="demo",
+                root_dir_name="astrbot_plugin_demo",
+                display_name="Demo Plugin",
+            )
+        ],
+    )
+    service = skills_service.SkillsService(
+        SimpleNamespace(app=None, config=None),
+        SimpleNamespace(astrbot_config={"provider_settings": {}}),
+    )
+
+    response = await service.get_skills()
+
+    assert response["data"]["skills"][0]["plugin_display_name"] == "Demo Plugin"
+    assert "plugin_display_name" not in response["data"]["skills"][1]
 
 
 def test_list_skills_includes_inactive_plugin_provided_skills_for_inventory(

@@ -1112,7 +1112,11 @@ export default {
       if (skill?.source_type === "both") return tm("skills.sourceBoth");
       if (skill?.source_type === "plugin") {
         return tm("skills.sourcePlugin", {
-          plugin: skill.plugin_name || skill.source_label || tm("skills.readonly"),
+          plugin:
+            skill.plugin_display_name ||
+            skill.source_label ||
+            skill.plugin_name ||
+            tm("skills.readonly"),
         });
       }
       return tm("skills.sourceLocalOnly");

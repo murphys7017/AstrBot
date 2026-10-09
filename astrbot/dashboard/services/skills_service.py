@@ -13,6 +13,7 @@ from astrbot.core.computer.computer_client import (
 )
 from astrbot.core.skills.neo_skill_sync import NeoSkillSyncManager
 from astrbot.core.skills.skill_manager import SkillManager
+from astrbot.core.star.star import star_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.dashboard.asgi_runtime import request, send_file
 
@@ -206,11 +207,24 @@ class SkillsService(DashboardService):
             skills = skill_mgr.list_skills(
                 active_only=False, runtime=runtime, show_sandbox_path=False
             )
+            plugin_display_names = {
+                str(plugin.root_dir_name or plugin.name): plugin.display_name
+                for plugin in star_registry
+                if (plugin.root_dir_name or plugin.name) and plugin.display_name
+            }
+            serialized_skills = []
+            for skill in skills:
+                item = skill.__dict__.copy()
+                if skill.source_type == "plugin":
+                    item["plugin_display_name"] = plugin_display_names.get(
+                        skill.plugin_name,
+                    )
+                serialized_skills.append(item)
             return (
                 Response()
                 .ok(
                     {
-                        "skills": [skill.__dict__ for skill in skills],
+                        "skills": serialized_skills,
                         "runtime": runtime,
                         "sandbox_cache": skill_mgr.get_sandbox_skills_cache_status(),
                     }
