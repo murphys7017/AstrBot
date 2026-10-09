@@ -14,13 +14,36 @@ For automated deployments, set `ASTRBOT_DASHBOARD_INITIAL_PASSWORD` before the f
 
 ### Forgot Dashboard Password
 
-If you forgot your AstrBot dashboard password, first try running this from the AstrBot root directory:
+If you forgot your AstrBot dashboard password, choose the reset method that matches your deployment method.
+
+#### Docker Deployment
+
+The image ships with the AstrBot CLI, so you can reset the password inside the container:
 
 ```bash
-astrbot conf set dashboard.password new-password
+sudo docker exec -it astrbot astrbot password
+sudo docker restart astrbot # the new password takes effect after a restart
 ```
 
-If the CLI is unavailable, stop AstrBot and edit `AstrBot/data/cmd_config.json`. In the `"dashboard"` object, delete these keys:
+The first `astrbot` is the container name; replace it with your actual container name (check with `sudo docker ps`).
+
+To also change the username, add the `--username` option: `sudo docker exec -it astrbot astrbot password --username <new-username>`.
+
+#### uv / pip Package Deployment
+
+Run the following in the AstrBot working directory (the one initialized with `astrbot init`):
+
+```bash
+astrbot password
+```
+
+To also change the username, add the `--username` option: `astrbot password --username <new-username>`.
+
+Then restart AstrBot for the change to take effect.
+
+#### Other Deployment Methods
+
+For deployments without an available CLI, stop AstrBot and edit `AstrBot/data/cmd_config.json`. In the `"dashboard"` object, delete these keys:
 
 - `username`
 - `password`
