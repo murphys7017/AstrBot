@@ -134,3 +134,65 @@ async def test_slack_outbound_mentions_survive_block_and_fallback_sends(monkeypa
     calls = event.web_client.chat_postMessage.await_args_list
     assert calls[0].kwargs["blocks"][0]["text"]["text"] == "Hello <@UOTHER>!"
     assert calls[1].kwargs["text"] == "Hello <@UOTHER>!"
+
+
+@pytest.mark.asyncio
+async def test_slack_list_preserves_links_and_mentions():
+    adapter = SlackAdapter(
+        make_platform_config("slack", bot_token="xoxb-test", app_token="xapp-test"),
+        {},
+        asyncio.Queue(),
+    )
+    adapter.bot_self_id = "UBOT"
+    adapter.web_client.users_info = AsyncMock(
+        return_value={"user": {"real_name": "Tester"}},
+    )
+    adapter.web_client.conversations_info = AsyncMock(
+        return_value={"channel": {"is_im": False, "name": "test"}},
+    )
+    url = "https://example.com/slack-list-8642"
+    received = await adapter.convert_message(
+        {
+            "user": "UTEST",
+            "channel": "CTEST",
+            "text": f"<@UBOT> Link: {url}",
+            "blocks": [
+                {
+                    "type": "rich_text",
+                    "elements": [
+                        {
+                            "type": "rich_text_list",
+                            "style": "bullet",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "user", "user_id": "UBOT"},
+                                        {"type": "text", "text": " Link: "},
+                                        {"type": "link", "url": url, "text": "Probe"},
+                                        {"type": "text", "text": " after"},
+                                    ],
+                                },
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "user", "user_id": "UOTHER"},
+                                        {"type": "text", "text": "End"},
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+
+    assert [component.qq for component in received.message if isinstance(component, At)] == [
+        "UBOT",
+        "UOTHER",
+    ]
+    assert "•" in received.message_str
+    assert f"[Probe]({url})" in received.message_str
+    assert "after" in received.message_str
+    assert "End" in received.message_str
