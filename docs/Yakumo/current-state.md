@@ -221,7 +221,7 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - `prompt` 模块已经形成唯一的 collect/build/target projection/render profile/layout/prompt tree/provider render/apply 主链路。主 Agent 只准备运行能力和事实，不再另行拼接模型可见 Prompt；目标投影是确定性代码策略，不使用 LLM Selector。
 - builtin 群聊上下文只通过动态 prompt extension collector 提供结构化 `conversation.group_recent`；滚动记录不会因一次渲染被消费，该层只提供群聊上下文材料，不接管 Yakumo memory。
 - `PromptRenderEngine` 先强制过滤 `llm_exposure="never"`，对显式目标再执行 target projection，然后应用 `PromptRenderProfile`。`PromptLayoutInterface.render_group(...)` 是 Builder 依赖的唯一 group 落位接口；`DefaultPromptLayout` 当前仍在内部委托 `BasePromptRenderer` 的既有落位实现，但动态方法契约已经移除。Provider renderer 只按 `prompt_renderer_family` 编译已完成的树。
-- prompt 输出约束已收口为 `OutputContract -> CompiledOutputContract -> ProviderRequest -> provider` 链路；Persona 使用严格 `persona_expression` 协议级 tool call，返回 `turn_action`、`speech`、`actions`、`thought`、Plutchik 八维 `tendency` 和 `effect_calls`；不兼容 provider 在请求前筛除，不降级为 Persona 自由文本
+- prompt 输出约束已收口为 `OutputContract -> CompiledOutputContract -> ProviderRequest -> provider` 链路；Persona 当前只使用严格 `persona_expression` 协议级 tool call，返回 `turn_action`、`speech`、`actions`、`thought`、Plutchik 八维 `tendency` 和 `effect_calls`；不兼容 provider 在请求前筛除，不降级为 Persona 自由文本。Contributor 可从只读 `InteractionResultView` 读取这些字段并按插件需求构造输出，Core 不会自动将心理或动作字段投递到平台
 - 当前图片输入遵循固定策略：主对话 provider 声明支持 image 时直接传图；不支持时仅使用已配置且可用的图片转述 provider；未配置或不可用时跳过图片输入，不自动切换到图像能力 fallback provider。
 - runner 层 LLM 压缩已改为按对话轮次与 token 比例保留最近上下文，压缩请求会按压缩模型的 modalities 清洗多模态/工具内容；这是最终 request/messages 层优化，不参与 `astrbot/core/memory/*` 的记忆生成或召回。
 - prompt collector 默认保持 required/fail-fast；只有显式 optional collector 才会局部失败并记录 `collector_failures`。当前 `MemoryCollector` 为 optional，long-term embedding/检索失败只清空长期召回，仍保留本地 Topic、ShortTerm、Experience 与 PersonaState。

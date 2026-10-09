@@ -84,14 +84,15 @@
 
 2. `json_object -> prompt_only`
 
-- 这是普通 JSON object 契约的原生落地方式，不应视为退化。
+- 这是把 JSON 要求写入 Prompt 的落地方式，不应误读为 Provider 原生 JSON mode 或 JSON Schema 约束。
 - 当前 persona visible-reply 已不再以 `json_object` 作为主链路；它使用 `tool_call`，因此落到 `prompt_only` 时属于受控降级。
 
 因此，`prompt_only` 本身只表示“最终通过 prompt 文本约束落地”，不自动等价于“失败降级”。
 
 - fallback 文本由 `build_output_contract_fallback_prompt(...)` 统一生成。
 - 只有 `tool_call` strict 契约降到 `prompt_only` 时，才应标记 `degraded=True`。
-- 普通非高约束场景可以原生使用 strict `json_object`。
+- 当前 renderer 对 `json_object` 编译为 `prompt_only`；原生 JSON mode / JSON Schema 尚无通用的 renderer 与 provider 落地路径。`protocol_native_json` 是策略类型预留，不能据此声称原生 JSON Schema 已可用。
+- OpenAI-compatible 与 Anthropic source 中将没有 compiled binding 的 strict `json_object` 转换为 tool-call schema，是旧兼容入口，不等同于原生 JSON mode。
 - 高约束 `tool_call` 场景默认应优先要求协议级 tool-call；若业务明确允许受控降级，parser 必须仍按固定 schema 解析 prompt-only JSON，不能接受自由文本。
 - Persona 的 `persona_expression` 是例外：它要求 `protocol_tool_call`。编译为
   `prompt_only` 的候选 Provider 会在请求前被筛除，不能作为 Persona 的“受控降级”。
@@ -162,7 +163,7 @@ persona visible-reply 是当前主要高约束消费者。
 
 - `turn_action` 是 `reply | delegate | silent` 三选一的字符串；调用场景可限制可选值。
 - `speech` 是唯一用户可见文本，也是后续 TTS 的输入文本。
-- `actions` 是简单动作词数组，由后续动作模型解释，不带参数。
+- `actions` 是简单动作意图数组，由后续动作模型解释，不带参数。Schema 只校验数组元素为非空字符串；简单动作词、不带参数的限制由 Persona Prompt 表达。
 - `thought` 是角色的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。
 - `tendency` 表示角色当前的 Plutchik 八维情绪：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`；每项为 `-10..10` 整数。
 - `effect_calls` 保持现有插件 effect 执行协议，与 `actions` 分开。

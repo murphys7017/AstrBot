@@ -86,6 +86,7 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 - `modules/*`
 - `dev/render-engine-implementation-spec.md`
 - `dev/output-contract.md`
+- `dev/structured-persona-output/README.md`
 - `dev/interaction-output-plugin-contract.md`
 - `dev/execution-backend-flow.mmd`
 - `dev/runtime-dependency-structure.mmd`
@@ -117,14 +118,15 @@ Memory 子系统：
 3. `modules/README.md`
 4. `modules/interaction.md`
 5. `modules/prompt.md`
-6. `dev/execution-backend-flow.mmd`
-7. `dev/runtime-dependency-structure.mmd`
-8. `target-state.md`
-9. `dev/autonomous-persona-runtime-initial-plan.md`
-10. `dev/runtime-function-unification-plan.md`
-11. `dev/execution-backend-preparation-plan.md`
-12. `dev/internal-executor-replacement-plan.md`
-13. `dev/internal-executor-replacement-implementation-guide.md`
+6. `dev/structured-persona-output/README.md`
+7. `dev/execution-backend-flow.mmd`
+8. `dev/runtime-dependency-structure.mmd`
+9. `target-state.md`
+10. `dev/autonomous-persona-runtime-initial-plan.md`
+11. `dev/runtime-function-unification-plan.md`
+12. `dev/execution-backend-preparation-plan.md`
+13. `dev/internal-executor-replacement-plan.md`
+14. `dev/internal-executor-replacement-implementation-guide.md`
 
 ## 维护规则
 

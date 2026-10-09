@@ -1,6 +1,13 @@
 # Interaction Output Plugin Contract
 
-本文记录 Interaction 输出层和插件输出注入的目标契约。它不是某个插件的实现说明，而是 core、plugin、platform 之间的输出边界。
+本文记录 Interaction 输出层和插件输出注入的目标契约。它不是某个插件的实现说明，而是 core、plugin、platform 之间的输出边界。文中同时标明当前代码接口和后续目标，避免把规划中的阶段误认为已接入的运行路径。
+
+## 当前代码状态
+
+- InteractionOutputDraft 已作为只读 output_draft 暴露在 InteractionResultView 中。
+- 当前已运行的扩展入口是 InteractionResultContributor，返回 InteractionResultContribution；OutputController 合并其 platform_extras、client_objects、metadata、priority，并在兼容路径中处理 final_text_override。
+- InteractionOutputContribution 类型已定义，但尚未接入当前 contributor 收集与输出合并流程；文中围绕它描述的 stage、latency class 等行为属于目标设计。
+- Persona 的 actions、thought、tendency、turn_action 和 effect_calls 可通过 InteractionResultView 提供给 contributor。Core 不会自动把这些值转换成平台 payload。
 
 ## 目标
 
@@ -59,7 +66,7 @@ input
 
 ### `InteractionOutputContribution`
 
-`InteractionOutputContribution` 表示插件对输出草稿的补充。
+`InteractionOutputContribution` 是目标契约中插件对输出草稿的补充。虽然类型已经定义，当前 OutputController 的活跃注册与合并链路仍使用 `InteractionResultContribution`，不能把以下字段当作已接入的独立输出阶段。
 
 字段：
 

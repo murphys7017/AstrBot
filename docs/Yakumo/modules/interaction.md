@@ -585,7 +585,9 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 }
 ```
 
-`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`speech` 是唯一用户可见文本，也是后续 TTS 的输入；`actions` 只含简单动作词，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。TTS 标签注入与结果清理在后续阶段实现。
+`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`speech` 是唯一用户可见文本，也是当前输出层交给 TTS 的文本来源；TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+
+开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 
@@ -761,7 +763,7 @@ class Main(star.Star):
         )
 ```
 
-`collect(event, plugin_context, view)` 的 `view` 是只读 `InteractionResultView`。
+`collect(event, plugin_context, view)` 每次收到独立的 `InteractionResultView` 快照副本。插件应按只读接口使用；外层 dataclass 没有 frozen 保护，修改它不是写回 Core 状态的接口。
 常用字段：
 
 - `view.turn_id`
@@ -781,6 +783,29 @@ class Main(star.Star):
 - `view.final_candidate_material`
 - `view.finalized_turn_material`
 - `view.metadata`
+
+读取 Persona 新字段时直接从传入的 view 获取，不要解析 provider 原始响应。actions 是 tuple，tendency 是只读 mapping。effect_calls 中每项是包含 name、arguments 和可选 call_id 的只读 mapping；例如插件可按自身用途读取并映射动作与角色情绪：
+
+```python
+persona_state = {
+    "actions": list(view.actions),
+    "thought": view.thought,
+    "tendency": dict(view.tendency),
+    "turn_action": view.turn_action,
+}
+
+return InteractionResultContribution(
+    plugin_id=self.plugin_id,
+    client_objects=[
+        {
+            "type": "persona_state",
+            "state": persona_state,
+        }
+    ],
+)
+```
+
+插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。Persona 改写插件输出使用 plugin_reply；plugin_direct 不经过 Persona 改写，没有这组 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
 
 `InteractionResultContribution` 字段语义：
 

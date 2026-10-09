@@ -1,36 +1,25 @@
-# Yakumo Persona 结构化输出总计划
+# Persona 结构化输出总计划
 
-**文档状态：** 设计审阅中  
+**文档状态：** 按当前代码核对并更新
 **更新时间：** 2026-10-09  
-**实施方式：** 分阶段破坏性更新  
-**当前阶段：** 只读审阅，未修改代码
+**代码基线：** `eda87adb8`（Persona 插件结果与即时状态修复）
+**实施方式：** 分阶段破坏性协议迁移
 
-## 1. 目标
+## 1. 目标与边界
 
-将 Persona Expression 从旧的 `spoken_reply + speech_cues + effect_calls` 输出，统一改造成一个可由多种 provider 输出方式承载的结构化协议。
+为 Persona Expression 建立稳定的语义结果协议，使用户可见文本、角色动作意图、角色心理状态、角色情绪和插件 effect 调用各有明确字段。Provider 的传输格式属于适配层；无论未来采用何种输出方式，都必须解析为同一业务结果类型 `PersonaExpressionResult`。
 
-协议只定义“模型最终表达的语义”，不把某一家 provider 的传输格式写入业务层。模型可以通过 tool call、原生 JSON Schema、JSON mode、prompt-only JSON，或后续的 XML、Markdown 适配器返回；Core 最终只接收一个统一的 `PersonaExpressionResult`。
+本协议描述**扮演角色的输出状态**。`tendency` 由模型依据角色设定和当前对话生成，采用 Plutchik 八种基本情绪作为统一含义及训练标注词汇；它不是用户情绪、模型内部情绪向量或对神经网络内部状态的轮结构约束。
 
-## 2. 不在本计划内的内容
+本计划不把 `actions` 解释为平台或 Live2D 参数，不把 `effect_calls` 合并进 `actions`，也不在 Core 实现 TTS 标签注入和清理。插件私有动作和 effect 仍由插件负责解释。
 
-- 本阶段不重新设计 Persona 的人格规则或上下文材料。
-- 本阶段不把 `actions` 直接解释成 Live2D、Motion 或平台动作参数。
-- 本阶段不把 `effect_calls` 改造成 `actions`，也不改变现有插件 effect 执行机制。
-- 本阶段不在 Core 中实现 TTS 专用标签；TTS 标签注入和清理放到独立阶段。
-- 本阶段不为旧字段保留长期兼容别名。
-- 本阶段不因为某个 provider 宣称支持某种格式，就默认启用该格式。
-
-## 3. Canonical Persona Expression Schema
-
-所有输出方式最终都要得到以下语义结构：
+## 2. 当前 Canonical Schema
 
 ```json
 {
   "turn_action": "reply",
   "speech": "啊……怎么会这样？",
-  "actions": [
-    "lower_head"
-  ],
+  "actions": ["lower_head"],
   "thought": "这件事出乎意料，让我感到遗憾",
   "tendency": {
     "Joy": 0,
@@ -46,105 +35,92 @@
 }
 ```
 
-### 3.1 字段规则
+顶层必须且只能包含 `turn_action`、`speech`、`actions`、`thought`、`tendency`、`effect_calls`。六个字段都是必填项；无内容时分别使用调用场景允许的空值。额外顶层字段会被拒绝。
 
-| 字段 | 规则 | 主要消费者 |
+| 字段 | 当前代码约束 | 当前消费者 |
 | --- | --- | --- |
-| `turn_action` | 必填单值，只能是 `reply`、`delegate`、`silent` | Personal Response Plan、路由控制 |
-| `speech` | 用户可见文本；也是 TTS 的唯一文本来源 | Output Runtime、TTS、历史 |
-| `actions` | 简单动作词数组，不携带参数 | 后续动作模型、表现插件 |
-| `thought` | 简短心理状态摘要，不输出完整推理链 | 内部状态、诊断或训练标注 |
-| `tendency` | 模型以角色身份输出的当前八维情绪状态 | 状态、训练数据、诊断 |
-| `effect_calls` | 现有插件 effect 调用协议 | Effect 执行链、插件 |
+| `turn_action` | 单个字符串；Schema 按请求限制可选值。 | Personal 路由和本轮执行控制。 |
+| `speech` | 字符串；正常回复不能为空。 | 用户可见输出和当前 TTS 文本输入。 |
+| `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
+| `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
+| `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `-10..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
+| `effect_calls` | 固定必填数组；每个元素必须匹配本轮有效 effect 的名称和参数 schema。无有效 effect 时只能为空。 | Result Contributor / effect 插件；由插件解释执行。 |
 
-`tendency` 使用 Plutchik 八种基本情绪作为统一标注词汇：
+情绪维度为 `Joy`（喜悦）、`Trust`（信任）、`Fear`（恐惧）、`Surprise`（惊讶）、`Sadness`（悲伤）、`Disgust`（厌恶）、`Anger`（愤怒）、`Anticipation`（期待）。
 
-| 参数 | 含义 |
-| --- | --- |
-| `Joy` | 喜悦 |
-| `Trust` | 信任 |
-| `Fear` | 恐惧 |
-| `Surprise` | 惊讶 |
-| `Sadness` | 悲伤 |
-| `Disgust` | 厌恶 |
-| `Anger` | 愤怒 |
-| `Anticipation` | 期待 |
+`silent` 仅对允许静默的群聊候选开放，并要求 `speech`、`actions`、`effect_calls` 为空；Schema 仍要求返回 `thought` 和完整八维 `tendency`。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
 
-除非后续另行决定，八个值继续使用 `-10` 到 `10` 的整数范围。`tendency` 是模型根据当前对话上下文和角色设定生成的输出字段，表示角色此刻的情绪状态。它不是用户情绪、模型自身情绪，也不是传入模型的情绪向量；这个体系只用于统一角色输出和训练数据标注，不要求模型内部形成固定的情绪轮结构。
-
-### 3.2 输出目的地
+### 字段流向
 
 ```text
-speech       -> 用户消息、TTS、可见输出历史
-turn_action  -> 路由和本轮执行控制
-actions      -> 简单动作意图，交给专门动作模型
-thought      -> 内部结构化状态，不进入用户文本或 TTS
-tendency     -> 角色当前情绪状态的结构化记录、训练/诊断数据
-effect_calls -> 现有插件 effect 执行链
+turn_action  -> Personal 路由与 reply / delegate / silent 仲裁
+speech       -> 用户可见消息；当前输出层将其作为 TTS 文本输入
+actions      -> InteractionResultView；需要外部动作输出时由插件生成 contribution
+thought      -> InteractionResultView；不自动投递、不进入普通对话历史
+tendency     -> InteractionResultView；不自动投递、不进入普通对话历史
+effect_calls -> InteractionResultView；effect 插件读取并解释
 ```
 
-`silent` 时使用空的 `speech`、`actions` 和 `effect_calls`。`thought` 和 `tendency` 可以保留为内部状态。
+Core 不会自动把 `actions`、`thought` 或 `tendency` 序列化成平台 payload。插件应注册 Interaction Result Contributor，根据 `view.purpose` 及字段产生 `platform_extras` 或 `client_objects`。`plugin_direct` 输出不经过 Persona 改写，也不会收到这些 Persona 字段；Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段。
 
-## 4. 输入到输出的统一链路
+## 3. 当前运行链路
 
 ```text
-用户消息 / Core 结果 / 插件可见材料
+用户输入 / Core 结果 / Persona 模式插件文本
         ↓
-PersonaExpressionRequest
+PersonaExpressionRequest + Prompt Context Pack
         ↓
-Prompt Context Pack + Persona Prompt
+Persona Prompt + 动态 effect schema + persona_expression OutputContract
         ↓
-OutputContract
+Prompt renderer 编译 tool_call contract
         ↓
-Provider 能力协商与请求构造
+Provider 能力检查：必须支持协议级 tool call
         ↓
-Provider 原始响应
+Provider 原始响应中的 persona_expression tool call
         ↓
-格式专用解析器
-        ↓
-Canonical Schema 类型与语义校验
+严格解析：精确字段集合、类型、枚举、情绪范围、effect schema
         ↓
 PersonaExpressionResult
         ↓
-turn_action 路由、speech 输出、TTS、actions、effect_calls、内部状态
+turn_action 路由 / speech 输出与 TTS / InteractionResultView 插件贡献
 ```
 
-输入材料仍由现有 Prompt 系统组装；模型根据这些材料和角色设定生成 `tendency`，不需要为它增加独立的输入字段。新增内容主要集中在输出契约、格式策略和结果解析，不新增第二套对话或消息管线。
+当前 Persona 契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona 主路径不会因 Provider 不支持强制 tool call 而降级成 JSON 文本或自由文本；候选会在请求前筛除，缺少 terminal tool call 时解析失败。通用 `OutputContract` 中的 JSON 模式或 Provider 通用解析能力不等于 Persona 已切换到该输出模式。
 
-## 5. 分阶段实施顺序
+输入上下文仍由现有 Prompt 系统和 `PersonaExpressionRequest` 组装。`tendency` 是模型输出，不需要添加平行的输入情绪字段或新的对话管线。
 
-| 阶段 | 目标 | 主要结果 | 状态 |
-| --- | --- | --- | --- |
-| 准备阶段 | 冻结 Canonical Schema | 字段、含义、范围、空值和失败规则确定 | 已完成 |
-| 第一阶段 | 迁移当前 tool call | 当前主路径输出新 Schema，删除旧字段 | 已完成 |
-| 第二阶段 | Provider 输出策略协商 | 支持并实测 tool call、原生 JSON Schema、JSON mode、prompt-only JSON | 后续 |
-| 第三阶段 | 文本格式适配 | 增加 XML、Markdown 等明确 grammar 的 parser | 后续 |
-| 第四阶段 | TTS 处理 | 将语音标签注入和清理集中到 `speech` | 后续 |
-| 第五阶段 | 迁移与验证 | 更新文档、测试、插件接口和运行指标，分批启用 | 后续 |
+## 4. 阶段状态
 
-每个阶段都需要先完成源码审阅和边界确认，再进入对应实现；不能用后续阶段的 fallback 掩盖前一阶段的协议错误。
+| 阶段 | 状态 | 结果或剩余工作 |
+| --- | --- | --- |
+| 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
+| 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
+| 第二阶段：Provider 输出策略 | 未完成 | 评估并逐个验证原生 JSON Schema、JSON mode 或其他 Provider 格式；当前 Persona 仍用严格 tool call。 |
+| 第三阶段：文本格式解析 | 未开始 | 为 XML/Markdown 等定义明确 grammar 和 parser；示例仅为设计草案。 |
+| 第四阶段：TTS 标签 | 未开始 | TTS 适配器负责 prompt 注入、将标签放入 `speech` 并在 TTS 边界清理。 |
+| 文档与集成验收 | Core 文档已同步；外部验收未完成 | 外部插件依赖、Provider 实例、平台投递和 TTS 端到端仍需分别验收。 |
 
-## 6. 现有代码影响面
+阶段 2–4 不得仅凭接口声明启用；每种策略都需经过实际请求构造、解析语义校验和 Provider/模型数据验证。
 
-- [`expression_agent.py`](../../../../astrbot/core/interaction/expression_agent.py)：结果类型、Schema、Prompt、解析、校验和修正流程。
-- [`output_contract.py`](../../../../astrbot/core/output_contract.py)：统一输出契约和策略类型。
-- [`interfaces.py`](../../../../astrbot/core/prompt/render/interfaces.py)：契约编译、策略选择和 fallback Prompt。
-- [`structured_json.py`](../../../../astrbot/core/prompt/structured_json.py)：JSON 提取和修复能力。
-- [`middleware.py`](../../../../astrbot/core/interaction/middleware.py)、[`persona_runtime.py`](../../../../astrbot/core/interaction/persona_runtime.py)、[`output_controller.py`](../../../../astrbot/core/interaction/output_controller.py)：结果消费、路由、输出和 TTS 边界。
-- [`capability_route_guard.py`](../../../../astrbot/core/interaction/capability_route_guard.py)：`turn_action` 和空输出约束。
-- [`speech_cues.py`](../../../../astrbot/core/speech_cues.py)：本次破坏性更新中删除 Core 协议，后续由 TTS 专项替代。
-- Provider renderer/source 和 [`output_contract_tools.py`](../../../../astrbot/core/provider/output_contract_tools.py)：后续输出策略协商和 provider 请求转换。
-- Interaction、Persona、provider structured output 相关文档和测试。
+## 5. 代码所有权与影响面
 
-## 7. 总体验收条件
+- [`expression_agent.py`](../../../../astrbot/core/interaction/expression_agent.py)：结果类型、动态 schema、Prompt、tool-call 提取、字段校验及 effect 纠正流程。
+- [`output_contract.py`](../../../../astrbot/core/output_contract.py)、[`interfaces.py`](../../../../astrbot/core/prompt/render/interfaces.py)：通用契约与 renderer 编译；其中有些策略类型是通用基础设施，不表示 Persona 已使用。
+- [`middleware.py`](../../../../astrbot/core/interaction/middleware.py)：Personal Response Plan 请求、`turn_action` 路由与 silent 限制。
+- [`output_controller.py`](../../../../astrbot/core/interaction/output_controller.py)、[`turn_state.py`](../../../../astrbot/core/interaction/turn_state.py)：即时/最终/插件输出，结果贡献、可见文本和重复回复仲裁状态。
+- [`contributors.py`](../../../../astrbot/core/interaction/contributors.py)：只读 `InteractionResultView` 和 `persona_reply | plugin_reply | core_reply` purpose。
+- [`interaction.md`](../../modules/interaction.md) 与 [`output-contract.md`](../output-contract.md)：当前运行和扩展接口说明。
 
-1. 当前 tool-call provider 返回的新参数可以稳定解析为 Canonical Schema。
-2. Core 不再接受或生成 `spoken_reply`、`speech_cues` 旧字段。
-3. `speech` 是唯一进入用户输出和 TTS 的文本字段。
-4. `turn_action` 始终是单值三选一，并能正确驱动 `reply / delegate / silent`。
-5. `tendency` 始终包含八个固定维度，值域校验有效。
-6. `actions` 和 `effect_calls` 在运行时职责上保持分离。
-7. 不同 provider 输出格式最终得到相同的 `PersonaExpressionResult` 语义。
-8. XML、Markdown 等后续格式不会改变业务层 Schema。
-9. provider 策略切换有延迟、失败率、重试率和 fallback 诊断数据。
+## 6. 验收与发布边界
 
+当前代码验收要求：
+
+1. Persona 成功响应必须带 `persona_expression` tool call；纯文本不得被误认为成功。
+2. Canonical 顶层字段必须精确匹配，`tendency` 八维和值域有效。
+3. `speech` 是唯一普通用户可见文本和当前 TTS 输入来源。
+4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。
+5. `actions` 和 `effect_calls` 维持不同含义与消费者。
+6. 同文本但动作、心理想法或情绪状态变化的 Core 最终回复不能被错误去重。
+7. Persona 改写的插件输出把结构化状态传给 `plugin_reply` contributors；直接插件输出保持 direct 路径。
+
+阶段 2–4 还需补上各自的 Provider/格式/TTS 验收。当前已有定向测试覆盖上述部分运行时边界；完整 Provider 矩阵、真实平台交付和外部插件兼容不应据此标记完成。

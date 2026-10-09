@@ -1,85 +1,87 @@
-# 准备阶段：统一输出契约与 Schema
+# Canonical Schema 与字段规则
 
-## 目标
+**状态：** 已冻结并由第一阶段代码实现
+**代码位置：** `astrbot/core/interaction/expression_agent.py`
 
-先冻结输出语义，避免在 provider 适配之前反复改变字段含义。此阶段只做设计和协议定义，第一阶段再进入当前 tool call 的代码迁移。
+本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema；当前生产 Persona 请求通过严格的 `persona_expression` tool call 承载。
 
-## 1. Canonical Schema
+## Canonical 参数
 
-`persona_expression` 的规范参数包含：
-
-```text
-turn_action
-speech
-actions
-thought
-tendency
-effect_calls
+```json
+{
+  "turn_action": "reply",
+  "speech": "啊……怎么会这样？",
+  "actions": ["lower_head"],
+  "thought": "这件事出乎意料，让我感到遗憾",
+  "tendency": {
+    "Joy": 0,
+    "Trust": 1,
+    "Fear": 2,
+    "Surprise": 8,
+    "Sadness": 7,
+    "Disgust": 0,
+    "Anger": 1,
+    "Anticipation": 0
+  },
+  "effect_calls": []
+}
 ```
 
-建议在严格结构化路径中所有字段都存在；没有内容时使用空字符串、空数组或全零情绪向量。`effect_calls` 继续使用现有动态 effect Schema。
+Schema 对象 `additionalProperties=false`，并要求且只接受这六个顶层字段。缺字段、多余字段、错误类型或不满足语义限制时不构造成功的 Persona 结果。
 
-## 2. 字段语义
+## 字段定义
 
 ### `turn_action`
 
-这是一个字符串枚举，不是数组：
+必填的单个字符串枚举：`reply`、`delegate` 或 `silent`。每次调用按请求目的收窄 Schema：
 
-```text
-reply | delegate | silent
-```
+- 普通结果表达、Core 最终表达和 Persona 改写插件文本只允许 `reply`。
+- Personal Response Plan 要求输出动作；不可静默的私聊/续接允许 `reply`、`delegate`。
+- 仅允许静默的群聊候选可以额外选择 `silent`。
 
-它表示本轮是否直接回答、是否交给 Core/外部能力继续处理，或是否保持安静。普通对话和群聊候选可以由调用场景进一步限制允许的枚举子集，但最终字段形态不变。
+`delegate` 表示 Personal 将工作委派给 Core；它不是另一个工具调用数组，也不携带 Core task specification。`silent` 只能用于允许静默的群聊候选。
 
 ### `speech`
 
-这是唯一用户可见的表达文本，也是 TTS 的输入文本。当前阶段不要在 Core 中额外生成语音 cue；后续 TTS 适配器需要的标签直接放在这个字段内部。
+必填字符串，是唯一用户可见的表达文本，也是当前输出层交给 TTS 的文本来源。正常可见回复要求它非空；仅明确允许为空的特定请求（例如流式 interjection）可以返回空字符串。TTS 标签嵌入、Prompt 注入及清理尚未实现。
 
 ### `actions`
 
-使用简单、稳定的动作词，例如 `lower_head`、`look_away`。不包含方向、时长、强度、模型参数或平台私有数据。具体动作解释由单独动作模型或表现插件完成。
+必填数组，每个元素是非空字符串，例如 `lower_head`、`look_away`。Prompt 要求元素表达简单动作意图，不放动作参数、方向、时长、平台 ID 或插件 effect 数据；Schema 本身不校验字符串是否符合某种动作词语法。空动作使用 `[]`。执行和具体动作解释不属于 Core schema。
 
 ### `thought`
 
-表示简短的心理状态摘要，用于内部状态、训练数据或诊断。Prompt 必须明确它不是完整推理链，也不会进入用户消息、TTS、对话历史或 memory。
+必填字符串，表示角色当前的简短心理想法，不是完整推理链。它不得拼接到用户消息、TTS 文本或普通对话历史。无心理描述时使用空字符串。
 
 ### `tendency`
 
-使用 Plutchik 八维情绪词汇：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`。它表示模型以角色身份判断的当前情绪状态，由模型作为输出生成。它不是用户情绪、模型自身情绪或传入模型的情绪向量，也不要求模型内部遵循固定情绪轮结构。
+必填对象，必须恰好包含以下八个大小写敏感的键；值必须是整数（布尔值不算整数值），范围 `-10..10`：
+
+| Key | 角色当前情绪 |
+| --- | --- |
+| `Joy` | 喜悦 |
+| `Trust` | 信任 |
+| `Fear` | 恐惧 |
+| `Surprise` | 惊讶 |
+| `Sadness` | 悲伤 |
+| `Disgust` | 厌恶 |
+| `Anger` | 愤怒 |
+| `Anticipation` | 期待 |
+
+该字段表示模型以当前角色身份判断的情绪，不是用户情绪或模型内部状态；八维分类用于统一输入输出含义及训练标注，不约束神经网络内部形成情绪轮。
 
 ### `effect_calls`
 
-保持现有插件 effect 调用机制。它是插件执行协议，不与 `actions` 合并，也不因为输出格式改成 JSON/XML/Markdown 就改变执行语义。
+必填数组。schema 按当前事件中已启用且适用的 `PersonaEffectSpec` 动态构造，每项包含注册 effect 的 `name` 和符合注册参数 schema 的 `arguments`。无可用 effect 时使用空数组。Core 负责限制、解析和校验；具体 effect 由注册插件消费和解释。
 
-## 3. 校验规则
+若有必发 effect，Schema 和语义校验会按注册元数据要求数量；允许 `silent` 的请求可返回空 effect 数组。`actions` 不替代任何必发 effect。
 
-- `turn_action` 必须是允许枚举值。
-- `speech` 必须是字符串。
-- `actions` 必须是字符串数组，数组元素不能为空且不得携带参数对象。
-- `thought` 必须是字符串。
-- `tendency` 必须包含且只包含八个约定维度。
-- 八个情绪值必须是 `-10` 到 `10` 的整数，除非后续协议明确修改。
-- `effect_calls` 使用现有 effect 名称和参数校验。
-- `silent` 时 `speech`、`actions`、`effect_calls` 必须为空。
+## 跨字段约束
 
-## 4. 破坏性变更
+- `silent` 时 `speech`、`actions`、`effect_calls` 必须为空；`thought` 仍是必填字符串，`tendency` 仍须提供完整八维对象。
+- `delegate` 时由 Persona Request Prompt 限定 `speech` 为简短处理中确认；后续 task 由 Core Planner 生成。
+- 所有表达字段均来自同一次结构化结果，不能从自由文本或 provider 私有日志补猜缺值。
 
-删除以下旧字段及其 Core 兼容读取：
+## 旧字段
 
-```text
-spoken_reply
-speech_cues
-```
-
-旧字段不在结果规范化阶段自动映射。旧插件或 adapter 的迁移单独记录，不把兼容壳保留在新的主协议中。
-
-## 5. 文档和训练数据约束
-
-所有 Schema 示例、Prompt 示例、训练数据标注和测试 fixture 都必须使用同一组八维角色情绪字段和相同解释。字段顺序建议固定为：
-
-```text
-Joy, Trust, Fear, Surprise, Sadness, Disgust, Anger, Anticipation
-```
-
-字段顺序不影响 JSON 语义，但固定顺序有利于 Prompt、一致性检查和人工审阅。
-
+Core 不再接受 `spoken_reply` 或 `speech_cues`，也不映射到新字段。`speech_cues` 时序信息不得作为并行结果数组使用；未来 TTS 控制标签应由 TTS 适配器注入 `speech`，并在 TTS 边界清理。外部插件的私有字段迁移由插件维护者单独完成。

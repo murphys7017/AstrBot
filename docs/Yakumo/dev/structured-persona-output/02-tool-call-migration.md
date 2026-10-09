@@ -1,93 +1,57 @@
-# 第一阶段：当前 tool call 迁移
+# 第一阶段：当前 tool-call 迁移
 
-**状态：已完成。** 本阶段完成 Persona Expression Schema、Prompt、严格 tool-call 解析校验和运行时字段消费迁移；未切换 provider 输出传输方式。
+**状态：已完成。** 当前 Persona 主路径使用严格、协议级 `persona_expression` tool call 返回 Canonical Schema。本阶段没有把 Persona 切换到 JSON 文本、XML 或 Markdown 输出。
 
-## 目标
+## 1. 实际契约
 
-只修改现有 `persona_expression` tool call 的参数 Schema、Prompt、解析和运行时消费，不在本阶段切换 provider 的输出传输方式。
-
-## 1. OutputContract
-
-继续使用当前契约：
+`build_persona_expression_output_contract_for_effects()` 生成以下契约：
 
 ```text
 mode = tool_call
 strict = true
 preferred_tool_name = persona_expression
+allow_text_fallback = false
 ```
 
-`effect_calls` 仍由现有动态 effect 注册结果生成。新增的 `actions`、`thought` 和八维 `tendency` 放入同一组 tool-call arguments。
+Schema 顶层精确要求六个必填字段：`turn_action`、`speech`、`actions`、`thought`、`tendency`、`effect_calls`，并拒绝其他顶层字段。`effect_calls` 的 item schema 根据本轮启用并适用于当前事件的 effect 注册动态生成；没有 effect 时仍保留必填空数组字段。
 
-## 2. Prompt 修改
+调用场景会限制 `turn_action` 枚举。普通 visible-reply 和插件文本改写只允许 `reply`；Personal Response Plan 可选 `reply / delegate`，允许静默的群聊候选才会开放 `silent`。必发 effect 数量由注册 effect 元数据和当前是否允许 silent 共同决定。
 
-Persona Prompt 需要明确：
+## 2. Prompt 与解析校验
 
-1. 必须调用 `persona_expression`。
-2. `turn_action` 只能输出 `reply`、`delegate` 或 `silent`。
-3. `speech` 是唯一用户可见文本。
-4. `actions` 只输出简单动作词数组，不写参数。
-5. `thought` 是简短心理摘要，不输出完整推理过程。
-6. `tendency` 使用八个固定的 Plutchik 角色情绪维度，表示角色当前的情绪状态。
-7. 八个情绪值使用 `-10` 到 `10` 的整数范围。
-8. `silent` 必须返回空 `speech`、空 `actions` 和空 `effect_calls`。
-9. TTS 专用标签暂时不由 Core 自行扩展；后续由 TTS 适配器注入规则。
+Persona system prompt 声明六个字段语义；request prompt 再按本轮任务说明 `reply / delegate / silent`、source text、progress 和 empty speech 等约束。`tendency` 明确表示角色当前情绪，固定为 Plutchik 八维，每项 `-10..10` 整数。
 
-Prompt 中还要区分 `actions` 和 `effect_calls`：前者是动作意图，后者是插件 effect 执行请求。
+解析流程优先读取指定的 `persona_expression` tool call。当前严格 Persona 契约缺少该 tool call 时以 `missing_persona_expression_tool_call` 失败；不使用自由文本或 prompt-only JSON 补救。Payload 校验包括：
 
-## 3. 解析与规范化
+- 顶层字段精确匹配，不多不少。
+- `turn_action` 转成已知枚举并符合本次请求允许范围。
+- `speech`、`thought` 类型有效，`actions` 为非空字符串组成的数组。
+- `tendency` 恰好有八个规定键，值是非 bool 的 `-10..10` 整数。
+- `effect_calls` 按本轮动态 effect schema 解析；硬性 effect 缺失或数量错误会失败或进入既有一次纠正流程。
+- `silent` 仅在请求允许时有效，且 `speech`、`actions`、`effect_calls` 必须为空。
 
-需要调整 `expression_agent.py` 中的：
+Provider/renderer 能力在发请求前核对。Persona 不接受编译为 `prompt_only` 的候选 Provider；若主 provider 不支持，可按现有候选策略查找支持协议级 tool call 的 provider，否则请求失败。
 
-- `PersonaExpressionResult` 字段。
-- `build_persona_expression_tool_parameters()`。
-- tool-call arguments 的 JSON 解析。
-- `turn_action` 的枚举转换。
-- `tendency` 八维范围和完整性校验。
-- `actions` 简单字符串数组校验。
-- `speech` 的空值处理。
-- effect correction flow 中对字段的保留逻辑。
+## 3. 运行时消费
 
-严格 tool call 缺失时继续沿用当前错误行为，并保持现有 Persona provider 兼容性筛选：不支持协议级 tool call 的候选在请求前排除；本阶段不新增 JSON mode、XML 或 Markdown 解析路径。
+- Middleware 根据 `turn_action` 决定完成回复、委派 Core 或静默。
+- 用户可见消息和当前 TTS 文本来源使用 `speech`。
+- `thought` 和 `tendency` 不拼入用户文本、TTS 或普通对话历史。
+- `actions` 是独立的简单动作意图数组；Schema 只校验非空字符串，简单意图且不带参数由 Prompt 要求；不会替代插件 effect 调用。
+- `effect_calls` 保持插件所有权。Core 负责将当前结果放进 `InteractionResultView`，由有权消费该 effect 的插件解释和输出。
+- Core 记录即时 Persona 的动作、心理想法和情绪快照。若 Core 最终文本与即时文本相同，只有在这三项状态也相同时才抑制重复发送。
+- `capture_plugin_output(mode="persona")` 将模型改写结果交给 `plugin_reply` result contributors；`mode="direct"` 不进行 Persona 改写，保持原路径。
 
-## 4. 运行时消费
+## 4. 旧输出字段
 
-需要检查并改造：
+Core schema 和 `PersonaExpressionResult` 不再包含 `spoken_reply`、`speech_cues` 等别名。结构精确校验会拒绝旧字段混入新的 tool-call payload。任何仍依赖这些字段的外部插件或 adapter 都必须按其自身发布与部署流程迁移；Core 不提供兼容映射。
 
-- `middleware.py`：使用 `speech` 进行输出和路由后的空值判断。
-- `persona_runtime.py`：读取规范化后的 `speech`。
-- `output_controller.py`：把 `speech` 交给消息输出和 TTS。
-- `capability_route_guard.py`：继续校验 `turn_action`，更新 silent 约束。
-- `contributors.py`、`turn_state.py`：如需保存表达快照，使用新的字段名称。
+TTS 标签仍未在本阶段实现。当前只保留 `speech` 作为 TTS 文本来源；注入 TTS provider 标签和按 TTS 要求清理输出属于第四阶段。
 
-`thought` 和 `tendency` 不得被拼接进用户文本、TTS 文本或普通对话历史。`actions` 只作为结构化动作意图继续向后传递。
+## 5. 实施与验证记录
 
-## 5. speech_cues 处理
-
-Core 的 `speech_cues` 字段在本阶段删除：
-
-- 不再加入 tool-call Schema。
-- 不再从结果中读取或生成。
-- 不再参与 silent 判定。
-- 不再由 Output Controller 传给 TTS。
-
-AG99live 等外部消费方的迁移在独立兼容任务中处理，Core 不为旧接口保留长期双轨协议。
-
-## 6. 阶段验收
-
-- 当前支持严格 tool call 的 provider 能返回完整新 Schema。
-- `spoken_reply` 和 `speech_cues` 不再被 Core 接受。
-- 五维情绪字段全部替换为八维 Plutchik 字段。
-- `silent`、`delegate`、`reply` 三条路径都能正确工作。
-- `speech` 是唯一进入输出和 TTS 的文本。
-- `effect_calls` 执行行为不变。
-- 不发生 provider 输出模式切换。
-
-## 7. 实施与验证记录
-
-- `PersonaExpressionResult` 与 `persona_expression` Schema 已迁移到 `turn_action`、`speech`、`actions`、`thought`、八维角色当前情绪 `tendency` 和 `effect_calls`；旧字段不再被 Core 接受。
-- Prompt、Middleware、Persona Runtime、Output Controller、路由校验和结果贡献视图已切换到新字段。用户可见文本与 TTS 输入继续只取 `speech`。
-- 缺少严格 `persona_expression` tool call 时维持失败；不接受 Persona JSON 文本降级。
-- Persona Expression 与 execution capability 定向测试通过（58 项）；Ruff 与 `git diff --check` 通过。
-- 六个相关测试文件合计 202 项通过、6 项失败。失败来自未修改的 effect-registry 事件 mock、既有 autonomous runtime 返回值断言和 stale Plugin Handler fixture；未触及本阶段的 Schema/解析/文本消费路径。
-- AG99live 等外部消费方的旧字段迁移保留为独立兼容任务；本阶段不改动被忽略的本地插件目录。
-
+- `007b6cb5d` 完成首轮 schema、Prompt、解析和运行时迁移；`964fbf9ad` 记录第一阶段事实。
+- 后续修复 `eda87adb8` 让 Persona 改写的插件结果携带完整结构化字段进入 Contributor，并修正相同可见文本但 Persona 状态不同导致错误抑制的问题。
+- 2026-10-09 对 `tests/unit/test_interaction_plugin_runtime.py` 的定向运行通过 44 项，覆盖 `plugin_reply` 字段与 extras 投递、即时字段快照和状态变化时不去重。Ruff check、Python 编译、`git diff --check` 通过。
+- 既有第一阶段记录包含 Persona schema 相关定向测试 58 项通过。更宽的历史组合运行有 6 项未修改 fixture/assertion 失败；不能据此声称全量测试或真实平台验收通过。
+- 本记录不声称已完成 Provider 全矩阵、外部插件迁移、应用启动或真实 Provider/TTS/平台端到端验收。
