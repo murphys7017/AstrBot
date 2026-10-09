@@ -51,6 +51,7 @@ from astrbot.core.provider.modalities import (
     sanitize_contexts_by_modalities,
 )
 from astrbot.core.provider.provider import Provider
+from astrbot.core.utils.async_generator import iterate_in_task
 
 from ..context.compressor import ContextCompressor
 from ..context.config import ContextConfig
@@ -1748,48 +1749,46 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self,
         executor: AsyncIterator[ToolExecutorResultT],
     ) -> T.AsyncGenerator[ToolExecutorResultT, None]:
-        while True:
-            if self._is_stop_requested():
-                await self._close_executor(executor)
-                raise _ToolExecutionInterrupted(
-                    "Tool execution interrupted before reading the next tool result."
-                )
-
-            next_result_task = asyncio.create_task(anext(executor))
-            abort_task = asyncio.create_task(self._abort_signal.wait())
-            try:
-                done, _ = await asyncio.wait(
-                    {next_result_task, abort_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if abort_task in done:
-                    if not next_result_task.done():
-                        next_result_task.cancel()
-                        with suppress(asyncio.CancelledError, StopAsyncIteration):
-                            await next_result_task
-
-                    await self._close_executor(executor)
-
+        executor = iterate_in_task(executor)
+        try:
+            while True:
+                if self._is_stop_requested():
                     raise _ToolExecutionInterrupted(
-                        "Tool execution interrupted by a stop request."
+                        "Tool execution interrupted before reading the next tool result."
                     )
 
+                next_result_task = asyncio.create_task(anext(executor))
+                abort_task = asyncio.create_task(self._abort_signal.wait())
                 try:
-                    yield next_result_task.result()
-                except StopAsyncIteration:
-                    return
-            except asyncio.CancelledError:
-                if not next_result_task.done():
-                    next_result_task.cancel()
-                    with suppress(asyncio.CancelledError, StopAsyncIteration):
-                        await next_result_task
-                elif not next_result_task.cancelled():
-                    next_result_task.exception()
-                await self._close_executor(executor)
-                raise
-            finally:
-                if not abort_task.done():
-                    abort_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await abort_task
+                    done, _ = await asyncio.wait(
+                        {next_result_task, abort_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if abort_task in done:
+                        if not next_result_task.done():
+                            next_result_task.cancel()
+                            with suppress(asyncio.CancelledError, StopAsyncIteration):
+                                await next_result_task
+                        elif not next_result_task.cancelled():
+                            next_result_task.exception()
+                        raise _ToolExecutionInterrupted(
+                            "Tool execution interrupted by a stop request."
+                        )
+
+                    try:
+                        yield next_result_task.result()
+                    except StopAsyncIteration:
+                        return
+                except asyncio.CancelledError:
+                    if not next_result_task.done():
+                        next_result_task.cancel()
+                    await asyncio.gather(next_result_task, return_exceptions=True)
+                    raise
+                finally:
+                    if not abort_task.done():
+                        abort_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await abort_task
+        finally:
+            await self._close_executor(executor)

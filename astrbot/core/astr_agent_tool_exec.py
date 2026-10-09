@@ -6,6 +6,7 @@ import typing as T
 import uuid
 from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
+from contextlib import aclosing
 
 import mcp
 
@@ -56,6 +57,7 @@ from astrbot.core.tools.computer_tools import (
 )
 from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.core.utils.async_generator import iterate_in_task
 from astrbot.core.utils.image_ref_utils import is_supported_image_ref
 from astrbot.core.utils.string_utils import normalize_and_dedupe_strings
 
@@ -181,18 +183,25 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 )
                 is_bg = False
             if is_bg:
-                async for r in cls._execute_handoff_background(
-                    tool, run_context, **tool_args
-                ):
-                    yield r
+                async with aclosing(
+                    cls._execute_handoff_background(tool, run_context, **tool_args)
+                ) as results:
+                    async for r in results:
+                        yield r
                 return
-            async for r in cls._execute_handoff(tool, run_context, **tool_args):
-                yield r
+            async with aclosing(
+                cls._execute_handoff(tool, run_context, **tool_args)
+            ) as results:
+                async for r in results:
+                    yield r
             return
 
         elif isinstance(tool, MCPTool):
-            async for r in cls._execute_mcp(tool, run_context, **tool_args):
-                yield r
+            async with aclosing(
+                cls._execute_mcp(tool, run_context, **tool_args)
+            ) as results:
+                async for r in results:
+                    yield r
             return
 
         elif tool.is_background_task and not interaction_turn:
@@ -229,8 +238,11 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                     event.get_extra("_turn_id"),
                     tool.name,
                 )
-            async for r in cls._execute_local(tool, run_context, **tool_args):
-                yield r
+            async with aclosing(
+                cls._execute_local(tool, run_context, **tool_args)
+            ) as results:
+                async for r in results:
+                    yield r
             return
 
     @classmethod
@@ -814,10 +826,13 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 except StopAsyncIteration:
                     break
         finally:
-            if output_capture is not None:
-                event.clear_result()
-                if hasattr(event, "_force_stopped"):
-                    event._force_stopped = original_force_stopped
+            try:
+                await wrapper.aclose()
+            finally:
+                if output_capture is not None:
+                    event.clear_result()
+                    if hasattr(event, "_force_stopped"):
+                        event._force_stopped = original_force_stopped
 
     @staticmethod
     async def _discard_unsupported_persona_stream(stream, tool_name: str) -> None:
@@ -951,18 +966,19 @@ async def call_local_llm_tool(
     if inspect.isasyncgen(ready_to_call):
         _has_yielded = False
         try:
-            async for ret in ready_to_call:
-                # 这里逐步执行异步生成器, 对于每个 yield 返回的 ret, 执行下面的代码
-                # 返回值只能是 MessageEventResult 或者 None（无返回值）
-                _has_yielded = True
-                if isinstance(ret, MessageEventResult | CommandResult):
-                    # 如果返回值是 MessageEventResult, 设置结果并继续
-                    event.set_result(ret)
-                    yield
-                else:
-                    # 如果返回值是 None, 则不设置结果并继续
-                    # 继续执行后续阶段
-                    yield ret
+            async with aclosing(iterate_in_task(ready_to_call)) as results:
+                async for ret in results:
+                    # 这里逐步执行异步生成器, 对于每个 yield 返回的 ret, 执行下面的代码
+                    # 返回值只能是 MessageEventResult 或者 None（无返回值）
+                    _has_yielded = True
+                    if isinstance(ret, MessageEventResult | CommandResult):
+                        # 如果返回值是 MessageEventResult, 设置结果并继续
+                        event.set_result(ret)
+                        yield
+                    else:
+                        # 如果返回值是 None, 则不设置结果并继续
+                        # 继续执行后续阶段
+                        yield ret
             if not _has_yielded:
                 # 如果这个异步生成器没有执行到 yield 分支
                 yield

@@ -1,12 +1,17 @@
 import asyncio
 from types import SimpleNamespace
 
+import anyio
 import mcp
 import pytest
 
 from astrbot.core.agent.agent import Agent
 from astrbot.core.agent.handoff import HandoffTool
 from astrbot.core.agent.run_context import ContextWrapper
+from astrbot.core.agent.runners.tool_loop_agent_runner import (
+    ToolLoopAgentRunner,
+    _ToolExecutionInterrupted,
+)
 from astrbot.core.agent.tool import TOOL_TARGET_PERSONAL_EXPRESSION, FunctionTool
 from astrbot.core.agent.tool_output_capture import (
     PersonaToolOutputAttachments,
@@ -253,6 +258,87 @@ async def test_persona_tool_timeout_clears_legacy_event_state():
 
     assert event.get_result() is None
     assert event._force_stopped is False
+
+
+@pytest.mark.asyncio
+async def test_tool_generator_stays_in_one_task_across_runner_reads():
+    owners = []
+    cleaned = []
+
+    async def handler(_event):
+        with anyio.CancelScope():
+            try:
+                owners.append(asyncio.current_task())
+                yield "first"
+                owners.append(asyncio.current_task())
+                yield "second"
+            finally:
+                cleaned.append(asyncio.current_task())
+
+    tool = FunctionTool(
+        name="task_affinity_probe",
+        description="Checks tool generator task ownership.",
+        parameters={"type": "object", "properties": {}},
+        handler=handler,
+    )
+    run_context = ContextWrapper(context=SimpleNamespace(event=_DummyEvent()))
+    runner = ToolLoopAgentRunner.__new__(ToolLoopAgentRunner)
+    runner._abort_signal = asyncio.Event()
+    results = runner._iter_tool_executor_results(
+        FunctionToolExecutor._execute_local(tool, run_context)
+    )
+    try:
+        assert (await anext(results)).content[0].text == "first"
+        assert (await anext(results)).content[0].text == "second"
+        with pytest.raises(StopAsyncIteration):
+            await anext(results)
+    finally:
+        await results.aclose()
+
+    assert len(owners) == 2
+    assert owners[0] is owners[1] is cleaned[0]
+
+
+@pytest.mark.asyncio
+async def test_tool_stop_waits_for_handler_generator_cleanup():
+    tasks_before = set(asyncio.all_tasks())
+    started = asyncio.Event()
+    cleaned = []
+
+    async def handler(_event):
+        try:
+            started.set()
+            await asyncio.Future()
+            yield "unreachable"
+        finally:
+            await asyncio.sleep(0)
+            cleaned.append(asyncio.current_task())
+
+    tool = FunctionTool(
+        name="stop_cleanup_probe",
+        description="Checks cleanup after tool stop.",
+        parameters={"type": "object", "properties": {}},
+        handler=handler,
+    )
+    run_context = ContextWrapper(context=SimpleNamespace(event=_DummyEvent()))
+    runner = ToolLoopAgentRunner.__new__(ToolLoopAgentRunner)
+    runner._abort_signal = asyncio.Event()
+    results = runner._iter_tool_executor_results(
+        FunctionToolExecutor._execute_local(tool, run_context)
+    )
+    pending = asyncio.create_task(anext(results))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        runner.request_stop()
+        with pytest.raises(_ToolExecutionInterrupted):
+            await asyncio.wait_for(pending, 1)
+        assert cleaned
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await results.aclose()
+
+    assert not (set(asyncio.all_tasks()) - tasks_before)
 
 
 @pytest.mark.asyncio
