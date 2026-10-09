@@ -13,6 +13,45 @@
         clearable
         class="mb-3"
       />
+      <div v-if="mcpServers.length > 0" class="mcp-selection-actions">
+        <template v-if="batchSelectionEnabled">
+          <v-btn
+            variant="text"
+            size="small"
+            :disabled="filteredServers.length === 0 || batchDeleting"
+            @click="toggleSelectAll"
+          >
+            {{ allVisibleServersSelected ? tm('mcpServers.clearSelection') : tm('mcpServers.selectAll') }}
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="tonal"
+            size="small"
+            prepend-icon="mdi-delete-outline"
+            :disabled="selectedMcpServerNames.length === 0 || batchDeleting"
+            @click="confirmBatchDelete"
+          >
+            {{ tm('mcpServers.deleteSelected', { count: selectedMcpServerNames.length }) }}
+          </v-btn>
+          <v-btn
+            variant="text"
+            size="small"
+            :disabled="batchDeleting"
+            @click="cancelBatchSelection"
+          >
+            {{ tm('mcpServers.cancel') }}
+          </v-btn>
+        </template>
+        <v-btn
+          v-else
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-select-multiple"
+          @click="startBatchSelection"
+        >
+          {{ tm('mcpServers.select') }}
+        </v-btn>
+      </div>
       <div v-if="mcpServers.length === 0" class="text-center pa-8">
         <v-icon size="64" color="grey-lighten-1">mdi-server-off</v-icon>
         <p class="text-grey mt-4">{{ tm('mcpServers.empty') }}</p>
@@ -27,9 +66,26 @@
           v-for="server in filteredServers"
           :key="server.name"
           :title="server.name"
-          clickable
+          :class="{
+            'mcp-server-list-item--selected':
+              batchSelectionEnabled && selectedMcpServerNames.includes(server.name),
+          }"
+          :clickable="!batchSelectionEnabled"
           @click="editServer(server)"
         >
+          <template #title-prepend>
+            <v-checkbox-btn
+              v-if="batchSelectionEnabled"
+              v-model="selectedMcpServerNames"
+              :value="server.name"
+              density="compact"
+              hide-details
+              :disabled="batchDeleting"
+              :aria-label="tm('mcpServers.selectServer', { name: server.name })"
+              @click.stop
+            />
+          </template>
+
           <div
             class="mcp-server-config text-body-2 text-medium-emphasis"
             :title="getServerConfigSummary(server)"
@@ -98,7 +154,7 @@
             </template>
           </div>
 
-          <template #actions>
+          <template v-if="!batchSelectionEnabled" #actions>
             <v-tooltip :text="t('core.common.itemCard.delete')" location="top">
               <template #activator="{ props }">
                 <v-btn
@@ -113,7 +169,7 @@
             </v-tooltip>
           </template>
 
-          <template #control>
+          <template v-if="!batchSelectionEnabled" #control>
             <v-progress-circular
               v-if="mcpServerUpdateLoaders[server.name]"
               indeterminate
@@ -145,6 +201,50 @@
           </template>
         </OutlinedActionListItem>
       </div>
+
+      <v-dialog
+        v-model="batchDeleteDialog"
+        max-width="520px"
+        :persistent="batchDeleting"
+      >
+        <v-card>
+          <v-card-title class="text-h3 pa-4 pb-0 pl-6">
+            {{ tm('mcpServers.batchDeleteTitle') }}
+          </v-card-title>
+          <v-card-text>
+            <p>
+              {{ tm('mcpServers.batchDeleteMessage', { count: batchDeleteTargets.length }) }}
+            </p>
+            <v-list class="batch-delete-targets mt-3" density="compact">
+              <v-list-item
+                v-for="name in batchDeleteTargets"
+                :key="name"
+                class="batch-delete-target"
+                :title="name"
+                prepend-icon="mdi-server-off"
+              />
+            </v-list>
+          </v-card-text>
+          <v-card-actions class="d-flex justify-end">
+            <v-btn
+              variant="text"
+              :disabled="batchDeleting"
+              @click="batchDeleteDialog = false"
+            >
+              {{ tm('mcpServers.cancel') }}
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="tonal"
+              :loading="batchDeleting"
+              :disabled="batchDeleteTargets.length === 0"
+              @click="deleteSelectedMcpServers"
+            >
+              {{ tm('mcpServers.batchDeleteConfirm', { count: batchDeleteTargets.length }) }}
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
     </v-container>
 
     <div class="mcp-fab-stack">
@@ -350,6 +450,11 @@ export default {
       loading: false,
       loadingGettingServers: false,
       mcpServerUpdateLoaders: {},
+      batchSelectionEnabled: false,
+      selectedMcpServerNames: [],
+      batchDeleteTargets: [],
+      batchDeleteDialog: false,
+      batchDeleting: false,
       isEditMode: false,
       serverConfigJson: '',
       jsonError: null,
@@ -369,8 +474,19 @@ export default {
       const query = buildSearchQuery(this.serverSearch);
       if (!query) return this.mcpServers;
       return this.mcpServers.filter(server =>
-        [server.name, server.transport, server.command, ...(server.tools || [])]
+        [
+          server.name,
+          server.transport,
+          server.command,
+          ...(Array.isArray(server.args) ? server.args : []),
+          ...(Array.isArray(server.tools) ? server.tools : []),
+        ]
           .some(field => matchesText(field, query))
+      );
+    },
+    allVisibleServersSelected() {
+      return this.filteredServers.length > 0 && this.filteredServers.every(
+        server => this.selectedMcpServerNames.includes(server.name)
       );
     },
     isServerFormValid() {
@@ -427,21 +543,30 @@ export default {
     },
     getServers() {
       this.loadingGettingServers = true;
-      axios.get('/api/tools/mcp/servers')
+      return axios.get('/api/tools/mcp/servers')
         .then(response => {
           if (response.data.status === 'error') {
             this.showError(response.data.message || this.tm('messages.getServersError', { error: 'Unknown error' }));
-            return;
+            return false;
           }
           this.mcpServers = response.data.data || [];
+          const availableNames = new Set(this.mcpServers.map(server => server.name));
+          this.selectedMcpServerNames = this.selectedMcpServerNames.filter(name =>
+            availableNames.has(name)
+          );
+          if (this.batchSelectionEnabled && availableNames.size === 0 && !this.batchDeleting) {
+            this.cancelBatchSelection();
+          }
           this.mcpServers.forEach(server => {
             if (!this.mcpServerUpdateLoaders[server.name]) {
               this.mcpServerUpdateLoaders[server.name] = false;
             }
           });
+          return true;
         })
         .catch(error => {
           this.showError(this.tm('messages.getServersError', { error: error.message }));
+          return false;
         }).finally(() => {
           this.loadingGettingServers = false;
         });
@@ -539,6 +664,91 @@ export default {
         .catch(error => {
           this.showError(this.tm('messages.deleteError', { error: error.response?.data?.message || error.message }));
         });
+    },
+    startBatchSelection() {
+      this.selectedMcpServerNames = [];
+      this.batchDeleteTargets = [];
+      this.batchSelectionEnabled = true;
+    },
+    cancelBatchSelection() {
+      if (this.batchDeleting) return;
+      this.batchSelectionEnabled = false;
+      this.selectedMcpServerNames = [];
+      this.batchDeleteTargets = [];
+      this.batchDeleteDialog = false;
+    },
+    toggleSelectAll() {
+      const visibleNames = new Set(this.filteredServers.map(server => server.name));
+      if (this.allVisibleServersSelected) {
+        this.selectedMcpServerNames = this.selectedMcpServerNames.filter(
+          name => !visibleNames.has(name)
+        );
+        return;
+      }
+      this.selectedMcpServerNames = [
+        ...new Set([...this.selectedMcpServerNames, ...visibleNames]),
+      ];
+    },
+    confirmBatchDelete() {
+      const availableNames = new Set(this.mcpServers.map(server => server.name));
+      this.batchDeleteTargets = [
+        ...new Set(this.selectedMcpServerNames.filter(name => availableNames.has(name))),
+      ];
+      if (this.batchDeleteTargets.length > 0) {
+        this.batchDeleteDialog = true;
+      }
+    },
+    async deleteSelectedMcpServers() {
+      if (this.batchDeleting || this.batchDeleteTargets.length === 0) return;
+
+      const targets = [...this.batchDeleteTargets];
+      const requestErrors = [];
+      this.batchDeleting = true;
+
+      try {
+        for (const name of targets) {
+          try {
+            const response = await axios.post('/api/tools/mcp/delete', { name });
+            if (response?.data?.status !== 'ok') requestErrors.push(name);
+          } catch (_error) {
+            requestErrors.push(name);
+          }
+        }
+
+        this.batchDeleteDialog = false;
+        this.batchDeleteTargets = [];
+        if (!(await this.getServers())) return;
+
+        const availableNames = new Set(this.mcpServers.map(server => server.name));
+        const failed = targets.filter(name => availableNames.has(name));
+        const removedAfterError = requestErrors.filter(name => !availableNames.has(name));
+        const removed = targets.length - failed.length;
+        this.selectedMcpServerNames = failed;
+        if (failed.length === 0) this.batchSelectionEnabled = false;
+
+        if (failed.length === 0 && removedAfterError.length === 0) {
+          this.showSuccess(this.tm('mcpServers.batchDeleteSuccess', { count: removed }));
+        } else if (failed.length === 0) {
+          this.showError(this.tm('mcpServers.batchDeleteRemovalWarning', {
+            succeeded: removed,
+            warnings: removedAfterError.length,
+          }));
+        } else if (removedAfterError.length === 0) {
+          this.showError(this.tm('mcpServers.batchDeletePartial', {
+            succeeded: removed,
+            failed: failed.length,
+          }));
+        } else {
+          this.showError(this.tm('mcpServers.batchDeletePartialWithWarning', {
+            succeeded: removed,
+            failed: failed.length,
+            warnings: removedAfterError.length,
+          }));
+        }
+      } finally {
+        this.batchDeleting = false;
+        if (this.mcpServers.length === 0) this.cancelBatchSelection();
+      }
     },
     editServer(server) {
       const configCopy = { ...server };
@@ -672,6 +882,35 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.mcp-selection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 8px 0 12px;
+}
+
+.mcp-server-list-item--selected {
+  background: rgba(var(--v-theme-primary), 0.06);
+  border-color: rgba(var(--v-theme-primary), 0.5);
+}
+
+.batch-delete-targets {
+  background: transparent;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.batch-delete-target {
+  border-radius: 8px;
+}
+
+.batch-delete-target + .batch-delete-target {
+  margin-top: 6px;
 }
 
 .mcp-server-config {
