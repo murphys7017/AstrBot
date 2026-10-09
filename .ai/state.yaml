@@ -152,6 +152,26 @@ skills_batch_delete_equivalence_20261009:
     boundary. No dedicated batch UI test exists; upstream intake JSON remains
     an immutable historical snapshot.
 
+mcp_search_batch_delete_20261009:
+  date: '2026-10-09'
+  class: feature
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Complete the MCP portion of upstream 1a591562b by searching server args and
+    adding visible-list batch selection, confirmation, sequential deletion,
+    and truthful partial-failure feedback. Preserve the existing MCP search,
+    empty-result state, Skills behavior, and backend deletion contract.
+  non_goals: >-
+    Do not change the MCP delete API or shutdown ordering, restart the running
+    service, remove old data/dist assets, or modify the historical intake JSON.
+  validation: >-
+    Dashboard production build and typecheck passed; three locale JSON files
+    parsed successfully and git diff --check passed. All 707 built files match
+    data/dist by SHA-256, with 510 destination-only old assets retained. The
+    live MCP delete and runtime-shutdown path remains untested.
+  commit: 2db7ef02c
+
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'
   class: bugfix
