@@ -32,6 +32,28 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+structured_persona_output_review_followup_20261009:
+  date: '2026-10-09'
+  class: bugfix
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Forward Persona-rewritten plugin output through result contributors with a
+    plugin_reply purpose and structured Persona state. Preserve immediate
+    actions, thought, and tendency for Core duplicate-reply arbitration, and
+    align current protocol documentation with the structured output fields.
+  non_goals: >-
+    Do not change plugin_direct output, provider request contracts, tool
+    execution, or TTS cue injection and cleanup.
+  validation: >-
+    tests/unit/test_interaction_plugin_runtime.py passed 44 tests. Ruff check,
+    Python compilation, and git diff --check passed. tests/unit/test_interaction_effects.py
+    passed 17 tests and had three existing fake-event failures because those
+    fixtures lack get_extra; the changed output path does not touch that
+    admission boundary. Ruff format --check reports pre-existing formatting
+    drift in all four checked files, also present in HEAD. Live plugin and
+    adapter acceptance remains pending.
+
 upstream_beneficial_updates_20261006:
   date: '2026-10-06'
   class: maintenance

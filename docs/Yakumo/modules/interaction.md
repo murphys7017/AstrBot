@@ -767,13 +767,14 @@ class Main(star.Star):
 - `view.turn_id`
 - `view.platform_id`
 - `view.session_id`
-- `view.purpose`
+- `view.purpose`: `persona_reply`、Persona 改写的插件输出 `plugin_reply` 或 Core 最终回复 `core_reply`。
 - `view.route_decision`
 - `view.output_draft`
 - `view.immediate_reply`
 - `view.core_result`
 - `view.final_result`
 - `view.effect_calls`
+- `view.actions`、`view.thought`、`view.tendency`、`view.turn_action`
 - `view.visible_outputs`
 - `view.utterances`
 - `view.turn_material_snapshot`
