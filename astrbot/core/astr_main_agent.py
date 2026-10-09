@@ -107,11 +107,13 @@ from astrbot.core.tools.computer_tools import (
     GrepTool,
     ListSkillCandidatesTool,
     ListSkillReleasesTool,
+    LocalExecuteShellTool,
     LocalPythonTool,
     PromoteSkillCandidateTool,
     PythonTool,
     RollbackSkillReleaseTool,
     RunBrowserSkillTool,
+    ShellSessionTool,
     SyncSkillReleaseTool,
 )
 from astrbot.core.tools.cron_tools import FutureTaskTool
@@ -868,7 +870,8 @@ def _apply_local_env_tools(req: ProviderRequest, plugin_context: Context) -> Non
     if req.func_tool is None:
         req.func_tool = ToolSet()
     tool_mgr = plugin_context.get_llm_tool_manager()
-    req.func_tool.add_tool(tool_mgr.get_builtin_tool(ExecuteShellTool))
+    req.func_tool.add_tool(LocalExecuteShellTool())
+    req.func_tool.add_tool(tool_mgr.get_builtin_tool(ShellSessionTool))
     req.func_tool.add_tool(tool_mgr.get_builtin_tool(LocalPythonTool))
     req.func_tool.add_tool(tool_mgr.get_builtin_tool(FileReadTool))
     req.func_tool.add_tool(tool_mgr.get_builtin_tool(FileWriteTool))

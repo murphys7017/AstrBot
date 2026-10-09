@@ -52,8 +52,10 @@ from astrbot.core.tools.computer_tools import (
     FileUploadTool,
     FileWriteTool,
     GrepTool,
+    LocalExecuteShellTool,
     LocalPythonTool,
     PythonTool,
+    ShellSessionTool,
 )
 from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
@@ -285,7 +287,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 )
             return tools
         if runtime == "local":
-            shell_tool = tool_mgr.get_builtin_tool(ExecuteShellTool)
+            shell_tool = LocalExecuteShellTool()
+            shell_session_tool = tool_mgr.get_builtin_tool(ShellSessionTool)
             python_tool = tool_mgr.get_builtin_tool(LocalPythonTool)
             read_tool = tool_mgr.get_builtin_tool(FileReadTool)
             write_tool = tool_mgr.get_builtin_tool(FileWriteTool)
@@ -293,6 +296,7 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
             grep_tool = tool_mgr.get_builtin_tool(GrepTool)
             return {
                 shell_tool.name: shell_tool,
+                shell_session_tool.name: shell_session_tool,
                 python_tool.name: python_tool,
                 read_tool.name: read_tool,
                 write_tool.name: write_tool,
@@ -351,6 +355,10 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         toolset = ToolSet()
         for tool_name_or_obj in tools:
             if isinstance(tool_name_or_obj, str):
+                runtime_tool = runtime_computer_tools.get(tool_name_or_obj)
+                if runtime_tool:
+                    toolset.add_tool(runtime_tool)
+                    continue
                 registered_tool = llm_tools.get_func(tool_name_or_obj)
                 if (
                     registered_tool
@@ -363,9 +371,6 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
                 ):
                     toolset.add_tool(registered_tool)
                     continue
-                runtime_tool = runtime_computer_tools.get(tool_name_or_obj)
-                if runtime_tool:
-                    toolset.add_tool(runtime_tool)
             elif isinstance(tool_name_or_obj, FunctionTool) and tool_supports_runtime_target(
                 event,
                 tool_name_or_obj,

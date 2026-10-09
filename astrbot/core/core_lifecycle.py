@@ -19,6 +19,7 @@ from asyncio import Queue
 from astrbot.api import logger, sp
 from astrbot.core import LogBroker, LogManager
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
+from astrbot.core.computer.computer_client import shutdown_local_booter
 from astrbot.core.config.default import VERSION
 from astrbot.core.conversation_mgr import ConversationManager
 from astrbot.core.cron import CronJobManager
@@ -641,6 +642,8 @@ class AstrBotCoreLifecycle:
                 await asyncio.gather(*curr_tasks, return_exceptions=True)
 
             await self._cancel_lifecycle_service_tasks()
+
+            await shutdown_step("local_computer_booter", shutdown_local_booter)
 
             if self.temp_dir_cleaner:
                 await shutdown_step("temp_dir_cleaner", self.temp_dir_cleaner.stop)
