@@ -1482,6 +1482,27 @@ class ChatService(DashboardService):
         if not session_id:
             return Response().error("Missing key: session_id").__dict__
 
+        before_id = request.args.get("before_id")
+        paginated = (
+            "page" in request.args
+            or "page_size" in request.args
+            or before_id is not None
+        )
+        if paginated:
+            try:
+                page = int(request.args.get("page", 1))
+                page_size = int(request.args.get("page_size", 50))
+                before_message_id = int(before_id) if before_id is not None else None
+            except (TypeError, ValueError):
+                return Response().error(
+                    "page, page_size, and before_id must be integers"
+                ).__dict__
+            page = max(page, 1)
+            page_size = min(max(page_size, 1), 1000)
+        else:
+            page = 1
+            page_size = 1000
+
         username = g.get("username", "guest")
 
         # 获取会话信息以确定 platform_id，并校验当前用户是否拥有该会话
@@ -1498,12 +1519,21 @@ class ChatService(DashboardService):
         )
 
         # Get platform message history using session_id
-        history_ls = await self.platform_history_mgr.get(
-            platform_id=platform_id,
-            user_id=session_id,
-            page=1,
-            page_size=1000,
-        )
+        if paginated and before_id is not None:
+            history_ls, has_more = await self.platform_history_mgr.get_before(
+                platform_id=platform_id,
+                user_id=session_id,
+                before_message_id=before_message_id,
+                page_size=page_size,
+            )
+        else:
+            history_ls = await self.platform_history_mgr.get(
+                platform_id=platform_id,
+                user_id=session_id,
+                page=page,
+                page_size=page_size,
+            )
+            has_more = False
 
         history_res = [history.model_dump() for history in history_ls]
         threads = await self.db.get_webchat_threads_by_parent_session(
@@ -1525,6 +1555,21 @@ class ChatService(DashboardService):
             "threads": [self._serialize_thread(thread) for thread in threads],
             "is_running": self.running_convs.get(session_id, False),
         }
+        if paginated:
+            total = await self.platform_history_mgr.count(
+                platform_id=platform_id,
+                user_id=session_id,
+            )
+            response_data.update(
+                {
+                    "total": total,
+                    "page": page,
+                    "page_size": page_size,
+                    "has_more": has_more
+                    if before_id is not None
+                    else (page - 1) * page_size + len(history_ls) < total,
+                }
+            )
 
         # 如果会话属于项目，添加项目信息
         if project_info:

@@ -810,10 +810,74 @@ class SQLiteDatabase(BaseDatabase):
                     PlatformMessageHistory.platform_id == platform_id,
                     PlatformMessageHistory.user_id == user_id,
                 )
-                .order_by(desc(PlatformMessageHistory.created_at))
+                .order_by(
+                    desc(PlatformMessageHistory.created_at),
+                    desc(PlatformMessageHistory.id),
+                )
             )
             result = await session.execute(query.offset(offset).limit(page_size))
             return result.scalars().all()
+
+    async def count_platform_message_history(
+        self,
+        platform_id: str,
+        user_id: str,
+    ) -> int:
+        """Count platform message history records for a scope."""
+        async with self.get_db() as session:
+            session: AsyncSession
+            result = await session.execute(
+                select(func.count(PlatformMessageHistory.id)).where(
+                    PlatformMessageHistory.platform_id == platform_id,
+                    PlatformMessageHistory.user_id == user_id,
+                )
+            )
+            return int(result.scalar_one() or 0)
+
+    async def get_platform_message_history_before(
+        self,
+        platform_id: str,
+        user_id: str,
+        before_message_id: int,
+        page_size: int = 20,
+    ) -> tuple[list[PlatformMessageHistory], bool]:
+        """Get older history rows without an offset that shifts on new inserts."""
+        async with self.get_db() as session:
+            session: AsyncSession
+            cursor_result = await session.execute(
+                select(PlatformMessageHistory).where(
+                    PlatformMessageHistory.id == before_message_id,
+                    PlatformMessageHistory.platform_id == platform_id,
+                    PlatformMessageHistory.user_id == user_id,
+                )
+            )
+            cursor = cursor_result.scalar_one_or_none()
+            if cursor is None:
+                return [], False
+
+            query = (
+                select(PlatformMessageHistory)
+                .where(
+                    PlatformMessageHistory.platform_id == platform_id,
+                    PlatformMessageHistory.user_id == user_id,
+                    or_(
+                        PlatformMessageHistory.created_at < cursor.created_at,
+                        (
+                            (PlatformMessageHistory.created_at == cursor.created_at)
+                            & (PlatformMessageHistory.id < before_message_id)
+                        ),
+                    ),
+                )
+                .order_by(
+                    desc(PlatformMessageHistory.created_at),
+                    desc(PlatformMessageHistory.id),
+                )
+                .limit(page_size + 1)
+            )
+            result = await session.execute(query)
+            history = result.scalars().all()
+            has_more = len(history) > page_size
+            return history[:page_size], has_more
 
     async def get_platform_message_history_by_id(
         self, message_id: int

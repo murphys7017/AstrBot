@@ -98,8 +98,9 @@
 | D16 | ✓ implementation / △ live pending | Dashboard 会话列表已吸收渐进分页，旧接口无分页参数时仍保留数组响应；后端契约、稳定排序和深链接元数据已通过定向测试，运行中页面滚动尚待验收。 | in_progress |
 | D17 | ✓ confirmed | 配置项保留兼容旧配置的注释。 | open |
 | D18* | ✓ implementation / △ live pending | `PluginManager.update_plugin()` 总是向 updater 传 `download_url`，但本地 `PluginUpdator.update()` 原签名不接收该参数，导致插件更新调用抛 `TypeError`；已吸收上游直链更新参数契约，真实更新验收待做。 | in_progress |
+| D19* | ✓ implementation / △ live pending | 主聊天记录已改为服务端分页和稳定游标加载，旧无参数接口仍保留最近 1000 条响应；去重、流式记录保留、会话切换隔离、失败重试和滚动锚定已实现，运行中页面滚动尚待服务重启后验收。 | in_progress |
 
-`D18*` 是处理原清单时发现的补充问题，不计入原 102 项。
+`D18*` 和 `D19*` 是处理原清单时发现的补充问题，不计入原 102 项。
 
 ## E · 补丁式实现
 

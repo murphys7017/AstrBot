@@ -53,6 +53,16 @@ export interface ChatRecord {
   threads?: ChatThread[];
 }
 
+export interface HistoryPaginationState {
+  page: number;
+  page_size: number;
+  total: number;
+  has_more: boolean;
+  loading: boolean;
+  before_id?: number;
+  error?: string;
+}
+
 export interface ChatThread {
   thread_id: string;
   parent_session_id: string;
@@ -112,10 +122,14 @@ interface UseMessagesOptions {
 }
 
 export function useMessages(options: UseMessagesOptions) {
-  const loadingMessages = ref(false);
+  const loadingBySession = reactive<Record<string, boolean>>({});
   const sending = ref(false);
   const messagesBySession = reactive<Record<string, ChatRecord[]>>({});
   const loadedSessions = reactive<Record<string, boolean>>({});
+  const paginationBySession = reactive<
+    Record<string, HistoryPaginationState>
+  >({});
+  const sessionLoadEpochs = reactive<Record<string, number>>({});
   const sessionDetails = reactive<Record<string, Session>>({});
   const activeConnections = reactive<Record<string, ActiveConnection>>({});
   const attachmentBlobCache = new Map<string, Promise<string>>();
@@ -127,6 +141,11 @@ export function useMessages(options: UseMessagesOptions) {
     options.currentSessionId.value
       ? messagesBySession[options.currentSessionId.value] || []
       : [],
+  );
+  const loadingMessages = computed(() =>
+    options.currentSessionId.value
+      ? Boolean(loadingBySession[options.currentSessionId.value])
+      : false,
   );
 
   onBeforeUnmount(() => {
@@ -214,13 +233,75 @@ export function useMessages(options: UseMessagesOptions) {
     await Promise.all(tasks);
   }
 
-  async function loadSessionMessages(sessionId: string) {
+  function getPaginationState(sessionId: string): HistoryPaginationState {
+    return (paginationBySession[sessionId] ||= {
+      page: 1,
+      page_size: 50,
+      total: 0,
+      has_more: false,
+      loading: false,
+    });
+  }
+
+  function mergeHistoryRecords(
+    incoming: ChatRecord[],
+    existing: ChatRecord[],
+  ): ChatRecord[] {
+    const recordsById = new Map<string, ChatRecord>();
+    const unkeyed: ChatRecord[] = [];
+    for (const record of incoming) {
+      if (record.id == null) unkeyed.push(record);
+      else recordsById.set(String(record.id), record);
+    }
+    for (const record of existing) {
+      if (record.id == null) unkeyed.push(record);
+      else recordsById.set(String(record.id), record);
+    }
+    return [...recordsById.values(), ...unkeyed];
+  }
+
+  function readHistoryPagination(
+    payload: Record<string, any>,
+    state: HistoryPaginationState,
+    requestedPage: number,
+    records: ChatRecord[],
+  ) {
+    if (payload.page == null || payload.page_size == null) {
+      state.page = 1;
+      state.page_size = records.length || state.page_size;
+      state.total = records.length;
+      state.has_more = false;
+      state.before_id = undefined;
+      return;
+    }
+    state.page = Number(payload.page) || requestedPage;
+    state.page_size = Number(payload.page_size) || state.page_size;
+    state.total = Number.isFinite(Number(payload.total))
+      ? Number(payload.total)
+      : records.length;
+    state.has_more = Boolean(payload.has_more);
+    const beforeId = Number(records[0]?.id);
+    state.before_id = Number.isSafeInteger(beforeId) ? beforeId : undefined;
+  }
+
+  async function loadSessionMessages(sessionId: string, retry = false) {
     if (!sessionId) return;
-    loadingMessages.value = true;
+    if (paginationBySession[sessionId]?.loading) return;
+    if (loadedSessions[sessionId] && !retry) return;
+    const state = getPaginationState(sessionId);
+    const epoch = (sessionLoadEpochs[sessionId] || 0) + 1;
+    sessionLoadEpochs[sessionId] = epoch;
+    loadingBySession[sessionId] = true;
+    state.loading = true;
+    state.error = undefined;
     try {
       const response = await axios.get("/api/chat/get_session", {
-        params: { session_id: sessionId },
+        params: { session_id: sessionId, page: 1, page_size: 50 },
       });
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
+      if (response.data?.status !== "ok") {
+        throw new Error(response.data?.message || "Failed to load session messages");
+      }
       const payload = response.data?.data || {};
       if (payload.session) sessionDetails[sessionId] = payload.session;
       sessionProjects[sessionId] = normalizeSessionProject(payload.project);
@@ -228,13 +309,69 @@ export function useMessages(options: UseMessagesOptions) {
       const records = history.map(normalizeHistoryRecord);
       attachThreads(records, payload.threads || []);
       await resolveRecordMedia(records);
-      messagesBySession[sessionId] = records;
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
+      messagesBySession[sessionId] = mergeHistoryRecords(
+        records,
+        messagesBySession[sessionId] || [],
+      );
+      readHistoryPagination(payload, state, 1, records);
       loadedSessions[sessionId] = true;
     } catch (error) {
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
       console.error("Failed to load session messages:", error);
-      messagesBySession[sessionId] = messagesBySession[sessionId] || [];
+      state.error = String((error as Error)?.message || error);
     } finally {
-      loadingMessages.value = false;
+      if (sessionLoadEpochs[sessionId] === epoch) {
+        loadingBySession[sessionId] = false;
+        state.loading = false;
+      }
+    }
+  }
+
+  async function loadEarlierMessages(sessionId: string) {
+    if (!sessionId) return;
+    const state = paginationBySession[sessionId];
+    if (
+      !state ||
+      !state.has_more ||
+      state.before_id == null ||
+      state.loading ||
+      !loadedSessions[sessionId]
+    )
+      return;
+    const epoch = sessionLoadEpochs[sessionId] || 0;
+    const nextPage = state.page + 1;
+    state.loading = true;
+    state.error = undefined;
+    try {
+      const response = await axios.get("/api/chat/get_session", {
+        params: {
+          session_id: sessionId,
+          page: nextPage,
+          page_size: state.page_size,
+          before_id: state.before_id,
+        },
+      });
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
+      if (response.data?.status !== "ok") {
+        throw new Error(response.data?.message || "Failed to load earlier messages");
+      }
+      const payload = response.data?.data || {};
+      const records = (payload.history || []).map(normalizeHistoryRecord);
+      attachThreads(records, payload.threads || []);
+      await resolveRecordMedia(records);
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
+      messagesBySession[sessionId] = mergeHistoryRecords(
+        records,
+        messagesBySession[sessionId] || [],
+      );
+      readHistoryPagination(payload, state, nextPage, records);
+    } catch (error) {
+      if (sessionLoadEpochs[sessionId] !== epoch) return;
+      state.error = String((error as Error)?.message || error);
+      console.error("Failed to load earlier session messages:", error);
+    } finally {
+      if (sessionLoadEpochs[sessionId] === epoch) state.loading = false;
     }
   }
 
@@ -733,6 +870,7 @@ export function useMessages(options: UseMessagesOptions) {
     sending,
     messagesBySession,
     loadedSessions,
+    paginationBySession,
     sessionDetails,
     sessionProjects,
     activeMessages,
@@ -742,6 +880,7 @@ export function useMessages(options: UseMessagesOptions) {
     messageContent,
     messageParts,
     loadSessionMessages,
+    loadEarlierMessages,
     createLocalExchange,
     sendMessageStream,
     editMessage,

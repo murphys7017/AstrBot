@@ -292,6 +292,26 @@ class BaseDatabase(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def count_platform_message_history(
+        self,
+        platform_id: str,
+        user_id: str,
+    ) -> int:
+        """Count platform message history records for a scope."""
+        ...
+
+    @abc.abstractmethod
+    async def get_platform_message_history_before(
+        self,
+        platform_id: str,
+        user_id: str,
+        before_message_id: int,
+        page_size: int = 20,
+    ) -> tuple[list[PlatformMessageHistory], bool]:
+        """Get an older history page anchored before a stored message."""
+        ...
+
+    @abc.abstractmethod
     async def get_platform_message_history_by_id(
         self,
         message_id: int,

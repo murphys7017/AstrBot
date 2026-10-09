@@ -1873,3 +1873,36 @@ Validation:
   content payload with `<@!user_id>` and `@everyone`, without a Markdown field;
   Group serialization retained `<qqbot-at-user>`, and a markup-injection ID
   was rejected. No test suite or live QQ API request was run.
+
+## 2026-10-09 Chat History Pagination
+
+Reviewed upstream reference: `fae2c120e` (`#9667`), against the current
+`upstream/master` snapshot `33ef43be3`.
+
+Absorbed by local rewrite:
+
+- The existing Quart `/api/chat/get_session` route accepts `page` and
+  `page_size`; callers without pagination parameters retain the previous
+  response shape and 1000-record history limit. Paginated requests return
+  scoped totals and `has_more` metadata.
+- History order is deterministic by `(created_at, id)`. In addition to the
+  upstream-compatible page parameters, the Dashboard's older-message requests
+  use an exclusive `before_id` cursor. New messages arriving during browsing do
+  not shift the boundary and hide older records.
+- The main ChatUI loads 50 recent messages, requests older pages near the top,
+  deduplicates by stored message ID, preserves local streaming records, guards
+  session switches, pauses automatic requests after failure, and offers retry
+  while preserving the visible scroll anchor. The existing thread-panel history
+  path is unchanged.
+- The endpoint returns complete history records as before; no FastAPI route,
+  OpenAPI contract, or message ownership change was imported.
+
+Validation:
+
+- `tests/unit/test_chat_session_pagination.py` passed 5 tests covering legacy
+  response compatibility, page metadata, same-timestamp order, session-scope
+  isolation, and cursor stability after newer records are inserted.
+- Dashboard typecheck and production build passed. All 707 built files match
+  `data/dist` by SHA-256; destination-only older hashed assets were retained.
+- Live browser scrolling, backend restart, and runtime API acceptance remain
+  pending. The running application was not restarted.

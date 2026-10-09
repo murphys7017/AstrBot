@@ -9,6 +9,7 @@
         v-for="(msg, msgIndex) in messages"
         :key="msg.id || `${msgIndex}-${msg.created_at || ''}`"
         class="message-row"
+        :data-message-id="msg.id == null ? undefined : String(msg.id)"
         :class="isUserMessage(msg) ? 'from-user' : 'from-bot'"
       >
         <v-avatar v-if="!isUserMessage(msg)" class="bot-avatar" :size="avatarSize">

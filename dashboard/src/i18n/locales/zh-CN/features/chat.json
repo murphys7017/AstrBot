@@ -37,6 +37,11 @@
     "quickActions": "快速操作",
     "examples": "示例问题"
   },
+  "history": {
+    "loadFailed": "聊天记录加载失败",
+    "loadEarlierFailed": "更早的消息加载失败",
+    "retry": "重试"
+  },
   "actions": {
     "copy": "复制",
     "regenerate": "重新生成",

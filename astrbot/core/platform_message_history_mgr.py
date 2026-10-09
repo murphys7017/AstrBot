@@ -42,6 +42,30 @@ class PlatformMessageHistoryManager:
         history.reverse()
         return history
 
+    async def count(self, platform_id: str, user_id: str) -> int:
+        """Count history rows for a platform/user scope."""
+        return await self.db.count_platform_message_history(
+            platform_id=platform_id,
+            user_id=user_id,
+        )
+
+    async def get_before(
+        self,
+        platform_id: str,
+        user_id: str,
+        before_message_id: int,
+        page_size: int = 20,
+    ) -> tuple[list[PlatformMessageHistory], bool]:
+        """Get an older chronological page anchored before a stored message."""
+        history, has_more = await self.db.get_platform_message_history_before(
+            platform_id=platform_id,
+            user_id=user_id,
+            before_message_id=before_message_id,
+            page_size=page_size,
+        )
+        history.reverse()
+        return history, has_more
+
     async def delete(
         self, platform_id: str, user_id: str, offset_sec: int = 86400
     ) -> None:

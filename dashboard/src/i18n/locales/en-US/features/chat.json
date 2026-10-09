@@ -37,6 +37,11 @@
     "quickActions": "Quick Actions",
     "examples": "Example Questions"
   },
+  "history": {
+    "loadFailed": "Chat history could not be loaded",
+    "loadEarlierFailed": "Earlier messages could not be loaded",
+    "retry": "Retry"
+  },
   "actions": {
     "copy": "Copy",
     "regenerate": "Regenerate",

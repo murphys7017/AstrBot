@@ -85,11 +85,35 @@ upstream_beneficial_updates_20261006:
     The current upstream baseline has 816 non-merge commits since the fork point;
     the 16-commit latest increment is recorded in
     docs/Yakumo/upstream-intake/2026-10-09.json. Historical classifications are
-    not current functional proof. Earlier known gaps include message-history
-    pagination, resumable-upload live acceptance, Computer role policies,
+    not current functional proof. Earlier known gaps include resumable-upload
+    live acceptance, Computer role policies,
     managed Shell sessions, and full Native Core image preparation. Continue
     reviewing the older unreviewed inventory without inferring completion from
     commit counts.
+
+chat_history_pagination_20261009:
+  date: '2026-10-09'
+  class: feature
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Add bounded server-side pagination to the legacy Quart chat-session detail
+    route and progressive older-message loading to the main Dashboard chat.
+    Preserve legacy no-query behavior and thread-panel behavior; use stable
+    (created_at, id) ordering plus an exclusive before-id cursor so new streamed
+    messages do not shift older-page boundaries.
+  non_goals: >-
+    Do not migrate this route to FastAPI/OpenAPI, paginate thread-panel history,
+    change message ownership or serialization, restart the running service, or
+    remove old data/dist hashed assets.
+  validation: >-
+    tests/unit/test_chat_session_pagination.py passed 5 tests, covering legacy
+    response compatibility, paginated metadata, deterministic same-timestamp
+    order, scope isolation, and cursor stability after new rows are inserted.
+    Dashboard typecheck and production build passed. All 707 built files match
+    data/dist by SHA-256; 339 destination-only old assets were retained. Browser
+    scroll anchoring and runtime API behavior remain pending a manual service
+    restart and live page acceptance.
 
 plugin_archive_windows_junction_followup:
   date: '2026-10-02'

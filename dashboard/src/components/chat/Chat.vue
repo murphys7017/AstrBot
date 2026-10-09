@@ -371,8 +371,30 @@
           class="messages-panel"
           @scroll="handleMessagesScroll"
         >
+          <v-progress-linear
+            v-if="activeSessionPagination?.loading && activeMessages.length"
+            class="history-loading"
+            color="primary"
+            height="2"
+            indeterminate
+            absolute
+            location="top"
+            aria-hidden="true"
+          />
           <div v-if="loadingMessages" class="center-state">
             <v-progress-circular indeterminate size="32" width="3" />
+          </div>
+
+          <div
+            v-else-if="!activeMessages.length && activeSessionPagination?.error"
+            class="welcome-state"
+          >
+            <ChatHistoryLoadError
+              :message="tm('history.loadFailed')"
+              :retry-label="tm('history.retry')"
+              :loading="activeSessionPagination.loading"
+              @retry="retryCurrentSessionLoad"
+            />
           </div>
 
           <div v-else-if="sessionProject" class="session-project-breadcrumb">
@@ -389,6 +411,14 @@
             v-if="!loadingMessages && activeMessages.length"
             class="messages-list-shell"
           >
+            <ChatHistoryLoadError
+              v-if="activeSessionPagination?.error"
+              class="history-load-error"
+              :message="tm('history.loadEarlierFailed')"
+              :retry-label="tm('history.retry')"
+              :loading="activeSessionPagination.loading"
+              @retry="retryCurrentSessionLoad"
+            />
             <ChatMessageList
               v-model:edit-draft="messageEditDraft"
               :messages="activeMessages"
@@ -546,6 +576,7 @@ import ProjectDialog, {
 import ProjectList, { type Project } from "@/components/chat/ProjectList.vue";
 import ProjectView from "@/components/chat/ProjectView.vue";
 import ChatInput from "@/components/chat/ChatInput.vue";
+import ChatHistoryLoadError from "@/components/chat/ChatHistoryLoadError.vue";
 import ChatMessageList from "@/components/chat/ChatMessageList.vue";
 import type { RegenerateModelSelection } from "@/components/chat/RegenerateMenu.vue";
 import ReasoningSidebar from "@/components/chat/ReasoningSidebar.vue";
@@ -665,6 +696,9 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const sessionList = ref<HTMLElement | null>(null);
 const inputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 const shouldStickToBottom = ref(true);
+const suppressAutoScroll = ref(false);
+const LOAD_EARLIER_SCROLL_THRESHOLD = 120;
+let historyLoadToken = 0;
 const replyTarget = ref<ChatRecord | null>(null);
 const threadPanelOpen = ref(false);
 const activeThread = ref<ChatThread | null>(null);
@@ -732,10 +766,12 @@ const {
   sessionDetails,
   sessionProjects,
   activeMessages,
+  paginationBySession,
   isSessionRunning,
   isUserMessage,
   messageParts,
   loadSessionMessages,
+  loadEarlierMessages,
   createLocalExchange,
   sendMessageStream,
   editMessage,
@@ -750,6 +786,15 @@ const {
       scrollToBottom();
     }
   },
+});
+
+const activeSessionPagination = computed(() =>
+  currSessionId.value ? paginationBySession[currSessionId.value] : undefined,
+);
+
+watch(currSessionId, () => {
+  historyLoadToken += 1;
+  suppressAutoScroll.value = false;
 });
 
 const transportMode = ref<TransportMode>(
@@ -976,7 +1021,7 @@ watch(
 );
 
 watch(activeMessages, () => {
-  if (shouldStickToBottom.value) {
+  if (!suppressAutoScroll.value && shouldStickToBottom.value) {
     scrollToBottom();
   }
 });
@@ -1174,9 +1219,11 @@ async function selectSession(sessionId: string, pushRoute = true) {
   replyTarget.value = null;
   if (pushRoute && route.path !== `${basePath()}/${sessionId}`) {
     await router.push(`${basePath()}/${sessionId}`);
+    if (currSessionId.value !== sessionId) return;
   }
   if (!loadedSessions[sessionId]) {
     await loadSessionMessages(sessionId);
+    if (currSessionId.value !== sessionId) return;
   }
   const storedSelection = readSessionProviderSelection(sessionId);
   if (storedSelection) {
@@ -1558,6 +1605,59 @@ function handleMessagesScroll() {
   const distance =
     container.scrollHeight - container.scrollTop - container.clientHeight;
   shouldStickToBottom.value = distance < 80;
+  maybeLoadEarlierOnScroll(container);
+}
+
+async function loadEarlierWithAnchor() {
+  const sessionId = currSessionId.value;
+  if (!sessionId || activeSessionPagination.value?.loading) return;
+  const container = messagesContainer.value;
+  const firstId = activeMessages.value[0]?.id;
+  const firstRow = firstId == null ? null : findMessageRow(container, firstId);
+  const beforeTop = firstRow?.getBoundingClientRect().top;
+  const token = ++historyLoadToken;
+  suppressAutoScroll.value = true;
+  try {
+    await loadEarlierMessages(sessionId);
+    if (currSessionId.value !== sessionId) return;
+    await nextTick();
+    if (beforeTop == null || !container || firstId == null) return;
+    const row = findMessageRow(container, firstId);
+    if (row) {
+      container.scrollTop += row.getBoundingClientRect().top - beforeTop;
+    }
+  } finally {
+    if (historyLoadToken === token) suppressAutoScroll.value = false;
+  }
+}
+
+function findMessageRow(container: HTMLElement | null, messageId: string | number) {
+  if (!container) return null;
+  return (
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-message-id]"),
+    ).find((row) => row.dataset.messageId === String(messageId)) || null
+  );
+}
+
+function maybeLoadEarlierOnScroll(container: HTMLElement) {
+  const sessionId = currSessionId.value;
+  const pagination = activeSessionPagination.value;
+  if (!sessionId || !pagination) return;
+  if (!pagination.has_more || pagination.loading || pagination.error) return;
+  if (container.scrollHeight <= container.clientHeight) return;
+  if (container.scrollTop > LOAD_EARLIER_SCROLL_THRESHOLD) return;
+  void loadEarlierWithAnchor();
+}
+
+async function retryCurrentSessionLoad() {
+  const sessionId = currSessionId.value;
+  if (!sessionId || activeSessionPagination.value?.loading) return;
+  if (activeMessages.value.length && activeSessionPagination.value?.has_more) {
+    await loadEarlierWithAnchor();
+    return;
+  }
+  await loadSessionMessages(sessionId, true);
 }
 
 function scrollToBottom(resumeFollowing = false) {
@@ -1567,7 +1667,12 @@ function scrollToBottom(resumeFollowing = false) {
   autoScrollFrame = window.requestAnimationFrame(() => {
     autoScrollFrame = null;
     const container = messagesContainer.value;
-    if (!container || !shouldStickToBottom.value) return;
+    if (
+      !container ||
+      suppressAutoScroll.value ||
+      !shouldStickToBottom.value
+    )
+      return;
     container.scrollTop = container.scrollHeight;
     shouldStickToBottom.value = true;
   });
@@ -1855,10 +1960,21 @@ function toggleTheme() {
 }
 
 .messages-panel {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 24px max(24px, calc((100% - 980px) / 2)) 18px;
+}
+
+.history-loading {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.history-load-error {
+  max-width: 760px;
+  margin: 0 auto 12px;
 }
 
 .empty-chat .messages-panel {
