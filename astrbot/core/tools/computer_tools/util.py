@@ -49,7 +49,7 @@ def check_admin_permission(
     if require_admin and context.context.event.role != "admin":
         return (
             f"error: Permission denied. {operation_name} is only allowed for admin users. "
-            "Tell user to set admins in `AstrBot WebUI -> Config -> AI -> Capabilities -> Agent Computer Use` by adding their user ID to the admins list if they need this feature. "
+            "Computer Use access is configured in `AstrBot WebUI -> Config -> Capabilities -> Agent Computer Use`; add admin IDs in `Config -> Channels -> Platform Config -> General -> Administrator IDs`. "
             f"User's ID is: {context.context.event.get_sender_id()}. User's ID can be found by using /sid command."
         )
     return None

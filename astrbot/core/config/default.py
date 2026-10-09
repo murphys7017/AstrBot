@@ -3560,7 +3560,7 @@ CONFIG_METADATA_3 = {
                     "provider_settings.computer_use_require_admin": {
                         "description": "需要 AstrBot 管理员权限",
                         "type": "bool",
-                        "hint": "开启后，需要 AstrBot 管理员权限才能调用使用电脑能力。在平台配置->管理员中可添加管理员。使用 /sid 指令查看管理员 ID。",
+                        "hint": "开启后，只有 AstrBot 管理员才能使用电脑能力。管理员 ID 在「渠道 -> 平台配置 -> 基本 -> 管理员 ID」中设置；使用 /sid 查看用户 ID。",
                     },
                     "provider_settings.sandbox.booter": {
                         "description": "沙箱环境驱动器",

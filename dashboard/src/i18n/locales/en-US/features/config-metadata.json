@@ -181,7 +181,7 @@
         },
         "computer_use_require_admin": {
           "description": "Require AstrBot Admin Permission",
-          "hint": "When enabled, AstrBot admin permission is required to use computer capabilities. Admins can be added in Platform Config. Use the /sid command to view admin IDs."
+          "hint": "When enabled, only AstrBot admins can use computer capabilities. Manage admin IDs under Config -> Channels -> Platform Config -> General -> Administrator IDs. Use /sid to view a user's ID."
         },
         "sandbox": {
           "booter": {

@@ -97,5 +97,6 @@ async def test_browser_tool_still_denies_non_admin_when_admin_requirement_enable
 
     assert "Permission denied" in result
     assert "Using browser tools is only allowed for admin users" in result
-    assert "WebUI -> Config -> AI -> Capabilities -> Agent Computer Use" in result
+    assert "WebUI -> Config -> Capabilities -> Agent Computer Use" in result
+    assert "Config -> Channels -> Platform Config -> General -> Administrator IDs" in result
     assert "User's ID is: user-1" in result
