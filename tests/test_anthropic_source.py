@@ -1,7 +1,18 @@
+import json
+
+import pytest
+from anthropic import _base_client as anthropic_base_client
 from anthropic.types import MessageDeltaUsage, Usage
 
+from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.provider.entities import TokenUsage
 from astrbot.core.provider.sources.anthropic_source import ProviderAnthropic
+
+sdk_httpx = getattr(
+    anthropic_base_client,
+    "httpx",
+    getattr(anthropic_base_client, "httpx2", None),
+)
 
 
 def _provider() -> ProviderAnthropic:
@@ -75,3 +86,110 @@ def test_anthropic_update_usage_omitted_fields_are_preserved():
     assert token_usage.input_other == 5
     assert token_usage.input_cached == 0
     assert token_usage.output == 7
+
+
+def _tool_use_stream(partial_json: str, start_input: dict) -> bytes:
+    events = [
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-test",
+                "content": [],
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": 10, "output_tokens": 1},
+            },
+        },
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "tool_use",
+                "id": "toolu_01",
+                "name": "get_time",
+                "input": start_input,
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": partial_json},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+            "usage": {"output_tokens": 5},
+        },
+        {"type": "message_stop"},
+    ]
+    return "".join(
+        f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events
+    ).encode()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("partial_json", "start_input", "expected_args"),
+    [
+        ("", {}, {}),
+        ("", {"tz": "UTC"}, {"tz": "UTC"}),
+        ('{"tz": "UTC"}', {}, {"tz": "UTC"}),
+    ],
+)
+async def test_anthropic_stream_preserves_empty_and_started_tool_input(
+    monkeypatch, partial_json, start_input, expected_args
+):
+    body = _tool_use_stream(partial_json, start_input)
+    transport = sdk_httpx.MockTransport(
+        lambda request: sdk_httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=body,
+        )
+    )
+    monkeypatch.setattr(
+        ProviderAnthropic,
+        "_create_http_client",
+        lambda self, provider_config: sdk_httpx.AsyncClient(transport=transport),
+    )
+    provider = ProviderAnthropic(
+        {
+            "id": "test",
+            "type": "anthropic_chat_completion",
+            "key": ["sk-test"],
+            "model": "claude-test",
+            "api_base": "https://api.anthropic.test",
+        },
+        {},
+    )
+    tools = ToolSet(
+        [
+            FunctionTool(
+                name="get_time",
+                description="Return the current time.",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+    )
+
+    try:
+        responses = [
+            response
+            async for response in provider.text_chat_stream(
+                prompt="What time is it?",
+                func_tool=tools,
+            )
+        ]
+    finally:
+        await provider.terminate()
+
+    tool_chunks = [response for response in responses if response.role == "tool"]
+    assert len(tool_chunks) == 1
+    for response in (tool_chunks[0], responses[-1]):
+        assert response.tools_call_name == ["get_time"]
+        assert response.tools_call_args == [expected_args]
+        assert response.tools_call_ids == ["toolu_01"]
