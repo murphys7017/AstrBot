@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from io import BytesIO
 from pathlib import Path
 from typing import cast
+from urllib.parse import unquote, urlparse
 
 import discord
 from discord.types.interactions import ComponentInteractionData
@@ -17,6 +18,7 @@ from astrbot.api.message_components import (
     Image,
     Plain,
     Reply,
+    Video,
 )
 from astrbot.api.platform import AstrBotMessage, At, PlatformMetadata
 from astrbot.core.utils.path_util import file_uri_to_path
@@ -233,6 +235,23 @@ class DiscordPlatformEvent(AstrMessageEvent):
                     logger.error(
                         f"[Discord] 处理图片时发生未知严重错误: {file_info}",
                         exc_info=True,
+                    )
+            elif isinstance(i, Video):
+                try:
+                    path = Path(await i.convert_to_file_path())
+                    filename = path.name
+                    if i.file.startswith(("http://", "https://")):
+                        url_path = unquote(urlparse(i.file).path).replace("\\", "/")
+                        url_filename = url_path.rsplit("/", 1)[-1]
+                        if url_filename not in ("", ".", ".."):
+                            filename = url_filename
+                    files.append(discord.File(path, filename=filename))
+                except Exception as exc:
+                    source_path = urlparse(i.file).path
+                    logger.warning(
+                        "[Discord] Failed to process video %s: %s",
+                        Path(source_path).name or "<unnamed>",
+                        type(exc).__name__,
                     )
             elif isinstance(i, File):
                 try:
