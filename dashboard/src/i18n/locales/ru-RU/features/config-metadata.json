@@ -1154,12 +1154,20 @@
             }
         },
         "expression": {
-            "description": "Personal Response Plan",
+            "description": "Ответ Persona",
             "hint": "Генерирует единый человекоподобный план ответа: прямой ответ, делегирование Core или допустимое молчание в группе. Все видимые пользователю ответы Persona используют этот путь.",
             "interaction_middleware": {
                 "expression_provider_id": {
                     "description": "Провайдер модели выражения",
                     "hint": "Используется для всех видимых пользователю ответов Persona."
+                },
+                "expression_output_format": {
+                    "description": "Формат вывода выражения",
+                    "hint": "Сначала проверьте стабильность провайдера, затем выберите формат Persona Response."
+                },
+                "expression_output_mode": {
+                    "description": "Режим ограничения вывода",
+                    "hint": "Нативные режимы доступны только для провайдеров с соответствующей поддержкой JSON; XML и Markdown используют Prompt-only."
                 },
                 "expression_temperature": {
                     "description": "Температура выражения"

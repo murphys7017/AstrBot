@@ -229,6 +229,8 @@ class InteractionAgentConfig:
     plugin_parallel_window_seconds: float = 3.0
     persona_plugin_context_mode: str = "wait_complete"
     expression_provider_id: str = ""
+    expression_output_format: str = "tool_call"
+    expression_output_mode: str = "prompt_only"
     expression_temperature: float = 0.6
     expression_timeout: float = 8.0
     planner_provider_id: str = ""

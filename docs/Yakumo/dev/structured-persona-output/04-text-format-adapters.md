@@ -1,6 +1,6 @@
 # 第三阶段：XML、Markdown 等文本格式适配
 
-**状态：生产适配未实施；诊断 grammar 已定义。** Provider 页面诊断目前使用语义 XML grammar 和语义 Markdown 标题 grammar 来检查格式稳定性；当前 Persona 主路径仍不接受 XML 或 Markdown 格式的结构化表达。本阶段只有在 Provider 策略评估表明确有需要时才进入生产实现。
+**状态：已实现首版生产适配。** Provider 页面和 Persona Response 共用语义 XML grammar、语义 Markdown 标题 grammar；Persona Response 只有在配置明确选择 XML/Markdown 时才启用对应 parser，默认仍为 tool call。
 
 ## 目标
 
@@ -10,9 +10,9 @@
 
 ## XML 适配要求
 
-诊断层当前定义的 XML grammar 固定根节点为 `<output>`，直接使用语义字段节点，例如 `<turn_action>reply</turn_action>`、`<segments><segment>…</segment></segments>`、`<actions><action>lower_head</action></actions>` 和 `<tendency><Joy>8</Joy></tendency>`。字符串直接使用节点文本，数值使用十进制文本，布尔使用 `true/false`，`null` 使用空节点；XML 中不嵌入 JSON 字面量。它现在已经能把这种 XML 解析回统一的 JSON/Python 数据结构后再做字段与类型校验，但尚未接入 Persona 生产路径。若进入生产，仍需进一步冻结字段节点、八维 tendency 表示，以及动态 effect_calls 与 arguments 的编码方式。还必须规定：
+生产 XML grammar 固定根节点为 `<output>`，直接使用语义字段节点，例如 `<turn_action>reply</turn_action>`、`<segments><segment>…</segment></segments>`、`<actions><action>lower_head</action></actions>` 和 `<tendency><Joy>8</Joy></tendency>`。字符串直接使用节点文本，数值使用十进制文本，布尔使用 `true/false`，`null` 使用空节点；XML 中不嵌入 JSON 字面量。解析器会先恢复统一对象，再执行 Canonical Schema 校验，并拒绝未知、重复或带属性的字段：
 
-- 必填节点、字段顺序是否无关、大小写规则和重复节点处理。
+- 必填节点、字段顺序无关、字段名大小写固定，重复节点直接失败。
 - 文本转义、空字符串和空数组的表示方法。
 - effect_calls 的 name 与 arguments 如何匹配本轮动态 effect schema。
 - 未知节点、缺字段、多余字段和格式错误时的失败行为。
@@ -21,13 +21,12 @@
 
 ## Markdown 适配要求
 
-诊断层当前使用语义 Markdown grammar：首行为 `# output`，字段使用标题表示，数组使用 `segment`、`action`、`effect_call` 等重复的单数标题，标量值写在标题下一行。解析结果会恢复为统一对象后再校验。若进入生产，仍需冻结更完整的字段级 Markdown grammar，不能把 JSON 作为 Markdown 的载荷；规范至少应说明：
+生产和诊断使用同一语义 Markdown grammar：首行为 `# output`，字段使用标题表示，数组使用 `segment`、`action`、`effect_call` 等重复的单数标题，标量值写在标题下一行。解析结果会恢复为统一对象后再校验；不能把 JSON 作为 Markdown 的载荷。标题层级、重复字段和字符串行格式均按 parser 的固定规则处理：
 
-- 标题、字段名及大小写是否固定。
-- 多段 speech 如何解释。
-- actions 列表和八维 tendency 的唯一合法表示。
-- 动态 effect_calls 及嵌套参数的表示方法。
-- 标题级别、额外说明、重复字段和未知字段如何处理。
+- 标题、字段名及大小写固定；多段 speech 按 segment 顺序解释。
+- actions 列表和八维 tendency 采用唯一合法的重复标题表示。
+- 动态 effect_calls 及嵌套参数使用语义标题表示。
+- 标题级别、额外说明、重复字段和未知字段按 parser 规则拒绝。
 
 普通 Markdown 对话不能作为结构化输出。解析器不得依赖宽松的标题匹配或模糊文本提取来补全对象。
 
@@ -42,4 +41,3 @@
 某一格式只有在 grammar、Prompt、parser、Schema 校验和 provider/model 实测均准备好后，才可按特定组合启用。验收须覆盖三个顶层字段、segments 内的八维 tendency、silent 规则、动态 effect_calls、流式/非流式响应和格式错误。
 
 XML、Markdown 不作为 JSON/tool-call 的隐式 fallback，也不因此改变 Canonical Schema 或字段消费者。
-

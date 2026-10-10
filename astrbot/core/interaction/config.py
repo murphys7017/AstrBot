@@ -24,6 +24,16 @@ def _persona_plugin_context_mode(value: Any) -> str:
     return "wait_complete"
 
 
+def _expression_output_format(value: Any) -> str:
+    normalized = str(value or "tool_call").strip().lower()
+    return normalized if normalized in {"tool_call", "json", "xml", "markdown"} else "tool_call"
+
+
+def _expression_output_mode(value: Any) -> str:
+    normalized = str(value or "prompt_only").strip().lower()
+    return normalized if normalized in {"prompt_only", "provider_native_json", "provider_native_json_schema"} else "prompt_only"
+
+
 def is_middleware_enabled(config: Any) -> bool:
     interaction_config = config.get("interaction_middleware", {})
     return bool(interaction_config.get("enabled", True))
@@ -49,6 +59,14 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
     quiet_hours_enabled = bool(
         interaction_config.get("personal_runtime_quiet_hours_enabled", False)
     )
+    expression_output_format = _expression_output_format(
+        interaction_config.get("expression_output_format", "tool_call")
+    )
+    expression_output_mode = _expression_output_mode(
+        interaction_config.get("expression_output_mode", "prompt_only")
+    )
+    if expression_output_format != "json":
+        expression_output_mode = "prompt_only"
     return InteractionAgentConfig(
         enabled=bool(interaction_config.get("enabled", True)),
         turn_timeout=max(
@@ -72,6 +90,8 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
             interaction_config.get("persona_plugin_context_mode", "wait_complete")
         ),
         expression_provider_id=expression_provider_id,
+        expression_output_format=expression_output_format,
+        expression_output_mode=expression_output_mode,
         expression_temperature=_float_or_default(
             interaction_config.get("expression_temperature", 0.6),
             0.6,

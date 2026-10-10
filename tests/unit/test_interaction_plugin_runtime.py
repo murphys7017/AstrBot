@@ -81,6 +81,8 @@ def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
     assert default_config.parallel_plugin_runtime_enabled is False
     assert default_config.plugin_parallel_window_seconds == 3.0
     assert default_config.persona_plugin_context_mode == "wait_complete"
+    assert default_config.expression_output_format == "tool_call"
+    assert default_config.expression_output_mode == "prompt_only"
     assert (
         load_interaction_agent_config(
             {
@@ -92,6 +94,19 @@ def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
         == "best_effort"
     )
     assert is_middleware_enabled({"interaction_middleware": {"enabled": False}}) is False
+
+
+def test_expression_output_mode_is_only_native_for_json():
+    config = load_interaction_agent_config(
+        {
+            "interaction_middleware": {
+                "expression_output_format": "xml",
+                "expression_output_mode": "provider_native_json_schema",
+            }
+        }
+    )
+    assert config.expression_output_format == "xml"
+    assert config.expression_output_mode == "prompt_only"
 
 
 def test_tool_stage_observer_classifies_research_tools_without_user_arguments():

@@ -3,7 +3,7 @@
 **状态：** 已冻结并由第一阶段代码实现
 **代码位置：** `astrbot/core/interaction/expression_agent.py`
 
-本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema；当前生产 Persona 请求通过严格的 `persona_expression` tool call 承载。
+本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema；生产默认通过严格的 `persona_expression` tool call 承载，也可以在 Persona Response 配置中显式选择 JSON、XML 或 Markdown，再统一解析为同一 Canonical Schema。
 
 ## Canonical 参数
 

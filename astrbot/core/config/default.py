@@ -253,6 +253,8 @@ DEFAULT_CONFIG = {
         "memory_window_size": 8,
         "persona_history_window_size": 300,
         "expression_provider_id": "",
+        "expression_output_format": "tool_call",
+        "expression_output_mode": "prompt_only",
         "expression_temperature": 0.6,
         "expression_timeout": 8.0,
         "planner_provider_id": "",
@@ -4551,7 +4553,7 @@ CONFIG_METADATA_3 = {
                 },
             },
             "expression": {
-                "description": "Fast Expression",
+                "description": "Persona Response",
                 "type": "object",
                 "hint": "生成统一的拟人回复计划：直接回复、委派 Core 或允许的群聊静默；所有用户可见 Persona 表达都使用这一链路。",
                 "items": {
@@ -4560,6 +4562,20 @@ CONFIG_METADATA_3 = {
                         "type": "string",
                         "_special": "select_provider",
                         "hint": "用于所有用户可见 Persona 表达。",
+                    },
+                    "interaction_middleware.expression_output_format": {
+                        "description": "表达输出格式",
+                        "type": "string",
+                        "options": ["tool_call", "json", "xml", "markdown"],
+                        "labels": ["Tool call", "JSON", "XML", "Markdown"],
+                        "hint": "先在模型提供商页面完成稳定性测试，再选择 Persona Response 的生产输出格式。",
+                    },
+                    "interaction_middleware.expression_output_mode": {
+                        "description": "表达输出约束模式",
+                        "type": "string",
+                        "options": ["prompt_only", "provider_native_json", "provider_native_json_schema"],
+                        "labels": ["Prompt-only", "Provider 原生 JSON", "Provider 原生 JSON Schema"],
+                        "hint": "原生模式仅适用于支持对应 Provider 参数的 JSON 输出；XML/Markdown 使用 Prompt-only。",
                     },
                     "interaction_middleware.expression_temperature": {
                         "description": "表达温度",

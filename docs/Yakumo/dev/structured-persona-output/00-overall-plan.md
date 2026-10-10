@@ -89,7 +89,7 @@ PersonaExpressionResult
 turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 ```
 
-当前 Persona 契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona 主路径不会因 Provider 不支持强制 tool call 而降级成 JSON 文本或自由文本；候选会在请求前筛除，缺少 terminal tool call 时解析失败。通用 `OutputContract` 中的 JSON 模式或 Provider 通用解析能力不等于 Persona 已切换到该输出模式。
+默认 Persona 契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona Response 也可显式选择 JSON、XML 或 Markdown；候选会按所选格式和 Provider 能力筛选，响应由对应 parser 转回 Canonical Schema 后再校验。格式不会自动降级为另一种格式或自由文本。
 
 输入上下文仍由现有 Prompt 系统和 `PersonaExpressionRequest` 组装。`tendency` 是模型输出，不需要添加平行的输入情绪字段或新的对话管线。
 
@@ -100,9 +100,9 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
 | 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
 | 第二阶段 2A：JSON Prompt 稳定性诊断 | 完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型独立请求 10 次，检查 JSON 语法、对象字段和示例推断出的类型；该诊断不调用原生 JSON mode / JSON Schema，也不改变 Persona 主路径。 |
-| 第二阶段 2B：Provider 能力矩阵与 JSON mode | 进行中（诊断记录已扩展） | 稳定性弹窗可区分 JSON/XML/Markdown 的 Prompt-only 与 JSON 的 Provider 原生模式；DeepSeek、OpenAI Chat Completions 和 OpenAI Responses 发送各自原生 JSON 参数，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，Gemini 发送 `response_mime_type=application/json`，MiniMax Token Plan 当前仅 Prompt-only。结果可复制为单次探测记录，包含 Provider/模型、脱敏 endpoint 标识、UTC 时间、延迟汇总和能力判定；记录不持久化，也不等于完整矩阵。原生模式首个请求失败后停止，只有明确拒绝参数时标记 endpoint/model 不支持。Persona 生产路径接入尚未完成。 |
-| 第二阶段 2C：原生 JSON Schema / structured output | 未开始（生产路径） | 诊断层已能把示例投影为 JSON Schema，并探测 OpenAI Chat Completions / Responses 的请求接受情况；尚未实现 Persona 生产路径的 Schema 选择、Provider-specific 响应提取和端到端验收。 |
-| 第三阶段：文本格式解析 | 未开始 | 为 XML/Markdown 等定义明确 grammar 和 parser；示例仅为设计草案。 |
+| 第二阶段 2B：Provider 能力矩阵与 JSON mode | 已完成首轮 | 稳定性弹窗可区分 JSON/XML/Markdown 的 Prompt-only 与 JSON 的 Provider 原生模式；DeepSeek、OpenAI Chat Completions 和 OpenAI Responses 发送各自原生 JSON 参数，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，Gemini 发送 `response_mime_type=application/json`，MiniMax Token Plan 当前仅 Prompt-only。结果可复制但不持久化；Persona Response 可显式选择格式。 |
+| 第二阶段 2C：原生 JSON Schema / structured output | 首轮已接入 | OpenAI Chat Completions / Responses 的原生 JSON Schema 参数可由 Persona Response 的 JSON 模式选择；仍需按模型和 endpoint 做真实组合验收。 |
+| 第三阶段：文本格式解析 | 首轮已完成 | 语义 XML/Markdown grammar 和 parser 已接入 Persona Response；不接受把 JSON 嵌入 XML/Markdown。 |
 | 第四阶段：TTS 分段与标签 | 分段消费已实施；标签未开始 | 文本平台使用拼接文本，TTS 按 `segments[].speech` 分段消费；后续由 TTS 适配器负责 Prompt 注入、标签清理和 Provider-specific 验收。 |
 | 文档与集成验收 | Core 文档已同步；外部验收未完成 | 外部插件依赖、Provider 实例、平台投递和 TTS 端到端仍需分别验收。 |
 
@@ -121,7 +121,7 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 
 当前代码验收要求：
 
-1. Persona 成功响应必须带 `persona_expression` tool call；纯文本不得被误认为成功。
+1. `tool_call` 配置下 Persona 成功响应必须带 `persona_expression` tool call；JSON/XML/Markdown 配置下必须通过对应 parser，纯文本不得被误认为成功。
 2. Canonical 顶层字段必须精确匹配，`tendency` 八维和值域有效。
 3. `segments[].speech` 按顺序拼接成文本平台使用的整合文本；TTS 不使用拼接结果，而是按原分段顺序逐段合成。
 4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。

@@ -1,6 +1,6 @@
 # 第一阶段：当前 tool-call 迁移
 
-**状态：已完成。** 当前 Persona 主路径使用严格、协议级 `persona_expression` tool call 返回 Canonical Schema。本阶段没有把 Persona 切换到 JSON 文本、XML 或 Markdown 输出。
+**状态：已完成，且作为默认路径保留。** Persona Response 现在也允许显式选择 JSON/XML/Markdown 文本格式；本阶段冻结的 tool-call 契约仍是默认和回退基线。
 
 ## 1. 实际契约
 
@@ -21,7 +21,7 @@ Schema 顶层精确要求三个必填字段：`turn_action`、`segments`、`effe
 
 Persona system prompt 声明三个顶层字段及 segment 内字段语义；request prompt 再按本轮任务说明 `reply / delegate / silent`、source text、progress 和 empty speech 等约束。`tendency` 明确表示角色当前情绪，固定为 Plutchik 八维，每项 `-10..10` 整数。
 
-解析流程优先读取指定的 `persona_expression` tool call。当前严格 Persona 契约缺少该 tool call 时以 `missing_persona_expression_tool_call` 失败；不使用自由文本或 prompt-only JSON 补救。Payload 校验包括：
+解析流程优先读取指定的 `persona_expression` tool call。选择 `tool_call` 时，严格 Persona 契约缺少该 tool call 以 `missing_persona_expression_tool_call` 失败；选择文本格式时则由对应 parser 读取响应，再执行相同 Payload 校验。Payload 校验包括：
 
 - 顶层字段精确匹配，不多不少。
 - `turn_action` 转成已知枚举并符合本次请求允许范围。

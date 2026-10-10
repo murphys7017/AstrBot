@@ -1,6 +1,6 @@
-﻿# 第二阶段：Provider 输出策略
+# 第二阶段：Provider 输出策略
 
-**状态：2A 已完成；2B 进行中（DeepSeek、MiniMax Token Plan、OpenAI Chat Completions、OpenAI Responses 与 Gemini 的格式诊断边界已接入；结果可导出）；2C 未实施。** 当前 Persona 仍使用严格的协议级 `persona_expression` tool call。Provider 原生 JSON mode 目前只用于 Provider 页面诊断，不代表 Persona 已接入 JSON 文本或 Provider 原生结构化输出。
+**状态：2A/2B 已完成首轮实现。** Provider 页面提供不持久化的 10 次稳定性诊断；Persona Response 已可按配置选择 `tool_call`、JSON、XML 或 Markdown，并把响应解析回 Canonical Schema。默认仍是严格的协议级 `persona_expression` tool call；原生 JSON/JSON Schema 只在选择 JSON 且适配器声明支持时发送。
 
 ## 目标
 
@@ -18,9 +18,9 @@
 | 通用编译策略类型 | 有 prompt_only、protocol_tool_call、protocol_native_json；protocol_native_json 目前是策略类型预留，不代表已经有通用 JSON Schema renderer/provider 路径。 |
 | 通用 JSON object Prompt | json_object 可生成 JSON-only Prompt 文本；这本身不表示 Provider 原生执行 JSON Schema 约束。 |
 | Provider 页面格式稳定性测试 | 已提供手动诊断入口：用户可编辑 JSON 示例，选择 JSON、XML 或 semantic Markdown；JSON 可选 Prompt-only、Provider 原生 JSON mode 或 Provider 原生 JSON Schema（按适配器能力启用），并检查格式语法、根对象、字段集合和示例推断出的类型；不修改配置，也不改变 Persona 主路径。 |
-| Persona JSON/XML/Markdown 输出 | 尚未接入 Persona 主路径；Persona 不以自由 JSON 文本作为成功 fallback。 |
+| Persona Response 生产输出 | 在 Interaction Middleware / Persona Response 中选择输出格式和约束模式；JSON、XML、Markdown 均经过专用 parser 与 Canonical Schema 校验，失败即按现有 provider fallback/错误链路处理，不把一种格式隐式当作另一种格式。 |
 
-当前 persona_expression 的严格 tool-call 路径是唯一已完成并启用的结构化输出方案。评估通用契约代码时，需要区分类型或兼容入口的存在与 Persona 实际选择的请求路径。
+`tool_call` 仍是默认且最严格的路径；其他格式是显式配置的生产路径，不会从诊断结果自动切换。用户应先在 Provider 页面测试，再在 Persona Response 选择相同格式和（仅 JSON 可用的）原生约束模式。
 
 ## 策略类别
 
@@ -37,7 +37,7 @@ Provider 宣称支持 JSON，不等于支持原生 JSON Schema。JSON mode 也�
 
 Provider 页面中的稳定性测试用于快速观察模型能否遵循可编辑示例结构。`Prompt-only` 只通过 Prompt 要求输出；JSON 的 `Provider-native JSON mode` 对 OpenAI Chat Completions、OpenAI Responses 和 DeepSeek 发送其适配器支持的原生 JSON 参数，对 Gemini 发送 `response_mime_type="application/json"`；OpenAI Chat Completions 与 Responses 另外支持原生 JSON Schema 探测。MiniMax Token Plan 当前仅声明 Prompt-only，不声明原生 JSON/JSON Schema。两种适配器都可能连接不支持相应参数的自定义 endpoint，模型也可能有单独限制。原生模式第一次请求出错后会停止后续探测；只有状态码和错误内容明确指向 JSON mode 参数不受支持时才标记 endpoint/model 不支持，其他错误报告为未判定的请求失败。诊断请求使用单次底层调用，不经过适配器正常对话的恢复循环。
 
-JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成原生 JSON Schema；JSON、XML 和 Markdown 模式都由本地校验器检查格式、根对象、字段集合和示例推断出的 JSON 类型。原生 JSON Schema 探测会将非空对象字段设为 required，并对空数组保留未知 item schema；Provider 是否接受该 Schema 仍需按 endpoint/model 实测。校验会递归比较对象字段；非空数组使用示例第一个元素作为元素模板，空数组只验证响应仍为数组，不会凭空推断数组元素 Schema。当前 XML 使用语义字段节点解析回统一对象，Markdown 使用语义标题和标量行解析回统一对象；两者都不嵌入 JSON。这些 grammar 只服务于诊断，不是 Persona 生产 parser。诊断通过不代表该 Provider、模型或 endpoint 已进入能力矩阵，也不能据此直接启用 Persona 输出策略。
+JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成原生 JSON Schema；JSON、XML 和 Markdown 模式都由本地校验器检查格式、根对象、字段集合和示例推断出的 JSON 类型。原生 JSON Schema 探测会将非空对象字段设为 required，并对空数组保留未知 item schema；Provider 是否接受该 Schema 仍需按 endpoint/model 实测。校验会递归比较对象字段；非空数组使用示例第一个元素作为元素模板，空数组只验证数组类型。XML/Markdown 使用语义字段节点或标题解析回统一对象，两者都不嵌入 JSON；同一 parser 约束用于 Persona Response 生产解析。诊断通过只说明该次模型/endpoint 的样本表现，生产响应仍执行完整 Canonical Schema 和 effect 校验。
 
 原生 JSON mode 测试通过专用 Provider 诊断入口以单次底层请求执行每轮测试，避免适配器恢复循环放大请求次数；正常对话继续使用现有恢复策略。完整 Provider/模型/endpoint 能力矩阵、模型响应性能比较和 Persona 主路径策略选择仍属于 2B 后续工作。
 
@@ -105,4 +105,3 @@ JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成�
 - 模型版本、endpoint 和测试时间。
 
 只有请求构造、解析、语义校验和端到端 Provider 验收都通过后，才考虑启用对应组合。单个组合通过，不代表该 Provider 的所有模型或 endpoint 均通过。
-

@@ -1153,12 +1153,20 @@
       }
     },
     "expression": {
-      "description": "Personal Response Plan",
+      "description": "Persona Response",
       "hint": "Generates the unified human-like response plan: direct reply, Core delegation, or allowed group silence. All user-visible Persona expression uses this path.",
       "interaction_middleware": {
         "expression_provider_id": {
           "description": "Expression Model Provider",
           "hint": "Used for all user-visible Persona expression."
+        },
+        "expression_output_format": {
+          "description": "Expression Output Format",
+          "hint": "Run the provider stability test first, then choose the production wire format for Persona Response."
+        },
+        "expression_output_mode": {
+          "description": "Expression Output Constraint Mode",
+          "hint": "Native modes apply only to providers that advertise the corresponding JSON capability; XML and Markdown use prompt-only output."
         },
         "expression_temperature": {
           "description": "Expression Temperature"

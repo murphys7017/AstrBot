@@ -32,6 +32,33 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_response_output_formats_20261011:
+  date: '2026-10-11'
+  class: feature
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Add explicit Persona Response output format and constraint settings to the
+    unified reply path. Preserve tool_call as the default, support JSON/XML/
+    Markdown semantic parsing into the Canonical Persona schema, route native
+    JSON modes only through provider capability checks, and rename the user
+    facing Fast Expression label without renaming internal expression_* keys.
+  non_goals: >-
+    Do not persist provider stability-test results, deploy/build production
+    assets, change TTS cue injection, or commit unrelated pre-existing dirty
+    Persona/effects changes.
+  validation: >-
+    Semantic XML/Markdown parser, interaction config/runtime, provider output,
+    lifecycle, and TTS boundary tests passed (85 cases).
+    Ruff, Python compilation, locale JSON parsing, git diff check, and dashboard
+    vue-tsc passed. Full expression-agent suite still has four existing failures
+    tied to pre-existing required-per-segment effect changes in the dirty
+    expression/effects work; no live Provider requests or deployment were run.
+  architecture:
+    - Format selection is persisted as interaction_middleware expression_output_format/mode; test results are not persisted.
+    - XML and Markdown are semantic field grammars and reject embedded JSON payloads.
+    - The parser output always enters the existing Canonical Schema and effect validation boundary.
+
 structured_persona_output_review_followup_20261009:
   date: '2026-10-09'
   class: bugfix

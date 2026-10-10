@@ -1567,12 +1567,20 @@
       }
     },
     "expression": {
-      "description": "Fast Expression",
+      "description": "角色回复（Persona Response）",
       "hint": "生成统一的拟人回复计划：直接回复、委派 Core 或允许的群聊静默；所有用户可见 Persona 表达都使用这一链路。",
       "interaction_middleware": {
         "expression_provider_id": {
           "description": "表达模型提供商",
           "hint": "用于所有用户可见 Persona 表达。"
+        },
+        "expression_output_format": {
+          "description": "表达输出格式",
+          "hint": "先在模型提供商页面完成稳定性测试，再选择 Persona Response 的生产输出格式。"
+        },
+        "expression_output_mode": {
+          "description": "表达输出约束模式",
+          "hint": "原生模式仅适用于支持对应 Provider 参数的 JSON 输出；XML/Markdown 使用 Prompt-only。"
         },
         "expression_temperature": {
           "description": "表达温度"

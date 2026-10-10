@@ -1,6 +1,6 @@
 # 第五阶段：迁移、验证与发布
 
-**状态：第一阶段代码迁移已完成；后续 Provider、文本格式、TTS 和外部依赖验收仍未完成。**
+**状态：第一阶段和 Provider/文本格式首轮实现已完成；TTS 标签适配、外部依赖迁移和真实 Provider 组合验收仍待完成。**
 
 本文把已落地工作和剩余验收分开记录。它不把未来 Provider/TTS 工作表述成已实现能力，也不把 Prompt 稳定性诊断结果当作原生结构化输出能力证明。
 
@@ -38,15 +38,15 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 - 该测试是 Prompt-only 诊断，不请求 Provider 原生 JSON mode/JSON Schema，不修改 Provider 配置，也不改变严格 `persona_expression` tool-call 主路径。
 - 非空数组按示例第一个元素检查元素结构；空数组只检查数组类型，因此不能将测试结果当作完整 Canonical Schema 或动态 `effect_calls` Schema 验证。
 
-### Provider 输出格式与原生 JSON 探测（第二阶段 2B，进行中）
+### Provider 输出格式与原生 JSON 探测（第二阶段 2B，已实现）
 
 - Provider 页面可以对 JSON、语义 XML 和语义 Markdown 执行 Prompt-only 稳定性诊断。XML 使用固定 `<output>` grammar，Markdown 使用 `# output` 及字段标题 grammar；两者解析后都恢复为统一对象并只用于诊断。
-- DeepSeek、OpenAI Chat Completions、OpenAI Responses 和 Gemini 诊断请求分别发送其适配器支持的原生 JSON 参数；OpenAI Chat Completions 与 Responses 还可以探测原生 JSON Schema。MiniMax Token Plan 当前只声明 Prompt-only，不发送原生 JSON 或 JSON Schema 参数。所有这些能力仅适用于 Provider 页面诊断，生产 Persona 请求仍使用严格 `persona_expression` tool call。
+- DeepSeek、OpenAI Chat Completions、OpenAI Responses 和 Gemini 诊断请求分别发送其适配器支持的原生 JSON 参数；OpenAI Chat Completions 与 Responses 还可以探测原生 JSON Schema。MiniMax Token Plan 当前只声明 Prompt-only，不发送原生 JSON 或 JSON Schema 参数。Persona Response 可显式选择 JSON/XML/Markdown；JSON 原生模式只在适配器能力检查通过时启用，XML/Markdown 使用 Prompt-only。
 - 原生模式首次请求出错即停止；只有错误明确拒绝对应 JSON mode 参数时才判为 endpoint/model 不支持，普通请求失败保持未判定。诊断调用绕过适配器恢复重试，避免一次探测扩成多次底层请求。
 - 结果可复制为 JSON 记录，包含 Provider ID、adapter type、模型、endpoint origin 主机与指纹、UTC 测试时间、能力判定、平均/中位延迟和逐次校验结果。endpoint URL 路径、凭据和查询参数不导出；记录由用户手动保存，当前不构成持久能力矩阵。
 - `request_accepted` 只说明该模型/endpoint 接受了这次原生模式请求；字段和类型仍由本地示例校验，十次结构通过与否应单独看，不能据此推断其他模型或 endpoint。
 
-- 当前诊断代码已经定义 XML/Markdown 的语义 grammar 和本地校验，但尚未把它们接入 Persona 生产 parser，也不会把它们作为 tool call 或 JSON 的隐式 fallback。
+- XML/Markdown 使用语义 grammar 解析为统一对象，不能把嵌入 JSON 当作成功结果；它们不会作为 tool call 或 JSON 的隐式 fallback。诊断结果不持久化，用户测试后自行在 Persona Response 选择配置。
 
 ## 后续阶段验收清单
 
@@ -96,4 +96,3 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 - 实际 Provider 全矩阵、第三方插件迁移、真实平台投递以及 TTS 端到端验收仍未完成。
 
 本次复核未编译生产包、未启动服务，也未向真实模型发起 10 次请求；代码检查只验证本地实现、定向测试和前端类型边界。
-
