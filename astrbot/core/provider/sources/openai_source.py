@@ -1355,15 +1355,18 @@ class ProviderOpenAIOfficial(Provider):
         _json_output_test_mode: str | None = None,
         _output_format_test_mode: str | None = None,
         _output_format_test_schema: dict | None = None,
+        _structured_output_mode: str | None = None,
+        _structured_output_schema: dict | None = None,
         **kwargs,
     ) -> LLMResponse:
         test_mode = _output_format_test_mode or _json_output_test_mode
+        output_mode = _structured_output_mode or test_mode
         if (
-            test_mode is not None
-            and not self.supports_json_output_test_mode(test_mode)
+            output_mode is not None
+            and not self.supports_json_output_test_mode(output_mode)
         ):
             raise ValueError(
-                f"unsupported_json_output_test_mode:{test_mode}"
+                f"unsupported_json_output_mode:{output_mode}"
             )
         conversation_id = kwargs.pop("conversation_id", None)
         payloads, context_query = await self._prepare_chat_payload(
@@ -1377,17 +1380,18 @@ class ProviderOpenAIOfficial(Provider):
             extra_user_content_parts=extra_user_content_parts,
             **kwargs,
         )
-        if test_mode == "provider_native_json":
+        if output_mode == "provider_native_json":
             payloads["response_format"] = {"type": "json_object"}
-        elif test_mode == "provider_native_json_schema":
-            if not isinstance(_output_format_test_schema, dict):
-                raise ValueError("json_schema_required_for_output_test")
+        elif output_mode == "provider_native_json_schema":
+            output_schema = _structured_output_schema or _output_format_test_schema
+            if not isinstance(output_schema, dict):
+                raise ValueError("json_schema_required_for_output")
             payloads["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "provider_output_test",
+                    "name": "persona_expression" if _structured_output_mode else "provider_output_test",
                     "strict": True,
-                    "schema": _output_format_test_schema,
+                    "schema": output_schema,
                 },
             }
         self.ensure_output_contract_supported(

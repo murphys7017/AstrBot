@@ -445,10 +445,13 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
             kwargs.pop("_json_output_test_mode", None),
         )
         output_test_schema = kwargs.pop("_output_format_test_schema", None)
-        if output_test_mode is not None:
-            if not self.supports_json_output_test_mode(output_test_mode):
+        structured_output_mode = kwargs.pop("_structured_output_mode", None)
+        structured_output_schema = kwargs.pop("_structured_output_schema", None)
+        output_mode = structured_output_mode or output_test_mode
+        if output_mode is not None:
+            if not self.supports_json_output_test_mode(output_mode):
                 raise ValueError(
-                    f"unsupported_json_output_test_mode:{output_test_mode}"
+                    f"unsupported_json_output_mode:{output_mode}"
                 )
         conversation_id = kwargs.pop("conversation_id", None)
         payload, _ = await self._prepare_response_payload(
@@ -462,17 +465,18 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
             extra_user_content_parts,
             **kwargs,
         )
-        if output_test_mode == "provider_native_json":
+        if output_mode == "provider_native_json":
             payload["text"] = {"format": {"type": "json_object"}}
-        elif output_test_mode == "provider_native_json_schema":
-            if not isinstance(output_test_schema, dict):
-                raise ValueError("json_schema_required_for_output_test")
+        elif output_mode == "provider_native_json_schema":
+            output_schema = structured_output_schema or output_test_schema
+            if not isinstance(output_schema, dict):
+                raise ValueError("json_schema_required_for_output")
             payload["text"] = {
                 "format": {
                     "type": "json_schema",
-                    "name": "provider_output_test",
+                    "name": "persona_expression" if structured_output_mode else "provider_output_test",
                     "strict": True,
-                    "schema": output_test_schema,
+                    "schema": output_schema,
                 }
             }
         self.ensure_output_contract_supported(

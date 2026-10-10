@@ -37,6 +37,7 @@ class PersonaEffectSpec:
 class PersonaEffectCall:
     name: str
     arguments: dict[str, Any]
+    segment_index: int | None = None
     call_id: str | None = None
     plugin_id: str | None = None
     source: str = "persona"
@@ -50,11 +51,19 @@ class PersonaEffectCall:
         arguments = payload.get("arguments", {})
         if not name or not isinstance(arguments, dict):
             return None
+        segment_index = payload.get("segment_index")
+        if segment_index is not None and (
+            isinstance(segment_index, bool)
+            or not isinstance(segment_index, int)
+            or segment_index < 0
+        ):
+            return None
         call_id = payload.get("call_id")
         plugin_id = payload.get("plugin_id")
         return cls(
             name=name,
             arguments=copy.deepcopy(arguments),
+            segment_index=segment_index,
             call_id=str(call_id) if call_id is not None else None,
             plugin_id=str(plugin_id) if plugin_id is not None else None,
             source=str(payload.get("source", "") or "persona"),
@@ -69,6 +78,7 @@ class PersonaEffectCall:
         return {
             "name": self.name,
             "arguments": copy.deepcopy(self.arguments),
+            "segment_index": self.segment_index,
             "call_id": self.call_id,
             "plugin_id": self.plugin_id,
             "source": self.source,
@@ -155,6 +165,8 @@ def parse_persona_effect_calls(
 def parse_persona_effect_calls_with_issues(
     raw_calls: object,
     effects: Sequence[PersonaEffectSpec],
+    *,
+    segment_count: int | None = None,
 ) -> tuple[list[PersonaEffectCall], list[PersonaEffectParseIssue]]:
     if not isinstance(raw_calls, list):
         return [], [
@@ -193,6 +205,23 @@ def parse_persona_effect_calls_with_issues(
                 )
             )
             continue
+        segment_index = raw_call.get("segment_index")
+        per_segment = effect.metadata.get("required_per_segment") is True
+        if segment_index is None and per_segment:
+            issues.append(
+                PersonaEffectParseIssue(index, name, "segment_index_missing")
+            )
+            continue
+        if segment_index is not None and (
+            isinstance(segment_index, bool)
+            or not isinstance(segment_index, int)
+            or segment_index < 0
+            or (segment_count is not None and segment_index >= segment_count)
+        ):
+            issues.append(
+                PersonaEffectParseIssue(index, name, "segment_index_invalid")
+            )
+            continue
         arguments = raw_call.get("arguments", {})
         if not isinstance(arguments, dict):
             issues.append(
@@ -226,6 +255,7 @@ def parse_persona_effect_calls_with_issues(
             PersonaEffectCall(
                 name=effect.name,
                 arguments=normalized_arguments,
+                segment_index=segment_index,
                 call_id=(
                     str(raw_call.get("call_id"))
                     if raw_call.get("call_id") is not None

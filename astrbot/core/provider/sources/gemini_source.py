@@ -993,10 +993,13 @@ class ProviderGoogleGenAI(Provider):
         output_test_mode = kwargs.pop(
             "_output_format_test_mode", kwargs.pop("_json_output_test_mode", None)
         )
-        if output_test_mode is not None and not self.supports_json_output_test_mode(
-            output_test_mode
+        structured_output_mode = kwargs.pop("_structured_output_mode", None)
+        kwargs.pop("_structured_output_schema", None)
+        output_mode = structured_output_mode or output_test_mode
+        if output_mode is not None and not self.supports_json_output_test_mode(
+            output_mode
         ):
-            raise ValueError(f"unsupported_json_output_test_mode:{output_test_mode}")
+            raise ValueError(f"unsupported_json_output_mode:{output_mode}")
         conversation_id = kwargs.pop("conversation_id", None)
         self.ensure_output_contract_supported(
             output_contract=output_contract,
@@ -1036,8 +1039,8 @@ class ProviderGoogleGenAI(Provider):
         payloads = {"messages": context_query, "model": model}
         if output_test_mode is not None:
             payloads["_output_format_test_mode"] = output_test_mode
-            if output_test_mode == "provider_native_json":
-                payloads["response_mime_type"] = "application/json"
+        if output_mode == "provider_native_json":
+            payloads["response_mime_type"] = "application/json"
         if func_tool and not func_tool.empty():
             payloads["tool_choice"] = tool_choice
 
