@@ -100,7 +100,7 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
 | 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
 | 第二阶段 2A：JSON Prompt 稳定性诊断 | 完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型独立请求 10 次，检查 JSON 语法、对象字段和示例推断出的类型；该诊断不调用原生 JSON mode / JSON Schema，也不改变 Persona 主路径。 |
-| 第二阶段 2B：Provider 能力矩阵与 JSON mode | 未开始 | 按 Provider、模型和 endpoint 记录 tool call、JSON mode 和请求/响应差异；尚未接入原生 JSON mode Persona 路径。 |
+| 第二阶段 2B：Provider 能力矩阵与 JSON mode | 进行中（诊断记录已扩展） | 稳定性弹窗可区分 Prompt-only 与 Provider 原生 JSON mode；OpenAI Chat Completions 发送 `response_format=json_object`，Gemini 发送 `response_mime_type=application/json`。结果可复制为单次探测记录，包含 Provider/模型、脱敏 endpoint 标识、UTC 时间、延迟汇总和能力判定；记录不持久化，也不等于完整矩阵。原生模式首个请求失败后停止，只有明确拒绝参数时标记 endpoint/model 不支持。Persona 生产路径接入尚未完成。 |
 | 第二阶段 2C：原生 JSON Schema / structured output | 未开始 | 尚未实现 Schema 投影、Provider-specific 请求参数、响应提取和端到端验收。 |
 | 第三阶段：文本格式解析 | 未开始 | 为 XML/Markdown 等定义明确 grammar 和 parser；示例仅为设计草案。 |
 | 第四阶段：TTS 分段与标签 | 分段消费已实施；标签未开始 | 文本平台使用拼接文本，TTS 按 `segments[].speech` 分段消费；后续由 TTS 适配器负责 Prompt 注入、标签清理和 Provider-specific 验收。 |

@@ -38,12 +38,19 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 - 该测试是 Prompt-only 诊断，不请求 Provider 原生 JSON mode/JSON Schema，不修改 Provider 配置，也不改变严格 `persona_expression` tool-call 主路径。
 - 非空数组按示例第一个元素检查元素结构；空数组只检查数组类型，因此不能将测试结果当作完整 Canonical Schema 或动态 `effect_calls` Schema 验证。
 
+### Provider 原生 JSON mode 探测（第二阶段 2B，进行中）
+
+- OpenAI Chat Completions 诊断请求发送 `response_format={"type":"json_object"}`；Gemini 诊断请求发送 `response_mime_type="application/json"`。两者仅适用于 Provider 页面诊断，生产 Persona 请求仍使用严格 `persona_expression` tool call。
+- 原生模式首次请求出错即停止；只有错误明确拒绝对应 JSON mode 参数时才判为 endpoint/model 不支持，普通请求失败保持未判定。诊断调用绕过适配器恢复重试，避免一次探测扩成多次底层请求。
+- 结果可复制为 JSON 记录，包含 Provider ID、adapter type、模型、endpoint origin 主机与指纹、UTC 测试时间、能力判定、平均/中位延迟和逐次校验结果。endpoint URL 路径、凭据和查询参数不导出；记录由用户手动保存，当前不构成持久能力矩阵。
+- `request_accepted` 只说明该模型/endpoint 接受了这次原生模式请求；字段和类型仍由本地示例校验，十次结构通过与否应单独看，不能据此推断其他模型或 endpoint。
+
 ## 后续阶段验收清单
 
 ### Provider 输出策略
 
 - 按 Provider、模型、endpoint 建立 tool call、JSON mode、原生 JSON Schema 的能力矩阵。
-- 使用 Provider 页面 JSON 稳定性测试进行能力验收时，应一并记录所选 Provider/模型、测试模板、10 次字段结构与类型通过数、失败原因和单次延迟；该结果不作为原生 JSON mode / JSON Schema 支持证明。
+- 使用 Provider 页面 JSON 稳定性测试进行能力验收时，复制并保存单次探测 JSON 记录，并结合测试模板、每次字段结构与类型通过数及失败原因归档；Prompt-only 结果不证明原生 JSON mode 支持，JSON mode 结果不证明原生 JSON Schema 支持。
 - 明确 JSON 文本仍由 Core 解析和校验；Provider 的 JSON mode 不等同于 Schema 强制。
 - 逐组合验证请求构造、响应提取、动态 effect schema、字段语义、失败行为、延迟和 token 成本。
 - 只有测试通过的组合才显式启用；不满足约束时必须提供诊断失败。

@@ -91,6 +91,20 @@ class Provider(AbstractProvider):
     ) -> bool:
         return strategy == "prompt_only"
 
+    def supports_json_output_test_mode(self, mode: str) -> bool:
+        """Return whether this adapter can run the requested JSON diagnostic mode."""
+        return mode == "prompt_only"
+
+    async def text_chat_for_json_output_test(
+        self,
+        prompt: str,
+        *,
+        mode: str = "prompt_only",
+    ) -> LLMResponse:
+        if not self.supports_json_output_test_mode(mode):
+            raise ValueError(f"unsupported_json_output_test_mode:{mode}")
+        return await self.text_chat(prompt=prompt)
+
     def ensure_output_contract_supported(
         self,
         *,

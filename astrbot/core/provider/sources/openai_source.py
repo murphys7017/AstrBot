@@ -85,6 +85,27 @@ class ProviderOpenAIOfficial(Provider):
     def supports_output_contract_strategy(self, strategy: str) -> bool:
         return strategy in {"prompt_only", "protocol_tool_call"}
 
+    def supports_json_output_test_mode(self, mode: str) -> bool:
+        if mode == "prompt_only":
+            return True
+        return (
+            mode == "provider_native_json"
+            and self.provider_config.get("type") == "openai_chat_completion"
+        )
+
+    async def text_chat_for_json_output_test(
+        self,
+        prompt: str,
+        *,
+        mode: str = "prompt_only",
+    ) -> LLMResponse:
+        if not self.supports_json_output_test_mode(mode):
+            raise ValueError(f"unsupported_json_output_test_mode:{mode}")
+        return await self.text_chat(
+            prompt=prompt,
+            _json_output_test_mode=mode,
+        )
+
     @staticmethod
     def _resolve_output_contract(
         output_contract: OutputContract | None,
@@ -1298,8 +1319,16 @@ class ProviderOpenAIOfficial(Provider):
         tool_choice: Literal["auto", "required"] = "auto",
         output_contract: OutputContract | None = None,
         compiled_output_contract: CompiledOutputContract | None = None,
+        _json_output_test_mode: str | None = None,
         **kwargs,
     ) -> LLMResponse:
+        if (
+            _json_output_test_mode is not None
+            and not self.supports_json_output_test_mode(_json_output_test_mode)
+        ):
+            raise ValueError(
+                f"unsupported_json_output_test_mode:{_json_output_test_mode}"
+            )
         conversation_id = kwargs.pop("conversation_id", None)
         payloads, context_query = await self._prepare_chat_payload(
             prompt,
@@ -1312,6 +1341,8 @@ class ProviderOpenAIOfficial(Provider):
             extra_user_content_parts=extra_user_content_parts,
             **kwargs,
         )
+        if _json_output_test_mode == "provider_native_json":
+            payloads["response_format"] = {"type": "json_object"}
         self.ensure_output_contract_supported(
             output_contract=output_contract,
             compiled_output_contract=compiled_output_contract,
@@ -1331,7 +1362,10 @@ class ProviderOpenAIOfficial(Provider):
             func_tool,
             tool_use_required=payloads.get("tool_choice") == "required",
         )
-        for attempt in range(1, self._MAX_RECOVERY_ATTEMPTS + 1):
+        max_attempts = (
+            1 if _json_output_test_mode is not None else self._MAX_RECOVERY_ATTEMPTS
+        )
+        for attempt in range(1, max_attempts + 1):
             try:
                 self.client.api_key = state.chosen_key
                 return await self._query(
@@ -1340,6 +1374,8 @@ class ProviderOpenAIOfficial(Provider):
                     conversation_id=conversation_id,
                 )
             except Exception as e:
+                if _json_output_test_mode is not None:
+                    raise
                 await self._recover_chat_request(
                     e,
                     state,

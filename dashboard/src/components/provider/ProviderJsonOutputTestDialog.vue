@@ -21,6 +21,28 @@
           {{ tm('models.jsonTestWarning') }}
         </v-alert>
 
+        <div>
+          <div class="text-subtitle-2 mb-1">{{ tm('models.jsonTestModeLabel') }}</div>
+          <v-radio-group v-model="mode" inline hide-details :disabled="running">
+            <v-radio
+              value="prompt_only"
+              :label="tm('models.jsonTestModePromptOnly')"
+            />
+            <v-radio
+              value="provider_native_json"
+              :label="tm('models.jsonTestModeNative')"
+              :disabled="!supportsNativeJsonMode"
+            />
+          </v-radio-group>
+          <div class="text-caption text-medium-emphasis mt-1">
+            {{
+              supportsNativeJsonMode
+                ? tm('models.jsonTestNativeModeHint')
+                : tm('models.jsonTestNativeModeUnavailable')
+            }}
+          </div>
+        </div>
+
         <v-textarea
           v-model="template"
           :label="tm('models.jsonTemplateLabel')"
@@ -41,7 +63,70 @@
           {{ runError }}
         </v-alert>
 
-        <section v-if="result" class="json-test-results">
+        <v-card v-if="result" variant="tonal" class="json-test-evidence">
+          <v-card-text class="d-flex flex-column ga-1">
+            <div class="d-flex align-center justify-space-between flex-wrap ga-2">
+              <strong>{{ tm('models.jsonTestEvidenceTitle') }}</strong>
+              <v-btn size="small" variant="text" @click="copyEvidence">
+                {{ copyState ? tm('models.jsonTestEvidenceCopied') : tm('models.jsonTestEvidenceCopy') }}
+              </v-btn>
+            </div>
+            <div class="text-caption">
+              {{ result.provider_id }} · {{ result.adapter_type }} · {{ result.model }}
+            </div>
+            <div class="text-caption">
+              {{ tm('models.jsonTestEvidenceEndpoint') }}:
+              {{
+                result.endpoint_host
+                  || tm(result.endpoint_configured
+                    ? 'models.jsonTestEvidenceUnknownEndpoint'
+                    : 'models.jsonTestEvidenceDefaultEndpoint')
+              }}
+              <span v-if="result.endpoint_fingerprint">· {{ result.endpoint_fingerprint }}</span>
+            </div>
+            <div class="text-caption">
+              {{ tm('models.jsonTestEvidenceObservedAt') }}: {{ result.observed_at }}
+            </div>
+            <div class="text-caption">
+              {{ tm('models.jsonTestEvidenceAssessment') }}:
+              {{ tm(`models.jsonTestCapabilityAssessment.${result.capability_assessment}`) }}
+              <span v-if="result.mean_latency_ms !== null">
+                · {{ tm('models.jsonTestEvidenceMeanLatency') }}: {{ result.mean_latency_ms }} ms
+                ({{ tm('models.jsonTestEvidenceMedianLatency') }}: {{ result.median_latency_ms }} ms)
+              </span>
+            </div>
+            <div v-if="copyError" class="text-caption text-error">{{ copyError }}</div>
+          </v-card-text>
+        </v-card>
+
+        <v-alert
+          v-if="result?.status === 'unsupported_provider'"
+          type="warning"
+          variant="tonal"
+          density="compact"
+        >
+          {{ tm('models.jsonTestNativeUnsupportedProvider') }}
+        </v-alert>
+        <v-alert
+          v-else-if="result?.status === 'unsupported_endpoint'"
+          type="warning"
+          variant="tonal"
+          density="compact"
+        >
+          <div>{{ tm('models.jsonTestNativeUnsupportedEndpoint') }}</div>
+          <div v-if="result.detail" class="text-caption mt-1">{{ result.detail }}</div>
+        </v-alert>
+        <v-alert
+          v-else-if="result?.status === 'request_error'"
+          type="warning"
+          variant="tonal"
+          density="compact"
+        >
+          <div>{{ tm('models.jsonTestNativeProbeFailed') }}</div>
+          <div v-if="result.detail" class="text-caption mt-1">{{ result.detail }}</div>
+        </v-alert>
+
+        <section v-if="result?.status === 'completed'" class="json-test-results">
           <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
             <strong>{{ tm('models.jsonTestSummary', { passed: result.passed, total: result.total }) }}</strong>
             <v-chip :color="result.failed === 0 ? 'success' : 'warning'" size="small" variant="tonal">
@@ -132,13 +217,21 @@ const defaultTemplate = {
 }
 
 const template = ref(JSON.stringify(defaultTemplate, null, 2))
+const mode = ref('prompt_only')
 const templateError = ref('')
 const runError = ref('')
 const running = ref(false)
 const result = ref(null)
+const copyState = ref(false)
+const copyError = ref('')
 
 const canRun = computed(() => {
   return !running.value && Boolean(props.provider?.id)
+})
+const supportsNativeJsonMode = computed(() => {
+  return ['openai_chat_completion', 'googlegenai_chat_completion'].includes(
+    props.provider?.type
+  )
 })
 
 watch(
@@ -148,17 +241,22 @@ watch(
   }
 )
 
-watch(template, () => {
+watch([template, mode], () => {
   result.value = null
   runError.value = ''
   templateError.value = ''
+  copyState.value = false
+  copyError.value = ''
 })
 
 function resetDialog() {
   template.value = JSON.stringify(defaultTemplate, null, 2)
+  mode.value = 'prompt_only'
   templateError.value = ''
   runError.value = ''
   result.value = null
+  copyState.value = false
+  copyError.value = ''
 }
 
 function resetTemplate() {
@@ -174,6 +272,8 @@ async function runTest() {
   templateError.value = ''
   runError.value = ''
   result.value = null
+  copyState.value = false
+  copyError.value = ''
 
   if (template.value.length > 16000) {
     templateError.value = props.tm('models.jsonTemplateTooLong')
@@ -197,7 +297,8 @@ async function runTest() {
   try {
     const response = await axios.post('/api/config/provider/test_json_output', {
       provider_id: props.provider.id,
-      template: template.value
+      template: template.value,
+      mode: mode.value
     })
     if (response.data?.status !== 'ok') {
       throw new Error(response.data?.message || props.tm('models.jsonTestFailed'))
@@ -208,6 +309,17 @@ async function runTest() {
   } finally {
     running.value = false
     emit('testing-change', props.provider.id, false)
+  }
+}
+
+async function copyEvidence() {
+  copyError.value = ''
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(result.value, null, 2))
+    copyState.value = true
+  } catch {
+    copyState.value = false
+    copyError.value = props.tm('models.jsonTestEvidenceCopyFailed')
   }
 }
 </script>
@@ -232,6 +344,10 @@ async function runTest() {
 
 .json-test-results {
   min-height: 0;
+}
+
+.json-test-evidence {
+  flex: 0 0 auto;
 }
 
 .json-test-output {

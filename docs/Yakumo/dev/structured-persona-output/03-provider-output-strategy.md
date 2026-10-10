@@ -1,6 +1,6 @@
 # 第二阶段：Provider 输出策略
 
-**状态：2A 已完成；2B/2C 未实施。** 当前 Persona 仍使用严格的协议级 `persona_expression` tool call。本文记录已完成的 JSON Prompt 稳定性诊断和后续 Provider 原生结构化输出计划，不代表 Persona 已接入 JSON 文本或 Provider 原生结构化输出。
+**状态：2A 已完成；2B 进行中（OpenAI Chat Completions 与 Gemini 原生 JSON mode 探测已接入，结果可导出）；2C 未实施。** 当前 Persona 仍使用严格的协议级 `persona_expression` tool call。Provider 原生 JSON mode 目前只用于 Provider 页面诊断，不代表 Persona 已接入 JSON 文本或 Provider 原生结构化输出。
 
 ## 目标
 
@@ -17,7 +17,7 @@
 | 通用 OutputContract.mode | 有 text、json_object、tool_call。 |
 | 通用编译策略类型 | 有 prompt_only、protocol_tool_call、protocol_native_json；protocol_native_json 目前是策略类型预留，不代表已经有通用 JSON Schema renderer/provider 路径。 |
 | 通用 JSON object Prompt | json_object 可生成 JSON-only Prompt 文本；这本身不表示 Provider 原生执行 JSON Schema 约束。 |
-| Provider 页面 JSON 稳定性测试 | 已提供手动诊断入口：用户可编辑 JSON 示例，系统对所选对话模型独立请求 10 次，并检查 JSON 语法、根对象、字段集合和示例推断出的 JSON 类型；不修改配置，也不代表原生 JSON mode 或 JSON Schema 支持。 |
+| Provider 页面 JSON 稳定性测试 | 已提供手动诊断入口：用户可编辑 JSON 示例，选择 Prompt-only 或 Provider 原生 JSON mode，并检查 JSON 语法、根对象、字段集合和示例推断出的 JSON 类型；不修改配置，也不改变 Persona 主路径。 |
 | Persona JSON/XML/Markdown 输出 | 尚未接入 Persona 主路径；Persona 不以自由 JSON 文本作为成功 fallback。 |
 
 当前 persona_expression 的严格 tool-call 路径是唯一已完成并启用的结构化输出方案。评估通用契约代码时，需要区分类型或兼容入口的存在与 Persona 实际选择的请求路径。
@@ -35,7 +35,15 @@
 
 Provider 宣称支持 JSON，不等于支持原生 JSON Schema。JSON mode 也不能免除本地 Canonical Schema 校验。
 
-Provider 页面中的稳定性测试用于快速观察模型能否遵循可编辑的 JSON 示例结构。它通过 Prompt 要求输出，不会请求 Provider 的原生 JSON mode 或 JSON Schema；结果只说明这 10 次响应是否符合示例字段和类型，不能据此直接启用 Persona 输出策略。校验会递归比较对象字段；非空数组使用示例第一个元素作为元素模板，空数组只验证响应仍为数组，不会凭空推断数组元素 Schema。当前首版只覆盖 JSON，XML 和 Markdown 的测试格式及判定规则仍待后续定义。
+Provider 页面中的稳定性测试用于快速观察模型能否遵循可编辑的 JSON 示例结构。`Prompt-only JSON` 仅通过 Prompt 要求输出；`Provider-native JSON mode` 对 `openai_chat_completion` 适配器发送 `response_format={"type":"json_object"}`，对 `googlegenai_chat_completion` 适配器发送 `response_mime_type="application/json"`。两种适配器都可能连接不支持相应参数的自定义 endpoint，模型也可能有单独限制。原生模式第一次请求出错后会停止后续探测；只有状态码和错误内容明确指向 JSON mode 参数不受支持时才标记 endpoint/model 不支持，其他错误报告为未判定的请求失败。诊断请求使用单次底层调用，不经过适配器正常对话的恢复循环。
+
+JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成原生 JSON Schema；两种模式都由本地校验器检查 JSON 语法、根对象、字段集合和示例推断出的 JSON 类型。校验会递归比较对象字段；非空数组使用示例第一个元素作为元素模板，空数组只验证响应仍为数组，不会凭空推断数组元素 Schema。诊断通过不代表该 Provider、模型或 endpoint 已进入能力矩阵，也不能据此直接启用 Persona 输出策略。XML 和 Markdown 的测试格式及判定规则仍待后续定义。
+
+原生 JSON mode 测试通过专用 Provider 诊断入口以单次底层请求执行每轮测试，避免适配器恢复循环放大请求次数；正常对话继续使用现有恢复策略。完整 Provider/模型/endpoint 能力矩阵、模型响应性能比较和 Persona 主路径策略选择仍属于 2B 后续工作。
+
+每次诊断结果附带可复制的 JSON 探测记录：Provider ID 和 adapter type、模型 ID、endpoint origin 主机及其指纹、UTC 测试时间、平均/中位延迟、逐次校验结果，以及原生 JSON mode 能力判定。endpoint 路径、原始 URL、凭据和查询参数不会放入记录；默认 endpoint 以未显式配置标记。能力判定区分未测试、适配器不支持、endpoint 明确拒绝、探测请求失败但未判定，以及 endpoint 接受请求。`request_accepted` 只证明该次请求成功，不证明十次结构检查全部通过，也不证明其他模型或 endpoint 具有同等能力。
+
+探测记录目前由用户手动复制，不会自动写入数据库或形成跨 Provider 的持久矩阵。Prompt-only 结果的原生 JSON mode 能力始终标为未测试。持久化矩阵、批量对比及其更新/过期规则仍需另行设计。
 
 ## 能力矩阵与选择
 

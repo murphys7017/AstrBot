@@ -34,7 +34,9 @@ from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 from .provider_output_test import (
+    JSON_OUTPUT_TEST_MODES,
     MAX_JSON_TEMPLATE_LENGTH,
+    attach_json_output_test_evidence,
     parse_json_template,
     run_json_output_stability_test,
 )
@@ -846,15 +848,18 @@ class ConfigService(DashboardService):
             )
 
     async def test_provider_json_output(self):
-        """Run ten prompt-only JSON shape checks against one chat provider."""
+        """Run ten JSON shape checks against one chat provider."""
         post_data = await request.json or {}
         if not isinstance(post_data, dict):
             return Response().error("请求内容必须是 JSON object").__dict__
 
         provider_id = str(post_data.get("provider_id", "") or "").strip()
+        mode = str(post_data.get("mode", "prompt_only") or "prompt_only").strip()
         template_text = post_data.get("template")
         if not provider_id:
             return Response().error("缺少 provider_id").__dict__
+        if mode not in JSON_OUTPUT_TEST_MODES:
+            return Response().error("不支持的 JSON 输出测试模式").__dict__
         if not isinstance(template_text, str) or not template_text.strip():
             return Response().error("缺少 JSON 格式示例").__dict__
         if len(template_text) > MAX_JSON_TEMPLATE_LENGTH:
@@ -877,9 +882,13 @@ class ConfigService(DashboardService):
             return Response().error("该模型提供商未启用").__dict__
 
         try:
-            result = await run_json_output_stability_test(provider, template)
-            result["provider_id"] = provider_id
-            result["model"] = provider.get_model()
+            result = await run_json_output_stability_test(provider, template, mode)
+            attach_json_output_test_evidence(
+                result,
+                provider,
+                provider_id,
+                provider.get_model(),
+            )
             return Response().ok(result).__dict__
         except Exception:
             logger.warning(

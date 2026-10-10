@@ -706,6 +706,92 @@ async def test_text_chat_returns_success_on_last_recovery_attempt(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_json_output_test_native_mode_sets_response_format_and_does_not_retry(
+    monkeypatch,
+):
+    provider = _make_provider()
+    query_payloads = []
+
+    async def fake_prepare(*_args, **_kwargs):
+        return {"messages": [], "model": "gpt-4o-mini"}, []
+
+    async def fake_query(payloads, _tools, **_kwargs):
+        query_payloads.append(payloads)
+        raise Exception("response_format json_object rejected")
+
+    monkeypatch.setattr(provider, "_prepare_chat_payload", fake_prepare)
+    monkeypatch.setattr(provider, "_query", fake_query)
+    try:
+        with pytest.raises(Exception, match="response_format json_object rejected"):
+            await provider.text_chat_for_json_output_test(
+                prompt="Return a JSON object.",
+                mode="provider_native_json",
+            )
+    finally:
+        await provider.terminate()
+
+    assert len(query_payloads) == 1
+    assert query_payloads[0]["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_openai_query_forwards_native_json_response_format(monkeypatch):
+    provider = ProviderOpenAIOfficial.__new__(ProviderOpenAIOfficial)
+    provider.provider_config = {}
+    provider.default_params = {"model", "messages", "response_format"}
+    captured = {}
+
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return ChatCompletion.model_validate(
+            {
+                "id": "native-json-response",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "{}"},
+                    }
+                ],
+            }
+        )
+
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    expected = LLMResponse(role="assistant", completion_text="{}")
+
+    async def parse_completion(_completion, _tools):
+        return expected
+
+    monkeypatch.setattr(provider, "_parse_openai_completion", parse_completion)
+
+    response = await provider._query(
+        {
+            "model": "test-model",
+            "messages": [],
+            "response_format": {"type": "json_object"},
+        },
+        None,
+    )
+
+    assert response is expected
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_json_output_test_native_mode_is_limited_to_chat_completions_adapter():
+    provider = ProviderOpenAIOfficial.__new__(ProviderOpenAIOfficial)
+    provider.provider_config = {"type": "openai_chat_completion"}
+    assert provider.supports_json_output_test_mode("provider_native_json")
+
+    provider.provider_config["type"] = "openai_responses"
+    assert not provider.supports_json_output_test_mode("provider_native_json")
+
+
+@pytest.mark.asyncio
 async def test_text_chat_preserves_required_tools_on_unsupported_provider(monkeypatch):
     provider = _make_provider()
     call_count = 0

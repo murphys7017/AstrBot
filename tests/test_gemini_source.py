@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from google.genai import types
+from google.genai.errors import APIError
 from PIL import Image
 
 import astrbot.core.provider.sources.gemini_source as gemini_source
@@ -19,6 +20,81 @@ def _valid_png_bytes() -> bytes:
     buffer = BytesIO()
     Image.new("RGB", (1, 1), "white").save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_gemini_json_output_test_mode_sets_response_mime_type_and_uses_one_request():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {"type": "googlegenai_chat_completion"}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.api_keys = []
+    provider.assemble_context = AsyncMock(
+        return_value={"role": "user", "content": "test"}
+    )
+    provider._query = AsyncMock(side_effect=APIError(400, {"error": {"message": "bad"}}))
+
+    with pytest.raises(APIError):
+        await provider.text_chat(
+            prompt="test",
+            _json_output_test_mode="provider_native_json",
+        )
+
+    assert provider._query.await_count == 1
+    payloads = provider._query.await_args.args[0]
+    assert payloads["response_mime_type"] == "application/json"
+    assert payloads["_json_output_test_mode"] == "provider_native_json"
+
+
+@pytest.mark.asyncio
+async def test_gemini_native_json_mode_is_available_only_for_diagnostic_calls():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+
+    config = await provider._prepare_query_config(
+        {"model": "gemini-test", "response_mime_type": "application/json"}
+    )
+
+    assert provider.supports_json_output_test_mode("prompt_only")
+    assert provider.supports_json_output_test_mode("provider_native_json")
+    assert not provider.supports_json_output_test_mode("provider_json_schema")
+    assert config.response_mime_type == "application/json"
+
+
+@pytest.mark.asyncio
+async def test_gemini_native_json_probe_does_not_retry_inside_query():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+    provider._prepare_conversation = AsyncMock(return_value=[])
+    provider._prepare_query_config = AsyncMock(return_value=None)
+    api_error = APIError(400, {"error": {"message": "response_mime_type rejected"}})
+    generate_content = AsyncMock(side_effect=api_error)
+    provider.client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content),
+        _api_client=SimpleNamespace(
+            _http_options=SimpleNamespace(headers={}),
+        ),
+    )
+
+    with pytest.raises(APIError):
+        await provider._query(
+            {
+                "messages": [{"role": "user", "content": "test"}],
+                "model": "gemini-test",
+                "_json_output_test_mode": "provider_native_json",
+            },
+            tools=None,
+        )
+
+    assert generate_content.await_count == 1
+
+
 @pytest.mark.asyncio
 async def test_gemini_thinking_level_is_serialized_on_every_request():
     model = "gemini-3.7-flash"
