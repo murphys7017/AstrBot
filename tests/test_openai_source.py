@@ -735,6 +735,50 @@ async def test_json_output_test_native_mode_sets_response_format_and_does_not_re
 
 
 @pytest.mark.asyncio
+async def test_json_schema_output_test_builds_strict_response_format_and_does_not_retry(
+    monkeypatch,
+):
+    provider = _make_provider()
+    query_payloads = []
+    schema = {
+        "type": "object",
+        "properties": {"speech": {"type": "string"}},
+        "required": ["speech"],
+        "additionalProperties": False,
+    }
+
+    async def fake_prepare(*_args, **_kwargs):
+        return {"messages": [], "model": "gpt-4o-mini"}, []
+
+    async def fake_query(payloads, _tools, **_kwargs):
+        query_payloads.append(payloads)
+        raise Exception("json_schema rejected")
+
+    monkeypatch.setattr(provider, "_prepare_chat_payload", fake_prepare)
+    monkeypatch.setattr(provider, "_query", fake_query)
+    try:
+        with pytest.raises(Exception, match="json_schema rejected"):
+            await provider.text_chat_for_output_format_test(
+                prompt="Return the requested JSON object.",
+                output_format="json",
+                mode="provider_native_json_schema",
+                schema=schema,
+            )
+    finally:
+        await provider.terminate()
+
+    assert len(query_payloads) == 1
+    assert query_payloads[0]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "provider_output_test",
+            "strict": True,
+            "schema": schema,
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_openai_query_forwards_native_json_response_format(monkeypatch):
     provider = ProviderOpenAIOfficial.__new__(ProviderOpenAIOfficial)
     provider.provider_config = {}
@@ -786,9 +830,15 @@ def test_json_output_test_native_mode_is_limited_to_chat_completions_adapter():
     provider = ProviderOpenAIOfficial.__new__(ProviderOpenAIOfficial)
     provider.provider_config = {"type": "openai_chat_completion"}
     assert provider.supports_json_output_test_mode("provider_native_json")
+    assert provider.supports_json_output_test_mode("provider_native_json_schema")
 
     provider.provider_config["type"] = "openai_responses"
-    assert not provider.supports_json_output_test_mode("provider_native_json")
+    assert provider.supports_json_output_test_mode("provider_native_json")
+    assert provider.supports_json_output_test_mode("provider_native_json_schema")
+
+    provider.provider_config["type"] = "deepseek_chat_completion"
+    assert provider.supports_json_output_test_mode("provider_native_json")
+    assert not provider.supports_json_output_test_mode("provider_native_json_schema")
 
 
 @pytest.mark.asyncio

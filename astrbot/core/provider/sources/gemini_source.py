@@ -90,20 +90,33 @@ class ProviderGoogleGenAI(Provider):
         self.set_model(provider_config.get("model", "unknown"))
         self._init_safety_settings()
 
-    def supports_json_output_test_mode(self, mode: str) -> bool:
-        return mode in {"prompt_only", "provider_native_json"}
+    def supports_output_format_test_mode(
+        self, output_format: str, mode: str
+    ) -> bool:
+        if output_format not in {"json", "xml", "markdown"}:
+            return False
+        return mode == "prompt_only" or (
+            output_format == "json" and mode == "provider_native_json"
+        )
 
-    async def text_chat_for_json_output_test(
+    def supports_json_output_test_mode(self, mode: str) -> bool:
+        return self.supports_output_format_test_mode("json", mode)
+
+    async def text_chat_for_output_format_test(
         self,
         prompt: str,
         *,
+        output_format: str,
         mode: str = "prompt_only",
+        schema: dict | None = None,
     ) -> LLMResponse:
-        if not self.supports_json_output_test_mode(mode):
-            raise ValueError(f"unsupported_json_output_test_mode:{mode}")
+        if not self.supports_output_format_test_mode(output_format, mode):
+            raise ValueError(
+                f"unsupported_output_format_test_mode:{output_format}:{mode}"
+            )
         return await self.text_chat(
             prompt=prompt,
-            _json_output_test_mode=mode,
+            _output_format_test_mode=mode,
         )
 
     def _init_client(self) -> None:
@@ -746,7 +759,10 @@ class ProviderGoogleGenAI(Provider):
                     raise Exception("请求失败, 返回的 candidates 为空。")
 
                 if result.candidates[0].finish_reason == types.FinishReason.RECITATION:
-                    if payloads.get("_json_output_test_mode") is not None:
+                    if (
+                        payloads.get("_output_format_test_mode") is not None
+                        or payloads.get("_json_output_test_mode") is not None
+                    ):
                         raise RuntimeError("json_output_test_recitation")
                     if temperature > 2:
                         raise Exception("温度参数已超过最大值2，仍然发生recitation")
@@ -759,7 +775,10 @@ class ProviderGoogleGenAI(Provider):
                 break
 
             except APIError as e:
-                if payloads.get("_json_output_test_mode") is not None:
+                if (
+                    payloads.get("_output_format_test_mode") is not None
+                    or payloads.get("_json_output_test_mode") is not None
+                ):
                     raise
                 if e.message is None:
                     e.message = ""
@@ -971,13 +990,13 @@ class ProviderGoogleGenAI(Provider):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
-        json_output_test_mode = kwargs.pop("_json_output_test_mode", None)
-        if json_output_test_mode is not None and not self.supports_json_output_test_mode(
-            json_output_test_mode
+        output_test_mode = kwargs.pop(
+            "_output_format_test_mode", kwargs.pop("_json_output_test_mode", None)
+        )
+        if output_test_mode is not None and not self.supports_json_output_test_mode(
+            output_test_mode
         ):
-            raise ValueError(
-                f"unsupported_json_output_test_mode:{json_output_test_mode}"
-            )
+            raise ValueError(f"unsupported_json_output_test_mode:{output_test_mode}")
         conversation_id = kwargs.pop("conversation_id", None)
         self.ensure_output_contract_supported(
             output_contract=output_contract,
@@ -1015,14 +1034,14 @@ class ProviderGoogleGenAI(Provider):
         model = model or self.get_model()
 
         payloads = {"messages": context_query, "model": model}
-        if json_output_test_mode is not None:
-            payloads["_json_output_test_mode"] = json_output_test_mode
-            if json_output_test_mode == "provider_native_json":
+        if output_test_mode is not None:
+            payloads["_output_format_test_mode"] = output_test_mode
+            if output_test_mode == "provider_native_json":
                 payloads["response_mime_type"] = "application/json"
         if func_tool and not func_tool.empty():
             payloads["tool_choice"] = tool_choice
 
-        retry = 1 if json_output_test_mode is not None else 10
+        retry = 1 if output_test_mode is not None else 10
         keys = self.api_keys.copy()
 
         for _ in range(retry):
@@ -1033,7 +1052,7 @@ class ProviderGoogleGenAI(Provider):
                     conversation_id=conversation_id,
                 )
             except APIError as e:
-                if json_output_test_mode is not None:
+                if output_test_mode is not None:
                     raise
                 if await self._handle_api_error(e, keys):
                     continue

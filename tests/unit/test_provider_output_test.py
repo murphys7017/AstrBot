@@ -7,9 +7,18 @@ import pytest
 from astrbot.dashboard.services.provider_output_test import (
     attach_json_output_test_evidence,
     build_json_output_test_prompt,
+    build_json_output_test_schema,
+    build_markdown_output_example,
+    build_output_format_test_prompt,
+    build_xml_output_example,
     parse_json_template,
+    parse_markdown_output,
+    parse_xml_output,
     run_json_output_stability_test,
+    run_output_format_stability_test,
     validate_json_output,
+    validate_markdown_output,
+    validate_xml_output,
 )
 
 
@@ -172,6 +181,135 @@ def test_json_output_validator_rejects_unstable_fields_and_types(persona_templat
     )
 
 
+def test_xml_output_round_trips_nested_values_and_escaped_text(persona_template):
+    template = json.loads(json.dumps(persona_template))
+    template["segments"][0]["speech"] = "A & B < C"
+    template["segments"][0]["actions"] = ["<wave>", "look & smile"]
+
+    xml_output = build_xml_output_example(template)
+
+    assert validate_xml_output(template, xml_output) == (True, None)
+    assert "&amp;" in xml_output
+    assert "&lt;" in xml_output
+
+
+@pytest.mark.parametrize(
+    ("output", "expected_error"),
+    [
+        (
+            "<output><turn_action>reply</turn_action>"
+            "<turn_action>reply</turn_action></output>",
+            "duplicate_xml_field",
+        ),
+        (
+            '<!DOCTYPE output [<!ENTITY x "y">]><output><object /></output>',
+            "invalid_xml",
+        ),
+        (
+            "<output><turn_action>reply</turn_action>"
+            "<unknown>x</unknown></output>",
+            "$:missing_keys:effect_calls,segments",
+        ),
+    ],
+)
+def test_xml_output_rejects_duplicate_fields_entities_and_shape_drift(
+    persona_template, output, expected_error
+):
+    assert validate_xml_output(persona_template, output) == (False, expected_error)
+
+
+def test_markdown_requires_one_exact_block(persona_template):
+    valid = build_markdown_output_example(persona_template)
+
+    assert validate_markdown_output(persona_template, valid) == (
+        True,
+        None,
+    )
+    assert validate_markdown_output(
+        persona_template, f"Here it is:\n{valid}"
+    ) == (False, "invalid_markdown_structure")
+    assert validate_markdown_output(
+        persona_template, valid.replace("# output", "# wrong", 1)
+    ) == (False, "invalid_markdown_structure")
+
+
+@pytest.mark.parametrize(
+    ("parser", "output"),
+    [
+        (
+            parse_xml_output,
+            "<output><segments><segment><speech>首行\n# heading\n</speech>"
+            "<thought/><actions><action>nod</action></actions></segment>"
+            "<segment><speech/><thought>文本 &amp; 标签</thought><actions/>"
+            "</segment></segments><effect_calls><effect_call><name>deliver</name>"
+            "<arguments><enabled>true</enabled><value>1.5</value></arguments>"
+            "</effect_call></effect_calls><optional><item/></optional></output>",
+        ),
+        (
+            parse_markdown_output,
+            "# output\n## segments\n### segment\n#### speech\n> 首行\n"
+            "> # heading\n> \n#### thought\n> \n#### actions\n##### action\n"
+            "> nod\n### segment\n#### speech\n> \n#### thought\n> 文本 & 标签\n"
+            "#### actions\n## effect_calls\n### effect_call\n#### name\n> deliver\n"
+            "#### arguments\n##### enabled\ntrue\n##### value\n1.5\n"
+            "## optional\n### item\nnull\n",
+        ),
+    ],
+)
+def test_semantic_formats_restore_text_arrays_and_effect_arguments(parser, output):
+    template = {
+        "segments": [{"speech": "", "thought": "", "actions": ["nod"]}],
+        "effect_calls": [{"name": "", "arguments": {"enabled": True, "value": 0.0}}],
+        "optional": [None],
+    }
+    assert parser(output, template) == {
+        "segments": [
+            {"speech": "首行\n# heading\n", "thought": "", "actions": ["nod"]},
+            {"speech": "", "thought": "文本 & 标签", "actions": []},
+        ],
+        "effect_calls": [
+            {"name": "deliver", "arguments": {"enabled": True, "value": 1.5}}
+        ],
+        "optional": [None],
+    }
+
+
+def test_xml_rejects_text_between_fields_and_untyped_array_items():
+    assert validate_xml_output(
+        {"speech": ""}, "<output><speech>你好</speech>多余文本</output>"
+    ) == (False, "invalid_xml_structure")
+    assert validate_xml_output(
+        {"effect_calls": []},
+        "<output><effect_calls><effect_call/></effect_calls></output>",
+    ) == (False, "array_item_template_required")
+
+
+def test_output_format_prompts_define_the_markdown_and_xml_grammars(persona_template):
+    xml_prompt = build_output_format_test_prompt(persona_template, "xml")
+    markdown_prompt = build_output_format_test_prompt(
+        persona_template, "markdown"
+    )
+
+    assert "<output>" in xml_prompt
+    assert "<turn_action>reply</turn_action>" in xml_prompt
+    assert "# output" in markdown_prompt
+    assert "不要嵌入 JSON" in markdown_prompt
+
+
+def test_json_schema_is_inferred_from_template_without_guessing_empty_array_items(
+    persona_template,
+):
+    schema = build_json_output_test_schema(persona_template)
+
+    assert schema["type"] == "object"
+    assert schema["required"] == ["turn_action", "segments", "effect_calls"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["effect_calls"] == {
+        "type": "array",
+        "items": {},
+    }
+
+
 def test_parse_template_requires_one_json_object():
     assert parse_json_template('{"value": 1}') == {"value": 1}
     with pytest.raises(ValueError, match="template_must_be_object"):
@@ -195,6 +333,38 @@ async def test_json_stability_test_makes_ten_independent_requests(persona_templa
     assert result["failed"] == 0
     assert all(item["passed"] for item in result["results"])
     assert "JSON object" in build_json_output_test_prompt(persona_template)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("output_format", "output"),
+    [
+        ("xml", build_xml_output_example),
+        (
+            "markdown",
+            build_markdown_output_example,
+        ),
+    ],
+)
+async def test_output_format_test_runs_ten_times_for_xml_and_markdown(
+    persona_template, output_format, output
+):
+    provider = SimpleNamespace(
+        text_chat=AsyncMock(
+            return_value=SimpleNamespace(completion_text=output(persona_template))
+        )
+    )
+
+    result = await run_output_format_stability_test(
+        provider,
+        persona_template,
+        output_format=output_format,
+    )
+
+    assert provider.text_chat.await_count == 10
+    assert result["format"] == output_format
+    assert result["mode"] == "prompt_only"
+    assert result["passed"] == 10
 
 
 @pytest.mark.asyncio
@@ -259,7 +429,7 @@ async def test_native_json_mode_stops_when_endpoint_rejects_response_format(
     assert result["status"] == "unsupported_endpoint"
     assert result["attempted"] == 1
     assert result["failed"] == 1
-    assert result["results"][0]["error"] == "unsupported_endpoint_json_mode"
+    assert result["results"][0]["error"] == "unsupported_endpoint_output_mode"
 
 
 @pytest.mark.asyncio
@@ -357,3 +527,65 @@ async def test_provider_error_detail_redacts_custom_endpoint_urls(persona_templa
     assert "password" not in detail
     assert "private" not in detail
     assert "secret" not in detail
+
+
+@pytest.mark.asyncio
+async def test_json_schema_output_mode_builds_schema_and_stops_on_endpoint_rejection(
+    persona_template,
+):
+    class ProviderBadRequest(Exception):
+        status_code = 400
+        body = {
+            "error": {
+                "param": "text.format",
+                "code": "unsupported_parameter",
+                "message": "text.format json_schema is unavailable",
+            }
+        }
+
+    class TestProvider:
+        def __init__(self):
+            self.calls = []
+
+        def supports_output_format_test_mode(self, output_format, mode):
+            return output_format == "json" and mode in {
+                "prompt_only",
+                "provider_native_json_schema",
+            }
+
+        async def text_chat_for_output_format_test(
+            self, prompt, *, output_format, mode, schema
+        ):
+            self.calls.append((output_format, mode, schema))
+            raise ProviderBadRequest("text.format unavailable")
+
+    provider = TestProvider()
+    result = await run_output_format_stability_test(
+        provider,
+        persona_template,
+        output_format="json",
+        mode="provider_native_json_schema",
+    )
+
+    assert len(provider.calls) == 1
+    assert provider.calls[0][0:2] == ("json", "provider_native_json_schema")
+    assert provider.calls[0][2]["properties"]["segments"]["type"] == "array"
+    assert result["status"] == "unsupported_endpoint"
+    assert result["attempted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_native_json_constraint_is_rejected_for_xml_before_provider_call(
+    persona_template,
+):
+    provider = SimpleNamespace(text_chat=AsyncMock())
+
+    with pytest.raises(ValueError, match="native_output_mode_only_supports_json"):
+        await run_output_format_stability_test(
+            provider,
+            persona_template,
+            output_format="xml",
+            mode="provider_native_json",
+        )
+
+    provider.text_chat.assert_not_awaited()

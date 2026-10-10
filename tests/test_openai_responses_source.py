@@ -1,10 +1,12 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from openai.types.responses.response_input_param import ResponseInputParam
 from pydantic import TypeAdapter
 
 from astrbot.core.agent.tool import FunctionTool, ToolSet
+from astrbot.core.provider.entities import LLMResponse
 from astrbot.core.provider.sources.openai_responses_source import (
     ProviderOpenAIResponses,
 )
@@ -23,6 +25,7 @@ def _provider() -> ProviderOpenAIResponses:
         "store",
         "temperature",
         "reasoning",
+        "text",
     }
     return provider
 
@@ -212,6 +215,103 @@ def test_response_request_options_keep_unknown_fields_in_extra_body():
     assert request["temperature"] == 0.7
     assert request["extra_body"] == {"vendor_flag": True}
     assert request["store"] is False
+
+
+def test_response_request_options_preserve_native_output_format_parameter():
+    provider = _provider()
+    text_format = {
+        "format": {
+            "type": "json_schema",
+            "name": "provider_output_test",
+            "strict": True,
+            "schema": {"type": "object"},
+        }
+    }
+
+    request = provider._request_options(
+        {"model": "test-model", "input": [], "text": text_format},
+        None,
+        "auto",
+    )
+
+    assert request["text"] == text_format
+    assert "extra_body" not in request
+
+
+@pytest.mark.asyncio
+async def test_responses_native_json_schema_test_sets_text_format_and_stops_after_one_call():
+    provider = _provider()
+    provider.provider_config = {"type": "openai_responses"}
+    provider.chosen_api_key = "test-key"
+    provider.client = SimpleNamespace(api_key="")
+    schema = {
+        "type": "object",
+        "properties": {"speech": {"type": "string"}},
+        "required": ["speech"],
+        "additionalProperties": False,
+    }
+    calls = []
+
+    async def prepare(*_args, **_kwargs):
+        return {"model": "test-model", "input": []}, []
+
+    async def query(payload, *_args, **_kwargs):
+        calls.append(payload)
+        raise RuntimeError("json_schema unavailable")
+
+    provider._prepare_response_payload = prepare
+    provider._query = query
+
+    with pytest.raises(RuntimeError, match="json_schema unavailable"):
+        await provider.text_chat_for_output_format_test(
+            prompt="Return JSON.",
+            output_format="json",
+            mode="provider_native_json_schema",
+            schema=schema,
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["text"] == {
+        "format": {
+            "type": "json_schema",
+            "name": "provider_output_test",
+            "strict": True,
+            "schema": schema,
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_responses_legacy_json_output_test_mode_is_consumed_before_payload_build():
+    provider = _provider()
+    provider.provider_config = {"type": "openai_responses"}
+    provider.chosen_api_key = "test-key"
+    provider.client = SimpleNamespace(api_key="")
+    calls = []
+
+    async def prepare(*_args, **kwargs):
+        calls.append(kwargs)
+        return {"model": "test-model", "input": []}, []
+
+    async def query(payload, *_args, **_kwargs):
+        calls.append(payload)
+        return LLMResponse(role="assistant", completion_text="{}")
+
+    provider._prepare_response_payload = prepare
+    provider._query = query
+
+    response = await provider.text_chat_for_json_output_test(
+        prompt="Return JSON.",
+        mode="provider_native_json",
+    )
+
+    assert response.completion_text == "{}"
+    assert calls[-1]["text"] == {"format": {"type": "json_object"}}
+    assert all(
+        "_json_output_test_mode" not in item
+        for item in calls
+        if isinstance(item, dict)
+    )
 
 
 def test_response_request_options_drop_provider_only_abort_signal():

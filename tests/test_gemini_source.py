@@ -43,7 +43,7 @@ async def test_gemini_json_output_test_mode_sets_response_mime_type_and_uses_one
     assert provider._query.await_count == 1
     payloads = provider._query.await_args.args[0]
     assert payloads["response_mime_type"] == "application/json"
-    assert payloads["_json_output_test_mode"] == "provider_native_json"
+    assert payloads["_output_format_test_mode"] == "provider_native_json"
 
 
 @pytest.mark.asyncio

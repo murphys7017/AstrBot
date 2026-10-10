@@ -41,7 +41,17 @@ class ProviderMiniMaxTokenPlan(ProviderAnthropic):
 
     The model list is fetched from MiniMax when possible and falls back to a
     local list when the endpoint or API key is unavailable.
+
+    MiniMax Token Plan currently has no adapter-level native JSON or JSON
+    Schema response mode.  Its format diagnostic therefore deliberately uses
+    the inherited prompt-only path for JSON, XML, and semantic Markdown.
+    Structured Persona output remains a separate protocol-tool-call
+    capability and is model-gated below.
     """
+
+    _OUTPUT_FORMAT_TEST_FORMATS = frozenset(
+        {"json", "xml", "markdown"}
+    )
 
     def __init__(
         self,
@@ -73,6 +83,21 @@ class ProviderMiniMaxTokenPlan(ProviderAnthropic):
         # selection used by the Persona strict output contract.
         return strategy == "protocol_tool_call" and not (
             _is_minimax_strict_unsupported_model(self.get_model())
+        )
+
+    def supports_output_format_test_mode(
+        self, output_format: str, mode: str
+    ) -> bool:
+        """Report the intentionally narrow MiniMax format-test boundary.
+
+        The Anthropic-compatible Token Plan endpoint is used for ordinary
+        text/tool requests, but this adapter does not construct a native JSON
+        response parameter.  Keeping this explicit prevents a future base
+        provider expansion from accidentally advertising native JSON support
+        for MiniMax.
+        """
+        return output_format in self._OUTPUT_FORMAT_TEST_FORMATS and mode == (
+            "prompt_only"
         )
 
     async def get_models(self) -> list[str]:

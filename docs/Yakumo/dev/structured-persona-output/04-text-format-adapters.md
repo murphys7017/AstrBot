@@ -1,6 +1,6 @@
 # 第三阶段：XML、Markdown 等文本格式适配
 
-**状态：未实施。** 当前 Persona 主路径不接受 XML 或 Markdown 格式的结构化表达。本阶段只有在 Provider 策略评估表明确有需要时才进入实现。
+**状态：生产适配未实施；诊断 grammar 已定义。** Provider 页面诊断目前使用语义 XML grammar 和语义 Markdown 标题 grammar 来检查格式稳定性；当前 Persona 主路径仍不接受 XML 或 Markdown 格式的结构化表达。本阶段只有在 Provider 策略评估表明确有需要时才进入生产实现。
 
 ## 目标
 
@@ -10,7 +10,7 @@
 
 ## XML 适配要求
 
-XML 方案需要定义固定根节点、字段节点、动作数组表示、八维 tendency 表示，以及动态 effect_calls 与 arguments 的编码方式。还必须规定：
+诊断层当前定义的 XML grammar 固定根节点为 `<output>`，直接使用语义字段节点，例如 `<turn_action>reply</turn_action>`、`<segments><segment>…</segment></segments>`、`<actions><action>lower_head</action></actions>` 和 `<tendency><Joy>8</Joy></tendency>`。字符串直接使用节点文本，数值使用十进制文本，布尔使用 `true/false`，`null` 使用空节点；XML 中不嵌入 JSON 字面量。它现在已经能把这种 XML 解析回统一的 JSON/Python 数据结构后再做字段与类型校验，但尚未接入 Persona 生产路径。若进入生产，仍需进一步冻结字段节点、八维 tendency 表示，以及动态 effect_calls 与 arguments 的编码方式。还必须规定：
 
 - 必填节点、字段顺序是否无关、大小写规则和重复节点处理。
 - 文本转义、空字符串和空数组的表示方法。
@@ -21,13 +21,13 @@ XML 方案需要定义固定根节点、字段节点、动作数组表示、八�
 
 ## Markdown 适配要求
 
-Markdown 需要一个可机读的固定 grammar，例如固定标题或受控代码块；具体形式须通过样例和解析器测试确定。规范至少应说明：
+诊断层当前使用语义 Markdown grammar：首行为 `# output`，字段使用标题表示，数组使用 `segment`、`action`、`effect_call` 等重复的单数标题，标量值写在标题下一行。解析结果会恢复为统一对象后再校验。若进入生产，仍需冻结更完整的字段级 Markdown grammar，不能把 JSON 作为 Markdown 的载荷；规范至少应说明：
 
 - 标题、字段名及大小写是否固定。
 - 多段 speech 如何解释。
 - actions 列表和八维 tendency 的唯一合法表示。
 - 动态 effect_calls 及嵌套参数的表示方法。
-- 代码围栏、额外说明、重复字段和未知字段如何处理。
+- 标题级别、额外说明、重复字段和未知字段如何处理。
 
 普通 Markdown 对话不能作为结构化输出。解析器不得依赖宽松的标题匹配或模糊文本提取来补全对象。
 

@@ -28,6 +28,10 @@ def register_legacy_routes(app, service):
         "/config/provider/delete": ("POST", service.post_delete_provider),
         "/config/provider/template": ("GET", service.get_provider_template),
         "/config/provider/check_one": ("GET", service.check_one_provider_status),
+        "/config/provider/test_output_format": (
+            "POST",
+            service.test_provider_output_format,
+        ),
         "/config/provider/test_json_output": (
             "POST",
             service.test_provider_json_output,

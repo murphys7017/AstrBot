@@ -1,11 +1,15 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+from openai.types.chat.chat_completion import ChatCompletion
+
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.output_contract import OutputContract
 from astrbot.core.prompt.context_types import ContextPack
 from astrbot.core.prompt.render import PromptRenderEngine
 from astrbot.core.provider import supports_strict_tool_call_output_contract
+from astrbot.core.provider.entities import LLMResponse
 from astrbot.core.provider.output_contract_tools import (
     build_single_tool_set_from_contract,
 )
@@ -96,6 +100,105 @@ def test_deepseek_non_thinking_mode_allows_strict_tool_call_contract():
         assert supports_strict_tool_call_output_contract(provider, contract)
     finally:
         asyncio.run(provider.terminate())
+
+
+def test_deepseek_json_mode_is_available_but_openai_json_schema_is_not():
+    provider = _make_provider()
+    try:
+        assert provider.supports_output_format_test_mode("json", "prompt_only")
+        assert provider.supports_output_format_test_mode(
+            "json", "provider_native_json"
+        )
+        assert not provider.supports_output_format_test_mode(
+            "json", "provider_native_json_schema"
+        )
+        assert provider.supports_output_format_test_mode("xml", "prompt_only")
+        assert not provider.supports_output_format_test_mode(
+            "xml", "provider_native_json"
+        )
+    finally:
+        asyncio.run(provider.terminate())
+
+
+@pytest.mark.asyncio
+async def test_deepseek_native_json_mode_sets_response_format(monkeypatch):
+    provider = _make_provider()
+    query_payloads = []
+
+    async def fake_prepare(*_args, **_kwargs):
+        return {"messages": [], "model": "deepseek-chat"}, []
+
+    async def fake_query(payloads, _tools, **_kwargs):
+        query_payloads.append(payloads)
+        return LLMResponse(role="assistant", completion_text="{}")
+
+    monkeypatch.setattr(provider, "_prepare_chat_payload", fake_prepare)
+    monkeypatch.setattr(provider, "_query", fake_query)
+    try:
+        response = await provider.text_chat_for_output_format_test(
+            prompt="Return a JSON object.",
+            output_format="json",
+            mode="provider_native_json",
+        )
+    finally:
+        await provider.terminate()
+
+    assert response.completion_text == "{}"
+    assert len(query_payloads) == 1
+    assert query_payloads[0]["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_deepseek_query_forwards_native_json_response_format(monkeypatch):
+    provider = ProviderDeepSeek.__new__(ProviderDeepSeek)
+    provider.provider_config = {
+        "type": "deepseek_chat_completion",
+        "custom_extra_body": {},
+    }
+    provider.default_params = {"model", "messages", "response_format"}
+    provider.reasoning_key = "reasoning_content"
+    captured = {}
+
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return ChatCompletion.model_validate(
+            {
+                "id": "deepseek-native-json",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "deepseek-chat",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "{}"},
+                    }
+                ],
+            }
+        )
+
+    provider.client = SimpleNamespace(
+        base_url=SimpleNamespace(host="api.deepseek.com"),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+    expected = LLMResponse(role="assistant", completion_text="{}")
+
+    async def parse_completion(_completion, _tools):
+        return expected
+
+    monkeypatch.setattr(provider, "_parse_openai_completion", parse_completion)
+
+    response = await provider._query(
+        {
+            "model": "deepseek-chat",
+            "messages": [],
+            "response_format": {"type": "json_object"},
+        },
+        None,
+    )
+
+    assert response is expected
+    assert captured["response_format"] == {"type": "json_object"}
 
 
 def test_deepseek_reasoning_enabled_maps_to_thinking_and_drops_unsupported_tool_choice():

@@ -440,6 +440,16 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         compiled_output_contract: CompiledOutputContract | None = None,
         **kwargs,
     ) -> LLMResponse:
+        output_test_mode = kwargs.pop(
+            "_output_format_test_mode",
+            kwargs.pop("_json_output_test_mode", None),
+        )
+        output_test_schema = kwargs.pop("_output_format_test_schema", None)
+        if output_test_mode is not None:
+            if not self.supports_json_output_test_mode(output_test_mode):
+                raise ValueError(
+                    f"unsupported_json_output_test_mode:{output_test_mode}"
+                )
         conversation_id = kwargs.pop("conversation_id", None)
         payload, _ = await self._prepare_response_payload(
             prompt,
@@ -452,6 +462,19 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
             extra_user_content_parts,
             **kwargs,
         )
+        if output_test_mode == "provider_native_json":
+            payload["text"] = {"format": {"type": "json_object"}}
+        elif output_test_mode == "provider_native_json_schema":
+            if not isinstance(output_test_schema, dict):
+                raise ValueError("json_schema_required_for_output_test")
+            payload["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": "provider_output_test",
+                    "strict": True,
+                    "schema": output_test_schema,
+                }
+            }
         self.ensure_output_contract_supported(
             output_contract=output_contract,
             compiled_output_contract=compiled_output_contract,
@@ -459,7 +482,10 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         func_tool, tool_choice = self._resolve_output_contract(
             output_contract, compiled_output_contract, func_tool, tool_choice
         )
-        for attempt in range(self._MAX_RECOVERY_ATTEMPTS):
+        max_attempts = (
+            1 if output_test_mode is not None else self._MAX_RECOVERY_ATTEMPTS
+        )
+        for attempt in range(max_attempts):
             try:
                 self.client.api_key = self.chosen_api_key
                 return await self._query(
@@ -469,7 +495,7 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
                     conversation_id=conversation_id,
                 )
             except Exception:
-                if attempt + 1 >= self._MAX_RECOVERY_ATTEMPTS:
+                if attempt + 1 >= max_attempts:
                     raise
                 if self.api_keys:
                     self.chosen_api_key = random.choice(self.api_keys)

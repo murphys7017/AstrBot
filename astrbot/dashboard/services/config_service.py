@@ -34,11 +34,12 @@ from astrbot.dashboard.asgi_runtime import request
 
 from .base import DashboardService, Response, ServiceContext
 from .provider_output_test import (
-    JSON_OUTPUT_TEST_MODES,
     MAX_JSON_TEMPLATE_LENGTH,
+    OUTPUT_FORMAT_TEST_FORMATS,
+    OUTPUT_FORMAT_TEST_MODES,
     attach_json_output_test_evidence,
     parse_json_template,
-    run_json_output_stability_test,
+    run_output_format_stability_test,
 )
 from .util import (
     config_key_to_folder,
@@ -847,29 +848,34 @@ class ConfigService(DashboardService):
                 500,
             )
 
-    async def test_provider_json_output(self):
-        """Run ten JSON shape checks against one chat provider."""
+    async def test_provider_output_format(self):
+        """Run ten structured output format checks against one chat provider."""
         post_data = await request.json or {}
         if not isinstance(post_data, dict):
             return Response().error("请求内容必须是 JSON object").__dict__
 
         provider_id = str(post_data.get("provider_id", "") or "").strip()
+        output_format = str(post_data.get("format", "json") or "json").strip()
         mode = str(post_data.get("mode", "prompt_only") or "prompt_only").strip()
         template_text = post_data.get("template")
         if not provider_id:
             return Response().error("缺少 provider_id").__dict__
-        if mode not in JSON_OUTPUT_TEST_MODES:
-            return Response().error("不支持的 JSON 输出测试模式").__dict__
+        if output_format not in OUTPUT_FORMAT_TEST_FORMATS:
+            return Response().error("不支持的输出格式").__dict__
+        if mode not in OUTPUT_FORMAT_TEST_MODES:
+            return Response().error("不支持的输出约束模式").__dict__
+        if output_format != "json" and mode != "prompt_only":
+            return Response().error("原生输出模式目前仅用于 JSON 格式").__dict__
         if not isinstance(template_text, str) or not template_text.strip():
-            return Response().error("缺少 JSON 格式示例").__dict__
+            return Response().error("缺少 JSON 结构示例").__dict__
         if len(template_text) > MAX_JSON_TEMPLATE_LENGTH:
-            return Response().error("JSON 格式示例过长").__dict__
+            return Response().error("JSON 结构示例过长").__dict__
 
         try:
             template = parse_json_template(template_text)
         except ValueError:
             return Response().error(
-                "JSON 格式示例必须是有效的 JSON object，且不能包含重复字段"
+                "结构示例必须是有效的 JSON object，且不能包含重复字段"
             ).__dict__
 
         provider_manager = self.core_lifecycle.provider_manager
@@ -882,7 +888,12 @@ class ConfigService(DashboardService):
             return Response().error("该模型提供商未启用").__dict__
 
         try:
-            result = await run_json_output_stability_test(provider, template, mode)
+            result = await run_output_format_stability_test(
+                provider,
+                template,
+                output_format=output_format,
+                mode=mode,
+            )
             attach_json_output_test_evidence(
                 result,
                 provider,
@@ -890,12 +901,18 @@ class ConfigService(DashboardService):
                 provider.get_model(),
             )
             return Response().ok(result).__dict__
+        except ValueError as exc:
+            return Response().error(f"输出格式模板无法使用：{exc}").__dict__
         except Exception:
             logger.warning(
-                "JSON output stability test failed for provider %s",
+                "Structured output format test failed for provider %s",
                 provider_id,
             )
-            return Response().error("JSON 格式测试未能完成").__dict__
+            return Response().error("输出格式测试未能完成").__dict__
+
+    async def test_provider_json_output(self):
+        """Backward-compatible alias for the structured output test route."""
+        return await self.test_provider_output_format()
 
     async def get_configs(self):
         # plugin_name 为空时返回 AstrBot 配置

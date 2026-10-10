@@ -349,6 +349,23 @@ def _normalize_deepseek_strict_schema(schema: object) -> dict[str, Any]:
     prompt_renderer_family="openai",
 )
 class ProviderDeepSeek(ProviderOpenAIOfficial):
+    def supports_output_format_test_mode(
+        self, output_format: str, mode: str
+    ) -> bool:
+        """Report the output formats that DeepSeek can probe natively.
+
+        DeepSeek's documented JSON Output API accepts
+        ``response_format={"type": "json_object"}``. It does not expose the
+        OpenAI ``json_schema`` response format, so schema-constrained JSON is
+        deliberately left to the protocol tool-call path (or prompt-only
+        diagnostics). XML and Markdown remain prompt-only probes.
+        """
+        if output_format not in {"json", "xml", "markdown"}:
+            return False
+        if mode == "prompt_only":
+            return True
+        return output_format == "json" and mode == "provider_native_json"
+
     def supports_output_contract_strategy(self, strategy: str) -> bool:
         if strategy == "prompt_only":
             return True

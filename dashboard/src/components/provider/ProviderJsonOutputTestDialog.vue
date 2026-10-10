@@ -22,6 +22,21 @@
         </v-alert>
 
         <div>
+          <div class="text-subtitle-2 mb-1">{{ tm('models.jsonTestFormatLabel') }}</div>
+          <v-radio-group v-model="outputFormat" inline hide-details :disabled="running">
+            <v-radio value="json" :label="tm('models.jsonTestFormatJson')" />
+            <v-radio value="xml" :label="tm('models.jsonTestFormatXml')" />
+            <v-radio
+              value="markdown"
+              :label="tm('models.jsonTestFormatMarkdown')"
+            />
+          </v-radio-group>
+          <div class="text-caption text-medium-emphasis mt-1">
+            {{ tm('models.jsonTestFormatHint') }}
+          </div>
+        </div>
+
+        <div v-if="outputFormat === 'json'">
           <div class="text-subtitle-2 mb-1">{{ tm('models.jsonTestModeLabel') }}</div>
           <v-radio-group v-model="mode" inline hide-details :disabled="running">
             <v-radio
@@ -30,17 +45,29 @@
             />
             <v-radio
               value="provider_native_json"
-              :label="tm('models.jsonTestModeNative')"
+              :label="tm('models.jsonTestModeNativeJson')"
               :disabled="!supportsNativeJsonMode"
+            />
+            <v-radio
+              value="provider_native_json_schema"
+              :label="tm('models.jsonTestModeNativeJsonSchema')"
+              :disabled="!supportsNativeJsonSchemaMode"
             />
           </v-radio-group>
           <div class="text-caption text-medium-emphasis mt-1">
             {{
-              supportsNativeJsonMode
-                ? tm('models.jsonTestNativeModeHint')
+              mode === 'provider_native_json_schema'
+                ? supportsNativeJsonSchemaMode
+                  ? tm('models.jsonTestNativeJsonSchemaModeHint')
+                  : tm('models.jsonTestNativeJsonSchemaModeUnavailable')
+                : supportsNativeJsonMode
+                  ? tm('models.jsonTestNativeModeHint')
                 : tm('models.jsonTestNativeModeUnavailable')
             }}
           </div>
+        </div>
+        <div v-else class="text-caption text-medium-emphasis">
+          {{ tm('models.jsonTestPromptOnlyFormatHint') }}
         </div>
 
         <v-textarea
@@ -217,6 +244,7 @@ const defaultTemplate = {
 }
 
 const template = ref(JSON.stringify(defaultTemplate, null, 2))
+const outputFormat = ref('json')
 const mode = ref('prompt_only')
 const templateError = ref('')
 const runError = ref('')
@@ -229,7 +257,15 @@ const canRun = computed(() => {
   return !running.value && Boolean(props.provider?.id)
 })
 const supportsNativeJsonMode = computed(() => {
-  return ['openai_chat_completion', 'googlegenai_chat_completion'].includes(
+  return [
+    'openai_chat_completion',
+    'openai_responses',
+    'deepseek_chat_completion',
+    'googlegenai_chat_completion'
+  ].includes(props.provider?.type)
+})
+const supportsNativeJsonSchemaMode = computed(() => {
+  return ['openai_chat_completion', 'openai_responses'].includes(
     props.provider?.type
   )
 })
@@ -241,7 +277,7 @@ watch(
   }
 )
 
-watch([template, mode], () => {
+watch([template, mode, outputFormat], () => {
   result.value = null
   runError.value = ''
   templateError.value = ''
@@ -249,8 +285,27 @@ watch([template, mode], () => {
   copyError.value = ''
 })
 
+watch(outputFormat, (value) => {
+  if (value !== 'json') mode.value = 'prompt_only'
+})
+
+watch(
+  () => [props.provider?.type, mode.value],
+  () => {
+    if (mode.value === 'provider_native_json' && !supportsNativeJsonMode.value) {
+      mode.value = 'prompt_only'
+    } else if (
+      mode.value === 'provider_native_json_schema' &&
+      !supportsNativeJsonSchemaMode.value
+    ) {
+      mode.value = 'prompt_only'
+    }
+  }
+)
+
 function resetDialog() {
   template.value = JSON.stringify(defaultTemplate, null, 2)
+  outputFormat.value = 'json'
   mode.value = 'prompt_only'
   templateError.value = ''
   runError.value = ''
@@ -295,9 +350,10 @@ async function runTest() {
   running.value = true
   emit('testing-change', props.provider.id, true)
   try {
-    const response = await axios.post('/api/config/provider/test_json_output', {
+    const response = await axios.post('/api/config/provider/test_output_format', {
       provider_id: props.provider.id,
       template: template.value,
+      format: outputFormat.value,
       mode: mode.value
     })
     if (response.data?.status !== 'ok') {
