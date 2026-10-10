@@ -1583,6 +1583,32 @@ class TestConfigMetadataI18n:
 
 
 class TestConfigRouteMemoryReload:
+    @pytest.mark.asyncio
+    async def test_save_rechecks_local_shell_sessions(self):
+        from astrbot.core.computer import computer_client
+        from astrbot.core.computer.booters.local import LocalShellComponent
+
+        route = object.__new__(ConfigRoute)
+        current_config = {"admins_id": ["admin-user"]}
+        route.acm = SimpleNamespace(confs={"default": current_config})
+        shell = LocalShellComponent()
+        shell.shutdown_sessions = AsyncMock()
+
+        with (
+            patch.object(
+                computer_client,
+                "local_booter",
+                SimpleNamespace(shell=shell),
+            ),
+            patch("astrbot.dashboard.routes.config.save_config"),
+        ):
+            await route._save_astrbot_configs(
+                {"admins_id": []},
+                "default",
+            )
+
+        shell.shutdown_sessions.assert_awaited_once_with(invalid_only=True)
+
     def test_preserve_server_managed_config_keys_uses_current_target_config(self):
         post_config = {
             "provider_sources": ["client-value"],

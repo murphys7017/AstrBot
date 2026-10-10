@@ -161,9 +161,9 @@ class PolicyCollector(ContextCollectorInterface):
     def _build_local_mode_prompt(self) -> str:
         system_name = platform.system() or "Unknown"
         shell_hint = (
-            "The runtime shell is Windows PowerShell 5.1 (powershell.exe). "
-            "Use Windows PowerShell 5.1-compatible syntax and cmdlets; do not use "
-            "PowerShell 7-only syntax or assume Unix commands like cat/ls/grep are available."
+            "The runtime shell is Windows PowerShell (pwsh.exe when available, otherwise powershell.exe). "
+            "Use PowerShell-compatible syntax and cmdlets; do not assume Unix commands "
+            "like cat/ls/grep are available."
             if system_name.lower() == "windows"
             else "The runtime shell is Unix-like. Use POSIX-compatible shell commands."
         )

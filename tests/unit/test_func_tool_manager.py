@@ -147,8 +147,22 @@ async def test_local_execute_shell_uses_managed_session(monkeypatch, tmp_path):
     booter.shell = shell
 
     class FakeConfig:
+        config = {
+            "admins_id": ["admin-user"],
+            "provider_settings": {
+                "computer_use_runtime": "local",
+                "computer_use_local_permissions": {
+                    "admin": {
+                        "allow_execution": True,
+                        "allow_network": True,
+                        "filesystem_scope": "host",
+                    }
+                },
+            },
+        }
+
         def get_config(self, umo):
-            return {"provider_settings": {"computer_use_runtime": "local"}}
+            return self.config
 
     class FakeEvent:
         unified_msg_origin = "umo"
@@ -182,17 +196,27 @@ async def test_local_execute_shell_uses_managed_session(monkeypatch, tmp_path):
     )
 
     assert json.loads(result)["session_id"] == "sh_test"
-    shell.exec_managed.assert_awaited_once_with(
-        "python server.py",
-        owner_id="umo",
-        creator_id="admin-user",
-        creator_is_admin=True,
-        sandboxed=False,
-        cwd=str(tmp_path),
-        env={},
-        timeout=None,
-        yield_time_ms=250,
-    )
+    shell.exec_managed.assert_awaited_once()
+    assert shell.exec_managed.await_args.args == ("python server.py",)
+    assert shell.exec_managed.await_args.kwargs.items() >= {
+        "owner_id": "umo",
+        "creator_id": "admin-user",
+        "creator_is_admin": True,
+        "sandboxed": False,
+        "cwd": str(tmp_path),
+        "env": {},
+        "timeout": None,
+        "yield_time_ms": 250,
+    }.items()
+    permission_check = shell.exec_managed.await_args.kwargs["permission_check"]
+    assert permission_check() is True
+    FakeConfig.config["admins_id"] = []
+    assert permission_check() is False
+    FakeConfig.config["admins_id"] = ["admin-user"]
+    FakeConfig.config["provider_settings"]["computer_use_local_permissions"][
+        "admin"
+    ]["allow_execution"] = False
+    assert permission_check() is False
 
 
 @pytest.mark.asyncio
@@ -290,10 +314,7 @@ async def test_shell_session_tool_lists_sessions_for_current_owner(monkeypatch):
     class FakeWrapper:
         context = FakeAstrContext()
 
-    async def fake_get_booter(context, session_id):
-        return booter
-
-    monkeypatch.setattr(shell_tools, "get_booter", fake_get_booter)
+    monkeypatch.setattr(shell_tools, "get_local_booter", lambda: booter)
 
     result = await ShellSessionTool().call(FakeWrapper(), action="list")
 
@@ -364,10 +385,7 @@ async def test_shell_session_tool_passes_member_identity_to_session_actions(
     class FakeWrapper:
         context = FakeAstrContext()
 
-    async def fake_get_booter(context, session_id):
-        return booter
-
-    monkeypatch.setattr(shell_tools, "get_booter", fake_get_booter)
+    monkeypatch.setattr(shell_tools, "get_local_booter", lambda: booter)
 
     result = await ShellSessionTool().call(
         FakeWrapper(),

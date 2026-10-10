@@ -11,12 +11,14 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.computer.booters.local import LocalShellComponent
-from astrbot.core.computer.computer_client import get_booter
+from astrbot.core.computer.computer_client import get_booter, get_local_booter
 from astrbot.core.utils.astrbot_path import get_astrbot_system_tmp_path
 
 from ..registry import builtin_tool
 from .util import (
+    LocalPermissionPolicy,
     check_local_execution_permission,
+    get_local_permission_policy,
     is_local_runtime,
     workspace_root_for_context,
 )
@@ -27,6 +29,31 @@ _COMPUTER_RUNTIME_TOOL_CONFIG = {
 _LOCAL_RUNTIME_TOOL_CONFIG = {
     "provider_settings.computer_use_runtime": "local",
 }
+
+
+def _local_shell_permissions_still_valid(
+    context: ContextWrapper[AstrAgentContext],
+    policy: LocalPermissionPolicy | None,
+    sender_id: str,
+    creator_is_admin: bool,
+) -> bool:
+    """Check that a managed Local shell still has its creation permissions."""
+    if not is_local_runtime(context):
+        return False
+
+    event = context.context.event
+    if creator_is_admin:
+        config = context.context.context.get_config(
+            umo=event.unified_msg_origin,
+        )
+        admin_ids = config.get("admins_id") if isinstance(config, dict) else None
+        if not isinstance(admin_ids, list) or str(sender_id) not in {
+            str(admin_id) for admin_id in admin_ids
+        }:
+            return False
+
+    role = "admin" if creator_is_admin else "member"
+    return get_local_permission_policy(context, role=role) == policy
 
 
 def _quote_redirect_path(path: str, *, local_runtime: bool) -> str:
@@ -66,7 +93,7 @@ class ExecuteShellTool(FunctionTool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute in the current runtime shell (for example, cmd.exe on Windows). Equal to 'cd {working_dir} && {your_command}'.",
+                    "description": "The shell command to execute in the current runtime shell (PowerShell on Windows). Equal to 'cd {working_dir} && {your_command}'.",
                 },
                 "background": {
                     "type": "boolean",
@@ -98,7 +125,7 @@ class ExecuteShellTool(FunctionTool):
         env: dict[str, Any] | None = None,
         yield_time_ms: int = 10_000,
     ) -> ToolExecResult:
-        _, permission_error = check_local_execution_permission(
+        local_policy, permission_error = check_local_execution_permission(
             context,
             "Shell execution",
         )
@@ -126,13 +153,20 @@ class ExecuteShellTool(FunctionTool):
                 creator_id = context.context.event.get_sender_id()
                 if not creator_id:
                     return "Error executing command: sender identity is unavailable."
+                creator_is_admin = context.context.event.role == "admin"
                 return json.dumps(
                     await sb.shell.exec_managed(
                         command,
                         owner_id=context.context.event.unified_msg_origin,
                         creator_id=creator_id,
-                        creator_is_admin=context.context.event.role == "admin",
+                        creator_is_admin=creator_is_admin,
                         sandboxed=False,
+                        permission_check=lambda: _local_shell_permissions_still_valid(
+                            context,
+                            local_policy,
+                            creator_id,
+                            creator_is_admin,
+                        ),
                         cwd=cwd,
                         env=env,
                         timeout=timeout,
@@ -309,16 +343,13 @@ class ShellSessionTool(FunctionTool):
             context,
             "Shell session management",
         )
-        if permission_error:
+        if permission_error and action != "terminate":
             return permission_error
-        if not is_local_runtime(context):
+        if not is_local_runtime(context) and action != "terminate":
             return "Error managing shell session: only local runtime is supported."
 
         try:
-            sb = await get_booter(
-                context.context.context,
-                context.context.event.unified_msg_origin,
-            )
+            sb = get_local_booter()
             if not isinstance(sb.shell, LocalShellComponent):
                 return "Error managing shell session: local shell component is unavailable."
 

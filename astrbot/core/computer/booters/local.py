@@ -10,9 +10,12 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 if sys.version_info < (3, 14):
     from python_ripgrep import search
@@ -112,6 +115,7 @@ class _LocalShellSession:
     output_event: asyncio.Event
     reader_task: asyncio.Task[None]
     wait_task: asyncio.Task[int]
+    permission_check: Callable[[], bool]
     timeout_task: asyncio.Task[None] | None = None
     cursor: int = 0
     timed_out: bool = False
@@ -223,6 +227,7 @@ class LocalShellComponent(ShellComponent):
         creator_id: str,
         creator_is_admin: bool,
         sandboxed: bool,
+        permission_check: Callable[[], bool] | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout: int | None = None,
@@ -237,6 +242,7 @@ class LocalShellComponent(ShellComponent):
             creator_id: Sender ID that created the session.
             creator_is_admin: Whether the creator was an administrator.
             sandboxed: Whether the process is isolated from the host.
+            permission_check: Revalidate the permissions used to create the session.
             cwd: Working directory for the process.
             env: Additional environment variables.
             timeout: Hard process lifetime in seconds. None disables it.
@@ -259,6 +265,8 @@ class LocalShellComponent(ShellComponent):
         if max_output_chars < 1:
             raise ValueError("`max_output_chars` must be greater than 0.")
 
+        permission_check = permission_check or (lambda: True)
+
         run_env = os.environ.copy()
         if env:
             run_env.update({str(k): str(v) for k, v in env.items()})
@@ -269,6 +277,12 @@ class LocalShellComponent(ShellComponent):
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{session_id}.log"
         output_path.touch()
+
+        if not permission_check():
+            output_path.unlink(missing_ok=True)
+            raise PermissionError(
+                "Local shell permissions changed; retry the command."
+            )
 
         process_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
@@ -339,6 +353,7 @@ class LocalShellComponent(ShellComponent):
             output_event=output_event,
             reader_task=reader_task,
             wait_task=wait_task,
+            permission_check=permission_check,
         )
 
         if timeout is not None:
@@ -365,6 +380,10 @@ class LocalShellComponent(ShellComponent):
 
         async with self._sessions_lock:
             self._sessions[session_id] = session
+
+        if not permission_check():
+            await self.shutdown_sessions(invalid_only=True)
+            raise PermissionError("Local shell permissions changed; retry the command.")
 
         if yield_time_ms > 0:
             try:
@@ -573,7 +592,11 @@ class LocalShellComponent(ShellComponent):
             requester_is_admin,
             session_id,
         )
-        if session.process.returncode is not None or session.process.stdin is None:
+        if (
+            session.terminated
+            or session.process.returncode is not None
+            or session.process.stdin is None
+        ):
             raise ValueError(f"Shell session {session_id} is not accepting input.")
         session.process.stdin.write(chars.encode("utf-8"))
         await session.process.stdin.drain()
@@ -670,12 +693,20 @@ class LocalShellComponent(ShellComponent):
             max_output_chars=max_output_chars,
         )
 
-    async def shutdown_sessions(self) -> None:
-        """Terminate and remove every managed local shell session."""
+    async def shutdown_sessions(self, *, invalid_only: bool = False) -> None:
+        """Terminate and remove managed local shell sessions.
+
+        Args:
+            invalid_only: Keep sessions whose creation permissions still apply.
+        """
         async with self._sessions_lock:
-            sessions = list(self._sessions.values())
-        for session in sessions:
-            session.terminated = True
+            sessions = [
+                session
+                for session in self._sessions.values()
+                if not invalid_only or not session.permission_check()
+            ]
+            for session in sessions:
+                session.terminated = True
         termination_results = await asyncio.gather(
             *(self._terminate_process(session) for session in sessions),
             return_exceptions=True,
@@ -739,26 +770,65 @@ class LocalShellComponent(ShellComponent):
             )
         ):
             raise ValueError(f"Shell session {session_id} was not found.")
+        if not session.permission_check():
+            await self.shutdown_sessions(invalid_only=True)
+            raise ValueError(
+                f"Shell session {session_id} expired after a permission change. "
+                "Start a new shell session."
+            )
         return session
 
     async def _terminate_process(self, session: _LocalShellSession) -> None:
         """Gracefully terminate a process group, then force it if needed."""
-        if session.process.returncode is not None:
-            return
+        # On POSIX, the leader may exit while descendants still hold stdout.
+        # Keep terminating the process group so the reader task can finish.
         if os.name == "nt":
-            try:
-                taskkill_result = await asyncio.to_thread(
-                    subprocess.run,
-                    ["taskkill", "/F", "/T", "/PID", str(session.process.pid)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
-            except Exception:
-                session.process.terminate()
-            else:
-                if taskkill_result.returncode != 0:
-                    session.process.terminate()
+            if session.process.returncode is None:
+                try:
+                    taskkill_result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["taskkill", "/F", "/T", "/PID", str(session.process.pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except Exception:
+                    if session.process.returncode is None:
+                        session.process.terminate()
+                else:
+                    if (
+                        taskkill_result.returncode != 0
+                        and session.process.returncode is None
+                    ):
+                        session.process.terminate()
+
+            def _kill_remaining_descendants() -> None:
+                # Windows retains the parent PID even after taskkill exits the shell.
+                processes = {
+                    process.pid: process
+                    for process in psutil.process_iter(
+                        attrs=["ppid", "create_time"]
+                    )
+                    if process.info["create_time"] is not None
+                    and process.info["create_time"] >= session.started_at - 5
+                }
+                descendants = []
+                parents = {session.process.pid}
+                while parents:
+                    children = [
+                        process
+                        for process in processes.values()
+                        if process.info["ppid"] in parents
+                    ]
+                    descendants.extend(children)
+                    parents = {process.pid for process in children}
+                for child in reversed(descendants):
+                    try:
+                        child.kill()
+                    except psutil.Error:
+                        pass
+
+            await asyncio.to_thread(_kill_remaining_descendants)
         else:
             try:
                 os.killpg(session.process.pid, signal.SIGTERM)
@@ -767,18 +837,41 @@ class LocalShellComponent(ShellComponent):
 
         try:
             await asyncio.wait_for(
-                asyncio.shield(session.wait_task),
+                asyncio.shield(
+                    asyncio.gather(
+                        session.wait_task,
+                        session.reader_task,
+                        return_exceptions=True,
+                    )
+                ),
                 timeout=5,
             )
         except asyncio.TimeoutError:
             if os.name == "nt":
-                session.process.kill()
+                if session.process.returncode is None:
+                    session.process.kill()
+                await asyncio.to_thread(_kill_remaining_descendants)
             else:
                 try:
                     os.killpg(session.process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            await session.wait_task
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(
+                        asyncio.gather(
+                            session.wait_task,
+                            session.reader_task,
+                            return_exceptions=True,
+                        )
+                    ),
+                    timeout=5,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Managed local shell session %s did not close its output pipe",
+                    session.session_id,
+                )
 
     async def _remove_session(self, session: _LocalShellSession) -> None:
         """Remove a completed session and its temporary output file."""

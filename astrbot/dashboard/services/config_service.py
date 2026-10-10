@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from astrbot.core import file_token_service, logger
+from astrbot.core.computer import computer_client
+from astrbot.core.computer.booters.local import LocalShellComponent
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.config.default import (
     CONFIG_METADATA_2,
@@ -1672,6 +1674,9 @@ class ConfigService(DashboardService):
                 ]
 
             save_config(post_configs, astrbot_config, is_core=True)
+            booter = computer_client.local_booter
+            if booter is not None and isinstance(booter.shell, LocalShellComponent):
+                await booter.shell.shutdown_sessions(invalid_only=True)
         except Exception as e:
             raise e
 

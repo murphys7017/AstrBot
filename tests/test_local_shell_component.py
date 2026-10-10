@@ -514,6 +514,33 @@ async def test_managed_shell_hard_timeout_terminates_session():
 
 
 @pytest.mark.asyncio
+async def test_managed_shell_revokes_session_when_permission_changes():
+    shell = LocalShellComponent()
+    allowed = True
+    result = await shell.exec_managed(
+        _python_command("import time; time.sleep(30)"),
+        owner_id="owner-a",
+        creator_id="admin-user",
+        creator_is_admin=True,
+        sandboxed=False,
+        permission_check=lambda: allowed,
+        yield_time_ms=0,
+    )
+
+    try:
+        assert result["status"] == "running"
+        allowed = False
+        await shell.shutdown_sessions(invalid_only=True)
+        assert await shell.list_sessions(
+            owner_id="owner-a",
+            requester_id="admin-user",
+            requester_is_admin=True,
+        ) == {"sessions": []}
+    finally:
+        await shell.shutdown_sessions()
+
+
+@pytest.mark.asyncio
 async def test_managed_shell_keeps_completed_session_until_output_is_drained():
     shell = LocalShellComponent()
     result = await shell.exec_managed(

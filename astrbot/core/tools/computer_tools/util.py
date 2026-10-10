@@ -57,6 +57,8 @@ def is_local_runtime(context: ContextWrapper[AstrAgentContext]) -> bool:
 
 def get_local_permission_policy(
     context: ContextWrapper[AstrAgentContext],
+    *,
+    role: Literal["admin", "member"] | None = None,
 ) -> LocalPermissionPolicy:
     """Resolve the Local permission policy for the caller's role."""
     cfg = context.context.context.get_config(
@@ -66,7 +68,7 @@ def get_local_permission_policy(
     if not isinstance(provider_settings, dict):
         provider_settings = {}
 
-    role = "admin" if context.context.event.role == "admin" else "member"
+    role = role or ("admin" if context.context.event.role == "admin" else "member")
     defaults = get_local_permission_defaults()[role]
     permissions = provider_settings.get("computer_use_local_permissions")
     role_policy = permissions.get(role) if isinstance(permissions, dict) else None

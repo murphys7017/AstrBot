@@ -54,6 +54,31 @@ structured_persona_output_review_followup_20261009:
     drift in all four checked files, also present in HEAD. Live plugin and
     adapter acceptance remains pending.
 
+computer_local_shell_permission_revocation_20261010:
+  date: '2026-10-10'
+  class: bugfix
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Revoke managed Local Shell sessions when their creation permissions no
+    longer hold: preserve the creator role, re-check administrator membership
+    and role policy, clean invalid sessions after Core config saves, and keep
+    POSIX process-group and Windows process-tree termination from leaving
+    descendant stdout readers blocked.
+  non_goals: >-
+    Do not change the sandbox runtime, redesign Computer permissions, restart
+    the running service, or wholesale copy the upstream Computer refactor.
+  validation: >-
+    The Windows cross-user termination regression passed after process-tree
+    cleanup. The combined Local Shell, Computer tool, and config-save run passed
+    45 tests; one unrelated existing MCP test still expects fake_tool instead of
+    the registered fake__tool. Scoped Ruff, Python compilation, and diff checks
+    passed. Live administrator demotion after restart remains pending.
+  followup: >-
+    After the next manual restart, remove an administrator ID or change the
+    Local role policy in Dashboard and confirm existing sessions terminate and
+    new sessions use the updated policy.
+
 upstream_beneficial_updates_20261006:
   date: '2026-10-06'
   class: maintenance
