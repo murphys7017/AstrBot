@@ -45,15 +45,16 @@ persona_response_output_formats_20261011:
     facing Fast Expression label without renaming internal expression_* keys.
   non_goals: >-
     Do not persist provider stability-test results, deploy/build production
-    assets, change TTS cue injection, or commit unrelated pre-existing dirty
-    Persona/effects changes.
+    assets, change TTS cue injection, or include unrelated workspace artifacts
+    such as .jspace/.
   validation: >-
     Semantic XML/Markdown parser, interaction config/runtime, provider output,
     lifecycle, and TTS boundary tests passed (85 cases).
     Ruff, Python compilation, locale JSON parsing, git diff check, and dashboard
-    vue-tsc passed. Full expression-agent suite still has four existing failures
-    tied to pre-existing required-per-segment effect changes in the dirty
-    expression/effects work; no live Provider requests or deployment were run.
+    vue-tsc passed. Full expression-agent suite still has four failures because
+    its older fixtures assert the pre-segment_index required-effect behavior;
+    these are outside the format-output boundary. No live Provider requests or
+    deployment were run.
   architecture:
     - Format selection is persisted as interaction_middleware expression_output_format/mode; test results are not persisted.
     - XML and Markdown are semantic field grammars and reject embedded JSON payloads.
