@@ -124,12 +124,14 @@
                     :supports-reasoning="supportsReasoning"
                     :format-context-limit="formatContextLimit"
                     :testing-providers="testingProviders"
+                    :json-testing-providers="jsonTestingProviders"
                     :tm="tm"
                     @fetch-models="fetchAvailableModels"
                     @open-manual-model="openManualModelDialog"
                     @open-provider-edit="openProviderEdit"
                     @toggle-provider-enable="toggleProviderEnable"
                     @test-provider="testProvider"
+                    @test-json-output="openJsonOutputTest"
                     @delete-provider="deleteProvider"
                     @add-model-provider="openModelAddDialog"
                   />
@@ -301,6 +303,13 @@
       </v-card>
     </v-dialog>
 
+    <ProviderJsonOutputTestDialog
+      v-model="showJsonOutputTestDialog"
+      :provider="jsonOutputTestProvider"
+      :tm="tm"
+      @testing-change="handleJsonOutputTestingChange"
+    />
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="3000" location="top">
       {{ snackbar.message }}
     </v-snackbar>
@@ -338,6 +347,7 @@ import { useModuleI18n } from '@/i18n/composables'
 import AstrBotConfig from '@/components/shared/AstrBotConfig.vue'
 import ItemCard from '@/components/shared/ItemCard.vue'
 import AddNewProvider from '@/components/provider/AddNewProvider.vue'
+import ProviderJsonOutputTestDialog from '@/components/provider/ProviderJsonOutputTestDialog.vue'
 import ProviderModelsPanel from '@/components/provider/ProviderModelsPanel.vue'
 import ProviderSourcesPanel from '@/components/provider/ProviderSourcesPanel.vue'
 import { useProviderModelConfigDialog } from '@/composables/useProviderModelConfigDialog'
@@ -419,6 +429,9 @@ const loading = ref(false)
 const providerStatuses = ref([])
 const showAgentRunnerDialog = ref(false)
 const showManualModelDialog = ref(false)
+const showJsonOutputTestDialog = ref(false)
+const jsonOutputTestProvider = ref(null)
+const jsonTestingProviders = ref([])
 
 const {
   showProviderEditDialog,
@@ -464,6 +477,26 @@ async function confirmManualModel() {
   }
   showManualModelDialog.value = false
   openModelAddDialog(modelId)
+}
+
+function openJsonOutputTest(provider) {
+  if (
+    !provider?.enable ||
+    testingProviders.value.includes(provider.id) ||
+    jsonTestingProviders.value.includes(provider.id)
+  ) {
+    return
+  }
+  jsonOutputTestProvider.value = provider
+  showJsonOutputTestDialog.value = true
+}
+
+function handleJsonOutputTestingChange(providerId, isTesting) {
+  if (isTesting && !jsonTestingProviders.value.includes(providerId)) {
+    jsonTestingProviders.value.push(providerId)
+  } else if (!isTesting) {
+    jsonTestingProviders.value = jsonTestingProviders.value.filter((id) => id !== providerId)
+  }
 }
 
 watch(() => props.defaultTab, (val) => {
