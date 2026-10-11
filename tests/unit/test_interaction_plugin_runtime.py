@@ -18,7 +18,10 @@ from astrbot.core.interaction.config import (
     is_middleware_enabled,
     load_interaction_agent_config,
 )
-from astrbot.core.interaction.contributors import InteractionResultContribution
+from astrbot.core.interaction.contributors import (
+    InteractionResultContribution,
+    merge_result_contributions,
+)
 from astrbot.core.interaction.effects import PersonaEffectCall
 from astrbot.core.interaction.expression_agent import PersonaExpressionResult
 from astrbot.core.interaction.middleware import InteractionMiddleware
@@ -80,6 +83,40 @@ def test_result_contribution_preserves_positional_priority_argument():
     assert contribution.post_materialization == []
 
 
+def test_result_contribution_merges_post_materialization_timeout_requests():
+    merged = merge_result_contributions(
+        [
+            InteractionResultContribution(
+                plugin_id="first",
+                post_materialization_timeout_seconds=12,
+            ),
+            InteractionResultContribution(
+                plugin_id="second",
+                post_materialization_timeout_seconds=18,
+            ),
+            InteractionResultContribution(
+                plugin_id="invalid",
+                post_materialization_timeout_seconds=float("inf"),
+            ),
+            InteractionResultContribution(
+                plugin_id="boolean",
+                post_materialization_timeout_seconds=True,
+            ),
+        ]
+    )
+
+    assert merged.post_materialization_timeout_seconds == 18
+    bounded = merge_result_contributions(
+        [
+            InteractionResultContribution(
+                plugin_id="large",
+                post_materialization_timeout_seconds=10**1000,
+            )
+        ]
+    )
+    assert bounded.post_materialization_timeout_seconds == 30.0
+
+
 @pytest.mark.asyncio
 async def test_post_materialization_contribution_merges_materialized_output():
     event = SimpleNamespace(get_extra=lambda key, default=None: "turn-1")
@@ -132,6 +169,53 @@ async def test_post_materialization_contribution_merges_materialized_output():
         "existing": True,
         "materialized": True,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("contributor_timeout", "requested_timeout"),
+    [(0.001, 0.25), (0.1, 0.001)],
+)
+async def test_post_materialization_uses_larger_timeout(
+    contributor_timeout,
+    requested_timeout,
+):
+    event = SimpleNamespace(get_extra=lambda key, default=None: "turn-1")
+    controller = object.__new__(InteractionOutputController)
+    controller.plugin_context = object()
+    controller._get_interaction_config = lambda _event: SimpleNamespace(
+        contributor_timeout=contributor_timeout
+    )
+    callback_completed = False
+
+    async def finalize(_event, _plugin_context, **_kwargs):
+        nonlocal callback_completed
+        await asyncio.sleep(0.02)
+        callback_completed = True
+        return InteractionResultContribution(
+            plugin_id="persona-output-test",
+            platform_extras={"callback_completed": True},
+        )
+
+    contribution = InteractionResultContribution(
+        plugin_id="persona-output-test",
+        post_materialization=[finalize],
+        post_materialization_timeout_seconds=requested_timeout,
+    )
+    platform_extras = {}
+
+    await controller._apply_post_materialization_contributions(
+        event,
+        contribution,
+        platform_extras,
+        phase="final",
+        parent_message_id="message-1",
+        persona_result_id="persona-result-1",
+        materialization={},
+    )
+
+    assert callback_completed is True
+    assert platform_extras["callback_completed"] is True
 
 
 def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():

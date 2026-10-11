@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from types import MappingProxyType
@@ -16,6 +17,7 @@ InteractionResultPurpose = Literal[
     "plugin_reply",
     "core_reply",
 ]
+POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS = 30.0
 PromptViewPhase = Literal[
     "unknown",
     "collect",
@@ -93,6 +95,7 @@ class InteractionResultContribution:
     post_materialization: list[Callable[..., Awaitable[Any]]] = field(
         default_factory=list
     )
+    post_materialization_timeout_seconds: float | None = None
 
 
 def freeze_interaction_snapshot(value: Any) -> Any:
@@ -417,6 +420,28 @@ def merge_result_contributions(
         merged.client_objects.extend(contribution.client_objects)
         merged.metadata.update(contribution.metadata)
         merged.post_materialization.extend(contribution.post_materialization)
+        requested_timeout = contribution.post_materialization_timeout_seconds
+        if isinstance(requested_timeout, bool):
+            requested_timeout = None
+        elif isinstance(requested_timeout, int):
+            requested_timeout = (
+                float(min(requested_timeout, int(POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS)))
+                if requested_timeout > 0
+                else None
+            )
+        elif isinstance(requested_timeout, float):
+            requested_timeout = (
+                min(requested_timeout, POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS)
+                if math.isfinite(requested_timeout) and requested_timeout > 0
+                else None
+            )
+        else:
+            requested_timeout = None
+        if requested_timeout is not None:
+            merged.post_materialization_timeout_seconds = max(
+                merged.post_materialization_timeout_seconds or 0.0,
+                requested_timeout,
+            )
         if contribution.final_text_override is not None:
             merged.final_text_override = contribution.final_text_override
     return merged

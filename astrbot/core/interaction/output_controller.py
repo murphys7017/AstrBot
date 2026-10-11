@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import time
 import traceback
@@ -34,6 +35,7 @@ from astrbot.core.voice import (
 from .assistant_artifacts import serialize_assistant_message_chain
 from .config import load_interaction_agent_config
 from .contributors import (
+    POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS,
     InteractionOutputDraft,
     InteractionResultContribution,
     InteractionResultPurpose,
@@ -2463,6 +2465,22 @@ class InteractionOutputController:
             return
 
         timeout = self._get_interaction_config(event).contributor_timeout
+        requested_timeout = result_contribution.post_materialization_timeout_seconds
+        if isinstance(requested_timeout, (int, float)) and not isinstance(
+            requested_timeout, bool
+        ):
+            try:
+                timeout_request = float(requested_timeout)
+            except (OverflowError, ValueError):
+                timeout_request = 0.0
+            if math.isfinite(timeout_request) and timeout_request > 0:
+                timeout = max(
+                    timeout,
+                    min(
+                        timeout_request,
+                        POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS,
+                    ),
+                )
         for finalize in result_contribution.post_materialization:
             try:
                 payload = await asyncio.wait_for(

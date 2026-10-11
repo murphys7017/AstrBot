@@ -96,16 +96,19 @@ structured_persona_dual_channels_and_segment_identity_20261012:
     Do not change provider stability-test persistence, deploy assets, or
     implement TTS cue injection and cleanup.
   validation: >-
-    Seven focused runner, contributor, and TTS tests passed. The combined
-    relevant suite passed 205 tests and failed four: three known event-filter
-    fixtures lack get_extra, and a fallback-hook test that passed when rerun
-    alone timed out in the combined run. Ruff check, Python compilation, and
-    git diff --check passed. Ruff format --check still reports existing drift
-    in several touched files. No live Provider or platform acceptance ran.
+    Focused runner, contributor, and TTS checks passed. The combined relevant
+    suite passed 205 tests and failed four: three known event-filter fixtures
+    lack get_extra, and a fallback-hook test that passed when rerun alone timed
+    out in the combined run. Ruff check, Python compilation, and git diff
+    --check passed. Ruff format --check still reports existing drift in several
+    touched files. No live Provider or platform acceptance ran. The latest
+    timeout and TTS correlation checks passed: five focused contributor tests
+    and one TTS lifecycle test, plus scoped Ruff, Python compilation, runtime
+    validation, and git diff --check.
   architecture:
     - Expression uses persona_expression; registered effects use persona_effect_batch and are merged only after validation.
     - Text delivery joins segments[].speech while TTS synthesizes each non-empty segment and carries parent/result/segment identifiers.
-    - post_materialization callbacks run before delivery and merge platform extras, client objects, and metadata.
+    - post_materialization callbacks run before delivery, merge platform extras/client objects/metadata, and may request a bounded longer timeout.
   followup: >-
     Validate dual-channel requests with native JSON, XML, and Markdown against
     real Providers; verify plugin consumers receive the materialized per-segment
