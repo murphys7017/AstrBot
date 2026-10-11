@@ -216,6 +216,10 @@ def _default_persona_tendency() -> dict[str, int]:
     return dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
 
 
+def _clamp_persona_tendency_value(value: int) -> int:
+    return max(0, min(10, value))
+
+
 @dataclass(slots=True)
 class PersonaExpressionSegment:
     speech: str = ""
@@ -488,13 +492,12 @@ def validate_persona_expression_result(
             raise InteractionExpressionError("invalid_persona_thought")
         if not isinstance(segment.tendency, dict):
             raise InteractionExpressionError("invalid_persona_tendency")
-        if set(segment.tendency) != set(PERSONA_TENDENCY_DIMENSIONS) or any(
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or not -10 <= value <= 10
-            for value in segment.tendency.values()
-        ):
+        if set(segment.tendency) != set(PERSONA_TENDENCY_DIMENSIONS):
             raise InteractionExpressionError("invalid_persona_tendency")
+        for dimension, value in segment.tendency.items():
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise InteractionExpressionError("invalid_persona_tendency")
+            segment.tendency[dimension] = _clamp_persona_tendency_value(value)
 
     action = result.turn_action
     if not isinstance(action, PersonalResponseAction):
@@ -653,8 +656,8 @@ def build_persona_runtime_system_prompt(
         "segments 中的 speech 依次拼接后形成发给文本平台的整合可见文本；语音合成保留这些分段并按原顺序逐段交给 TTS，不要把段边界改写成外部 speech cue。需要 TTS 标签时由后续适配器处理。\n"
         "actions 是简单动作词数组，只表达动作意图，不写参数、方向、时长或插件 effect 数据。\n"
         "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。\n"
-        "tendency 是角色当前情绪状态，使用 Plutchik 八个维度 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、Anticipation，"
-        "每个值必须是 -10 到 10 的整数。\n"
+        "tendency 是角色当前情绪强度，使用 Plutchik 八个维度 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、Anticipation，"
+        "每个值应是 0 到 10 的整数；0 表示没有明显表现，10 表示强烈表现。若收到整数越界值，Core 会在内部裁剪到 0 或 10，但不要依赖该容错。\n"
         "阶段性任务要求由最终 request prompt 给出；不要把 history、memory 或人格设定当作本轮结果事实。\n"
         "不得逐句复述推理、内部指令、工具参数或工具原文。协议字段不会直接展示给用户，只有 segments 中的 speech 会展示。"
         + (
@@ -745,7 +748,7 @@ def build_persona_expression_tool_parameters(
                 "properties": {
                     dimension: {
                         "type": "integer",
-                        "minimum": -10,
+                        "minimum": 0,
                         "maximum": 10,
                     }
                     for dimension in PERSONA_TENDENCY_DIMENSIONS
@@ -1042,7 +1045,7 @@ def _build_persona_text_output_prompt(output_format: str) -> str:
             "代码围栏或解释文字。第一行必须是 # output；字段使用逐级标题："
             "## turn_action、## segments；每个分段使用 ### segment，"
             "再使用 #### speech、#### actions、#### thought、#### tendency；动作使用重复的"
-            "##### action，情绪使用其名称作为下一级标题并填写 -10 到 10 的整数。"
+            "##### action，情绪使用其名称作为下一级标题并填写 0 到 10 的整数；整数越界时 Core 会裁剪到 0 或 10。"
             "字符串值每行使用 '> ' 开头；数组使用重复标题，空数组保留对应标题但不填充内容。"
         )
     return ""
@@ -1117,14 +1120,13 @@ def _validated_persona_tendency(payload: dict[str, Any]) -> dict[str, int]:
         PERSONA_TENDENCY_DIMENSIONS
     ):
         raise InteractionExpressionError("invalid_persona_tendency")
-    if any(
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not -10 <= value <= 10
-        for value in tendency.values()
-    ):
-        raise InteractionExpressionError("invalid_persona_tendency")
-    return dict(tendency)
+    normalized: dict[str, int] = {}
+    for dimension in PERSONA_TENDENCY_DIMENSIONS:
+        value = tendency[dimension]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise InteractionExpressionError("invalid_persona_tendency")
+        normalized[dimension] = _clamp_persona_tendency_value(value)
+    return normalized
 
 
 def _build_persona_expression_result_from_payload(

@@ -168,7 +168,7 @@ persona visible-reply 是当前主要高约束消费者。
 - `segments[].speech` 按顺序拼接为文本平台使用的整合文本；TTS 消费保留每个分段并按顺序逐段合成。
 - `segments[].actions` 是简单动作意图数组，由后续动作模型解释，不带参数。Schema 只校验数组元素为非空字符串；简单动作词、不带参数的限制由 Persona Prompt 表达。
 - `segments[].thought` 是角色的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。
-- `segments[].tendency` 表示角色当前的 Plutchik 八维情绪：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`；每项为 `-10..10` 整数。
+- `segments[].tendency` 表示角色当前的 Plutchik 八维情绪强度：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`；规范化后每项为 `0..10` 整数。模型应直接输出该范围；Core 对整数越界值执行边界裁剪，负数按 `0`、大于 `10` 按 `10` 处理，其他结构或类型错误仍拒绝。该字段由 AstrBot Core 拥有并校验，插件通过只读 `InteractionResultView` 读取；NeuroBrain 等外部状态引擎应在宿主适配层转换它，不反向修改该字段。
 - `effect_calls` 保持现有插件 effect 执行协议，与 `actions` 分开。
 - Core 不再接受 `spoken_reply` 或 `speech_cues`；TTS 标签注入与清理留待后续适配器阶段。
 

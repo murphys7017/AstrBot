@@ -194,16 +194,68 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
     assert tendency["required"] == list(PERSONA_TENDENCY_DIMENSIONS)
     assert all(
         tendency["properties"][dimension]
-        == {"type": "integer", "minimum": -10, "maximum": 10}
+        == {"type": "integer", "minimum": 0, "maximum": 10}
         for dimension in PERSONA_TENDENCY_DIMENSIONS
     )
+
+
+def test_persona_expression_accepts_inclusive_tendency_boundaries():
+    result = PersonaExpressionResult(
+        segments=[
+            PersonaExpressionSegment(
+                speech="hello",
+                tendency={
+                    dimension: 0 if index % 2 == 0 else 10
+                    for index, dimension in enumerate(PERSONA_TENDENCY_DIMENSIONS)
+                },
+            )
+        ],
+    )
+
+    validate_persona_expression_result(PersonaExpressionRequest(), result)
+
+
+def test_persona_expression_clamps_out_of_range_tendency_values():
+    result = PersonaExpressionResult(
+        speech="hello",
+        tendency={
+            **dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 5),
+            "Joy": -3,
+            "Anger": 17,
+        },
+    )
+
+    validate_persona_expression_result(PersonaExpressionRequest(), result)
+
+    assert result.tendency["Joy"] == 0
+    assert result.tendency["Anger"] == 10
+
+
+def test_persona_expression_parser_clamps_out_of_range_tendency_values():
+    payload = _persona_payload("hello")
+    payload["segments"][0]["tendency"]["Joy"] = -2
+    payload["segments"][0]["tendency"]["Anger"] = 12
+    response = LLMResponse(
+        role="assistant",
+        completion_text="",
+        tools_call_name=["persona_expression"],
+        tools_call_args=[payload],
+    )
+
+    result = extract_persona_expression_result(
+        "",
+        llm_response=response,
+        output_contract=build_persona_expression_output_contract(),
+    )
+
+    assert result.tendency["Joy"] == 0
+    assert result.tendency["Anger"] == 10
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("tendency", {**dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), "Joy": True}),
-        ("tendency", {**dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), "Joy": 11}),
         ("tendency", json.dumps(dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0))),
         ("actions", [{"name": "lower_head"}]),
         ("actions", json.dumps(["lower_head"])),

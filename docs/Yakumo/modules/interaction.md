@@ -593,9 +593,9 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 }
 ```
 
-首轮要求 `persona_expression` 与适用的 `persona_effect_batch` 在同一响应返回；运行器收到任一 terminal tool call 后就会结束该轮。若双通道首轮漏项，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。没有适用 effect 时省略 effect 工具；Core 聚合结果中仍提供空 `effect_calls` 数组。`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+首轮要求 `persona_expression` 与适用的 `persona_effect_batch` 在同一响应返回；运行器收到任一 terminal tool call 后就会结束该轮。若双通道首轮漏项，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。没有适用 effect 时省略 effect 工具；Core 聚合结果中仍提供空 `effect_calls` 数组。`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前八维情绪强度，模型应输出 `0..10` 整数，Core 对整数越界值按边界裁剪后保留为 `0..10`。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
-开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
+开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 

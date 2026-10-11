@@ -21,14 +21,14 @@ allow_text_fallback = false
 
 ## 2. Prompt 与解析校验
 
-Persona system prompt 声明表达字段及 segment 内字段语义；存在适用 effect 时再声明 effect 通道要求。request prompt 按本轮任务说明 `reply / delegate / silent`、source text、progress 和 empty speech 等约束。`tendency` 明确表示角色当前情绪，固定为 Plutchik 八维，每项 `-10..10` 整数。
+Persona system prompt 声明表达字段及 segment 内字段语义；存在适用 effect 时再声明 effect 通道要求。request prompt 按本轮任务说明 `reply / delegate / silent`、source text、progress 和 empty speech 等约束。`tendency` 明确表示角色当前八维情绪强度，固定为 Plutchik 八维，每项应为 `0..10` 整数；Core 对整数越界值执行边界裁剪。
 
 解析流程分别读取表达 payload 和本轮要求的 effect batch。表达可来自指定的 `persona_expression` tool call，或由所选 JSON/XML/Markdown parser 读取；适用 effect 始终由 `persona_effect_batch` tool call 读取。首轮缺失通道时，定向补全后的 payload 会并入原响应结果；仍缺失或重复任一必需通道都会拒绝本次结果。两个 payload 校验后才合并为内部 `PersonaExpressionResult`。校验包括：
 
 - 表达 payload 只包含 `turn_action`、`segments`；effect payload 只包含 `effect_calls`。
 - `turn_action` 转成已知枚举并符合本次请求允许范围。
 - `speech`、`thought` 类型有效，`actions` 为非空字符串组成的数组。
-- `tendency` 恰好有八个规定键，值是非 bool 的 `-10..10` 整数。
+- `tendency` 恰好有八个规定键，值应是非 bool 的 `0..10` 整数；整数越界值在进入内部结果前裁剪到 `0` 或 `10`。
 - effect 调用按本轮动态 schema 解析；无效或未注册调用会被丢弃并记录 parse issue。硬性 effect 缺失、无效或数量不符会失败或进入既有一次纠正流程。
 - `silent` 仅在请求允许时有效，且表达的 `segments` 必须为空；若有适用 effect 通道，它仍需返回空 `effect_calls`。
 

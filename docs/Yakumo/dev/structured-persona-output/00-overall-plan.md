@@ -47,10 +47,12 @@
 | `speech` | 字符串；正常回复不能为空。 | 所在分段的用户可见文本；平台文本发送时按 `segments` 顺序整合，TTS 消费时保留分段边界。 |
 | `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
 | `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
-| `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `-10..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
+| `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `0..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
 | `effect_calls` | 内部聚合结果中的数组；存在适用 effect 时由同一响应中的独立 `persona_effect_batch` tool call 提供，Schema 按本轮有效 effect 生成 item schema。无适用 effect 时不向模型提供该工具，内部结果置为空数组。Core 解析时只保留已注册且参数通过校验的调用，并将解析问题写入结果 metadata；已解析 batch 中缺失或无效的必发 effect 会失败或进入既有纠正流程。 | Result Contributor / effect 插件；由插件解释执行。 |
 
 情绪维度为 `Joy`（喜悦）、`Trust`（信任）、`Fear`（恐惧）、`Surprise`（惊讶）、`Sadness`（悲伤）、`Disgust`（厌恶）、`Anger`（愤怒）、`Anticipation`（期待）。
+
+模型输出契约要求 tendency 为 `0..10` 整数；Core 解析时会把整数越界值裁剪到最近边界，其他类型或结构错误仍会拒绝。
 
 `silent` 仅对允许静默的群聊候选开放，并要求表达通道的 `segments` 为空；如本轮有适用 effect，effect 通道仍须返回空数组。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
 

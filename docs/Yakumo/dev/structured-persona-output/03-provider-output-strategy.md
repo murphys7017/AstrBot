@@ -88,7 +88,7 @@ JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成�
 - 每个 `segments` 元素都包含 `speech`、`actions`、`thought` 和 `tendency`。
 - turn_action 符合本次请求允许的枚举。
 - speech、actions、thought 类型有效。
-- tendency 恰好包含八个规定维度，每项为 -10..10 的整数。
+- tendency 恰好包含八个规定维度，每项应为 0..10 的整数；Core 对整数越界值执行边界裁剪。
 - `effect_calls` 符合本轮按事件筛选出的动态 effect schema 及必发规则；无适用 effect 时不提供 effect 工具。
 - 允许 silent 时，表达的 segments 为空；若提供 effect 工具，其 effect_calls 为空。
 

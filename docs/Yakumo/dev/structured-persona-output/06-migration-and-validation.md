@@ -12,7 +12,7 @@
 - segments[].speech：按顺序拼接为文本平台使用的整合表达；TTS 按原分段逐段消费。
 - segments[].actions：简单动作意图数组。
 - segments[].thought：角色简短心理想法。
-- segments[].tendency：扮演角色当前的 Plutchik 八维情绪，每项为 -10..10 整数。
+- segments[].tendency：扮演角色当前的 Plutchik 八维情绪强度，规范化后每项为 0..10 整数；Core 对整数越界值执行边界裁剪。
 - effect_calls：内部聚合后的插件 effect 调用数组；在 Provider 边界由独立 effect 通道提供。
 
 这是一次破坏性迁移。Core 不再接受 spoken_reply 或 speech_cues 等旧字段，也不把旧字段映射到新协议。旧版外部插件、adapter 和客户端若依赖这些私有数据，需自行按其发布流程迁移。
