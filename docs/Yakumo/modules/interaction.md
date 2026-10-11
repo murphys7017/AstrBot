@@ -195,8 +195,7 @@ class MyWorkPlugin(Star):
 可执行工具独立遵守：`plugin_capability_targets[插件名称].tools` 用户配置、工具自身
 `tool_targets` 声明、最后是 `core` 默认值。工具名称精确项优先于 `*`。只有明确解析为 `personal_expression` 的工具
 才会进入 Persona Agent 循环，普通 Persona 对话不会因为 Core 工具产生额外模型调用。Persona
-即使没有业务工具，也使用同一个 Agent 循环生成 terminal `persona_expression`，不存在单独的
-“是否调用工具”预判请求。
+即使没有业务工具，也使用同一个 Agent 循环生成 terminal `persona_expression`；若当前事件有已注册且适用的 Persona Effect，同一响应还会包含独立的 `persona_effect_batch` terminal tool call。正常生成不会为 effect 单独请求模型；已解析 batch 中的必发 effect 校验失败时沿用现有的 effect batch 校正请求。
 
 WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。编辑器会列出已安装插件和
 插件工具；目标值通过固定选项限制为 `core` 或
@@ -215,10 +214,7 @@ WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。�
   其非协议修改会在同一个 Agent context 中保留到最终表达；请求钩子读取的是人格分支私有的
   `ProviderRequest`，不会覆盖 Core 共享请求；钩子收到的仍是同一个
   `AstrMessageEvent`，以兼容既有类型检查与 event extras 用法。
-- Persona Provider 同时看到明确授权的业务工具与 terminal `persona_expression`。业务工具结果直接
-  追加到同一 Agent context，再由下一轮模型输出 `persona_expression`；terminal 协议本身不进入
-  `FunctionToolExecutor`，也不触发工具观察 Hook。模型同时返回 terminal 与业务工具时会直接终止，
-  不执行混合调用中的副作用。
+- Persona Provider 同时看到明确授权的业务工具、terminal `persona_expression`，以及（仅在当前事件有适用 effect 时）terminal `persona_effect_batch`。业务工具结果直接追加到同一 Agent context，再由下一轮模型返回最终结构化结果；terminal 协议本身不进入 `FunctionToolExecutor`，也不触发工具观察 Hook。模型同时返回 terminal 与业务工具时会直接终止，不执行混合调用中的副作用。
 - Persona 工具调用中，旧插件返回的 `MessageEventResult` / `CommandResult`，以及
   `event.send()`、`emit_output()`、`emit_progress()` 和发往当前会话的 `Context.send_message()`，
   都会收集为模型可见的工具材料，富媒体随最终 Persona Expression 投递。显式跨会话
@@ -388,7 +384,7 @@ Input Runtime / Observation
 - interaction STT
 - observation / reflex 前置判断
 - Prompt Collectors：一次收集本轮输入、人格、session、官方对话历史、统一 Memory、执行能力和插件贡献，生成规范 `ContextPack`
-- Personal Response Plan：普通显式唤醒和合格群聊候选通过同一次结构化 Persona Expression 输出 `reply`、`delegate` 或 `silent`，同时生成自然语言和 effect。它不拆解任务、不执行 Core 工具；`silent` 仅对允许的群聊候选开放。
+- Personal Response Plan：普通显式唤醒和合格群聊候选通过同一模型响应中的 Persona 表达与（适用时）effect 通道输出 `reply`、`delegate` 或 `silent`、自然语言和 effect。它不拆解任务、不执行 Core 工具；`silent` 仅对允许的群聊候选开放。
 - Core Planner：只在 `delegate` 后生成固定的 `execute + CoreTaskSpec`，不重新判断任务是否应进入 Core，也不拥有用户可见表达权限。
 - Personal/Core 协同：`delegate` 的简短确认由 Personal 先交付；之后 Planner 与 Core 执行，不会压制已提交的表达。`silent` 只能在未提交时形成零输出，不能撤回已经提交或送达的表达。
 - Runtime 所有权：ProcessStage 在插件 Handler 前完成 admission 并取得 session lease；
@@ -534,7 +530,8 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 - `express_visible_reply(...)` — 统一 persona visible-reply 入口，接收“待表达材料”请求
 - `render_plugin_output(...)` / `render_core_reply(...)` / `render_stream_interjection(...)` 只是同一入口的薄包装
 - 本身不做 LLM 调用，只做编排
-- 当前默认输出契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，返回 `turn_action`、`segments` 与 `effect_calls`；每个 segment 含 `speech`、`actions`、`thought` 和八维 `tendency`，且 `allow_text_fallback=False`
+- 当前默认表达契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，只返回 `turn_action` 与 `segments`；每个 segment 含 `speech`、`actions`、`thought` 和八维 `tendency`，且 `allow_text_fallback=False`
+- 当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还必须返回独立 terminal 工具 `persona_effect_batch`，其参数只含 `effect_calls`；无适用 effect 时不提供该工具。正常生成时两路结果在 Core 内聚合，不为 effect 单独请求模型；双通道首轮漏项时会用隔离请求只补缺失通道一次，已解析 batch 中的必发 effect 未通过校验时也可请求模型修复 effect batch
 - renderer/provider 必须支持协议级 tool call；不支持的候选在请求前排除，不降级为 Persona JSON 文本
 - Persona Runtime 的表达规则、最终 request prompt 和输出契约由目标 `PromptRenderProfile` 提供；本轮待表达语义、核心流式 `observed_text / total_text / pending_text` 等事实由 Collector 写入原生 `input.visible_reply_material`
 - 对 DeepSeek-V4 / `deepseek-reasoner` 这类 reasoning 模型，首轮 persona user input 会额外注入一次“角色沉浸模式” marker，
@@ -556,9 +553,9 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 - interaction TTS provider missing / file registration failed / config missing 时 fail-fast
 - live audio 是通用平台音频流协议，不是 Live2D 专用路径
 
-## Persona Effect 输出契约
+## Persona Expression 与 Effect 输出契约
 
-当前 persona visible-reply 的结构化结果由虚拟工具 `persona_expression` 承载，参数约束是：
+表达通道由虚拟工具 `persona_expression` 承载。它只返回表达和本轮动作选择：
 
 ```json
 {
@@ -579,7 +576,14 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
         "Anticipation": 0
       }
     }
-  ],
+  ]
+}
+```
+
+当当前事件有已注册且适用的 Persona Effect 时，同一模型响应还必须调用独立的 `persona_effect_batch` terminal tool，参数只含：
+
+```json
+{
   "effect_calls": [
     {
       "name": "effect.name",
@@ -589,17 +593,17 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 }
 ```
 
-`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+首轮要求 `persona_expression` 与适用的 `persona_effect_batch` 在同一响应返回；运行器收到任一 terminal tool call 后就会结束该轮。若双通道首轮漏项，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。没有适用 effect 时省略 effect 工具；Core 聚合结果中仍提供空 `effect_calls` 数组。`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前情绪状态，每个 Plutchik 维度均为 `-10..10` 整数。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
 开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 
-- `effect_calls` 是固定字段；没有 effect 时返回空数组，而不是省略字段。
+- `effect_calls` 是内部聚合结果中的固定字段；无适用 effect 时不向模型提供 effect 工具，聚合结果为空数组。
 - effect 的 `arguments` 由注册的 `PersonaEffectSpec.parameters` 决定。
 - motion 类 effect 如果包含 `axes`，运行时会把 `axes.*` 统一视为 `number` schema。
 - `intent_tags` 是否必填不由 persona 顶层决定，而由具体 effect schema 决定；例如 motion effect 可在 `arguments` 内要求它。
-- Personal Response Plan 通过同一结构化 Persona 输出返回 `turn_action`；它不另设独立路由协议。
+- Personal Response Plan 通过 `persona_expression` 返回 `turn_action`；effect 数据通过适用时才启用的独立 `persona_effect_batch` 返回。
 
 ## Postprocess / Memory 边界
 
@@ -622,13 +626,12 @@ InteractionOutputController
 
 ## Effect 插件边界
 
-Persona Runtime 可以随 `speech` 生成通用 `effect_calls`。Core 只负责 effect spec 的注册、
-结构化结果校验和阶段性传递，不内置动作、灯光、Live2D 或其他客户端领域模型。
+Persona Runtime 可在同一模型响应中通过独立的 `persona_effect_batch` terminal tool call 生成通用 `effect_calls`。只有当前事件存在已注册且适用的 Persona Effect 时才向模型提供该通道；它不会进入可执行业务工具清单或由 Core 执行。Core 只负责 effect spec 的注册、结构化结果校验、聚合和阶段性传递，不内置动作、灯光、Live2D 或其他客户端领域模型。
 
 插件负责：
 
 - 注册自己拥有的 effect 名称及参数 schema。
-- 通过 `register_persona_effect(..., event_filter=...)` 声明 effect 对当前事件是否可用；平台、设备或运行时不匹配时，不应让该 effect 进入 Persona 输出契约。
+- 通过 `register_persona_effect(..., event_filter=...)` 声明 effect 对当前事件是否可用；平台、设备或运行时不匹配时，不应让该 effect 进入本轮的 `persona_effect_batch` schema。
 - 从当前阶段的 `InteractionResultView.effect_calls` 读取属于自己的调用。
 - 将参数解释为插件私有行为，并通过 `platform_extras`、`client_objects` 或插件自己的传输链路交付。
 - 自行处理设备能力、资源映射、动作约束和降级策略。
@@ -820,6 +823,7 @@ effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source
 - `final_text_override`: 覆盖最终要发送的文本；只在确实需要改写最终表达时使用。
 - `metadata`: contributor 自己的诊断和附加信息。
 - `priority`: 合并顺序，数值越小越先处理。
+- `post_materialization`: 可选的异步回调列表，在 TTS/其他输出物化完成后、平台投递前按 priority 顺序执行。回调接收 `(event, plugin_context, *, turn_id, phase, parent_message_id, persona_result_id, materialization)`；返回的 `InteractionResultContribution` 只合并 `platform_extras`、`client_objects` 和 `metadata`，不会再改写已物化的消息。回调使用 contributor timeout，超时或异常会记录日志并跳过。
 
 result contributor 只能基于只读结果快照产出 contribution。不要修改 `view`，也不要把
 motion/audio/image 等物理投递结果伪装成成功文本；中间件的输出 materialization 仍由

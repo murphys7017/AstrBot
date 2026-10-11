@@ -73,6 +73,67 @@ from astrbot.core.star.star import StarMetadata, star_map, star_registry
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 
+def test_result_contribution_preserves_positional_priority_argument():
+    contribution = InteractionResultContribution("plugin", {}, [], None, {}, 7)
+
+    assert contribution.priority == 7
+    assert contribution.post_materialization == []
+
+
+@pytest.mark.asyncio
+async def test_post_materialization_contribution_merges_materialized_output():
+    event = SimpleNamespace(get_extra=lambda key, default=None: "turn-1")
+    controller = object.__new__(InteractionOutputController)
+    controller.plugin_context = object()
+    controller._get_interaction_config = lambda _event: SimpleNamespace(
+        contributor_timeout=1.0
+    )
+    observed = []
+
+    async def finalize(_event, _plugin_context, **kwargs):
+        observed.append(kwargs)
+        return InteractionResultContribution(
+            plugin_id="persona-output-test",
+            platform_extras={"tts_result": "ready"},
+            client_objects=[{"type": "persona-audio", "state": "ready"}],
+            metadata={"materialized": True},
+        )
+
+    contribution = InteractionResultContribution(
+        plugin_id="persona-output-test",
+        post_materialization=[finalize],
+    )
+    platform_extras = {"metadata": {"existing": True}}
+
+    await controller._apply_post_materialization_contributions(
+        event,
+        contribution,
+        platform_extras,
+        phase="final",
+        parent_message_id="message-1",
+        persona_result_id="persona-result-1",
+        materialization={"tts": [{"status": "succeeded"}]},
+    )
+
+    assert observed == [
+        {
+            "turn_id": "turn-1",
+            "phase": "final",
+            "parent_message_id": "message-1",
+            "persona_result_id": "persona-result-1",
+            "materialization": {"tts": [{"status": "succeeded"}]},
+        }
+    ]
+    assert platform_extras["tts_result"] == "ready"
+    assert platform_extras["client_objects"] == [
+        {"type": "persona-audio", "state": "ready"}
+    ]
+    assert platform_extras["metadata"] == {
+        "existing": True,
+        "materialized": True,
+    }
+
+
 def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
     assert is_middleware_enabled({}) is True
     default_config = load_interaction_agent_config({})
@@ -1712,6 +1773,7 @@ async def test_plugin_persona_output_forwards_structured_result_and_components()
                 PersonaEffectCall(
                     name="motion.nod",
                     arguments={"speed": 1},
+                    segment_index=0,
                 )
             ],
         )
@@ -1755,8 +1817,13 @@ async def test_plugin_persona_output_forwards_structured_result_and_components()
     assert observed_views[0].thought == "我有些难过"
     assert observed_views[0].tendency == {"Sadness": 5}
     assert observed_views[0].turn_action == "reply"
+    assert observed_views[0].segments[0]["speech"] == "rewritten reply"
+    assert observed_views[0].segments[0]["actions"] == ("lower_head",)
+    assert observed_views[0].segments[0]["thought"] == "我有些难过"
+    assert observed_views[0].segments[0]["tendency"] == {"Sadness": 5}
     assert observed_views[0].effect_calls[0]["name"] == "motion.nod"
     assert observed_views[0].effect_calls[0]["arguments"] == {"speed": 1}
+    assert observed_views[0].effect_calls[0]["segment_index"] == 0
     assert delivery_extras[0]["persona_result_extra"] == "kept"
     assert delivery_extras[0]["client_objects"] == [
         {"type": "persona-state", "value": "kept"}

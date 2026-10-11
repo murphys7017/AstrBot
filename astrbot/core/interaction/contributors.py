@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from types import MappingProxyType
 from typing import Any, Literal
@@ -90,6 +90,9 @@ class InteractionResultContribution:
     final_text_override: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     priority: int = 100
+    post_materialization: list[Callable[..., Awaitable[Any]]] = field(
+        default_factory=list
+    )
 
 
 def freeze_interaction_snapshot(value: Any) -> Any:
@@ -413,6 +416,7 @@ def merge_result_contributions(
         merged.platform_extras.update(contribution.platform_extras)
         merged.client_objects.extend(contribution.client_objects)
         merged.metadata.update(contribution.metadata)
+        merged.post_materialization.extend(contribution.post_materialization)
         if contribution.final_text_override is not None:
             merged.final_text_override = contribution.final_text_override
     return merged

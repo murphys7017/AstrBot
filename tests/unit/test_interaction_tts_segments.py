@@ -47,16 +47,19 @@ async def test_persona_tts_consumes_speech_segments_in_order():
         }.get(key, default),
     )
     requested_texts = []
+    synthesize_kwargs = []
     persona_result = PersonaExpressionResult(
         segments=[
             PersonaExpressionSegment(speech="第一句"),
             PersonaExpressionSegment(speech=""),
             PersonaExpressionSegment(speech="第二句"),
         ],
+        metadata={"interaction.persona_result_id": "persona-result-1"},
     )
 
     async def fake_synthesize(_context, _event, text, **kwargs):
         requested_texts.append((text, kwargs["message_id"]))
+        synthesize_kwargs.append(kwargs)
         state = TTSState(
             turn_id="turn-1",
             message_id=kwargs["message_id"],
@@ -65,6 +68,10 @@ async def test_persona_tts_consumes_speech_segments_in_order():
             status="succeeded",
             provider_id="fake-tts",
             audio_path=f"{len(requested_texts)}.wav",
+            parent_message_id=kwargs["parent_message_id"],
+            persona_result_id=kwargs["persona_result_id"],
+            persona_segment_index=kwargs["persona_segment_index"],
+            persona_segment_count=kwargs["persona_segment_count"],
         )
         return TextToSpeechResult(
             text=text,
@@ -93,18 +100,34 @@ async def test_persona_tts_consumes_speech_segments_in_order():
             new=fake_synthesize,
         ),
     ):
-        materialized, metadata = await controller.materialize_interaction_outbound_message(
+        (
+            materialized,
+            metadata,
+        ) = await controller.materialize_interaction_outbound_message(
             event,
             message,
             message_kind="core_reply",
             result_is_model_result=True,
             message_id="message-1",
             tts_segments=persona_result.speech_segments,
+            persona_result_id=persona_result.metadata["interaction.persona_result_id"],
         )
 
     assert requested_texts == [
         ("第一句", "message-1"),
         ("第二句", "tts-1"),
+    ]
+    assert [
+        (
+            item["parent_message_id"],
+            item["persona_result_id"],
+            item["persona_segment_index"],
+            item["persona_segment_count"],
+        )
+        for item in synthesize_kwargs
+    ] == [
+        ("message-1", "persona-result-1", 0, 3),
+        ("message-1", "persona-result-1", 2, 3),
     ]
     assert [type(component) for component in materialized.chain] == [
         Record,
@@ -119,12 +142,16 @@ async def test_persona_tts_consumes_speech_segments_in_order():
         "第一句",
         "第二句",
     ]
-    assert [
-        item["persona_segment_index"] for item in metadata["tts"]
-    ] == [0, 2]
-    assert [
-        item["persona_segment_count"] for item in metadata["tts"]
-    ] == [3, 3]
+    assert [item["persona_segment_index"] for item in metadata["tts"]] == [0, 2]
+    assert [item["persona_segment_count"] for item in metadata["tts"]] == [3, 3]
+    assert [item["parent_message_id"] for item in metadata["tts"]] == [
+        "message-1",
+        "message-1",
+    ]
+    assert [item["persona_result_id"] for item in metadata["tts"]] == [
+        "persona-result-1",
+        "persona-result-1",
+    ]
 
 
 @pytest.mark.asyncio

@@ -74,8 +74,12 @@ class TTSState:
     audio_url: str | None = None
     failure_code: str | None = None
     external_correlation_id: str | None = None
+    parent_message_id: str | None = None
+    persona_result_id: str | None = None
+    persona_segment_index: int | None = None
+    persona_segment_count: int | None = None
 
-    def to_mapping(self) -> dict[str, str | None]:
+    def to_mapping(self) -> dict[str, Any]:
         return {
             "turn_id": self.turn_id,
             "message_id": self.message_id,
@@ -87,6 +91,10 @@ class TTSState:
             "audio_url": self.audio_url,
             "failure_code": self.failure_code,
             "external_correlation_id": self.external_correlation_id,
+            "parent_message_id": self.parent_message_id,
+            "persona_result_id": self.persona_result_id,
+            "persona_segment_index": self.persona_segment_index,
+            "persona_segment_count": self.persona_segment_count,
         }
 
 
@@ -363,6 +371,10 @@ async def synthesize_text(
     message_id: str | None = None,
     tts_request_id: str | None = None,
     external_correlation_id: str | None = None,
+    parent_message_id: str | None = None,
+    persona_result_id: str | None = None,
+    persona_segment_index: int | None = None,
+    persona_segment_count: int | None = None,
 ) -> TextToSpeechResult:
     source_text = str(text or "")
     if not source_text.strip():
@@ -386,6 +398,12 @@ async def synthesize_text(
     resolved_message_id = str(
         message_id or f"{resolved_turn_id}::tts::{resolved_request_id[:12]}"
     )
+    correlation_fields = {
+        "parent_message_id": str(parent_message_id or "").strip() or None,
+        "persona_result_id": str(persona_result_id or "").strip() or None,
+        "persona_segment_index": persona_segment_index,
+        "persona_segment_count": persona_segment_count,
+    }
     await _emit_tts_state(
         event,
         TTSState(
@@ -395,6 +413,7 @@ async def synthesize_text(
             stage=stage,
             status="requested",
             external_correlation_id=resolved_external_correlation_id,
+            **correlation_fields,
         ),
     )
 
@@ -416,6 +435,7 @@ async def synthesize_text(
                 status="generating",
                 provider_id=provider_id,
                 external_correlation_id=resolved_external_correlation_id,
+                **correlation_fields,
             ),
         )
         try:
@@ -455,6 +475,7 @@ async def synthesize_text(
             audio_path=audio_path,
             audio_url=audio_url,
             external_correlation_id=resolved_external_correlation_id,
+            **correlation_fields,
         )
         await _emit_tts_state(event, terminal_state)
         return TextToSpeechResult(
@@ -484,6 +505,7 @@ async def synthesize_text(
             provider_id=exc.provider_id or provider_id,
             failure_code=exc.reason,
             external_correlation_id=resolved_external_correlation_id,
+            **correlation_fields,
         )
         exc.state = failed_state
         await _emit_tts_state(
@@ -507,6 +529,7 @@ async def synthesize_text(
             provider_id=provider_id,
             failure_code=wrapped.reason,
             external_correlation_id=resolved_external_correlation_id,
+            **correlation_fields,
         )
         wrapped.state = failed_state
         await _emit_tts_state(

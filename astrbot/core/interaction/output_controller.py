@@ -43,6 +43,7 @@ from .contributors import (
 )
 from .core_bridge import get_interaction_route_decision
 from .expression_agent import (
+    PERSONA_RESULT_ID_METADATA_KEY,
     PersonaExpressionIntent,
     PersonaExpressionRequest,
     PersonaExpressionResult,
@@ -425,6 +426,16 @@ class InteractionOutputController:
                 if prepared_expression is not None
                 else None
             )
+            persona_result_id = (
+                str(
+                    prepared_expression.metadata.get(
+                        PERSONA_RESULT_ID_METADATA_KEY
+                    )
+                    or ""
+                ).strip()
+                if prepared_expression is not None
+                else None
+            )
             contributions = await self._collect_result_contributions(
                 event,
                 core_result=None,
@@ -463,6 +474,7 @@ class InteractionOutputController:
                     and prepared_expression.turn_action is not None
                     else None
                 ),
+                persona_result_id=persona_result_id,
             )
             merged = merge_result_contributions(contributions)
             if merged.final_text_override is not None:
@@ -503,15 +515,26 @@ class InteractionOutputController:
                 message,
                 message_id=message_id,
                 tts_segments=tts_segments,
+                persona_result_id=persona_result_id,
+            )
+            platform_extras = self.build_platform_output_base_extras(
+                event,
+                result_contribution=merged,
+            )
+            await self._apply_post_materialization_contributions(
+                event,
+                merged,
+                platform_extras,
+                phase="immediate",
+                parent_message_id=message_id,
+                persona_result_id=persona_result_id,
+                materialization=materialization,
             )
             delivered_message_ids = await self._deliver_visible_message(
                 event,
                 message,
                 message_kind="immediate_reply",
-                platform_extras=self.build_platform_output_base_extras(
-                    event,
-                    result_contribution=merged,
-                ),
+                platform_extras=platform_extras,
                 output_segment_id=message_id,
                 record_send_operation=False,
                 allow_segmented_reply=False,
@@ -639,6 +662,7 @@ class InteractionOutputController:
         resolved_mode = PluginOutputMode(mode)
         result_contribution = None
         message_id = None
+        persona_result_id = None
 
         if resolved_mode == PluginOutputMode.PERSONA:
             plain = message.get_plain_text().strip()
@@ -654,6 +678,9 @@ class InteractionOutputController:
                         ),
                     ),
                 )
+                persona_result_id = str(
+                    result.metadata.get(PERSONA_RESULT_ID_METADATA_KEY) or ""
+                ).strip() or None
                 if result.effect_calls:
                     set_interaction_turn_plugin_output_metadata(
                         event,
@@ -690,6 +717,7 @@ class InteractionOutputController:
                     result.turn_action.value if result.turn_action is not None else None
                 ),
                 purpose="plugin_reply",
+                persona_result_id=persona_result_id,
             )
             result_contribution = merge_result_contributions(contributions)
             if result_contribution.final_text_override is not None:
@@ -730,6 +758,7 @@ class InteractionOutputController:
             result_is_model_result=resolved_mode is PluginOutputMode.PERSONA,
             message_id=message_id,
             tts_segments=tts_segments,
+            persona_result_id=persona_result_id,
         )
         resolved_platform_extras = platform_extras
         if result_contribution is not None:
@@ -738,6 +767,15 @@ class InteractionOutputController:
                 result_contribution=result_contribution,
             )
             resolved_platform_extras.update(platform_extras or {})
+            await self._apply_post_materialization_contributions(
+                event,
+                result_contribution,
+                resolved_platform_extras,
+                phase="final" if finalize else "immediate",
+                parent_message_id=message_id,
+                persona_result_id=persona_result_id,
+                materialization=materialization,
+            )
         delivered_message_ids = await self._deliver_visible_message(
             event,
             message,
@@ -2046,6 +2084,16 @@ class InteractionOutputController:
                 and persona_expression.turn_action is not None
                 else None
             ),
+            persona_result_id=(
+                str(
+                    persona_expression.metadata.get(
+                        PERSONA_RESULT_ID_METADATA_KEY
+                    )
+                    or ""
+                ).strip()
+                if persona_expression is not None
+                else None
+            ),
         )
         merged = merge_result_contributions(contributions)
         tts_segments = (
@@ -2082,6 +2130,14 @@ class InteractionOutputController:
             event, result_contribution=merged
         )
         semantic_text = final_message.get_plain_text()
+        persona_result_id = (
+            str(
+                persona_expression.metadata.get(PERSONA_RESULT_ID_METADATA_KEY)
+                or ""
+            ).strip()
+            if persona_expression is not None
+            else None
+        )
         (
             materialized_message,
             materialization,
@@ -2092,6 +2148,16 @@ class InteractionOutputController:
             result_is_model_result=True,
             message_id=message_id,
             tts_segments=tts_segments,
+            persona_result_id=persona_result_id,
+        )
+        await self._apply_post_materialization_contributions(
+            event,
+            merged,
+            platform_extras,
+            phase="final",
+            parent_message_id=message_id,
+            persona_result_id=persona_result_id,
+            materialization=materialization,
         )
         delivered_message_ids = await self._deliver_visible_message(
             event,
@@ -2221,6 +2287,7 @@ class InteractionOutputController:
         tendency: Mapping[str, int] | None = None,
         turn_action: str | None = None,
         purpose: InteractionResultPurpose | None = None,
+        persona_result_id: str | None = None,
     ) -> list[InteractionResultContribution]:
         if self.plugin_context is None:
             return []
@@ -2306,6 +2373,11 @@ class InteractionOutputController:
                 "message_kind": candidate_message_kind,
                 "is_immediate": phase == "immediate",
                 "is_final": phase == "final",
+                **(
+                    {"persona_result_id": persona_result_id}
+                    if persona_result_id
+                    else {}
+                ),
             },
         )
         contributions: list[InteractionResultContribution] = []
@@ -2375,6 +2447,71 @@ class InteractionOutputController:
         )
         contributions.sort(key=lambda item: (item.priority, item.plugin_id))
         return contributions
+
+    async def _apply_post_materialization_contributions(
+        self,
+        event: AstrMessageEvent,
+        result_contribution: InteractionResultContribution,
+        platform_extras: dict[str, Any],
+        *,
+        phase: str,
+        parent_message_id: str,
+        persona_result_id: str | None,
+        materialization: Mapping[str, Any],
+    ) -> None:
+        if not result_contribution.post_materialization:
+            return
+
+        timeout = self._get_interaction_config(event).contributor_timeout
+        for finalize in result_contribution.post_materialization:
+            try:
+                payload = await asyncio.wait_for(
+                    finalize(
+                        event,
+                        self.plugin_context,
+                        turn_id=str(event.get_extra("_turn_id", "") or ""),
+                        phase=phase,
+                        parent_message_id=parent_message_id,
+                        persona_result_id=persona_result_id,
+                        materialization=dict(materialization),
+                    ),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Interaction output finalizer timed out: plugin_id=%s timeout=%.2fs",
+                    result_contribution.plugin_id,
+                    timeout,
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Interaction output finalizer failed: plugin_id=%s error=%s",
+                    result_contribution.plugin_id,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+            if not isinstance(payload, InteractionResultContribution):
+                continue
+            platform_extras.update(payload.platform_extras)
+            if payload.client_objects:
+                existing_objects = platform_extras.get("client_objects")
+                if not isinstance(existing_objects, list):
+                    existing_objects = []
+                platform_extras["client_objects"] = [
+                    *existing_objects,
+                    *payload.client_objects,
+                ]
+            if payload.metadata:
+                existing_metadata = platform_extras.get("metadata")
+                merged_metadata = (
+                    dict(existing_metadata)
+                    if isinstance(existing_metadata, Mapping)
+                    else {}
+                )
+                merged_metadata.update(payload.metadata)
+                platform_extras["metadata"] = merged_metadata
 
     @staticmethod
     def _build_result_final_candidate_material(
@@ -2466,6 +2603,7 @@ class InteractionOutputController:
         result_is_model_result: bool = False,
         message_id: str | None = None,
         tts_segments: Sequence[str] | None = None,
+        persona_result_id: str | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         options = self._resolve_outbound_options(event)
         materialization: dict[str, Any] = {
@@ -2491,6 +2629,7 @@ class InteractionOutputController:
                 result_is_model_result=result_is_model_result,
                 message_id=message_id,
                 tts_segments=tts_segments,
+                persona_result_id=persona_result_id,
             )
         except VoiceServiceError as exc:
             logger.error(
@@ -2538,6 +2677,7 @@ class InteractionOutputController:
         *,
         message_id: str | None = None,
         tts_segments: Sequence[str] | None = None,
+        persona_result_id: str | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         options = self._resolve_outbound_options(event)
         materialization: dict[str, Any] = {
@@ -2557,6 +2697,7 @@ class InteractionOutputController:
                 result_is_model_result=True,
                 message_id=message_id,
                 tts_segments=tts_segments,
+                persona_result_id=persona_result_id,
             )
         except VoiceServiceError as exc:
             logger.error(
@@ -2631,6 +2772,7 @@ class InteractionOutputController:
         result_is_model_result: bool,
         message_id: str | None = None,
         tts_segments: Sequence[str] | None = None,
+        persona_result_id: str | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
         should_try_tts = (
             options.tts_enabled
@@ -2641,6 +2783,7 @@ class InteractionOutputController:
         if not should_try_tts:
             return message, {}
 
+        parent_message_id = str(message_id or "").strip()
         segmented_tts = tts_segments is not None
         segment_inputs: list[tuple[int | None, str]] | None = None
         segment_count = 0
@@ -2689,6 +2832,12 @@ class InteractionOutputController:
                         require_file_registration_config=True,
                         turn_id=str(event.get_extra("_turn_id", "") or ""),
                         message_id=current_message_id,
+                        parent_message_id=parent_message_id or current_message_id,
+                        persona_result_id=persona_result_id,
+                        persona_segment_index=segment_index,
+                        persona_segment_count=(
+                            segment_count if segment_index is not None else None
+                        ),
                     )
                     logger.debug(
                         "Interaction TTS completed: audio_available=%s segment_index=%s",
@@ -2721,6 +2870,8 @@ class InteractionOutputController:
                         "tts_provider_id": result.provider_id,
                         "tts_request_id": result.state.tts_request_id,
                         "message_id": result.state.message_id,
+                        "parent_message_id": result.state.parent_message_id,
+                        "persona_result_id": result.state.persona_result_id,
                     }
                     if segment_index is not None:
                         converted_item.update(
