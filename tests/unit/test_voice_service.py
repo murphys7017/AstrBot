@@ -176,6 +176,10 @@ async def test_synthesize_text_emits_read_only_lifecycle(voice_event):
             turn_id="turn-1",
             message_id="message-1",
             tts_request_id="tts-1",
+            parent_message_id="parent-1",
+            persona_result_id="persona-result-1",
+            persona_segment_index=2,
+            persona_segment_count=3,
         )
 
     assert result.text == "spoken"
@@ -190,6 +194,10 @@ async def test_synthesize_text_emits_read_only_lifecycle(voice_event):
     assert all(
         state.external_correlation_id == "external-turn-1" for state in states
     )
+    assert all(state.parent_message_id == "parent-1" for state in states)
+    assert all(state.persona_result_id == "persona-result-1" for state in states)
+    assert all(state.persona_segment_index == 2 for state in states)
+    assert all(state.persona_segment_count == 3 for state in states)
     assert not hasattr(states[0], "text")
 
 
