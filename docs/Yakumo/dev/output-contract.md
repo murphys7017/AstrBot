@@ -10,8 +10,9 @@
 
 当前第一目标是让高约束场景脱离“手写自由文本 JSON prompt”。其中：
 
-- 普通 Interaction 的 Personal Response Plan 使用严格的 `persona_expression` 协议级虚拟 tool-call，并要求 `turn_action`
-- persona visible-reply 以同一 `persona_expression` tool-call 为主成功路径
+- 普通 Interaction 的 Personal Response Plan 使用严格的 `persona_expression` 表达通道，并要求 `turn_action`
+- 当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还要求独立 terminal `persona_effect_batch` tool-call
+- persona visible-reply 的表达以 `persona_expression` 为主成功路径；effect 数据不放进表达 payload
 
 ## 核心类型
 
@@ -137,14 +138,15 @@ Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。s
 
 ## Interaction Personal Response Plan
 
-普通 Interaction 不再有独立 Fast Router。它使用同一个严格 `persona_expression` 输出契约，同时承载自然表达、effect 和本轮动作选择。
+普通 Interaction 不再有独立 Fast Router。Persona 使用表达通道 `persona_expression` 承载自然表达和本轮动作选择；当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立的 `persona_effect_batch` tool call 承载 effect。
 
 运行规则：
 
 - `turn_action=reply`：Personal 直接完成本轮可见回复。
 - `turn_action=delegate`：`segments[].speech` 只能是简短处理中确认，随后由 Core Planner 为已委派任务生成 `execute + CoreTaskSpec`。
-- `turn_action=silent`：仅允许合格的群聊候选，且 `segments`、`effect_calls` 都必须为空。
-- 无论动作为何，`effect_calls` 都遵守当前事件过滤后的 effect schema 与必发约束；允许的 `silent` 必须为空。
+- `turn_action=silent`：仅允许合格的群聊候选，且表达的 `segments` 必须为空；如果启用了 effect 通道，其 `effect_calls` 也必须为空。
+- 无适用 effect 时不提供 `persona_effect_batch`；Core 聚合的结果仍包含空 `effect_calls` 数组。
+- 适用 effect 时，同一响应必须恰好返回一次 `persona_effect_batch`；正常生成不单独请求 effect，已解析的必发 effect 校验失败时沿用现有 effect batch 校正请求。
 - 结构化输出不携带 Planner 推理、Core task spec 或用户不可见的控制理由。
 
 ## Persona Visible Reply
@@ -157,7 +159,8 @@ persona visible-reply 是当前主要高约束消费者。
 - `strict=True`
 - `preferred_tool_name="persona_expression"`
 - `allow_text_fallback=False`
-- Schema 固定为 `turn_action`、`segments` 和 `effect_calls`；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`
+- `persona_expression` Schema 固定为 `turn_action`、`segments`；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`
+- 有适用 effect 时，独立 `persona_effect_batch` Schema 只包含 `effect_calls`；两路结果在同一响应后聚合
 
 字段含义：
 
@@ -171,13 +174,13 @@ persona visible-reply 是当前主要高约束消费者。
 
 运行规则：
 
-- render 结果优先使用 `protocol_tool_call`，provider 通过单个虚拟工具返回结构化参数。
+- render 结果优先使用 `protocol_tool_call`；表达由 `persona_expression` 返回，适用 effect 由同一响应中的独立 `persona_effect_batch` 返回。
 - Provider 选择会在模型请求前验证该协议能力；若当前主 Provider 不兼容则选择兼容后备，
   若不存在兼容候选则以 `unsupported_output_contract` 失败。编译为 `prompt_only` 的
   Provider 不会收到 Persona 请求。
-- 自由文本不算成功；协议级 tool-call 主路径缺失时会记录 `missing_persona_expression_tool_call`。
-- `effect_calls` 使用固定字段；无 effect 时返回空数组。
-- 具体 effect 的 `arguments` 由注册的 effect schema 决定；注册表先按当前事件执行 `event_filter`，不适用的 effect 不进入本轮 schema。
+- 自由文本不算成功。缺少表达通道时，只有本轮同时启用 effect 通道才会尝试一次隔离表达补全，否则结果失败。缺少本轮要求的 effect 调用时会尝试一次 effect-only 补全；两个通道都缺失时依次补全。补全失败后结果失败，重复调用或无效的 batch 顶层结构直接拒绝。
+- `effect_calls` 是内部聚合结果中的固定字段；无适用 effect 时模型响应省略 effect tool call，聚合结果为空数组。
+- 具体 effect 的 `arguments` 由注册的 effect schema 决定；注册表先按当前事件执行 `event_filter`，不适用的 effect 不进入本轮 effect tool schema。
 
 ## 观测字段
 

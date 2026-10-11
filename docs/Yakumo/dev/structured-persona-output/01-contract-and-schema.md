@@ -1,9 +1,9 @@
 # Canonical Schema 与字段规则
 
-**状态：** 已冻结并由第一阶段代码实现
+**状态：** 双通道运行时与缺失通道恢复已实现；自动化定向验证通过；真实 Provider 和插件验收待完成
 **代码位置：** `astrbot/core/interaction/expression_agent.py`
 
-本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema；生产默认通过严格的 `persona_expression` tool call 承载，也可以在 Persona Response 配置中显式选择 JSON、XML 或 Markdown，再统一解析为同一 Canonical Schema。
+本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema。表达通道默认通过严格的 `persona_expression` tool call 承载，也可以在 Persona Response 配置中显式选择 JSON、XML 或 Markdown；适用的插件 effect 则由独立的 `persona_effect_batch` tool call 承载。
 
 ## Canonical 参数
 
@@ -31,7 +31,9 @@
 }
 ```
 
-Schema 对象 `additionalProperties=false`，并要求且只接受三个顶层字段：`turn_action`、`segments`、`effect_calls`。缺字段、多余字段、错误类型或不满足语义限制时不构造成功的 Persona 结果。
+上例是内部聚合后的 `PersonaExpressionResult`，不是单个 Provider payload。`persona_expression` 只包含 `turn_action` 和 `segments`；当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还必须调用 `persona_effect_batch`，其参数只包含 `effect_calls`。这是同一响应中的两个独立通道；正常生成不为 effect 单独发起请求，已解析的必发 effect 未通过校验时沿用现有 effect batch 校正请求。没有适用 effect 时不向模型提供 effect 工具，内部聚合结果的 `effect_calls` 为空数组。
+
+每个通道分别执行精确字段和语义校验：表达 payload 只接受 `turn_action`、`segments`；effect payload 只接受 `effect_calls`。重复或缺少本轮要求的调用、额外字段、错误类型或不满足语义限制时，不构造成功结果。
 
 ## 字段定义
 
@@ -76,15 +78,15 @@ Schema 对象 `additionalProperties=false`，并要求且只接受三个顶层�
 
 ### `effect_calls`
 
-必填数组。tool-call Schema 按当前事件中已启用且适用的 `PersonaEffectSpec` 动态构造，每项包含注册 effect 的 `name` 和符合注册参数 schema 的 `arguments`。无可用 effect 时使用空数组。Core 解析时只保留已注册且 arguments 通过 schema 校验的调用，并将无效项的解析问题记录在结果 metadata；对于必发 effect，缺失或无效会使本次结果校验失败并进入现有纠正流程（至多一次）。非必发的无效项会被丢弃，不一定使整次表达失败。具体 effect 由注册插件消费和解释。
+内部聚合结果中的数组字段。仅当当前事件存在已启用且适用的 `PersonaEffectSpec` 时，Provider 才会收到独立的 `persona_effect_batch` tool schema；其参数精确包含 `effect_calls`，每项包含注册 effect 的 `name` 和符合注册参数 schema 的 `arguments`。首轮响应要求每个启用通道恰好出现一次；没有适用 effect 时省略 effect tool call，内部结果仍以空数组表示。若双通道首轮漏掉表达或 effect batch，Core 会用隔离请求只补缺失通道一次；两个通道都缺失时依次补齐。重复通道、无效的 batch 顶层结构仍直接拒绝。Core 解析时只保留已注册且 arguments 通过 schema 校验的调用，并将无效项的解析问题记录在结果 metadata；已解析 batch 中必发 effect 缺失或无效时，也会进入至多一次 effect-only 校正。非必发的无效项会被丢弃，不一定使整次表达失败。最终聚合结果由插件消费和解释。
 
-若有必发 effect，Schema 和语义校验会按注册元数据要求数量；允许 `silent` 的请求可返回空 effect 数组。`actions` 不替代任何必发 effect。
+若有必发 effect，Schema 和语义校验会按注册元数据要求数量；允许 `silent` 的请求仍会调用 effect 工具，但必须传入空 `effect_calls`。`actions` 不替代任何必发 effect。
 
 ## 跨字段约束
 
-- `silent` 时 `segments`、`effect_calls` 必须为空；`thought` 和 `tendency` 约束只适用于存在的 segment。
+- `silent` 时表达 payload 的 `segments` 必须为空；如果本轮启用了 effect 通道，该通道的 `effect_calls` 也必须为空。无适用 effect 时不提供 effect 工具。
 - `delegate` 时由 Persona Request Prompt 限定 `speech` 为简短处理中确认；后续 task 由 Core Planner 生成。
-- 所有表达字段均来自同一次结构化结果，不能从自由文本或 provider 私有日志补猜缺值。
+- 正常路径中表达 payload 与适用的 effect payload 来自同一模型响应；若双通道首轮漏项，Core 只请求缺失通道并在校验后合并。不能从自由文本或 provider 私有日志补猜缺值。
 
 ## 旧字段
 

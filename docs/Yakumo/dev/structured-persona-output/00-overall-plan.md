@@ -1,7 +1,7 @@
 # Persona 结构化输出总计划
 
-**文档状态：** 2026-10-09 按当前代码复核
-**更新时间：** 2026-10-09  
+**文档状态：** 2026-10-11 按双通道契约更新
+**更新时间：** 2026-10-11
 **代码基线：** `149dd0485`（当前 HEAD；包含 `d4f9f69d3` 的 Provider JSON 稳定性诊断）
 **实施方式：** 分阶段破坏性协议迁移
 
@@ -39,7 +39,7 @@
 }
 ```
 
-顶层必须且只能包含 `turn_action`、`segments`、`effect_calls`。三个字段都是必填项；额外顶层字段会被拒绝。`segments` 按说话时动作或状态变化分段，每段都包含 `speech`、`actions`、`thought` 和 `tendency`。
+上例表示内部聚合后的 `PersonaExpressionResult`。Provider 请求将它拆成独立通道：`persona_expression` 只包含 `turn_action`、`segments`；若当前事件有已注册且适用的 Persona Effect，同一模型响应还必须调用 `persona_effect_batch`，其参数只包含 `effect_calls`。两个通道分别精确校验，再聚合给下游消费者。正常生成时不为 effect 单独发起请求；已解析的必发 effect 校验失败时，现有校正流程会额外请求模型修复 effect batch。无适用 effect 时不提供 effect 工具，内部结果的 `effect_calls` 为空数组。`segments` 按说话时动作或状态变化分段，每段都包含 `speech`、`actions`、`thought` 和 `tendency`。
 
 | 字段 | 当前代码约束 | 当前消费者 |
 | --- | --- | --- |
@@ -48,11 +48,11 @@
 | `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
 | `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
 | `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `-10..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
-| `effect_calls` | 固定必填数组；tool-call Schema 按本轮有效 effect 生成 item schema。Core 解析时只保留已注册且参数通过校验的调用，并将解析问题写入结果 metadata；缺失或无效的必发 effect 会失败或进入既有纠正流程。无有效 effect 时使用空数组。 | Result Contributor / effect 插件；由插件解释执行。 |
+| `effect_calls` | 内部聚合结果中的数组；存在适用 effect 时由同一响应中的独立 `persona_effect_batch` tool call 提供，Schema 按本轮有效 effect 生成 item schema。无适用 effect 时不向模型提供该工具，内部结果置为空数组。Core 解析时只保留已注册且参数通过校验的调用，并将解析问题写入结果 metadata；已解析 batch 中缺失或无效的必发 effect 会失败或进入既有纠正流程。 | Result Contributor / effect 插件；由插件解释执行。 |
 
 情绪维度为 `Joy`（喜悦）、`Trust`（信任）、`Fear`（恐惧）、`Surprise`（惊讶）、`Sadness`（悲伤）、`Disgust`（厌恶）、`Anger`（愤怒）、`Anticipation`（期待）。
 
-`silent` 仅对允许静默的群聊候选开放，并要求 `segments`、`effect_calls` 为空。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
+`silent` 仅对允许静默的群聊候选开放，并要求表达通道的 `segments` 为空；如本轮有适用 effect，effect 通道仍须返回空数组。即时私聊/直接续接不开放 `silent`；不要求 Personal Response Plan 的表达请求仅允许 `reply`。
 
 ### 字段流向
 
@@ -74,22 +74,23 @@ Core 不会自动把 `actions`、`thought` 或 `tendency` 序列化成平台 pay
         ↓
 PersonaExpressionRequest + Prompt Context Pack
         ↓
-Persona Prompt + 动态 effect schema + persona_expression OutputContract
+Persona Prompt + persona_expression OutputContract
+               +（有适用 effect 时）persona_effect_batch OutputContract
         ↓
 Prompt renderer 编译 tool_call contract
         ↓
-Provider 能力检查：必须支持协议级 tool call
+Provider 能力检查：满足表达格式及本轮所需的 terminal tool-call 能力
         ↓
-Provider 原始响应中的 persona_expression tool call
+同一模型响应中的 persona_expression +（可选）persona_effect_batch
         ↓
-严格解析：精确字段集合、类型、枚举、情绪范围、effect schema
+分别严格解析与校验，再聚合内部结果
         ↓
 PersonaExpressionResult
         ↓
 turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 ```
 
-默认 Persona 契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona Response 也可显式选择 JSON、XML 或 Markdown；候选会按所选格式和 Provider 能力筛选，响应由对应 parser 转回 Canonical Schema 后再校验。格式不会自动降级为另一种格式或自由文本。
+默认表达契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona Response 也可显式选择 JSON、XML 或 Markdown；该设置只决定表达通道的格式。适用 effect 始终由独立的 `persona_effect_batch` 协议级 tool call 承载；候选必须支持当前组合在同一模型响应中返回所需通道。各通道分别解析校验，再合并为 Canonical `PersonaExpressionResult`。格式不会自动降级为另一种格式或自由文本。
 
 输入上下文仍由现有 Prompt 系统和 `PersonaExpressionRequest` 组装。`tendency` 是模型输出，不需要添加平行的输入情绪字段或新的对话管线。
 
@@ -98,7 +99,7 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 | 阶段 | 状态 | 结果或剩余工作 |
 | --- | --- | --- |
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
-| 第一阶段：当前 tool-call 路径 | 完成 | Schema、Prompt、解析校验、Personal/Core 消费和 Contributor 快照已迁移；插件 Persona 输出及文本相同但状态不同的 Core 去重也已修复。 |
+| 第一阶段：结构化输出与 effect 通道拆分 | 双通道改造中 | 表达和插件 effect 分别使用 `persona_expression`、条件性 `persona_effect_batch`；解析后仍聚合为同一结果类型。需完成实现与定向验收。 |
 | 第二阶段 2A：JSON Prompt 稳定性诊断 | 完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型独立请求 10 次，检查 JSON 语法、对象字段和示例推断出的类型；该诊断不调用原生 JSON mode / JSON Schema，也不改变 Persona 主路径。 |
 | 第二阶段 2B：Provider 能力矩阵与 JSON mode | 已完成首轮 | 稳定性弹窗可区分 JSON/XML/Markdown 的 Prompt-only 与 JSON 的 Provider 原生模式；DeepSeek、OpenAI Chat Completions 和 OpenAI Responses 发送各自原生 JSON 参数，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，Gemini 发送 `response_mime_type=application/json`，MiniMax Token Plan 当前仅 Prompt-only。结果可复制但不持久化；Persona Response 可显式选择格式。 |
 | 第二阶段 2C：原生 JSON Schema / structured output | 首轮已接入 | OpenAI Chat Completions / Responses 的原生 JSON Schema 参数可由 Persona Response 的 JSON 模式选择；仍需按模型和 endpoint 做真实组合验收。 |
@@ -121,8 +122,8 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 
 当前代码验收要求：
 
-1. `tool_call` 配置下 Persona 成功响应必须带 `persona_expression` tool call；JSON/XML/Markdown 配置下必须通过对应 parser，纯文本不得被误认为成功。
-2. Canonical 顶层字段必须精确匹配，`tendency` 八维和值域有效。
+1. 表达通道必须由 `persona_expression` tool call 或所选 JSON/XML/Markdown parser 成功恢复；适用 effect 时，首轮同一响应要求恰好包含一个合法的 `persona_effect_batch` 调用。若双通道首轮漏项，只补缺失通道一次；正常生成不单独请求 effect，已解析的必发 effect 未通过校验时也可沿用 effect batch 校正请求。
+2. 各通道字段集合必须精确匹配，`tendency` 八维和值域有效；无适用 effect 时不提供 effect 工具，聚合结果仍包含空 `effect_calls`。
 3. `segments[].speech` 按顺序拼接成文本平台使用的整合文本；TTS 不使用拼接结果，而是按原分段顺序逐段合成。
 4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。
 5. `actions` 和 `effect_calls` 维持不同含义与消费者。

@@ -282,11 +282,14 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self.tool_result_overflow_dir = (
             tool_result_overflow_dir if self.read_tool is not None else None
         )
-        self.terminal_tool_names = frozenset(
+        configured_terminal_names = {
             str(name).strip()
             for name in terminal_tool_names or ()
             if str(name).strip()
-        )
+        }
+        if request.terminal_tools is not None:
+            configured_terminal_names.update(request.terminal_tools.names())
+        self.terminal_tool_names = frozenset(configured_terminal_names)
         self.provider_kwargs = dict(provider_kwargs or {})
         self.deadline = deadline
         self.buffer_streaming_tool_steps = bool(buffer_streaming_tool_steps)
@@ -347,13 +350,12 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self._skill_like_raw_tool_set = None
         if tool_schema_mode == "skills_like":
             tool_set = self.req.func_tool
-            if not tool_set:
-                return
-            self._skill_like_raw_tool_set = tool_set
-            light_set = tool_set.get_light_tool_set()
-            self._tool_schema_param_set = tool_set.get_param_only_tool_set()
-            # MODIFIE the req.func_tool to use light tool schemas
-            self.req.func_tool = light_set
+            if tool_set:
+                self._skill_like_raw_tool_set = tool_set
+                light_set = tool_set.get_light_tool_set()
+                self._tool_schema_param_set = tool_set.get_param_only_tool_set()
+                # MODIFIE the req.func_tool to use light tool schemas
+                self.req.func_tool = light_set
 
         # append existing messages in the run context
         messages = bind_checkpoint_messages(request.contexts or [])
@@ -766,7 +768,9 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         return isinstance(modalities, list)
 
     def _func_tool_for_provider(self) -> ToolSet | None:
-        if not self.req.func_tool:
+        function_tools = self.req.func_tool
+        terminal_tools = self.req.terminal_tools
+        if not function_tools and not terminal_tools:
             return None
         modalities = self.provider.provider_config.get("modalities", None)
         if isinstance(modalities, list) and "tool_use" not in modalities:
@@ -775,7 +779,14 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 self.provider,
             )
             return None
-        return self.req.func_tool
+        if not terminal_tools:
+            return function_tools
+
+        provider_tools = ToolSet(
+            list(function_tools.tools) if function_tools is not None else [],
+        )
+        provider_tools.merge(terminal_tools)
+        return provider_tools
 
     def follow_up(
         self,

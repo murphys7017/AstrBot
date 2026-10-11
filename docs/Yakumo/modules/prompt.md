@@ -112,7 +112,7 @@ Profile 是“如何使用事实”的局部策略，不是 Collector。Core Pla
 
 Persona 的 Prompt 分成两层，避免让一次调用同时解释彼此无关的阶段：
 
-- `system_prompt` 只声明稳定职责、`persona_expression` 输出契约、effect schema 和不泄露内部材料的共同边界。
+- `system_prompt` 只声明稳定职责、`persona_expression` 输出契约，以及当前事件有适用 effect 时使用的 `persona_effect_batch` schema 和不泄露内部材料的共同边界。
 - `request_prompt` 只声明本次阶段任务：普通即时轮生成 `reply / delegate / silent` 的统一回复计划；结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
 
 流式观察不是工具回执，因此不能宣称工具、来源、结果或整轮任务已完成。单个工具完成也只代表该步骤结束；只有 Core 最终结果才可表达为整轮完成。`input.visible_reply_material.progress_stage` 是这一语义的结构化事实，不能再依靠文案猜测。
@@ -173,9 +173,9 @@ OutputContract
   -> response parser
 ```
 
-Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 通过虚拟 `persona_expression` tool call 返回 `turn_action`、`segments` 和按当前事件过滤后的 `effect_calls`；每个 segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和当前八维情绪 tendency。`turn_action` 是 `reply | delegate | silent` 三选一的字符串，具体调用场景可以限制可选值。`persona_expression` 是终端输出契约，不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
+Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 通过虚拟 `persona_expression` tool call 返回 `turn_action` 和 `segments`；每个 segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和当前八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将两路数据聚合为内部 Persona 结果。`turn_action` 是 `reply | delegate | silent` 三选一的字符串，具体调用场景可以限制可选值。两个 Persona terminal 输出契约都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
 
-Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect，因为 effect 是同一用户可见 segment 的输出契约，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
+Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect 注册事实，因为 effect schema 会作为条件性独立 terminal tool 提供，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 
 ## 当前限制
 

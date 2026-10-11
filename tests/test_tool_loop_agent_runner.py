@@ -1817,31 +1817,41 @@ async def test_tool_loop_passes_compiled_output_contract_to_provider():
 @pytest.mark.asyncio
 async def test_terminal_tool_finishes_without_executing_it():
     class TerminalProvider(MockProvider):
-        async def text_chat(self, **_kwargs) -> LLMResponse:
+        def __init__(self):
+            super().__init__()
+            self.received_tool_names = []
+
+        async def text_chat(self, **kwargs) -> LLMResponse:
+            func_tool = kwargs.get("func_tool")
+            self.received_tool_names = func_tool.names() if func_tool else []
             return LLMResponse(
                 role="assistant",
                 completion_text="",
-                tools_call_name=["persona_expression"],
+                tools_call_name=["persona_expression", "persona_effect_batch"],
                 tools_call_args=[
                     {
                         "turn_action": "reply",
-                        "speech": "done",
-                        "actions": [],
-                        "thought": "",
-                        "tendency": {
-                            "Joy": 0,
-                            "Trust": 0,
-                            "Fear": 0,
-                            "Surprise": 0,
-                            "Sadness": 0,
-                            "Disgust": 0,
-                            "Anger": 0,
-                            "Anticipation": 0,
-                        },
-                        "effect_calls": [],
-                    }
+                        "segments": [
+                            {
+                                "speech": "done",
+                                "actions": [],
+                                "thought": "",
+                                "tendency": {
+                                    "Joy": 0,
+                                    "Trust": 0,
+                                    "Fear": 0,
+                                    "Surprise": 0,
+                                    "Sadness": 0,
+                                    "Disgust": 0,
+                                    "Anger": 0,
+                                    "Anticipation": 0,
+                                },
+                            }
+                        ],
+                    },
+                    {"effect_calls": []},
                 ],
-                tools_call_ids=["call-terminal"],
+                tools_call_ids=["call-expression", "call-effects"],
             )
 
     class RejectingExecutor:
@@ -1852,9 +1862,29 @@ async def test_terminal_tool_finishes_without_executing_it():
     provider = TerminalProvider()
     runner = ToolLoopAgentRunner()
     hooks = MockHooks()
+    terminal_tools = ToolSet(
+        [
+            FunctionTool(
+                name="persona_effect_batch",
+                description="Registered Persona Effect terminal output.",
+                parameters={"type": "object", "properties": {}},
+            ),
+        ]
+    )
+    business_tool = FunctionTool(
+        name="business_tool",
+        description="An executable business tool that must not run after terminal output.",
+        parameters={"type": "object", "properties": {}},
+        handler=lambda: "should not execute",
+    )
     await runner.reset(
         provider=provider,
-        request=ProviderRequest(prompt="run", contexts=[]),
+        request=ProviderRequest(
+            prompt="run",
+            contexts=[],
+            func_tool=ToolSet([business_tool]),
+            terminal_tools=terminal_tools,
+        ),
         run_context=ContextWrapper(context=None),
         tool_executor=cast(Any, RejectingExecutor()),
         agent_hooks=hooks,
@@ -1865,7 +1895,66 @@ async def test_terminal_tool_finishes_without_executing_it():
         pass
 
     assert runner.done()
-    assert runner.get_final_llm_resp().tools_call_name == ["persona_expression"]
+    assert runner.get_final_llm_resp().tools_call_name == [
+        "persona_expression",
+        "persona_effect_batch",
+    ]
+    assert "persona_effect_batch" in runner.terminal_tool_names
+    assert "persona_effect_batch" in provider.received_tool_names
+    assert "business_tool" in provider.received_tool_names
+
+
+@pytest.mark.asyncio
+async def test_terminal_only_tools_initialize_runner_in_skills_like_mode():
+    class TerminalOnlyProvider(MockProvider):
+        def __init__(self):
+            super().__init__()
+            self.received_tool_names = []
+
+        async def text_chat(self, **kwargs) -> LLMResponse:
+            func_tool = kwargs.get("func_tool")
+            self.received_tool_names = func_tool.names() if func_tool else []
+            return LLMResponse(
+                role="assistant",
+                completion_text="",
+                tools_call_name=["persona_expression"],
+                tools_call_args=[{"turn_action": "reply", "segments": []}],
+                tools_call_ids=["call-expression"],
+            )
+
+    class RejectingExecutor:
+        @classmethod
+        def execute(cls, *_args, **_kwargs):
+            raise AssertionError("terminal tools must not enter the executor")
+
+    provider = TerminalOnlyProvider()
+    runner = ToolLoopAgentRunner()
+    await runner.reset(
+        provider=provider,
+        request=ProviderRequest(
+            prompt="run",
+            contexts=[],
+            terminal_tools=ToolSet(
+                [
+                    FunctionTool(
+                        name="persona_expression",
+                        description="Structured terminal expression.",
+                        parameters={"type": "object", "properties": {}},
+                    ),
+                ]
+            ),
+        ),
+        run_context=ContextWrapper(context=None),
+        tool_executor=cast(Any, RejectingExecutor()),
+        agent_hooks=MockHooks(),
+        tool_schema_mode="skills_like",
+    )
+
+    async for _ in runner.step_until_done(1):
+        pass
+
+    assert runner.done()
+    assert provider.received_tool_names == ["persona_expression"]
 
 
 @pytest.mark.asyncio

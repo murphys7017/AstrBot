@@ -1,30 +1,30 @@
 # 第五阶段：迁移、验证与发布
 
-**状态：第一阶段和 Provider/文本格式首轮实现已完成；TTS 标签适配、外部依赖迁移和真实 Provider 组合验收仍待完成。**
+**状态：表达结构化输出、Provider/文本格式首轮实现及双通道缺失恢复已完成；真实 Provider 组合验收、TTS 标签适配和外部依赖迁移仍待完成。**
 
 本文把已落地工作和剩余验收分开记录。它不把未来 Provider/TTS 工作表述成已实现能力，也不把 Prompt 稳定性诊断结果当作原生结构化输出能力证明。
 
 ## 已完成：Canonical Schema 与 tool-call 主路径
 
-当前 Core 使用严格 persona_expression tool call，返回三个顶层必填字段；每个 segment 包含四个表达字段：
+当前内部结果聚合为 `PersonaExpressionResult`。表达通道使用严格 `persona_expression` tool call 或所选文本格式；它只包含 `turn_action`、`segments`。若当前事件有已注册且适用的 effect，同一模型响应还必须包含独立 `persona_effect_batch` tool call，其参数只包含 `effect_calls`。无适用 effect 时不提供该工具，内部结果保留空 `effect_calls` 数组。每个 segment 包含四个表达字段：
 
 - turn_action：按调用场景限制的单值路由动作。
 - segments[].speech：按顺序拼接为文本平台使用的整合表达；TTS 按原分段逐段消费。
 - segments[].actions：简单动作意图数组。
 - segments[].thought：角色简短心理想法。
 - segments[].tendency：扮演角色当前的 Plutchik 八维情绪，每项为 -10..10 整数。
-- effect_calls：按本轮注册和事件筛选结果动态约束的插件 effect 调用数组。
+- effect_calls：内部聚合后的插件 effect 调用数组；在 Provider 边界由独立 effect 通道提供。
 
 这是一次破坏性迁移。Core 不再接受 spoken_reply 或 speech_cues 等旧字段，也不把旧字段映射到新协议。旧版外部插件、adapter 和客户端若依赖这些私有数据，需自行按其发布流程迁移。
 
-第一阶段代码已覆盖 Prompt、动态 Schema、tool-call 提取和结果校验、Personal 路由、即时/最终输出消费、结果 Contributor 快照，以及 Persona 模式插件输出。当前 Persona 不兼容 Provider 会在请求前排除；缺少 terminal tool call 不被当成成功的文本回复。
+第一阶段代码已覆盖 Prompt、动态 Schema、tool-call 提取和结果校验、Personal 路由、即时/最终输出消费、结果 Contributor 快照，以及 Persona 模式插件输出。当前 Persona 不兼容 Provider 会在请求前排除；双通道首轮漏项时会发起一次仅包含缺失通道的隔离补全请求，补全失败仍不会被当成成功回复。
 
 ## 新功能如何消费结构化数据
 
 新插件或输出功能不应读取 Provider 的原始 tool-call 响应，也不应解析用户可见 speech 来反推动作或情绪。应注册 Interaction Result Contributor，并从只读 InteractionResultView 中读取其负责的数据：
 
 - actions、thought、tendency、turn_action：Persona 结构化状态快照。
-- effect_calls：本轮有效的插件 effect 调用；解析器会跳过无效项并把问题记录在结果 metadata，必发 effect 不合规时整次校验会失败或进入一次纠正。在 Contributor 快照中，每一项是含 name、arguments、call_id、plugin_id 和 source 的只读 mapping，消费方只处理自己注册的 effect。
+- effect_calls：本轮有效的插件 effect 调用；解析器会跳过无效项并把问题记录在结果 metadata。双通道首轮漏掉 effect batch 时会请求一次 effect-only 补全；已解析 batch 中的必发 effect 不合规时也可进入一次 effect-only 校正。重复 batch 或顶层结构无效仍直接拒绝响应。在 Contributor 快照中，每一项是含 name、arguments、call_id、plugin_id 和 source 的只读 mapping，消费方只处理自己注册的 effect。
 - purpose：区分 persona_reply、Persona 改写的 plugin_reply 和 core_reply。
 
 Contributor 返回 InteractionResultContribution 后，Core 可合并其 platform_extras 或 client_objects。Core 不会自动把 actions、thought 或 tendency 转成平台数据。直接 plugin_direct 输出绕过 Persona 改写链路，因此不会有 Persona Expression 的这些字段。
@@ -33,10 +33,10 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 
 ### Provider JSON Prompt 诊断（第二阶段 2A，已完成）
 
-- Provider 模型列表提供 JSON 测试入口；弹窗预填 Persona 三个顶层字段及 segment 字段示例，用户可以修改后再测试。
+- Provider 模型列表提供 JSON 测试入口；弹窗预填 Persona 表达通道（turn_action、segments 及 segment 字段）示例，用户可以修改后再测试。
 - 后端对指定 Provider 连续发起 10 次 `text_chat` 请求，按 JSON 语法、根对象、字段集合和示例推断出的类型逐次判定，并返回每次延迟、失败原因和截断预览。
-- 该测试是 Prompt-only 诊断，不请求 Provider 原生 JSON mode/JSON Schema，不修改 Provider 配置，也不改变严格 `persona_expression` tool-call 主路径。
-- 非空数组按示例第一个元素检查元素结构；空数组只检查数组类型，因此不能将测试结果当作完整 Canonical Schema 或动态 `effect_calls` Schema 验证。
+- 该测试是 Prompt-only 诊断，不请求 Provider 原生 JSON mode/JSON Schema，不修改 Provider 配置，也不测试 Persona 的双通道 tool-call 组合。
+- 非空数组按示例第一个元素检查元素结构；空数组只检查数组类型，因此不能将测试结果当作完整 Canonical Schema 或动态 effect schema 验证。
 
 ### Provider 输出格式与原生 JSON 探测（第二阶段 2B，已实现）
 
@@ -55,7 +55,7 @@ Contributor 返回 InteractionResultContribution 后，Core 可合并其 platfor
 - 按 Provider、模型、endpoint 建立 tool call、JSON mode、原生 JSON Schema 的能力矩阵。
 - 使用 Provider 页面 JSON 稳定性测试进行能力验收时，复制并保存单次探测 JSON 记录，并结合测试模板、每次字段结构与类型通过数及失败原因归档；Prompt-only 结果不证明原生 JSON mode 支持，JSON mode 结果不证明原生 JSON Schema 支持。
 - 明确 JSON 文本仍由 Core 解析和校验；Provider 的 JSON mode 不等同于 Schema 强制。
-- 逐组合验证请求构造、响应提取、动态 effect schema、字段语义、失败行为、延迟和 token 成本。
+- 逐组合验证请求构造、表达响应提取、同响应 effect tool-call 提取、动态 effect schema、字段语义、失败行为、延迟和 token 成本。
 - 只有测试通过的组合才显式启用；不满足约束时必须提供诊断失败。
 
 ### XML / Markdown 等文本格式

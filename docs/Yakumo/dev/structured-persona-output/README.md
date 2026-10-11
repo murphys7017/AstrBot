@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-- Canonical Schema 和当前严格 `persona_expression` tool-call 主路径已完成迁移。
-- Core 会把结果解析并校验为 `PersonaExpressionResult`。Persona 请求要求协议级 tool call，不接受自由文本或 prompt-only JSON 作为成功结果；不兼容候选在发起请求前被排除。
+- 内部 Canonical Result 和表达通道 `persona_expression` 已完成首轮迁移；表达/effect 双通道运行时已实施，仍待真实 Provider 组合验收。
+- Core 分别解析表达和 effect 通道，再聚合并校验为 `PersonaExpressionResult`。`persona_expression` 承载表达；当前事件有已注册且适用的 effect 时，同一模型响应还要求独立 `persona_effect_batch` tool call。无适用 effect 时不提供 effect 工具。若首轮漏掉任一通道，Core 会以隔离请求只补缺失通道；若两路都缺失，则依次补表达和 effect。已解析的必发 effect 校验失败时，也会额外请求模型修复 effect batch。
 - Provider 页面提供结构化输出稳定性诊断：可编辑默认 Persona JSON 示例，选择 JSON、XML 或 semantic Markdown；JSON 可选 Prompt-only、Provider 原生 JSON mode 或 Provider 原生 JSON Schema，对单个对话模型最多请求 10 次并检查格式、字段结构和类型。DeepSeek、OpenAI Chat Completions、OpenAI Responses 与 Gemini 已接入原生 JSON 探测，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，MiniMax Token Plan 当前仅 Prompt-only；结果含可复制的单次探测记录，但不会自动持久化，也不改变 Persona 主路径。
 - Core 已把新字段贯穿 Personal 路由、即时/最终输出和 Interaction Result Contributor。Persona 改写的插件文本使用 `plugin_reply` purpose；插件可以从只读 `InteractionResultView` 读取结构化结果。
-- Provider JSON/语义 XML/语义 Markdown Prompt 稳定性诊断及原生 JSON/JSON Schema 探测已接入；结果不持久化。Persona Response 可显式选择 tool call、JSON、XML 或 Markdown，生产响应会解析并校验为统一 Canonical Schema；原生 JSON Schema 仅按适配器能力启用。TTS 标签注入与清理、外部插件的独立迁移和真实平台组合验收仍未完成。
+- Provider JSON/语义 XML/语义 Markdown Prompt 稳定性诊断及原生 JSON/JSON Schema 探测已接入；结果不持久化。Persona Response 的格式选项只控制表达通道；适用 effect 仍通过同一响应中的独立 terminal tool call 返回。TTS 标签注入与清理、外部插件的独立迁移和真实 Provider 组合验收仍未完成。
 
 ## 文档索引
 
@@ -46,14 +46,14 @@
 }
 ```
 
-顶层只允许三个必填字段：`turn_action`、`segments`、`effect_calls`。`turn_action` 是调用场景允许值中的单个字符串；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段并按顺序逐段合成；`effect_calls` 是按本轮已注册 effect schema 构造的插件调用数组。
+上例是内部聚合结果，不是单个 Provider payload。表达通道只包含 `turn_action`、`segments`；适用 effect 使用参数仅含 `effect_calls` 的 `persona_effect_batch` 独立 tool call，并与表达在同一模型响应中返回。无适用 effect 时不提供该工具，内部聚合结果以空数组表示。`turn_action` 是调用场景允许值中的单个字符串；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段并按顺序逐段合成。
 
 ## 阶段状态
 
 | 阶段 | 状态 | 代码边界 |
 | --- | --- | --- |
-| 准备阶段：冻结 Canonical Schema | 已完成 | 三个顶层字段、segment 字段、情绪维度和值域已确定。 |
-| 第一阶段：迁移当前 tool call | 已完成 | Schema、Prompt、解析、校验、Personal/Core 输出消费和结果贡献视图已使用新字段。 |
+| 准备阶段：冻结 Canonical Schema | 已完成 | 内部聚合字段、表达和 effect 分通道、segment 字段、情绪维度和值域已确定。 |
+| 第一阶段：迁移当前 tool call | 双通道已实施，待真实 Provider 验收 | 首轮表达使用 `persona_expression`；适用插件 effect 使用同一响应中的 `persona_effect_batch`。缺失通道时只补缺失通道一次，Core 聚合后仍沿用现有下游接口。 |
 | 第二阶段 2A：JSON Prompt 稳定性诊断 | 已完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型请求 10 次，结果只用于 Prompt 遵循诊断，不改变 Persona 主路径。 |
 | 第二阶段 2B：Provider 能力矩阵与 JSON mode | 已完成首轮 | 支持 JSON/XML/Markdown 的 Prompt-only 探测，以及 DeepSeek、OpenAI Chat Completions、OpenAI Responses、Gemini 的原生 JSON 探测；OpenAI Chat Completions 和 Responses 另支持 JSON Schema，MiniMax Token Plan 当前仅 Prompt-only；结果可复制但不持久化，Persona Response 可显式选择格式。 |
 | 第二阶段 2C：原生 JSON Schema / structured output | 首轮已接入 | OpenAI Chat Completions/Responses 的 JSON Schema 请求参数已接入 Persona Response；仍需按模型和 endpoint 做真实组合验收。 |

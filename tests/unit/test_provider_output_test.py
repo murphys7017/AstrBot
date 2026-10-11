@@ -114,7 +114,6 @@ def persona_template():
                 },
             }
         ],
-        "effect_calls": [],
     }
 
 
@@ -139,7 +138,6 @@ def test_json_output_validator_checks_json_and_template_shape(persona_template):
                     },
                 }
             ],
-            "effect_calls": [],
         },
         ensure_ascii=False,
     )
@@ -208,7 +206,7 @@ def test_xml_output_round_trips_nested_values_and_escaped_text(persona_template)
         (
             "<output><turn_action>reply</turn_action>"
             "<unknown>x</unknown></output>",
-            "$:missing_keys:effect_calls,segments",
+            "$:missing_keys:segments",
         ),
     ],
 )
@@ -302,12 +300,9 @@ def test_json_schema_is_inferred_from_template_without_guessing_empty_array_item
     schema = build_json_output_test_schema(persona_template)
 
     assert schema["type"] == "object"
-    assert schema["required"] == ["turn_action", "segments", "effect_calls"]
+    assert schema["required"] == ["turn_action", "segments"]
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["effect_calls"] == {
-        "type": "array",
-        "items": {},
-    }
+    assert "effect_calls" not in schema["properties"]
 
 
 def test_parse_template_requires_one_json_object():

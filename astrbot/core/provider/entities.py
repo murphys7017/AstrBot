@@ -136,6 +136,8 @@ class ProviderRequest:
     """Compiled provider-facing structured output binding."""
     metadata: dict[str, Any] = field(default_factory=dict)
     """Branch-local metadata for runtime and lifecycle consumers, never sent to providers."""
+    terminal_tools: ToolSet | None = None
+    """Provider-visible protocol tools that terminate a structured output turn."""
 
     def __repr__(self) -> str:
         return (
@@ -143,6 +145,7 @@ class ProviderRequest:
             f"image_count={len(self.image_urls or [])}, "
             f"audio_count={len(self.audio_urls or [])}, "
             f"func_tool={self.func_tool}, "
+            f"terminal_tools={self.terminal_tools.names() if self.terminal_tools else []}, "
             f"contexts={self._print_friendly_context()}, "
             f"system_prompt={self.system_prompt}, "
             f"conversation_id={self.conversation.cid if self.conversation else 'N/A'}, "
