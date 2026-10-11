@@ -82,6 +82,35 @@ structured_persona_output_review_followup_20261009:
     drift in all four checked files, also present in HEAD. Live plugin and
     adapter acceptance remains pending.
 
+structured_persona_dual_channels_and_segment_identity_20261012:
+  date: '2026-10-12'
+  class: feature
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Separate Persona expression and registered plugin effect payloads into
+    terminal tool-call channels, aggregate them into the existing canonical
+    result, preserve Persona segment identity through per-segment TTS, and
+    allow result contributors to add metadata after output materialization.
+  non_goals: >-
+    Do not change provider stability-test persistence, deploy assets, or
+    implement TTS cue injection and cleanup.
+  validation: >-
+    Seven focused runner, contributor, and TTS tests passed. The combined
+    relevant suite passed 205 tests and failed four: three known event-filter
+    fixtures lack get_extra, and a fallback-hook test that passed when rerun
+    alone timed out in the combined run. Ruff check, Python compilation, and
+    git diff --check passed. Ruff format --check still reports existing drift
+    in several touched files. No live Provider or platform acceptance ran.
+  architecture:
+    - Expression uses persona_expression; registered effects use persona_effect_batch and are merged only after validation.
+    - Text delivery joins segments[].speech while TTS synthesizes each non-empty segment and carries parent/result/segment identifiers.
+    - post_materialization callbacks run before delivery and merge platform extras, client objects, and metadata.
+  followup: >-
+    Validate dual-channel requests with native JSON, XML, and Markdown against
+    real Providers; verify plugin consumers receive the materialized per-segment
+    TTS identifiers on the target platform.
+
 computer_local_shell_permission_revocation_20261010:
   date: '2026-10-10'
   class: bugfix

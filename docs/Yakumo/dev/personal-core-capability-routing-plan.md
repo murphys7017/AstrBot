@@ -422,7 +422,7 @@ def should_correct_capability_denial(
 ## 7. 明确非目标
 
 - 不改 Personal 的人格风格、语气和输出效果；
-- 不改变 `persona_expression` 的 tool-call 输出契约；
+- 不改变 `persona_expression` 承载的表达字段；Persona Effect 由独立的条件性输出通道承载；
 - 不改变 effect schema；
 - 不把 Personal 改造成业务工具 Agent；
 - 不把 Core 工具 Schema 复制到 Personal；

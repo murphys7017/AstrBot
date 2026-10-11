@@ -350,7 +350,8 @@ Collectors -> ContextPack -> target projection -> Render Profile -> Layout -> Pr
 
 | Target | 可以看到 | 不可以看到/执行 |
 | --- | --- | --- |
-| `persona_expression` | PersonaDefinition、关系摘要、必要 MemorySnapshot、当前表达材料、表达约束、已授权 effect schema | Core capability、工具执行细节、Planner/Policy 的内部推理、原始诊断 provenance |
+| `persona_expression` | PersonaDefinition、关系摘要、必要 MemorySnapshot、当前表达材料、表达约束 | Core capability、工具执行细节、Planner/Policy 的内部推理、原始诊断 provenance |
+| `persona_effect_batch`（仅有适用 effect 时） | 当前事件筛选后的 PersonaEffectSpec 与输出约束 | 未注册或不适用于当前事件的 effect、Core capability、工具执行细节 |
 | `core_planner` | 当前输入、已委派任务、执行历史摘要和必要执行事实 | 用户可见台词、Persona Expression 私有规则、Policy 内部状态 |
 | `personal_policy` | 结构化 ObservationBatch、控制快照、最近表达时间/是否存在的摘要、时间/预算条件 | 原始表达指纹、工具、Skills、知识库、effect 执行、原始平台事件、可见回复文本生成 |
 | `native_core` | 完整 CoreExecutionSpec 和已装配 ToolSet | 其他 target 的隐藏材料和未授权插件扩展 |

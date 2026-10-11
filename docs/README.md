@@ -31,7 +31,7 @@ AG99 扩展 API 已同步到普通开发文档：
 - [Prompt Extension（中文）](./zh/dev/star/guides/prompt-extensions.md)
 - [Prompt Extension（English）](./en/dev/star/guides/prompt-extensions.md)
 
-Persona Effect 是结构化表现协议，不是 Agent Tool。Prompt Extension 是目标明确的事实贡献，也不是 LLM Tool。可执行插件工具默认属于 Core，只有明确声明或配置授权后才进入 Persona。
+Persona Effect 是结构化表现协议，不是可执行业务 Agent Tool；适用时通过独立 terminal tool-call 通道返回。Prompt Extension 是目标明确的事实贡献，也不是 LLM Tool。可执行插件工具默认属于 Core，只有明确声明或配置授权后才进入 Persona。
 
 ## 上游参考
 

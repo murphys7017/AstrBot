@@ -396,10 +396,10 @@ group message
 
 实现结果：
 
-1. Persona 业务工具与 terminal `persona_expression` 由同一个 `ToolLoopAgentRunner` 驱动。
-2. `persona_expression` 只作为 Provider 可见的协议工具，不进入 `FunctionToolExecutor`，与业务
+1. Persona 业务工具与 terminal `persona_expression` 由同一个 `ToolLoopAgentRunner` 驱动；当前事件存在适用 effect 时，同一请求还注册 terminal `persona_effect_batch`。
+2. `persona_expression` 与 `persona_effect_batch` 只作为 Provider 可见的协议输出工具，不进入 `FunctionToolExecutor`，与业务
    工具混合返回时也不会执行任何副作用。
-3. 无工具或工具未使用时只产生一次 Persona Provider 调用；实际业务工具结果直接留在同一
+3. 无工具或工具未使用时只产生一次 Persona Provider 调用；适用的 effect batch 与表达在同一响应返回。实际业务工具结果直接留在同一
    Agent context 中驱动下一轮 terminal 输出。
 4. 请求 Hook 每个 Persona run 只运行一次；fallback 保留同一个公开 Agent context，并且在任何
    业务工具开始执行后禁止切换 Provider 重放。
