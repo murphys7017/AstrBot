@@ -102,9 +102,10 @@ structured_persona_dual_channels_and_segment_identity_20261012:
     out in the combined run. Ruff check, Python compilation, and git diff
     --check passed. Ruff format --check still reports existing drift in several
     touched files. No live Provider or platform acceptance ran. The latest
-    timeout and TTS correlation checks passed: five focused contributor tests
-    and one TTS lifecycle test, plus scoped Ruff, Python compilation, runtime
-    validation, and git diff --check.
+    contributor boundary checks passed: six focused tests covering timeout
+    merging/behavior and materialization-copy isolation, plus one TTS lifecycle
+    test. Scoped Ruff, Python compilation, runtime validation, and git diff
+    --check passed.
   architecture:
     - Expression uses persona_expression; registered effects use persona_effect_batch and are merged only after validation.
     - Text delivery joins segments[].speech while TTS synthesizes each non-empty segment and carries parent/result/segment identifiers.

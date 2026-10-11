@@ -172,6 +172,48 @@ async def test_post_materialization_contribution_merges_materialized_output():
 
 
 @pytest.mark.asyncio
+async def test_post_materialization_callbacks_receive_isolated_materialization():
+    event = SimpleNamespace(get_extra=lambda key, default=None: "turn-1")
+    controller = object.__new__(InteractionOutputController)
+    controller.plugin_context = object()
+    controller._get_interaction_config = lambda _event: SimpleNamespace(
+        contributor_timeout=1.0
+    )
+    materialization = {"tts": [{"status": "succeeded"}]}
+    second_callback_materialization = None
+
+    async def mutate_materialization(_event, _plugin_context, **kwargs):
+        kwargs["materialization"]["tts"][0]["status"] = "modified"
+
+    async def observe_materialization(_event, _plugin_context, **kwargs):
+        nonlocal second_callback_materialization
+        second_callback_materialization = kwargs["materialization"]
+
+    contribution = InteractionResultContribution(
+        plugin_id="persona-output-test",
+        post_materialization=[
+            mutate_materialization,
+            observe_materialization,
+        ],
+    )
+
+    await controller._apply_post_materialization_contributions(
+        event,
+        contribution,
+        {},
+        phase="final",
+        parent_message_id="message-1",
+        persona_result_id="persona-result-1",
+        materialization=materialization,
+    )
+
+    assert materialization == {"tts": [{"status": "succeeded"}]}
+    assert second_callback_materialization == {
+        "tts": [{"status": "succeeded"}]
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("contributor_timeout", "requested_timeout"),
     [(0.001, 0.25), (0.1, 0.001)],

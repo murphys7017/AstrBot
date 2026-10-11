@@ -2491,7 +2491,7 @@ class InteractionOutputController:
                         phase=phase,
                         parent_message_id=parent_message_id,
                         persona_result_id=persona_result_id,
-                        materialization=dict(materialization),
+                        materialization=deepcopy(materialization),
                     ),
                     timeout=timeout,
                 )

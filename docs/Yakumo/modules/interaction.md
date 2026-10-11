@@ -823,7 +823,7 @@ effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source
 - `final_text_override`: 覆盖最终要发送的文本；只在确实需要改写最终表达时使用。
 - `metadata`: contributor 自己的诊断和附加信息。
 - `priority`: 合并顺序，数值越小越先处理。
-- `post_materialization`: 可选的异步回调列表，在 TTS/其他输出物化完成后、平台投递前按 priority 顺序执行。回调接收 `(event, plugin_context, *, turn_id, phase, parent_message_id, persona_result_id, materialization)`；返回的 `InteractionResultContribution` 只合并 `platform_extras`、`client_objects` 和 `metadata`，不会再改写已物化的消息。默认使用 contributor timeout，超时或异常会记录日志并跳过。
+- `post_materialization`: 可选的异步回调列表，在 TTS/其他输出物化完成后、平台投递前按 priority 顺序执行。回调接收 `(event, plugin_context, *, turn_id, phase, parent_message_id, persona_result_id, materialization)`；每个回调收到独立的物化数据深拷贝。返回的 `InteractionResultContribution` 只合并 `platform_extras`、`client_objects` 和 `metadata`，不会再改写已物化的消息。默认使用 contributor timeout，超时或异常会记录日志并跳过。
 - `post_materialization_timeout_seconds`: 可选的较长回调超时请求。多 contributor 合并时取最大有效值，单个请求最多按 30 秒计算；每个合并后的回调使用 `max(contributor_timeout, 请求值)`，不能缩短全局默认值。这个共享超时逐个应用于串行回调，因此总等待时间可能累加。非正数、布尔值、非有限数和非数值会被忽略。
 
 result contributor 只能基于只读结果快照产出 contribution。不要修改 `view`，也不要把
