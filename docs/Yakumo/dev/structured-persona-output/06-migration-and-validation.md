@@ -4,9 +4,9 @@
 
 本文把已落地工作和剩余验收分开记录。它不把未来 Provider/TTS 工作表述成已实现能力，也不把 Prompt 稳定性诊断结果当作原生结构化输出能力证明。
 
-## 已完成：Canonical Schema 与 tool-call 主路径
+## 已完成：Canonical Schema 与表达格式适配
 
-当前内部结果聚合为 `PersonaExpressionResult`。表达通道使用严格 `persona_expression` tool call 或所选文本格式；它只包含 `turn_action`、`segments`。若当前事件有已注册且适用的 effect，同一模型响应还必须包含独立 `persona_effect_batch` tool call，其参数只包含 `effect_calls`。无适用 effect 时不提供该工具，内部结果保留空 `effect_calls` 数组。每个 segment 包含四个表达字段：
+当前内部结果聚合为 `PersonaExpressionResult`。表达通道默认使用 JSON 文本 + Prompt-only 约束，也可配置为原生 JSON、XML、Markdown 或显式 `persona_expression` tool call；表达 payload 只包含 `turn_action`、`segments`。若当前事件有已注册且适用的 effect，同一模型响应还必须包含独立 `persona_effect_batch` tool call，其参数只包含 `effect_calls`。无适用 effect 时不提供该工具，内部结果保留空 `effect_calls` 数组。每个 segment 包含四个表达字段：
 
 - turn_action：按调用场景限制的单值路由动作。
 - segments[].speech：按顺序拼接为文本平台使用的整合表达；TTS 按原分段逐段消费。

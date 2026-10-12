@@ -1,7 +1,7 @@
 # Persona 结构化输出总计划
 
-**文档状态：** 2026-10-11 按双通道契约更新
-**更新时间：** 2026-10-11
+**文档状态：** 2026-10-12 按当前输出与 Prompt 契约复核
+**更新时间：** 2026-10-12
 **代码基线：** `149dd0485`（当前 HEAD；包含 `d4f9f69d3` 的 Provider JSON 稳定性诊断）
 **实施方式：** 分阶段破坏性协议迁移
 
@@ -79,11 +79,11 @@ PersonaExpressionRequest + Prompt Context Pack
 Persona Prompt + persona_expression OutputContract
                +（有适用 effect 时）persona_effect_batch OutputContract
         ↓
-Prompt renderer 编译 tool_call contract
+按配置编译 JSON、XML、Markdown 或显式 Tool Call 表达契约
         ↓
-Provider 能力检查：满足表达格式及本轮所需的 terminal tool-call 能力
+Provider 能力检查：满足表达格式及适用 effect 所需的独立 terminal tool-call 能力
         ↓
-同一模型响应中的 persona_expression +（可选）persona_effect_batch
+同一模型响应中的表达 payload +（可选）persona_effect_batch
         ↓
 分别严格解析与校验，再聚合内部结果
         ↓
@@ -92,7 +92,7 @@ PersonaExpressionResult
 turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 ```
 
-默认表达契约为 `mode="tool_call"`、`strict=True`、`preferred_tool_name="persona_expression"`、`allow_text_fallback=False`。Persona Response 也可显式选择 JSON、XML 或 Markdown；该设置只决定表达通道的格式。适用 effect 始终由独立的 `persona_effect_batch` 协议级 tool call 承载；候选必须支持当前组合在同一模型响应中返回所需通道。各通道分别解析校验，再合并为 Canonical `PersonaExpressionResult`。格式不会自动降级为另一种格式或自由文本。
+Persona 表达默认使用 JSON 文本 + Prompt-only 约束，并经 Canonical Schema 校验；用户可按 Provider 实测显式选择原生 JSON 约束、XML、Markdown 或严格 `tool_call`。Provider 页的 10 次稳定性诊断只供用户判断，不自动修改生产配置，也不验证 effect tool-call 稳定性。适用 effect 始终由独立的 `persona_effect_batch` 协议级 tool call 承载；候选必须支持当前表达格式及适用 effect 所需的同响应通道。各通道分别解析校验，再合并为 Canonical `PersonaExpressionResult`；不会隐式切换格式或接受不符合 Schema 的自由文本。
 
 输入上下文仍由现有 Prompt 系统和 `PersonaExpressionRequest` 组装。`tendency` 是模型输出，不需要添加平行的输入情绪字段或新的对话管线。
 
@@ -101,7 +101,7 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 | 阶段 | 状态 | 结果或剩余工作 |
 | --- | --- | --- |
 | 准备：Canonical Schema | 完成 | 固定字段、角色情绪含义、范围和破坏性兼容决策。 |
-| 第一阶段：结构化输出与 effect 通道拆分 | 双通道改造中 | 表达和插件 effect 分别使用 `persona_expression`、条件性 `persona_effect_batch`；解析后仍聚合为同一结果类型。需完成实现与定向验收。 |
+| 第一阶段：结构化输出与 effect 通道拆分 | 已实施，待真实 Provider 验收 | 表达格式可配置，默认 JSON + Prompt-only；显式 Tool Call 表达和条件性 effect tool call 保持独立，解析后聚合为同一结果类型。 |
 | 第二阶段 2A：JSON Prompt 稳定性诊断 | 完成 | Provider 页面支持编辑 JSON 示例并对指定对话模型独立请求 10 次，检查 JSON 语法、对象字段和示例推断出的类型；该诊断不调用原生 JSON mode / JSON Schema，也不改变 Persona 主路径。 |
 | 第二阶段 2B：Provider 能力矩阵与 JSON mode | 已完成首轮 | 稳定性弹窗可区分 JSON/XML/Markdown 的 Prompt-only 与 JSON 的 Provider 原生模式；DeepSeek、OpenAI Chat Completions 和 OpenAI Responses 发送各自原生 JSON 参数，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，Gemini 发送 `response_mime_type=application/json`，MiniMax Token Plan 当前仅 Prompt-only。结果可复制但不持久化；Persona Response 可显式选择格式。 |
 | 第二阶段 2C：原生 JSON Schema / structured output | 首轮已接入 | OpenAI Chat Completions / Responses 的原生 JSON Schema 参数可由 Persona Response 的 JSON 模式选择；仍需按模型和 endpoint 做真实组合验收。 |
@@ -124,7 +124,7 @@ turn_action 路由 / segments 文本与 TTS / InteractionResultView 插件贡献
 
 当前代码验收要求：
 
-1. 表达通道必须由 `persona_expression` tool call 或所选 JSON/XML/Markdown parser 成功恢复；适用 effect 时，首轮同一响应要求恰好包含一个合法的 `persona_effect_batch` 调用。若双通道首轮漏项，只补缺失通道一次；正常生成不单独请求 effect，已解析的必发 effect 未通过校验时也可沿用 effect batch 校正请求。
+1. 表达通道必须由所选 JSON/XML/Markdown parser 成功恢复，或在显式选择 Tool Call 时由 `persona_expression` tool call 返回；适用 effect 时，首轮同一响应要求恰好包含一个合法的 `persona_effect_batch` 调用。若双通道首轮漏项，只补缺失通道一次；正常生成不单独请求 effect，已解析的必发 effect 未通过校验时也可沿用 effect batch 校正请求。
 2. 各通道字段集合必须精确匹配，`tendency` 八维和值域有效；无适用 effect 时不提供 effect 工具，聚合结果仍包含空 `effect_calls`。
 3. `segments[].speech` 按顺序拼接成文本平台使用的整合文本；TTS 不使用拼接结果，而是按原分段顺序逐段合成。
 4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。

@@ -60,6 +60,41 @@ persona_response_output_formats_20261011:
     - XML and Markdown are semantic field grammars and reject embedded JSON payloads.
     - The parser output always enters the existing Canonical Schema and effect validation boundary.
 
+persona_output_prompt_contract_review_20261012:
+  date: '2026-10-12'
+  class: bugfix
+  risk: medium
+  status: validated_pending_live_acceptance
+  scope: >-
+    Correct Persona output defaults, per-call turn_action descriptions, Persona
+    plugin Prompt Extension projection, soft reply-length guidance, history and
+    Memory semantics, and the current Plutchik tendency range across code, tests,
+    settings labels, and Yakumo documentation.
+  non_goals: >-
+    Do not change the explicit Tool Call option, persist provider stability-test
+    results, modify the AG99live plugin source, build or deploy assets, or commit.
+  validation: >-
+    tests/unit/test_interaction_expression_agent.py,
+    tests/unit/test_prompt_targets.py, and
+    tests/unit/test_interaction_plugin_runtime.py passed (140 tests).
+      git diff --check passed. All three dashboard locale JSON files and
+      .ai/state.yaml parsed successfully. No Provider request or live platform
+      run was made.
+  current_contract:
+    - Persona expression defaults to JSON + Prompt-only; strict persona_expression Tool Call is opt-in, while registered persona_effect_batch remains a separate conditional Tool Call channel.
+    - turn_action schema enum and description are generated from the same allowed action list for each invocation.
+    - AG99live registers its companion identity Prompt Extension with targets=[persona]; Core collects Persona-scoped extensions and the Persona View permits extension.system.
+    - Daily short replies prefer about 20 Chinese characters; this is a soft preference and no post-generation 40-character truncation applies.
+    - History can answer explicit questions about earlier conversation but cannot establish current external facts or execution success; Memory is selective continuity context, and default turn_plan only exposes topic_state, short_term, and persona_state.
+    - Tendency is the role-played character's eight Plutchik dimensions, each an integer in 0..10; the active contract has no signed -10..10 scale.
+  supersedes: >-
+    The 2026-10-11 record's statement that Tool Call is the default is historical;
+    JSON + Prompt-only is the current default.
+  evidence_gap: >-
+    Provider/model stability and the actual deployed dashboard/runtime setting
+    still require live acceptance; a persisted explicit tool_call setting remains
+    an explicit user selection.
+
 structured_persona_output_review_followup_20261009:
   date: '2026-10-09'
   class: bugfix
@@ -114,6 +149,30 @@ structured_persona_dual_channels_and_segment_identity_20261012:
     Validate dual-channel requests with native JSON, XML, and Markdown against
     real Providers; verify plugin consumers receive the materialized per-segment
     TTS identifiers on the target platform.
+
+persona_segment_post_materialization_motion_20261012:
+  date: '2026-10-12'
+  class: feature
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Preserve Persona result, segment, parent output, and TTS request identities
+    through outbound TTS materialization, and let result contributors use a
+    bounded longer timeout when joining work that started before materialization.
+  non_goals: >-
+    Do not parallelize TTS, change output.segment wire schema, or claim live
+    Provider/platform acceptance.
+  validation: >-
+    tests/unit/test_interaction_plugin_runtime.py and
+    tests/unit/test_voice_service.py passed (58 tests). Python compilation and
+    git diff --check passed. No live Provider or platform run was performed.
+  architecture:
+    - Core allocates the parent message ID before collecting contributors and passes the same ID to the post-materialization callback.
+    - Each Persona TTS lifecycle state carries parent_message_id, persona_result_id, persona_segment_index, and persona_segment_count alongside message_id and tts_request_id.
+    - Post-materialization timeout requests are merged with the configured contributor timeout and capped at 30 seconds.
+  evidence_gap: >-
+    Verify the correlated segment identities and earlier-started action generation
+    in a live AG99 + AstrBot + TTS + Electron + Live2D run.
 
 computer_local_shell_permission_revocation_20261010:
   date: '2026-10-10'

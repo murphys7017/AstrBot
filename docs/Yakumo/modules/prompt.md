@@ -65,7 +65,7 @@ Collector 只返回事实：
 
 跨阶段新增或替换事实必须经过 Builder。`ContextPack` 数据类型本身仍然可变，供收集和渲染内部使用；业务模块不得把直接 `add_slot()`、`slots.pop()` 或原地改值当作跨阶段 API。进入 `CoreExecutionSpec` 时，slots、meta、TaskSpec、执行历史和可序列化 capability 描述会被深拷贝，避免后续构建侧变更影响已经准备的执行事实；Native `ToolSet` 是唯一明确保留的实时执行句柄。
 
-Interaction 使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。需要普通 Prompt Extension 的调用才启动并复用唯一的 `interaction_plugin_context` task；Core 等待它，普通 Persona 即时计划按既有策略尽力使用或等待它。`progress` 与 `proactive` 等轻量 Persona 调用显式使用 base-only Context View，不启动、不等待也不读取 plugin context。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
+Interaction 使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。需要完整插件上下文的调用才启动并复用唯一的 `interaction_plugin_context` task；Core 等待它，普通 Persona 即时计划按既有策略尽力使用或等待它。`progress` 与 `proactive` 等轻量 Persona 调用不等待完整 plugin context pack，但 Persona 表达构建仍可收集面向 `persona` 的 Prompt Extension；View 白名单只允许其中的 `extension.system` 进入 Prompt，不会因此把 `extension.context` 或插件执行能力带入。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
 
 媒体事实遵循同一边界：基础 `InputCollector` 只记录原始图片、引用图片、媒体内容块和文件记录，不调用图片转述或文件提取服务。非视觉 Personal、Planner 或 Core 在绑定实际 Provider 后，才通过 `PromptContextBuilder(base=...)` 派生本地媒体事实；视觉 Provider 直接消费原始图片。Provider 调用前的模态门同时检查上下文消息和额外内容块，避免只清理 `image_urls` 造成绕过。
 
@@ -87,10 +87,19 @@ Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享�
 
 当前 Persona View：
 
-- `turn_plan`：保留既有 Persona 上下文来源和历史预算。
+- `turn_plan`：使用基础事实和 Persona 专属的 system 扩展，保留既有历史预算；不消费完整 plugin context pack。
 - `final_result`：保留既有来源和质量预算，`source_text` 仍由请求指令定义为权威结果。
-- `progress`：base-only；仅稳定的 `system.global`、人格摘要、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、插件扩展、旧结果或媒体派生；本阶段的职责指令仍由 Profile 显式写入。
-- `proactive`：base-only；稳定的 `system.global`、人格摘要、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入、插件扩展或媒体派生。
+- `progress`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、`extension.context`、旧结果或媒体派生；本阶段的职责指令仍由 Profile 显式写入。
+- `proactive`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入、`extension.context` 或媒体派生。
+
+### Persona 上下文使用规则
+
+Persona 的不同调用 View 会选择不同 slot；缺失的历史或 Memory 不得靠猜测补齐。各类上下文的语义边界如下：
+
+- `conversation.history` 是官方 Conversation 的历史轮次，可用于回答当前明确指向的先前对话、消解“刚才/那个”等指代，并维持称呼、关系和语气。历史 assistant 文本能说明先前说过什么，不能单独证明其中外部事实仍然正确或某项操作已经成功。
+- `memory.topic_state` 提供当前话题摘要与置信度；`memory.short_term` 提供短期摘要和未解决焦点；按配置检索到的 `memory.experiences`、`memory.long_term_memories` 提供相关经历或长期记录；`memory.persona_state` 提供熟悉度、信任、亲近感和表达偏好。它们是经过选择或摘要的连续性材料，只在相关时使用，不视为当前状态的权威证明。默认 `turn_plan` View 只允许 `topic_state`、`short_term` 和 `persona_state`，不会自动带入长期记忆或经历；模型只能使用本轮实际投影的 Memory slot。
+- 当前系统指令与用户本轮请求决定行为边界；本轮输入、已确认的 Core/插件结果及明确失败事实决定当前答复的事实内容。最新用户更正优先于旧历史或 Memory。没有当前执行结果时，不得依据旧记录声称当前状态、数值、能力或操作结果。
+- `conversation.pending_execution_continuity` 来自 Core Execution Ledger，表示某项 Core 工作被新消息打断；它不是 Conversation history、Memory，也不是成功结果。结合当前消息和对话历史确认用户正在续接该工作后，Persona 才可选择 `delegate`。
 
 Renderer 结果会记录 `context_view`、来源要求、实际 slot 和目标预算；Interaction 额外记录阶段、保留历史数和近似 token 数，供生产 trace 检查。
 
@@ -113,7 +122,7 @@ Profile 是“如何使用事实”的局部策略，不是 Collector。Core Pla
 Persona 的 Prompt 分成两层，避免让一次调用同时解释彼此无关的阶段：
 
 - `system_prompt` 只声明稳定职责、`persona_expression` 输出契约，以及当前事件有适用 effect 时使用的 `persona_effect_batch` schema 和不泄露内部材料的共同边界。
-- `request_prompt` 只声明本次阶段任务：普通即时轮生成 `reply / delegate / silent` 的统一回复计划；结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
+- `request_prompt` 只声明本次阶段任务：普通即时轮按本次 Schema 允许的 `turn_action` 枚举生成回复计划；普通表达仅开放 `reply`，需要 Core 时开放 `reply / delegate`，仅允许静默的群聊候选开放 `reply / delegate / silent`；结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
 
 流式观察不是工具回执，因此不能宣称工具、来源、结果或整轮任务已完成。单个工具完成也只代表该步骤结束；只有 Core 最终结果才可表达为整轮完成。`input.visible_reply_material.progress_stage` 是这一语义的结构化事实，不能再依靠文案猜测。
 
@@ -151,7 +160,7 @@ Provider Renderer 只编译已经形成的树：
 
 ### Interaction
 
-Interaction 每轮先建立基础 Pack，并立即后台预取唯一的插件扩展 Pack；Personal 直接从 Persona 投影渲染一次回复计划。Persona 不等待插件扩展，已就绪时消费该 Pack，否则从基础 Pack 派生待表达材料。仅在它选择 `delegate` 后，Planner 才从基础 Pack 整理 `CoreTaskSpec`；随后 Main Agent 等待同一插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
+Interaction 每轮先建立基础 Pack，并立即后台预取唯一的插件扩展 Pack；Personal 直接从 Persona 投影渲染一次回复计划。Persona 不等待完整插件扩展 Pack，已就绪时消费该 Pack，否则从基础 Pack 派生待表达材料；表达 Prompt 会另行收集目标为 Persona 的 Prompt Extension，并由 View 白名单限制可见 mount。仅在它选择 `delegate` 后，Planner 才从基础 Pack 整理 `CoreTaskSpec`；随后 Main Agent 等待同一插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
 
 ### 非 Interaction Core
 
@@ -173,7 +182,7 @@ OutputContract
   -> response parser
 ```
 
-Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 通过虚拟 `persona_expression` tool call 返回 `turn_action` 和 `segments`；每个 segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和当前八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将两路数据聚合为内部 Persona 结果。`turn_action` 是 `reply | delegate | silent` 三选一的字符串，具体调用场景可以限制可选值。两个 Persona terminal 输出契约都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。
+Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 默认要求 JSON 文本 + Prompt-only 约束，JSON/XML/Markdown parser 校验后均转换为同一 Canonical 结果；严格 `persona_expression` tool call 仅在配置显式选择时使用。每个结果包含 `turn_action` 和 `segments`；segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和 Plutchik 八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将表达与 effect 聚合为内部 Persona 结果。`turn_action` 的 Schema 按调用场景动态收窄，不是始终可任意选择 `reply / delegate / silent`。两个 Persona 输出通道都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。Provider 页面 10 次格式测试仅提供稳定性参考，不自动保存结果或切换 Persona 设置。
 
 Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect 注册事实，因为 effect schema 会作为条件性独立 terminal tool 提供，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 

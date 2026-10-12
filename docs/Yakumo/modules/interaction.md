@@ -530,9 +530,9 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 - `express_visible_reply(...)` — 统一 persona visible-reply 入口，接收“待表达材料”请求
 - `render_plugin_output(...)` / `render_core_reply(...)` / `render_stream_interjection(...)` 只是同一入口的薄包装
 - 本身不做 LLM 调用，只做编排
-- 当前默认表达契约是严格 `tool_call`：注册虚拟工具 `persona_expression`，只返回 `turn_action` 与 `segments`；每个 segment 含 `speech`、`actions`、`thought` 和八维 `tendency`，且 `allow_text_fallback=False`
+- 当前默认表达契约是 JSON 文本 + Prompt-only 约束，按 Canonical Schema 校验；严格 `persona_expression` tool call 仅在配置显式选择 `tool_call` 时启用。Provider 页面提供可编辑的 10 次格式稳定性诊断，结果不自动保存或切换生产配置
 - 当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还必须返回独立 terminal 工具 `persona_effect_batch`，其参数只含 `effect_calls`；无适用 effect 时不提供该工具。正常生成时两路结果在 Core 内聚合，不为 effect 单独请求模型；双通道首轮漏项时会用隔离请求只补缺失通道一次，已解析 batch 中的必发 effect 未通过校验时也可请求模型修复 effect batch
-- renderer/provider 必须支持协议级 tool call；不支持的候选在请求前排除，不降级为 Persona JSON 文本
+- 表达格式可配置为 JSON、XML、Markdown 或显式 Tool Call；JSON 的 Prompt-only、原生 JSON mode 与原生 JSON Schema 能力按 Provider adapter 支持范围选择。文本格式都解析为同一个 Canonical Schema；适用的 effect 仍走独立 tool-call 通道
 - Persona Runtime 的表达规则、最终 request prompt 和输出契约由目标 `PromptRenderProfile` 提供；本轮待表达语义、核心流式 `observed_text / total_text / pending_text` 等事实由 Collector 写入原生 `input.visible_reply_material`
 - 对 DeepSeek-V4 / `deepseek-reasoner` 这类 reasoning 模型，首轮 persona user input 会额外注入一次“角色沉浸模式” marker，
   用于约束 `<think>` 里的思维风格；稳定人格设定仍留在 `system`，marker 不作为长期人格本体
@@ -555,7 +555,7 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 
 ## Persona Expression 与 Effect 输出契约
 
-表达通道由虚拟工具 `persona_expression` 承载。它只返回表达和本轮动作选择：
+Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payload 是 JSON 文本；严格 Tool Call 是显式选择的另一种传输格式。表达通道只包含 `turn_action` 与 `segments`：
 
 ```json
 {
@@ -593,7 +593,9 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 }
 ```
 
-首轮要求 `persona_expression` 与适用的 `persona_effect_batch` 在同一响应返回；运行器收到任一 terminal tool call 后就会结束该轮。若双通道首轮漏项，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。没有适用 effect 时省略 effect 工具；Core 聚合结果中仍提供空 `effect_calls` 数组。`turn_action` 始终是 `reply | delegate | silent` 单值字符串，调用场景可以限制可选值。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示角色当前八维情绪强度，模型应输出 `0..10` 整数，Core 对整数越界值按边界裁剪后保留为 `0..10`。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+表达可以使用 Prompt-only JSON，也可以在配置明确选择 XML、Markdown 或严格 Tool Call；Provider 页的 10 次格式诊断只提供稳定性参考，不会自动修改配置。适用 effect 始终由独立 `persona_effect_batch` terminal tool 提供；无适用 effect 时不提供 effect 工具，Core 聚合结果中仍提供空 `effect_calls` 数组。若本轮同时有表达 Tool Call 和 effect Tool Call，两者须在同一响应返回；若表达使用 JSON/XML/Markdown，适用的 effect 仍须通过独立工具调用返回。双通道首轮漏项时，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。
+
+`turn_action` 是单值字符串，枚举按调用场景限制：普通表达仅 `reply`；需要 Core 处理时允许 `reply | delegate`；允许静默的群聊候选允许 `reply | delegate | silent`，且 `silent` 时 `segments` 必须为空。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
 开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 

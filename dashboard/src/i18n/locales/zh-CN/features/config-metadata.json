@@ -1576,7 +1576,7 @@
         },
         "expression_output_format": {
           "description": "表达输出格式",
-          "hint": "先在模型提供商页面完成稳定性测试，再选择 Persona Response 的生产输出格式。"
+          "hint": "默认使用 JSON + Prompt-only。提供商页面的 10 次稳定性测试仅供判断，不会修改生产设置；测试后需在此处显式选择格式。"
         },
         "expression_output_mode": {
           "description": "表达输出约束模式",

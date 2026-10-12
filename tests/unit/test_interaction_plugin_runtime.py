@@ -268,7 +268,7 @@ def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
     assert default_config.parallel_plugin_runtime_enabled is False
     assert default_config.plugin_parallel_window_seconds == 3.0
     assert default_config.persona_plugin_context_mode == "wait_complete"
-    assert default_config.expression_output_format == "tool_call"
+    assert default_config.expression_output_format == "json"
     assert default_config.expression_output_mode == "prompt_only"
     assert (
         load_interaction_agent_config(
@@ -1346,7 +1346,16 @@ async def test_immediate_output_records_persona_state_for_duplicate_arbitration(
         speech="我先看看。",
         actions=["lower_head"],
         thought="这需要仔细确认",
-        tendency={"Curiosity": 4},
+        tendency={
+            "Joy": 0,
+            "Trust": 0,
+            "Fear": 0,
+            "Surprise": 0,
+            "Sadness": 0,
+            "Disgust": 0,
+            "Anger": 0,
+            "Anticipation": 4,
+        },
     )
 
     delivered = await controller.capture_message_chain(
@@ -1359,7 +1368,16 @@ async def test_immediate_output_records_persona_state_for_duplicate_arbitration(
     assert get_interaction_turn_immediate_persona_state(event) == (
         ("lower_head",),
         "这需要仔细确认",
-        {"Curiosity": 4},
+        {
+            "Joy": 0,
+            "Trust": 0,
+            "Fear": 0,
+            "Surprise": 0,
+            "Sadness": 0,
+            "Disgust": 0,
+            "Anger": 0,
+            "Anticipation": 4,
+        },
     )
 
 

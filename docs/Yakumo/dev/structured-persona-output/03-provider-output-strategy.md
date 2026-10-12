@@ -12,7 +12,7 @@
 
 | 能力或类型 | 当前实现 |
 | --- | --- |
-| Persona 表达请求契约 | 默认 mode=tool_call、strict=true、preferred_tool_name=persona_expression、allow_text_fallback=false；也可显式选择 JSON/XML/Markdown。 |
+| Persona 表达请求契约 | 默认 JSON + Prompt-only；可显式选择 JSON 原生约束、XML、Markdown 或严格 Tool Call。表达 payload 均进入同一 Canonical Schema。 |
 | Persona Effect 请求契约 | 当前事件有已注册且适用的 Persona Effect 时，提供参数仅含 effect_calls 的 persona_effect_batch terminal tool；无适用 effect 时省略该工具。 |
 | Persona Provider 选择 | 候选必须支持当前表达格式，以及本轮适用 effect 所需的同响应 tool-call 通道；不兼容候选在请求前筛除。 |
 | 通用 OutputContract.mode | 有 text、json_object、tool_call。 |
@@ -21,7 +21,7 @@
 | Provider 页面格式稳定性测试 | 已提供手动诊断入口：用户可编辑 JSON 示例，选择 JSON、XML 或 semantic Markdown；JSON 可选 Prompt-only、Provider 原生 JSON mode 或 Provider 原生 JSON Schema（按适配器能力启用），并检查格式语法、根对象、字段集合和示例推断出的类型；不修改配置，也不改变 Persona 主路径。 |
 | Persona Response 生产输出 | 在 Interaction Middleware / Persona Response 中选择输出格式和约束模式；JSON、XML、Markdown 均经过专用 parser 与 Canonical Schema 校验，失败即按现有 provider fallback/错误链路处理，不把一种格式隐式当作另一种格式。 |
 
-`tool_call` 仍是默认且最严格的表达路径；其他格式是显式配置的生产路径，不会从诊断结果自动切换。格式配置只作用于 `persona_expression`，不会把 effect 数据编码进 JSON、XML 或 Markdown。若本轮有适用 effect，Provider 还必须能在同一响应中返回独立的 `persona_effect_batch` 调用；不因此额外发起一次模型请求。用户应先在 Provider 页面测试表达格式，再在 Persona Response 选择相同格式和（仅 JSON 可用的）原生约束模式。
+JSON + Prompt-only 是当前默认表达路径；JSON 原生约束、XML、Markdown 和严格 Tool Call 均需用户在 Persona Response 显式选择，不会从诊断结果自动切换。格式配置只作用于表达通道，不会把 effect 数据编码进 JSON、XML 或 Markdown。若本轮有适用 effect，Provider 还必须能在同一响应中返回独立的 `persona_effect_batch` 调用；不因此额外发起一次模型请求。Provider 页的 10 次诊断用于让用户观察输出稳定性，不自动保存结果或改动生产设置。
 
 ## 策略类别
 
@@ -32,7 +32,7 @@
 | 协议级 tool call | 要求调用指定的 persona_expression 虚拟工具；适用 effect 另要求 persona_effect_batch。 | 独立的表达和 effect 参数对象，可在同一响应中返回。 | Provider 是否能按当前表达格式同时返回所需 terminal tool call、是否会混入普通文本、流式返回如何组装。 |
 | JSON mode | Provider 要求表达响应为 JSON 文本；通常只约束语法或顶层对象。 | 普通文本通道中的表达 JSON；适用 effect 仍走独立 tool-call 通道。 | 必须由 Core 继续校验表达字段、类型、枚举和值域，并验证同响应 effect tool-call。 |
 | 原生 JSON Schema / structured output | Provider 在生成时按给定 Schema 约束表达 payload；具体保证取决于 API。 | Provider 定义的结构化表达响应；适用 effect 仍走独立 tool-call 通道。 | Schema 子集支持、表达 JSON Schema 与同响应 effect tool-call 的组合能力、严格模式保证及响应解析方式。 |
-| Prompt-only JSON | 只在 Prompt 中要求 JSON，不由 Provider 协议强制。 | 普通文本。 | 格式失败率、有限修复策略；此能力目前不满足 Persona 的 fail-closed 主路径要求。 |
+| Prompt-only JSON | 只在 Prompt 中要求 JSON，不由 Provider 协议强制。 | 普通文本。 | 这是当前默认路径；Core 仍解析并严格校验 Canonical 字段，结构无效时按既有错误/fallback 链路处理。 |
 
 Provider 宣称支持 JSON，不等于支持原生 JSON Schema。JSON mode 也不能免除本地 Canonical Schema 校验。
 
@@ -71,7 +71,7 @@ JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成�
 
 不预先规定 tool call、JSON mode 与原生 JSON Schema 的全局优先级。由实测比较每个候选路径的完整响应时间、首 token 延迟、token 消耗、解析成功率、重试率及双通道响应成功率，再决定是否为特定 Provider/模型启用。10 次格式诊断只测试表达文本格式，不验证 effect terminal tool 的返回稳定性。
 
-每种策略都需按“表达格式 + 适用 effect tool-call（若存在）”的完整组合验证。在新路径通过验证并显式启用前，现有 Persona tool-call 行为保持不变。若请求所选策略不可用或响应不合格，应报告可诊断失败；不能把失败悄悄转换成自由文本回复。
+每种策略都需按“表达格式 + 适用 effect tool-call（若存在）”的完整组合验证。格式诊断不改变当前 JSON + Prompt-only 默认值，也不代替生产中的 Canonical 校验。若请求所选策略不可用或响应不合格，应报告可诊断失败；不能把失败悄悄转换成自由文本回复。
 
 ## Prompt、请求与解析边界
 
@@ -80,7 +80,7 @@ JSON mode 只约束 JSON 输出语法，不会将可编辑示例自动转换成�
 - tool call：要求调用 persona_expression，沿用表达参数 Schema；本轮存在适用 effect 时，还要求在同一响应中调用 persona_effect_batch。
 - JSON mode：要求 Provider 返回表达字段的 JSON 文本，并说明业务字段含义；响应仍经本地完整校验，适用 effect 另由同响应的 tool call 提供。
 - 原生 JSON Schema：将兼容的表达 Schema 投影给 Provider，同时验证 Provider 生成的真实 Schema 与表达响应符合约束；适用 effect 继续单独校验。
-- Prompt-only JSON：只能作为经过显式审批的实验路径；必须有固定提取和校验规则，不能将普通自然语言猜成结构化结果。
+- Prompt-only JSON：要求 Prompt 中说明固定字段，并通过固定 JSON 提取和 Canonical 校验；不能将普通自然语言猜成结构化结果。Provider 的 10 次诊断是稳定性参考，不是生产约束保证。
 
 策略专属解析器只负责提取 Provider 响应，不负责放宽业务语义。所有策略最终都必须检查：
 

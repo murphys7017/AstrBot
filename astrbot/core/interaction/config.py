@@ -25,8 +25,8 @@ def _persona_plugin_context_mode(value: Any) -> str:
 
 
 def _expression_output_format(value: Any) -> str:
-    normalized = str(value or "tool_call").strip().lower()
-    return normalized if normalized in {"tool_call", "json", "xml", "markdown"} else "tool_call"
+    normalized = str(value or "json").strip().lower()
+    return normalized if normalized in {"tool_call", "json", "xml", "markdown"} else "json"
 
 
 def _expression_output_mode(value: Any) -> str:
@@ -60,7 +60,7 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
         interaction_config.get("personal_runtime_quiet_hours_enabled", False)
     )
     expression_output_format = _expression_output_format(
-        interaction_config.get("expression_output_format", "tool_call")
+        interaction_config.get("expression_output_format", "json")
     )
     expression_output_mode = _expression_output_mode(
         interaction_config.get("expression_output_mode", "prompt_only")

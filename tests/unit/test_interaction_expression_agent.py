@@ -159,6 +159,21 @@ def test_personal_response_plan_schema_requires_turn_action():
         "reply",
         "delegate",
     ]
+    description = schema["properties"]["turn_action"]["description"]
+    assert "complete the visible response in Personal" in description
+    assert "delegate unfinished work to Core" in description
+    assert "emit no visible response" not in description
+
+
+def test_persona_response_schema_describes_reply_only_calls_accurately():
+    schema = build_persona_expression_tool_parameters(
+        allowed_turn_actions=(PersonalResponseAction.REPLY,)
+    )
+
+    description = schema["properties"]["turn_action"]["description"]
+    assert description == (
+        "Allowed turn_action values: complete the visible response in Personal"
+    )
 
 
 def test_persona_expression_schema_contains_canonical_structured_fields():
@@ -181,6 +196,11 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
         "delegate",
         "silent",
     ]
+    assert schema["properties"]["turn_action"]["description"] == (
+        "Allowed turn_action values: complete the visible response in Personal; "
+        "delegate unfinished work to Core; speech is only a brief acknowledgement; "
+        "emit no visible response; segments must be empty"
+    )
     segment_schema = schema["properties"]["segments"]["items"]
     assert segment_schema["additionalProperties"] is False
     assert segment_schema["required"] == [
@@ -645,7 +665,7 @@ def test_persona_expression_rejects_plain_text_when_protocol_tool_call_is_missin
     assert exc_info.value.reason == "missing_persona_expression_tool_call"
 
 
-def test_persona_expression_defaults_to_strict_tool_call_contract():
+def test_persona_expression_tool_call_contract_is_strict():
     schema = build_persona_expression_tool_parameters()
     contract = build_persona_expression_output_contract()
 
@@ -745,7 +765,7 @@ def test_persona_runtime_slots_are_native_system_base_not_extensions():
         pack,
         profile=PromptRenderProfile(
             name="interaction_persona_runtime",
-            system_prompt=build_persona_runtime_system_prompt(),
+            system_prompt=build_persona_runtime_system_prompt(output_format="tool_call"),
             output_contract=build_persona_expression_output_contract(),
         ),
     )
@@ -866,6 +886,17 @@ def test_persona_system_prompt_distinguishes_personal_from_core_tools():
     assert "唯一的对外人格交流窗口" in prompt
     assert "Personal 当前没有业务工具不代表系统整体没有工具" in prompt
     assert "联网、文件、定时任务等业务工具" in prompt
+    assert "只能从 reply / delegate 中选择 turn_action" in prompt
+    assert "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言" in prompt
+    assert "memory 是被选择或检索的结构化摘要" in prompt
+    assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
+
+
+def test_persona_system_prompt_describes_reply_only_calls():
+    prompt = build_persona_runtime_system_prompt()
+
+    assert "当前调用只允许使用 turn_action=reply" in prompt
+    assert "只能从 reply / delegate 中选择 turn_action" not in prompt
 
 
 def test_persona_progress_prompt_keeps_single_tool_completion_local():
@@ -878,6 +909,20 @@ def test_persona_progress_prompt_keeps_single_tool_completion_local():
 
     assert "单个步骤已结束" in prompt
     assert "所有来源、所有检索或整个任务已经完成" in prompt
+
+
+def test_persona_expression_prompt_separates_history_continuity_from_facts():
+    prompt = _build_expression_prompt(PersonaExpressionRequest())
+
+    assert "可结合已提供的 history 回答当前明确指向的先前对话" in prompt
+    assert "如果当前输入确实包含图片或截图，其可见内容属于当前输入材料" in prompt
+
+
+def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
+    prompt = _build_expression_prompt(PersonaExpressionRequest(short_reply=True))
+
+    assert "日常闲聊或进度确认优先使用简短、口语化的一句表达，通常约 20 字" in prompt
+    assert "完整准确优先，不设置硬性字数上限" in prompt
 
 
 def test_visible_reply_material_profile_hides_redundant_media_slots():
@@ -1038,6 +1083,7 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
             del args
 
         async def build(self, **kwargs):
+            builder_calls.append(kwargs)
             return kwargs["base"]
 
     base_pack = ContextPack(
@@ -1049,6 +1095,7 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     )
 
     agent = InteractionExpressionAgent()
+    builder_calls = []
     material = SimpleNamespace(
         effective_persona_context=None,
         persona_definition=None,
@@ -1084,8 +1131,10 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     assert "memory.long_term_memories" not in selected_slots
     assert "persona.segments" in selected_slots
     assert "persona.begin_dialogs" not in selected_slots
-    assert "extension.system" not in selected_slots
+    assert "extension.system" in selected_slots
     assert "extension.context" not in selected_slots
+    assert builder_calls[0]["include_prompt_extensions"] is True
+    assert builder_calls[0]["prompt_extension_collector_scope"] == "plugin"
     get_persona_context_pack.assert_awaited()
 
     material.target_context_packs["plugin"] = pack
@@ -1099,8 +1148,9 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
 
     ready_slots = set(ready_result.metadata["selected_slot_names"])
     assert "persona.segments" in ready_slots
-    assert "extension.system" not in ready_slots
+    assert "extension.system" in ready_slots
     assert "extension.context" not in ready_slots
+    assert builder_calls[1]["include_prompt_extensions"] is False
     # The cached plugin pack is reused without rebuilding.
     assert get_persona_context_pack.await_count == 2
 
@@ -1252,6 +1302,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                     completion_text="",
                     tools_call_name=["persona_expression"],
                     tools_call_args=[_persona_payload(speech)],
+                    tools_call_ids=["call-persona-expression"],
                 )
 
             def effect_response():
@@ -1270,6 +1321,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                             ]
                         }
                     ],
+                    tools_call_ids=["call-persona-effect-batch"],
                 )
 
             if response_case == "required_effect" and call_number == 1:
@@ -1280,6 +1332,10 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                     tools_call_args=[
                         _persona_payload("Original reply"),
                         {"effect_calls": [{"name": "ag99live.motion", "arguments": {}}]},
+                    ],
+                    tools_call_ids=[
+                        "call-persona-expression",
+                        "call-persona-effect-batch",
                     ],
                 )
             if response_case == "missing_effect" and call_number == 1:
@@ -1303,6 +1359,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                                 ]
                             }
                         ],
+                        tools_call_ids=["call-persona-effect-batch"],
                     )
                 return expression_response("只补出了一段")
             if response_case == "both_missing":
@@ -1332,6 +1389,10 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
                             }
                         ]
                     },
+                ],
+                tools_call_ids=[
+                    "call-persona-expression",
+                    "call-persona-effect-batch",
                 ],
             )
 
@@ -1398,14 +1459,20 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
             ],
             output_contract=contract,
             compiled_output_contract=compiled,
-            metadata={"persona_effect_specs": [effect]},
+            metadata={
+                "persona_effect_specs": [effect],
+                "expression_output_format": "tool_call",
+            },
         )
     )
 
     generate_expression = agent.generate_expression(
         event,
         plugin_context,
-        InteractionAgentConfig(expression_provider_id="persona"),
+        InteractionAgentConfig(
+            expression_provider_id="persona",
+            expression_output_format="tool_call",
+        ),
         PersonaExpressionRequest(),
     )
     if response_case == "missing_expression_short_segments":
@@ -1468,7 +1535,7 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
 
 
 @pytest.mark.asyncio
-async def test_persona_expression_rejects_prompt_only_contract_before_model_call(
+async def test_persona_expression_rejects_unsupported_explicit_tool_call_before_model_call(
     monkeypatch,
 ):
     class Provider:
@@ -1542,7 +1609,10 @@ async def test_persona_expression_rejects_prompt_only_contract_before_model_call
         await agent.generate_expression(
             event,
             plugin_context,
-            InteractionAgentConfig(expression_provider_id="persona"),
+            InteractionAgentConfig(
+                expression_provider_id="persona",
+                expression_output_format="tool_call",
+            ),
             PersonaExpressionRequest(),
         )
 
@@ -1604,6 +1674,7 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("由兼容回退完成")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -1642,7 +1713,10 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
             messages=[{"role": "user", "content": "hello"}],
             output_contract=contract,
             compiled_output_contract=compiled,
-            metadata={"persona_effect_specs": []},
+            metadata={
+                "persona_effect_specs": [],
+                "expression_output_format": "tool_call",
+            },
         )
     )
     monkeypatch.setattr("astrbot.core.interaction.expression_agent.Provider", Provider)
@@ -1662,7 +1736,10 @@ async def test_persona_expression_skips_protocol_incompatible_primary_provider(m
             get_provider_by_id=lambda _provider_id: primary,
             get_config=lambda **_kwargs: {},
         ),
-        InteractionAgentConfig(expression_provider_id="primary"),
+        InteractionAgentConfig(
+            expression_provider_id="primary",
+            expression_output_format="tool_call",
+        ),
         PersonaExpressionRequest(),
     )
 
@@ -1731,7 +1808,10 @@ async def test_invalid_turn_plan_result_never_reaches_persona_result_hook(monkey
             messages=[{"role": "user", "content": "hello"}],
             output_contract=contract,
             compiled_output_contract=compiled,
-            metadata={"persona_effect_specs": []},
+            metadata={
+                "persona_effect_specs": [],
+                "expression_output_format": "tool_call",
+            },
         )
     )
     result_hook_calls = []

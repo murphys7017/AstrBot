@@ -10,9 +10,9 @@
 
 当前第一目标是让高约束场景脱离“手写自由文本 JSON prompt”。其中：
 
-- 普通 Interaction 的 Personal Response Plan 使用严格的 `persona_expression` 表达通道，并要求 `turn_action`
+- 普通 Interaction 的 Personal Response Plan 默认使用 JSON 文本 + Prompt-only 表达，并要求 `turn_action`；只有显式配置 `tool_call` 时才使用严格 `persona_expression`
 - 当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还要求独立 terminal `persona_effect_batch` tool-call
-- persona visible-reply 的表达以 `persona_expression` 为主成功路径；effect 数据不放进表达 payload
+- Persona 表达格式可以配置为 JSON、XML、Markdown 或严格 `persona_expression` Tool Call；所有文本格式都进入同一 Canonical Schema，effect 数据不放进表达 payload
 
 ## 核心类型
 
@@ -86,17 +86,16 @@
 2. `json_object -> prompt_only`
 
 - 这是把 JSON 要求写入 Prompt 的落地方式，不应误读为 Provider 原生 JSON mode 或 JSON Schema 约束。
-- 当前 persona visible-reply 已不再以 `json_object` 作为主链路；它使用 `tool_call`，因此落到 `prompt_only` 时属于受控降级。
+- Persona Response 默认就是 JSON 文本 + `prompt_only`，属于正常配置，不是从 Tool Call 降级。可按 Provider 实测显式选择原生 JSON 约束、XML、Markdown 或严格 Tool Call。
 
 因此，`prompt_only` 本身只表示“最终通过 prompt 文本约束落地”，不自动等价于“失败降级”。
 
 - fallback 文本由 `build_output_contract_fallback_prompt(...)` 统一生成。
 - 只有 `tool_call` strict 契约降到 `prompt_only` 时，才应标记 `degraded=True`。
-- 当前 renderer 对 `json_object` 编译为 `prompt_only`；原生 JSON mode / JSON Schema 尚无通用的 renderer 与 provider 落地路径。`protocol_native_json` 是策略类型预留，不能据此声称原生 JSON Schema 已可用。
+- 通用 renderer/provider 的 JSON mode 与 JSON Schema 能力按 Provider adapter 和显式配置判断；Persona 的 Provider 页面稳定性测试只提供诊断，不自动切换生产设置。`prompt_only` 不代表 Provider 原生执行 JSON Schema 约束。
 - OpenAI-compatible 与 Anthropic source 中将没有 compiled binding 的 strict `json_object` 转换为 tool-call schema，是旧兼容入口，不等同于原生 JSON mode。
-- 高约束 `tool_call` 场景默认应优先要求协议级 tool-call；若业务明确允许受控降级，parser 必须仍按固定 schema 解析 prompt-only JSON，不能接受自由文本。
-- Persona 的 `persona_expression` 是例外：它要求 `protocol_tool_call`。编译为
-  `prompt_only` 的候选 Provider 会在请求前被筛除，不能作为 Persona 的“受控降级”。
+- 当高约束业务选择 `tool_call` 契约时，默认优先要求协议级 tool-call；若业务明确允许受控降级，parser 必须仍按固定 schema 解析 prompt-only JSON，不能接受自由文本。
+- Persona 默认 JSON + Prompt-only 路径不要求 `protocol_tool_call`；只有显式配置 `expression_output_format="tool_call"` 时，`persona_expression` 才要求协议级 Tool Call。适用 Persona Effect 的 `persona_effect_batch` 始终是独立的严格 Tool Call 通道。
 
 ## Renderer 职责
 
@@ -138,7 +137,7 @@ Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。s
 
 ## Interaction Personal Response Plan
 
-普通 Interaction 不再有独立 Fast Router。Persona 使用表达通道 `persona_expression` 承载自然表达和本轮动作选择；当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立的 `persona_effect_batch` tool call 承载 effect。
+普通 Interaction 不再有独立 Fast Router。Persona 默认以 JSON 文本 + Prompt-only 约束表达自然语言和本轮动作选择，解析结果经 Canonical Schema 校验；用户可显式选择 JSON 原生约束、XML、Markdown 或严格 `persona_expression` Tool Call。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立的 `persona_effect_batch` Tool Call 承载 effect。
 
 运行规则：
 
@@ -153,18 +152,18 @@ Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。s
 
 persona visible-reply 是当前主要高约束消费者。
 
-默认契约：
+当前默认契约：
 
-- `mode="tool_call"`
-- `strict=True`
-- `preferred_tool_name="persona_expression"`
-- `allow_text_fallback=False`
+- `expression_output_format="json"`
+- `expression_output_mode="prompt_only"`
+- Provider 返回的表达文本必须解析并通过 Canonical Schema 校验；普通自由文本不算成功
+- 严格表达 `tool_call` 是可显式选择的配置，不是默认值
 - `persona_expression` Schema 固定为 `turn_action`、`segments`；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`
 - 有适用 effect 时，独立 `persona_effect_batch` Schema 只包含 `effect_calls`；两路结果在同一响应后聚合
 
 字段含义：
 
-- `turn_action` 是 `reply | delegate | silent` 三选一的字符串；调用场景可限制可选值。
+- `turn_action` 是单值字符串，Schema 按调用场景限制枚举：普通表达为 `reply`；需要 Core 时为 `reply | delegate`；允许静默的群聊候选为 `reply | delegate | silent`。
 - `segments[].speech` 按顺序拼接为文本平台使用的整合文本；TTS 消费保留每个分段并按顺序逐段合成。
 - `segments[].actions` 是简单动作意图数组，由后续动作模型解释，不带参数。Schema 只校验数组元素为非空字符串；简单动作词、不带参数的限制由 Persona Prompt 表达。
 - `segments[].thought` 是角色的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。
@@ -174,10 +173,8 @@ persona visible-reply 是当前主要高约束消费者。
 
 运行规则：
 
-- render 结果优先使用 `protocol_tool_call`；表达由 `persona_expression` 返回，适用 effect 由同一响应中的独立 `persona_effect_batch` 返回。
-- Provider 选择会在模型请求前验证该协议能力；若当前主 Provider 不兼容则选择兼容后备，
-  若不存在兼容候选则以 `unsupported_output_contract` 失败。编译为 `prompt_only` 的
-  Provider 不会收到 Persona 请求。
+- 默认 JSON + Prompt-only、XML 和 Markdown 表达由对应文本解析器恢复为 Canonical 结果；显式 Tool Call 表达由 `persona_expression` 返回。适用 effect 始终由同一响应中的独立 `persona_effect_batch` 返回。
+- Provider 选择会在模型请求前验证所选表达格式和本轮所需的 effect Tool Call 能力；不兼容的候选会被筛除，若不存在兼容候选则以 `unsupported_output_contract` 失败。Provider 稳定性测试结果不自动作为生产配置。
 - 自由文本不算成功。缺少表达通道时，只有本轮同时启用 effect 通道才会尝试一次隔离表达补全，否则结果失败。缺少本轮要求的 effect 调用时会尝试一次 effect-only 补全；两个通道都缺失时依次补全。补全失败后结果失败，重复调用或无效的 batch 顶层结构直接拒绝。
 - `effect_calls` 是内部聚合结果中的固定字段；无适用 effect 时模型响应省略 effect tool call，聚合结果为空数组。
 - 具体 effect 的 `arguments` 由注册的 effect schema 决定；注册表先按当前事件执行 `event_filter`，不适用的 effect 不进入本轮 effect tool schema。

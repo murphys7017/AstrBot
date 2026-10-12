@@ -253,7 +253,7 @@ DEFAULT_CONFIG = {
         "memory_window_size": 8,
         "persona_history_window_size": 300,
         "expression_provider_id": "",
-        "expression_output_format": "tool_call",
+        "expression_output_format": "json",
         "expression_output_mode": "prompt_only",
         "expression_temperature": 0.6,
         "expression_timeout": 8.0,
@@ -4566,9 +4566,9 @@ CONFIG_METADATA_3 = {
                     "interaction_middleware.expression_output_format": {
                         "description": "表达输出格式",
                         "type": "string",
-                        "options": ["tool_call", "json", "xml", "markdown"],
-                        "labels": ["Tool call", "JSON", "XML", "Markdown"],
-                        "hint": "先在模型提供商页面完成稳定性测试，再选择 Persona Response 的生产输出格式。",
+                        "options": ["json", "xml", "markdown", "tool_call"],
+                        "labels": ["JSON", "XML", "Markdown", "Tool call"],
+                        "hint": "默认使用 JSON + Prompt 约束；先在模型提供商页面完成稳定性测试，再选择 Persona Response 的生产输出格式。Tool call 仅在明确确认支持时启用。",
                     },
                     "interaction_middleware.expression_output_mode": {
                         "description": "表达输出约束模式",

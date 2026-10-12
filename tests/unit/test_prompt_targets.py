@@ -16,6 +16,23 @@ def _slot(name: str, value, category: str) -> ContextSlot:
     return ContextSlot(name=name, value=value, category=category, source="test")
 
 
+def _persona_identity_extension_slot() -> ContextSlot:
+    return ContextSlot(
+        name="extension.system",
+        value={
+            "items": [
+                {
+                    "plugin_id": "ag99live.companion_identity.prompt",
+                    "value": "AG99live Companion Identity",
+                    "meta": {"targets": ["persona"]},
+                }
+            ]
+        },
+        category="extension",
+        source="test",
+    )
+
+
 def _canonical_pack() -> ContextPack:
     return ContextPack(
         slots={
@@ -106,6 +123,18 @@ def _canonical_pack() -> ContextPack:
                 "interaction.route_decision", {"route_mode": "hybrid"}, "internal"
             ),
         }
+    )
+
+
+def _rendered_prompt_text(result) -> str:
+    return "\n".join(
+        [
+            result.system_prompt or "",
+            *[
+                str(message.get("content", ""))
+                for message in result.messages
+            ],
+        ]
     )
 
 
@@ -248,8 +277,10 @@ def test_targetless_render_defaults_to_core_projection():
 
 
 def test_persona_progress_view_keeps_only_phase_local_persona_facts():
+    pack = _canonical_pack()
+    pack.add_slot(_persona_identity_extension_slot())
     result = PromptRenderEngine().render(
-        _canonical_pack(),
+        pack,
         target=PromptTarget.PERSONA,
         context_view=PromptContextView.PROGRESS,
     )
@@ -258,23 +289,19 @@ def test_persona_progress_view_keeps_only_phase_local_persona_facts():
     assert result.metadata["context_view_source_requirement"] == "base_only"
     assert set(result.metadata["selected_slot_names"]) == {
         "system.global",
+        "extension.system",
         "persona.summary",
         "input.visible_reply_material",
         "input.previous_persona_acknowledgement",
     }
+    assert "AG99live Companion Identity" in _rendered_prompt_text(result)
     assert "conversation.history" not in result.metadata["selected_slot_names"]
     assert "persona.prompt" not in result.metadata["selected_slot_names"]
 
 
-def test_persona_turn_plan_view_bounds_history_and_keeps_only_base_continuity():
+def test_persona_turn_plan_view_bounds_history_and_keeps_persona_extension():
     pack = _canonical_pack()
-    pack.add_slot(
-        _slot(
-            "extension.system",
-            {"items": [{"value": "large plugin execution context"}]},
-            "extension",
-        )
-    )
+    pack.add_slot(_persona_identity_extension_slot())
 
     result = PromptRenderEngine().render(
         pack,
@@ -288,7 +315,8 @@ def test_persona_turn_plan_view_bounds_history_and_keeps_only_base_continuity():
     assert result.metadata["context_view"] == "turn_plan"
     assert result.metadata["context_view_source_requirement"] == "base_only"
     assert "conversation.pending_execution_continuity" in selected
-    assert "extension.system" not in selected
+    assert "extension.system" in selected
+    assert "AG99live Companion Identity" in _rendered_prompt_text(result)
     assert history_budget["limit_amount"] == 6
     assert history_budget["limit_estimated_tokens"] == 3000
     continuity_messages = [
@@ -325,9 +353,11 @@ def test_minimax_turn_plan_keeps_continuity_in_framework_state():
     assert "current" in str(result.messages[-1]["content"])
 
 
-def test_persona_proactive_view_has_small_history_budget_and_no_extensions():
+def test_persona_proactive_view_keeps_persona_system_extensions():
+    pack = _canonical_pack()
+    pack.add_slot(_persona_identity_extension_slot())
     result = PromptRenderEngine().render(
-        _canonical_pack(),
+        pack,
         target=PromptTarget.PERSONA,
         context_view=PromptContextView.PROACTIVE,
     )
@@ -337,7 +367,8 @@ def test_persona_proactive_view_has_small_history_budget_and_no_extensions():
     assert "persona.summary" in selected
     assert "conversation.history" in selected
     assert "memory.short_term" in selected
-    assert "extension.system" not in selected
+    assert "extension.system" in selected
+    assert "AG99live Companion Identity" in _rendered_prompt_text(result)
     assert result.metadata["context_budgets"]["conversation_history"]["limit_amount"] == 2
     assert (
         result.metadata["context_budgets"]["conversation_history"]

@@ -1,19 +1,17 @@
-# 第一阶段：Persona tool-call 迁移
+# 第一阶段：Persona Canonical 输出与 effect 通道拆分
 
-**状态：表达与 effect 双通道已实施。** 首轮要求同响应返回所有启用通道；若首轮漏项，Core 只补缺失通道一次。Persona Response 也允许显式选择 JSON/XML/Markdown 表达格式；effect 始终走独立的协议级 tool call。
+**状态：已实施，待真实 Provider 组合验收。** 当前表达默认使用 JSON 文本 + Prompt-only 约束；Tool Call 是显式选择的表达格式。适用 Persona Effect 始终走独立协议级 tool call；Provider 页面 10 次格式稳定性诊断不自动改变生产设置。
 
 ## 1. 实际契约
 
-表达通道的 `persona_expression` 契约为：
+默认表达契约为 JSON 文本和 Prompt-only 约束：
 
 ```text
-mode = tool_call
-strict = true
-preferred_tool_name = persona_expression
-allow_text_fallback = false
+expression_output_format = json
+expression_output_mode = prompt_only
 ```
 
-`persona_expression` 只包含 `turn_action` 和 `segments`，并拒绝其他字段。`segments` 是按动作或状态变化排列的数组，每项包含 `speech`、`actions`、`thought` 和 `tendency`。当且仅当当前事件有已注册且适用的 effect 时，Provider 才会同时收到独立的 `persona_effect_batch` terminal tool；它的参数只包含 `effect_calls`，item schema 根据适用的 effect 注册动态生成。正常生成时，两路调用必须在同一模型响应中返回，不为 effect 单独发起模型请求；已解析的必发 effect 未通过校验时，现有校正流程会额外请求模型修复 effect batch。无适用 effect 时不提供该工具，聚合后的内部结果将 `effect_calls` 置为空数组。
+表达 payload 只包含 `turn_action` 和 `segments`，并拒绝其他字段；JSON/XML/Markdown 都须先解析为该表达对象并通过 Canonical Schema。只有显式选择 `tool_call` 时才注册 terminal tool `persona_expression`。`segments` 是按动作或状态变化排列的数组，每项包含 `speech`、`actions`、`thought` 和 `tendency`。当且仅当当前事件有已注册且适用的 effect 时，Provider 才会收到独立的 `persona_effect_batch` terminal tool；它的参数只包含 `effect_calls`，item schema 根据适用的 effect 注册动态生成。正常生成时，表达与适用 effect 在同一模型响应中返回，不为 effect 单独发起模型请求；已解析的必发 effect 未通过校验时，现有校正流程会额外请求模型修复 effect batch。无适用 effect 时不提供该工具，聚合后的内部结果将 `effect_calls` 置为空数组。
 
 正常路径要求每个启用通道在同一模型响应中恰好出现一次。运行器收到任一 terminal tool call 后就结束该轮，因此 Provider 可能只返回其中一个通道。双通道启用时，缺失的 `persona_expression` 或 `persona_effect_batch` 会触发一次隔离的定向补全请求；补全请求只开放缺失通道，不开放业务工具，也不重复请求生命周期 hooks。若首轮两路都缺失，则先补表达，再基于补全后的分段补 effect。补全后仍缺失时失败；重复通道或 effect batch 顶层结构无效仍直接拒绝。已解析 batch 中的必发 effect 不完整或参数无效时，也会沿用一次 effect-only 校正；校正输入包含原始分段及其索引，避免 per-segment effect 丢失对应关系。
 

@@ -1,10 +1,10 @@
 # 第三阶段：XML、Markdown 等文本格式适配
 
-**状态：已实现首版生产适配。** Provider 页面和 Persona Response 共用语义 XML grammar、语义 Markdown 标题 grammar；Persona Response 只有在配置明确选择 XML/Markdown 时才启用对应 parser，默认仍为 tool call。
+**状态：已实现首版生产适配。** Provider 页面和 Persona Response 共用语义 XML grammar、语义 Markdown 标题 grammar；用户可在 Persona Response 配置选择相应 parser。当前默认表达是 JSON + Prompt-only，Tool Call 仅在显式配置时使用。
 
 ## 目标
 
-为无法稳定提供协议级 tool call 或原生结构化输出的特定模型，设计明确的文本格式和解析器。文本格式只改变 Provider wire format；业务结果仍必须转换为同一个 Canonical Persona Schema，并经过与其他策略相同的校验。
+为不同 Provider 和模型提供明确的文本格式及解析器。文本格式只改变 Provider wire format；业务结果仍必须转换为同一个 Canonical Persona Schema，并经过与其他策略相同的校验。Provider 页面 10 次诊断供用户评估格式稳定性，不自动选择或持久化生产策略。
 
 本阶段不是通用自然语言抽取功能。普通聊天文本、随意排版的 Markdown 或近似 XML 都不能被猜测成成功的 Persona 结果。
 

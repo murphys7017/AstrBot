@@ -1162,7 +1162,7 @@
         },
         "expression_output_format": {
           "description": "Expression Output Format",
-          "hint": "Run the provider stability test first, then choose the production wire format for Persona Response."
+          "hint": "JSON + Prompt-only is the default. The provider's 10-run stability test is diagnostic only and does not change production settings; select the format here after testing."
         },
         "expression_output_mode": {
           "description": "Expression Output Constraint Mode",

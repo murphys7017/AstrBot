@@ -22,8 +22,9 @@
 ## 2026-09 架构修订：统一 Personal 回复计划
 
 此前 Phase 5A/5B 中“Personal 与 Router 并行”的叙述是历史实施记录，不再是当前主链。普通
-消息和合格群聊候选现在只调用一次即时 Persona Expression；该严格 `persona_expression` 输出
-统一返回 `turn_action`、`segments`（每段含 `speech`、`actions`、`thought`、八维 `tendency`）与 `effect_calls`：
+消息和合格群聊候选现在只调用一次即时 Persona Expression；默认以 JSON 文本 + Prompt-only 约束输出，
+并解析为统一的 `turn_action`、`segments`（每段含 `speech`、`actions`、`thought`、八维 `tendency`）与 `effect_calls`。
+严格 `persona_expression` Tool Call 仅在显式配置时使用，适用 effect 始终走独立 `persona_effect_batch` 通道：
 
 ```text
 Personal Response Plan

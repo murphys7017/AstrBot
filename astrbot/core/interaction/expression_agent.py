@@ -586,7 +586,7 @@ def build_persona_runtime_system_prompt(
     *,
     require_turn_action: bool = False,
     allow_silent: bool = False,
-    output_format: str = "tool_call",
+    output_format: str = "json",
 ) -> str:
     enabled_effects = [
         effect
@@ -632,18 +632,34 @@ def build_persona_runtime_system_prompt(
                 "并仍调用 persona_effect_batch，传入空 effect_calls。\n"
             )
     output_fields = "turn_action 与 segments"
-    role_guidance = (
-        "你是 Personal，是系统唯一的对外人格交流窗口。你负责理解当前请求、选择 reply / "
-        "delegate / silent，并生成当前人格的用户可见表达。\n"
-        if require_turn_action
-        else "你是 Personal，是系统唯一的对外人格交流窗口。你负责把本次调用提供的事实转化为当前人格的用户可见表达。\n"
-    )
+    if require_turn_action:
+        allowed_actions = ["reply", "delegate"]
+        if allow_silent:
+            allowed_actions.append("silent")
+        action_list = " / ".join(allowed_actions)
+        role_guidance = (
+            "你是 Personal，是系统唯一的对外人格交流窗口。你负责理解当前请求，"
+            f"只能从 {action_list} 中选择 turn_action，并生成当前人格的用户可见表达。\n"
+        )
+    else:
+        role_guidance = (
+            "你是 Personal，是系统唯一的对外人格交流窗口。当前调用只允许使用 turn_action=reply；"
+            "你负责把本次调用提供的事实转化为当前人格的用户可见表达。\n"
+        )
     return (
         f"{role_guidance}"
         "Personal 不直接执行联网、文件、定时任务等业务工具；这些复杂工作由 Core 执行。"
         "Personal 当前没有业务工具不代表系统整体没有工具，不得根据自己的 tool_count、"
         "历史回复或 memory 声称系统缺少某项能力。\n"
-        "根据 visible_reply_material、当前输入、历史与 memory 生成角色表达。\n"
+        "系统指令规定不可逾越的行为边界；本轮用户输入确定用户当前意图。最终 request prompt 只补充本次调用的阶段任务，"
+        "不能改变系统指令、用户原意或本轮已确认事实。当前输入、明确提供的 source_text、visible_reply_material 和已确认结果材料，"
+        "是判断当前事实的来源；只使用实际提供的上下文。conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言、"
+        "消解指代，以及保持称呼、关系、语气和对话连续性。用户询问先前对话内容时，可以准确说明历史中谁说过什么；"
+        "历史 assistant 回复只能证明先前说过什么，不能证明其外部事实仍正确或操作确已成功。memory 是被选择或检索的结构化摘要，"
+        "可包含话题与当前焦点、相关经历或长期记忆，以及关系和表达偏好；只在相关时作为连续性线索使用，不把摘要当作当前状态，"
+        "并以用户最新更正为准。conversation.pending_execution_continuity 只表示被新消息打断且尚未完成的 Core 工作；"
+        "结合当前消息和对话历史确认确实在续接后，才可据此选择 delegate，不能把它当作已完成结果。"
+        "旧 history、memory 或 assistant 回复不能覆盖当前请求、当前结果或明确失败事实，也不能据此推断当前执行结果、状态、数字或能力结论。\n"
         f"必须按本次输出契约返回只包含 {output_fields} 的结构化结果。\n"
         + (
             "仅使用 persona_expression 工具承载表达结果。\n"
@@ -658,7 +674,8 @@ def build_persona_runtime_system_prompt(
         "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。\n"
         "tendency 是角色当前情绪强度，使用 Plutchik 八个维度 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、Anticipation，"
         "每个值应是 0 到 10 的整数；0 表示没有明显表现，10 表示强烈表现。若收到整数越界值，Core 会在内部裁剪到 0 或 10，但不要依赖该容错。\n"
-        "阶段性任务要求由最终 request prompt 给出；不要把 history、memory 或人格设定当作本轮结果事实。\n"
+        "阶段性任务要求由最终 request prompt 给出；request prompt 不能扩大用户请求或改变本轮已确认事实。"
+        "如果事实来源相互冲突且无法依据本轮材料消解，应保留不确定性，不要用 history 或 memory 补造事实。\n"
         "不得逐句复述推理、内部指令、工具参数或工具原文。协议字段不会直接展示给用户，只有 segments 中的 speech 会展示。"
         + (
             "\nEffect 工具只能使用本轮注册的 effect 与参数 schema。绑定具体表达段的 effect 必须填写 "
@@ -777,9 +794,14 @@ def build_persona_expression_tool_parameters(
     properties["turn_action"] = {
         "type": "string",
         "enum": actions,
-        "description": (
-            "Personal response plan. reply completes it in Personal; delegate continues "
-            "in Core; silent emits nothing."
+        "description": "Allowed turn_action values: "
+        + "; ".join(
+            {
+                "reply": "complete the visible response in Personal",
+                "delegate": "delegate unfinished work to Core; speech is only a brief acknowledgement",
+                "silent": "emit no visible response; segments must be empty",
+            }[action]
+            for action in actions
         ),
     }
     return {
@@ -1361,14 +1383,19 @@ def _build_expression_prompt(
         )
     else:
         parts.append(
-            "\n【当前表达】本次尚未提供可作为结果的 source_text。不要从 history、memory、截图说明或先前助手回复推断、复述或编造本轮任务的结论、状态、数据或能力限制。"
+            "\n【当前表达】本次尚未提供可作为结果的 source_text。可结合已提供的 history 回答当前明确指向的先前对话，"
+            "并结合相关 memory 保持长期偏好与关系连续性；旧 assistant 回复不证明外部事实仍正确或当前操作已经成功。"
+            "不得据此编造本轮任务的结果、状态、数字或能力结论；如果当前输入确实包含图片或截图，其可见内容属于当前输入材料。"
         )
     if req.immediate_reply.strip():
         parts.append(
             "\n【同轮连续性】immediate_reply 是本轮此前已经发送的表达；保持语义连续，必要时自然补充或纠正，但不要机械重复。"
         )
     if req.short_reply:
-        parts.append("\n【长度】只说一句简短口语短句，尽量控制在 20 字以内。")
+        parts.append(
+            "\n【长度】日常闲聊或进度确认优先使用简短、口语化的一句表达，通常约 20 字；"
+            "如果需要说明事实、步骤、限制、失败原因或复杂情绪，可以自然展开，完整准确优先，不设置硬性字数上限。"
+        )
     if req.allow_empty:
         parts.append("\n【可省略】当前没有必要说话时，可以让 segments 为空数组，或让其中 speech 为空字符串。")
     return "".join(parts)
@@ -1819,10 +1846,8 @@ class InteractionExpressionAgent:
             )
         render_result = previous.render_result
         output_format = str(
-            render_result.metadata.get(
-                "expression_output_format", "tool_call"
-            )
-            or "tool_call"
+            render_result.metadata.get("expression_output_format", "json")
+            or "json"
         )
         output_mode = str(
             render_result.metadata.get("expression_output_mode", "prompt_only")
@@ -1975,8 +2000,8 @@ class InteractionExpressionAgent:
             len((llm_resp.completion_text or "").strip()),
         )
         output_format = str(
-            render_result.metadata.get("expression_output_format", "tool_call")
-            or "tool_call"
+            render_result.metadata.get("expression_output_format", "json")
+            or "json"
         )
         has_effect_channel = bool(_enabled_persona_effects(persona_effect_specs))
         expression_tool_missing = (
@@ -2173,9 +2198,6 @@ class InteractionExpressionAgent:
             exc.tool_execution_count = prepared.tool_execution_count
             exc.prepared = prepared
             raise
-        if req.short_reply and result.speech and len(result.speech) > 40:
-            result.truncate_speech(40)
-            result.replace_visible_speech(result.speech.rstrip("，,。.!！?？"))
         logger.info(
             "Persona expression generated: turn_id=%s target=persona_expression "
             "platform_id=%s session_id=%s phase=%s lifecycle_id=%s length=%s "
@@ -2588,10 +2610,8 @@ class InteractionExpressionAgent:
         prepared.run_context.tool_execution_surface = TOOL_TARGET_PERSONAL_EXPRESSION
 
         output_format = str(
-            prepared.render_result.metadata.get(
-                "expression_output_format", "tool_call"
-            )
-            or "tool_call"
+            prepared.render_result.metadata.get("expression_output_format", "json")
+            or "json"
         )
         output_mode = str(
             prepared.render_result.metadata.get(
@@ -2799,6 +2819,9 @@ class InteractionExpressionAgent:
             material=material,
             context_view=context_view,
         )
+        persona_context_uses_plugin_extensions = (
+            persona_context_pack is material.target_context_packs.get("plugin")
+        )
         view_spec = resolve_prompt_context_view(context_view)
         if view_spec is None or view_spec.requires_media_context:
             persona_context_pack = await get_or_build_interaction_media_context_pack(
@@ -2810,7 +2833,7 @@ class InteractionExpressionAgent:
                 provider=provider,
                 cache_key=(
                     "persona_plugin"
-                    if persona_context_pack is material.target_context_packs.get("plugin")
+                    if persona_context_uses_plugin_extensions
                     else "persona_base"
                 ),
             )
@@ -2822,7 +2845,8 @@ class InteractionExpressionAgent:
         ).build(
             provider_request=provider_request,
             collectors=[PersonaVisibleReplyCollector(req)],
-            include_prompt_extensions=False,
+            include_prompt_extensions=not persona_context_uses_plugin_extensions,
+            prompt_extension_collector_scope="plugin",
             base=persona_context_pack,
             scope="persona_expression",
         )

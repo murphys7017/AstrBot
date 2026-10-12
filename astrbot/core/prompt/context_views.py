@@ -57,6 +57,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
             {
                 "system.global",
                 "system.base",
+                "extension.system",
                 "persona.prompt",
                 "persona.segments",
                 "persona.summary",
@@ -97,6 +98,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         allowed_slot_names=frozenset(
             {
                 "system.global",
+                "extension.system",
                 "persona.summary",
                 "input.visible_reply_material",
                 "input.previous_persona_acknowledgement",
@@ -111,6 +113,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         allowed_slot_names=frozenset(
             {
                 "system.global",
+                "extension.system",
                 "persona.summary",
                 "input.visible_reply_material",
                 "conversation.history",
