@@ -237,6 +237,15 @@ def _example_value(schema: dict[str, Any]) -> Any:
 def build_persona_text_example(schema: dict[str, Any], output_format: str) -> str:
     """Encode a schema-shaped example using the same semantic grammar."""
     example = _example_value(schema)
+    for segment in example.get("segments", []):
+        if isinstance(segment, dict) and "speech" in segment:
+            segment["speech"] = "本段要说的话。"
+            if "actions" in segment:
+                segment["actions"] = ["nod"]
+            if "thought" in segment:
+                segment["thought"] = "角色当前的简短心理想法。"
+    if output_format == "json":
+        return json.dumps(example, ensure_ascii=False, indent=2)
     if output_format == "xml":
         root = ET.Element("output")
 

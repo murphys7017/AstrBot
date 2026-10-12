@@ -32,6 +32,30 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_prompt_clarity_diagnostics_20261012:
+  date: '2026-10-12'
+  class: bugfix
+  risk: medium
+  scope: >-
+    Clarify speech-only persona style constraints, output contract priority,
+    and the role of plain-text history. Generate JSON examples from the same
+    canonical schema as XML/Markdown and restate the selected final format.
+    Exclude media payloads from text token estimates and emit opt-in redacted
+    effective-request and failed-expression response traces.
+  non_goals: >-
+    Edit stored personas, provider configuration, native image transport,
+    JSON repair/parser behavior, the stability-test UI, or reload the host.
+    A production-scenario test entry remains a later batch.
+  verification: >-
+    Structured-output, diagnostic projection, and Persona expression boundary
+    tests passed 77 cases. The JSON example passes the production parser;
+    diagnostic projection preserves request data and excludes media/credentials.
+    Scoped Ruff, Python syntax compilation, state YAML parsing, runtime
+    validation, and git diff checks passed.
+  evidence_gap: >-
+    MiniMax 3.1 production stability is unverified until the new Prompt and
+    opt-in Trace are exercised with actual persona, history, and screenshots.
+
 persona_local_fallback_identity_20261012:
   date: '2026-10-12'
   class: bugfix

@@ -558,6 +558,20 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 
 ## Persona Expression 与 Effect 输出契约
 
+Persona 的句数、字数、口语风格和“不讨论系统”等人格要求只约束用户可见的
+`segments[].speech`，不限制整个结构化输出，也不允许省略动作、心理或情绪字段。
+输出契约决定字段与格式；历史 assistant 消息提供语义和风格连续性，不是本轮的输出模板。
+JSON、XML、Markdown 的生产 Prompt 均从当前 Schema 生成完整字段示例，并在最终请求中
+重申所选格式。示例值不代表本轮事实；适用 effect 仍走独立工具通道。
+
+开启现有 `trace_log_enable` 后，Trace 的 `persona.effective_request` 记录 hook 后、图片
+规范化后的 ProviderRequest 文本：system、最终 request、上下文和工具 Schema；图片、音频引用
+与载荷被省略，凭据被过滤。它不是 Provider 的完整 HTTP 请求，也不记录 Provider 配置或 headers。
+`persona.expression_parse_failed` 记录表达解析失败时的响应文本（最多 64,000 字符）及截断标记。
+常规日志仍只记录大小和结构。`estimated_tokens` 现在标明 `token_estimate_scope=text_only`，
+不包含图片 base64 或视觉 token；`media` 单列媒体数量与 base64 字符数，`total_chars` 仍是
+请求序列化体积，不能等同于模型的实际 token usage。
+
 Persona Provider 全部失败后的本地错误回复也使用独立的结果实例和 `persona_result_id`。
 插件上下文可用时，Core 在 TTS 物化前通知 `OnPersonaExpressionResultEvent`，并在隔离的
 请求上下文中提供原表达的 intent 和 `interaction.local_fallback=true` 标记，供分段消费者

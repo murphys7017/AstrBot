@@ -78,6 +78,7 @@ from astrbot.core.provider.output_contract_tools import (
 from astrbot.core.provider.request_media import normalize_provider_request_images
 from astrbot.core.star.context import Context
 from astrbot.core.star.star_handler import EventType
+from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
 from .collectors import PersonaVisibleReplyCollector
 from .context_builder import (
@@ -102,6 +103,7 @@ from .personal_expression_guard import (
     PREVIOUS_EXPRESSION_FINGERPRINT_METADATA_KEY,
     fingerprint_personal_expression,
 )
+from .prompt_diagnostics import project_prompt_diagnostics
 from .prompt_support import (
     build_interaction_prompt_build_config,
 )
@@ -661,6 +663,11 @@ def build_persona_runtime_system_prompt(
         "结合当前消息和对话历史确认确实在续接后，才可据此选择 delegate，不能把它当作已完成结果。"
         "旧 history、memory 或 assistant 回复不能覆盖当前请求、当前结果或明确失败事实，也不能据此推断当前执行结果、状态、数字或能力结论。\n"
         f"必须按本次输出契约返回只包含 {output_fields} 的结构化结果。\n"
+        "【格式与风格】输出契约决定字段和传输格式；人格决定角色表现，不得省略协议字段。"
+        "人格中的句数、字数、口语风格及不讨论系统的要求只约束 segments[].speech，"
+        "不限制整个结构化对象的长度，也不禁止生成 actions、thought、tendency 或 turn_action。"
+        "历史 assistant 回复是已展示的说话内容，仅用于理解对话与风格连续性，"
+        "不是本轮输出格式的示例，不要仿照历史只返回一句普通文本。\n"
         + (
             "仅使用 persona_expression 工具承载表达结果。\n"
             if output_format == "tool_call"
@@ -1052,6 +1059,14 @@ def _supports_persona_effect_batch(
 
 
 def _build_persona_text_output_prompt(output_format: str) -> str:
+    if output_format == "json":
+        return (
+            "\n【Persona Response JSON 输出】只输出一个完整 JSON 对象，"
+            "不要添加解释文字、Markdown 代码围栏或只返回 speech。"
+            "输入上下文中的结构键不是输出模板；表达对象只包含 turn_action 与 segments，"
+            "每个分段必须包含 speech、actions、thought 和八维 tendency。"
+            "不得把 effect_calls 嵌入表达 JSON。"
+        )
     if output_format == "xml":
         return (
             "\n【Persona Response XML 输出】只输出一个 XML 文档，根节点必须是 <output>，"
@@ -1327,6 +1342,8 @@ def extract_persona_effect_calls(
 def _build_expression_prompt(
     req: PersonaExpressionRequest,
     execution_capability_summary: ExecutionCapabilitySummary | None = None,
+    *,
+    output_format: str = "json",
 ) -> str:
     parts = ["请按输出契约生成当前人格的用户可见回应，不要输出额外自由文本。"]
     if req.avoid_previous_reply:
@@ -1398,6 +1415,14 @@ def _build_expression_prompt(
         )
     if req.allow_empty:
         parts.append("\n【可省略】当前没有必要说话时，可以让 segments 为空数组，或让其中 speech 为空字符串。")
+    if output_format == "tool_call":
+        parts.append("\n【本轮输出】使用 persona_expression 工具返回完整表达参数，不以普通文本代替。")
+    else:
+        parts.append(
+            f"\n【本轮输出】返回符合本次契约的完整 {output_format.upper()} 表达，"
+            "用户可见内容写入 segments 中的 speech；不得只返回说话文本。"
+        )
+    parts.append("句数、字数与口语风格只约束 speech，其他协议字段仍须完整生成。")
     return "".join(parts)
 
 
@@ -2083,6 +2108,23 @@ class InteractionExpressionAgent:
         except InteractionExpressionError as exc:
             exc.tool_execution_count = prepared.tool_execution_count
             exc.prepared = prepared
+            if prompt_trace_enabled():
+                response_text, response_media = project_prompt_diagnostics(
+                    llm_resp.completion_text or ""
+                )
+                record_prompt_trace(
+                    event,
+                    "persona.expression_parse_failed",
+                    lifecycle_id=prepared.lifecycle.lifecycle_id,
+                    provider_type=provider_config.get("type"),
+                    model=_resolve_provider_model(provider),
+                    output_format=output_format,
+                    reason=exc.reason,
+                    response_text=response_text[:64_000],
+                    response_truncated=len(response_text) > 64_000,
+                    response_media=response_media,
+                    response_tool_names=list(llm_resp.tools_call_name),
+                )
             raise
         try:
             result.effect_calls, effect_metadata = extract_persona_effect_calls(
@@ -2921,7 +2963,7 @@ class InteractionExpressionAgent:
             output_format=output_format,
         )
         system_prompt = f"{system_prompt}{_build_persona_text_output_prompt(output_format)}"
-        if output_format in {"xml", "markdown"}:
+        if output_format in {"json", "xml", "markdown"}:
             try:
                 example = build_persona_text_example(output_contract.schema, output_format)
             except (ValueError, KeyError) as exc:
@@ -2931,7 +2973,7 @@ class InteractionExpressionAgent:
                 ) from exc
             system_prompt += (
                 "\n以下为完整字段及类型示例；字符串内容按本轮任务生成。"
-                "数组按实际需要重复其元素，空数组保留空容器；不可把 JSON 嵌入输出。\n"
+                "示例值不是本轮事实，不要机械复述；数组按实际需要重复其元素。\n"
                 + example
             )
         profile = PromptRenderProfile(
@@ -2940,6 +2982,7 @@ class InteractionExpressionAgent:
             request_prompt=_build_expression_prompt(
                 req,
                 execution_capability_summary,
+                output_format=output_format,
             ),
             output_contract=output_contract,
             input_text_suffix=reasoning_marker,
@@ -3269,7 +3312,46 @@ def _log_persona_prompt_size_diagnostics(
                 },
             }
         ]
-    effective_tool_schema = [*business_tool_schema, *terminal_tool_schema]
+    effect_tool_schema = (
+        provider_request.terminal_tools.openai_schema()
+        if isinstance(provider_request.terminal_tools, ToolSet)
+        else []
+    )
+    effective_tool_schema = [
+        *business_tool_schema, *terminal_tool_schema, *effect_tool_schema,
+    ]
+    diagnostic_sections, media = project_prompt_diagnostics(
+        {
+            "system_prompt": provider_request.system_prompt or "",
+            "contexts": provider_request.contexts or [],
+            "request_prompt": provider_request.prompt or "",
+            "extra_user_content_parts": provider_request.extra_user_content_parts,
+            "image_urls": [
+                {"type": "image_url", "image_url": {"url": reference}}
+                for reference in provider_request.image_urls or []
+            ],
+            "audio_urls": [
+                {"type": "input_audio", "reference": reference}
+                for reference in provider_request.audio_urls or []
+            ],
+            "tool_schema": effective_tool_schema,
+        }
+    )
+    estimated_tokens = _estimate_text_tokens(
+        json.dumps(diagnostic_sections, ensure_ascii=False, default=str)
+    )
+    if prompt_trace_enabled():
+        record_prompt_trace(
+            event,
+            "persona.effective_request",
+            lifecycle_id=lifecycle_id,
+            phase=_describe_expression_request(req),
+            output_format=render_result.metadata.get("expression_output_format"),
+            output_mode=render_result.metadata.get("expression_output_mode"),
+            estimated_text_tokens=estimated_tokens,
+            media=media,
+            **diagnostic_sections,
+        )
 
     section_sizes = {
         "system": len(provider_request.system_prompt or ""),
@@ -3297,22 +3379,14 @@ def _log_persona_prompt_size_diagnostics(
             "enforced": False,
         }
     logger.debug(
-        "DIAG expression.prompt_size: platform_id=%s session_id=%s phase=%s lifecycle_id=%s total_chars=%s estimated_tokens=%s sections=%s history_projection=%s tool_count=%s tool_names=%s slots=%s",
+        "DIAG expression.prompt_size: platform_id=%s session_id=%s phase=%s lifecycle_id=%s total_chars=%s estimated_tokens=%s token_estimate_scope=text_only media=%s sections=%s history_projection=%s tool_count=%s tool_names=%s slots=%s",
         event.get_platform_id(),
         event.session_id,
         _describe_expression_request(req),
         lifecycle_id,
         total_chars,
-        _estimate_text_tokens(
-            "".join(
-                (
-                    provider_request.system_prompt or "",
-                    json.dumps(provider_request.contexts or [], ensure_ascii=False),
-                    provider_request.prompt or "",
-                    json.dumps(effective_tool_schema, ensure_ascii=False),
-                )
-            )
-        ),
+        estimated_tokens,
+        media,
         section_sizes,
         (
             context_budgets.get("conversation_history", {}).get("extra", {})
@@ -3320,10 +3394,7 @@ def _log_persona_prompt_size_diagnostics(
             else {}
         ),
         len(effective_tool_schema),
-        [
-            *toolset.names(),
-            *([compiled_contract.tool_name] if terminal_tool_schema else []),
-        ],
+        [item.get("function", {}).get("name") for item in effective_tool_schema],
         dict(sorted(slot_sizes.items(), key=lambda item: item[1], reverse=True)),
     )
 

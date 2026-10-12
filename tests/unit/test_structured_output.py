@@ -2,9 +2,13 @@ import pytest
 
 from astrbot.core.interaction.expression_agent import (
     InteractionExpressionError,
+    build_persona_expression_tool_parameters,
     extract_persona_expression_result,
 )
-from astrbot.core.interaction.structured_output import parse_persona_text
+from astrbot.core.interaction.structured_output import (
+    build_persona_text_example,
+    parse_persona_text,
+)
 
 _TENDENCY_XML = """
 <tendency>
@@ -12,6 +16,18 @@ _TENDENCY_XML = """
   <Sadness>7</Sadness><Disgust>0</Disgust><Anger>1</Anger><Anticipation>0</Anticipation>
 </tendency>
 """.strip()
+
+
+def test_persona_json_example_passes_production_expression_parser():
+    schema = build_persona_expression_tool_parameters()
+    example = build_persona_text_example(schema, "json")
+    result = extract_persona_expression_result(example, output_format="json")
+    assert result.speech
+    assert result.segments[0].actions == ["nod"]
+    assert set(result.segments[0].tendency) == set(
+        schema["properties"]["segments"]["items"]["properties"]["tendency"]["required"]
+    )
+    assert "effect_calls" not in parse_persona_text(example, "json")
 
 
 def test_parse_semantic_xml_persona_output():
