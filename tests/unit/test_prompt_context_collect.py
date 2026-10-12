@@ -2904,7 +2904,7 @@ async def test_collect_context_pack_skips_tools_slot_when_persona_disables_tools
 
 
 @pytest.mark.asyncio
-async def test_collect_context_pack_tools_fail_open_when_tool_manager_raises():
+async def test_collect_context_pack_tools_failure_aborts_build():
     event, _ = _make_event()
     context = _make_context()
     context.persona_manager.resolve_selected_persona = AsyncMock(
@@ -2912,14 +2912,12 @@ async def test_collect_context_pack_tools_fail_open_when_tool_manager_raises():
     )
     context.get_llm_tool_manager.side_effect = RuntimeError("tools boom")
 
-    pack = await collect_context_pack(
-        event=event,
-        plugin_context=context,
-        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
-        collectors=[ToolsCollector()],
-    )
-
-    assert pack.get_slot("capability.tools_schema") is None
+    with pytest.raises(RuntimeError, match="tools boom"):
+        await collect_context_pack(
+            event=event, plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[ToolsCollector()],
+        )
 
 
 @pytest.mark.asyncio
@@ -3245,6 +3243,37 @@ async def test_collect_context_pack_knowledge_fail_open_when_retrieve_raises():
         )
 
     assert pack.get_slot("knowledge.snippets") is None
+    assert pack.meta["collector_failures"][0]["collector"] == "KnowledgeCollector"
+
+
+@pytest.mark.asyncio
+async def test_optional_static_collector_failure_does_not_hide_later_recovery():
+    class Collector(ContextCollectorInterface):
+        lifecycle = "static"
+        failure_policy = "optional"
+        available = False
+
+        async def collect(self, *args, **kwargs):
+            if not self.available:
+                raise RuntimeError("unavailable")
+            return [ContextSlot("input.text", "recovered", "input", "test")]
+
+    event, _ = _make_event()
+    context = _make_context()
+    config = ama.MainAgentBuildConfig(tool_call_timeout=60)
+    collector = Collector()
+    first = await collect_context_pack(
+        event=event, plugin_context=context, config=config,
+        collectors=[collector], include_prompt_extensions=False,
+    )
+    assert first.meta["collector_failures"]
+    collector.available = True
+    recovered = await collect_context_pack(
+        event=event, plugin_context=context, config=config,
+        collectors=[collector], include_prompt_extensions=False,
+    )
+    assert recovered.get_slot("input.text").value == "recovered"
+    assert recovered.meta["collector_timings"][0]["duration_ms"] >= 0
 
 
 class _BrokenCollector(ContextCollectorInterface):

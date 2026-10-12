@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 
 from astrbot.core.agent.message import AudioURLPart, ContentPart, ImageURLPart, TextPart
 from astrbot.core.provider.entities import ProviderRequest
 
+from ..diagnostics import record_prompt_timings
 from .interfaces import RenderResult
 
 PROMPT_RENDER_RESULT_EXTRA_KEY = "prompt_render_result"
@@ -25,6 +27,7 @@ class PromptApplyResult:
     user_content_part_count: int = 0
     tool_schema_count: int = 0
     warnings: list[str] = field(default_factory=list)
+    duration_ms: float = 0.0
 
 
 class ProviderRequestAdapter:
@@ -36,6 +39,7 @@ class ProviderRequestAdapter:
         request: ProviderRequest,
     ) -> PromptApplyResult:
         """Apply rendered prompt sections onto an existing request in place."""
+        started = perf_counter()
         apply_result = PromptApplyResult(
             tool_schema_count=len(result.tool_schema or []),
         )
@@ -65,6 +69,14 @@ class ProviderRequestAdapter:
         elif user_message is not None:
             self._apply_user_message(user_message, request, apply_result)
 
+        apply_result.duration_ms = round((perf_counter() - started) * 1000, 3)
+        result.metadata["request_apply_duration_ms"] = apply_result.duration_ms
+        record_prompt_timings(None, "request_apply", [{
+            "stage": "apply", "status": "completed",
+            "duration_ms": apply_result.duration_ms,
+            "message_count": apply_result.history_message_count,
+            "tool_schema_count": apply_result.tool_schema_count,
+        }])
         return apply_result
 
     def _split_rendered_messages(

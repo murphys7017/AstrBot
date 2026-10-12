@@ -42,12 +42,14 @@ from .collectors.system_collector import SystemCollector
 from .collectors.tools_collector import ToolsCollector
 from .context_catalog import get_catalog
 from .context_types import ContextPack, ContextSlot, PromptContextConflictError
+from .diagnostics import measure_prompt_stage, record_prompt_timings
 from .extensions.types import (
     PROMPT_EXTENSION_MOUNTS,
     PROMPT_EXTENSION_VALUE_KINDS,
     PromptExtension,
 )
 from .interfaces.context_collector_inferface import ContextCollectorInterface
+from .redaction import redact_context_slot
 
 PROMPT_CONTEXT_PACK_EXTRA_KEY = "prompt_context_pack"
 PROMPT_STATIC_CONTEXT_CACHE_EXTRA_KEY = "_prompt_static_context_cache"
@@ -566,6 +568,9 @@ async def _run_prompt_extension_collectors(
 ) -> list[_PromptExtensionCollectionOutcome]:
     """Run every prompt extension collector concurrently under one stage budget."""
 
+    timings = []
+    active_metrics = {}
+
     async def collect_one(collector: Any) -> _PromptExtensionCollectionOutcome:
         collector_name = collector.__class__.__name__
         allow_control_plane_targets = _collector_allows_control_plane_targets(collector)
@@ -591,6 +596,7 @@ async def _run_prompt_extension_collectors(
             provider_request=provider_request,
         )
         if lifecycle == "static" and cached_items is not None:
+            active_metrics[id(collector)]["cache_hit"] = True
             cached_extensions = _normalize_prompt_extension_items(
                 deepcopy(cached_items)
             )
@@ -618,6 +624,9 @@ async def _run_prompt_extension_collectors(
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
+            active_metrics[id(collector)].update(
+                status="optional_failed", error_type=type(exc).__name__,
+            )
             logger.warning(
                 "Prompt extension collector failed: collector=%s error=%s",
                 collector_name,
@@ -668,17 +677,26 @@ async def _run_prompt_extension_collectors(
     if not collectors:
         return []
 
+    async def collect_timed(collector):
+        with measure_prompt_stage(
+            timings, collector.__class__.__name__, cache_hit=False,
+        ) as metric:
+            active_metrics[id(collector)] = metric
+            result = await collect_one(collector)
+            metric["extension_count"] = len(result.extensions)
+            return result
+
     from astrbot.core.interaction.turn_state import get_interaction_turn_state
 
     turn_state = get_interaction_turn_state(event)
     tasks = [
         turn_state.execution_scope.create_task(
-            collect_one(collector),
+            collect_timed(collector),
             role="prompt_extension",
             name=f"prompt-extension:{collector.__class__.__name__}",
         )
         if turn_state is not None
-        else asyncio.create_task(collect_one(collector))
+        else asyncio.create_task(collect_timed(collector))
         for collector in collectors
     ]
     gathered = await _await_prompt_extension_collectors(
@@ -707,6 +725,7 @@ async def _run_prompt_extension_collectors(
                 lifecycle="dynamic",
             )
         )
+    record_prompt_timings(event, "plugin_collectors", sorted(timings, key=lambda row: row["stage"]))
     return outcomes
 
 
@@ -874,11 +893,16 @@ async def collect_context_pack(
         },
     )
 
+    timings = []
+    pack.meta["collector_timings"] = timings
     for collector in collector_list:
         collector_name = collector.__class__.__name__
         pack.meta["collectors"].append(collector_name)
         lifecycle = _collector_lifecycle(collector)
         static_cache_key = _collector_cache_key(collector)
+        policy = getattr(collector, "failure_policy", "required")
+        if policy not in {"required", "optional"}:
+            raise ValueError(f"invalid collector failure_policy: {collector_name}")
 
         cached_items = _find_static_cache_entry(
             static_context_cache,
@@ -887,19 +911,24 @@ async def collect_context_pack(
             provider_request=provider_request,
         )
         if lifecycle == "static" and cached_items is not None:
-            slots = deepcopy(cached_items)
+            with measure_prompt_stage(timings, collector_name, cache_hit=True) as metric:
+                slots = deepcopy(cached_items)
+                metric["slot_count"] = len(slots)
             pack.meta.setdefault("cached_collectors", []).append(collector_name)
         else:
+            failed = False
             try:
-                slots = await collector.collect(
-                    event,
-                    plugin_context,
-                    config,
-                    provider_request=provider_request,
-                )
+                with measure_prompt_stage(timings, collector_name, cache_hit=False) as metric:
+                    slots = await collector.collect(
+                        event, plugin_context, config, provider_request=provider_request,
+                    )
+                    metric["slot_count"] = len(slots)
             except Exception as exc:  # noqa: BLE001
-                if getattr(collector, "failure_policy", "required") != "optional":
+                failed = True
+                if policy != "optional":
+                    record_prompt_timings(event, "collection", timings)
                     raise
+                metric["status"] = "optional_failed"
                 logger.warning(
                     "Optional prompt collector failed; continuing without its slots: collector=%s error=%s",
                     collector_name,
@@ -914,7 +943,7 @@ async def collect_context_pack(
                     }
                 )
                 slots = []
-            if lifecycle == "static":
+            if lifecycle == "static" and not failed:
                 _store_static_cache_entry(
                     static_context_cache,
                     static_cache_key,
@@ -936,13 +965,13 @@ async def collect_context_pack(
     event.set_extra(PROMPT_STATIC_CONTEXT_CACHE_EXTRA_KEY, static_context_cache)
 
     if include_prompt_extensions:
-        extension_slots, extension_collectors = await _collect_prompt_extension_slots(
-            event=event,
-            plugin_context=plugin_context,
-            config=config,
-            provider_request=provider_request,
-            collector_scope=prompt_extension_collector_scope,
-        )
+        with measure_prompt_stage(timings, "plugin_extensions") as metric:
+            extension_slots, extension_collectors = await _collect_prompt_extension_slots(
+                event=event, plugin_context=plugin_context, config=config,
+                provider_request=provider_request,
+                collector_scope=prompt_extension_collector_scope,
+            )
+            metric["slot_count"] = len(extension_slots)
         pack.meta["extension_collectors"] = extension_collectors
 
         for slot in extension_slots:
@@ -960,6 +989,7 @@ async def collect_context_pack(
             )
 
     pack.meta["slot_count"] = len(pack.slots)
+    record_prompt_timings(event, "collection", timings)
     return pack
 
 
@@ -972,7 +1002,7 @@ def log_context_pack(
 
     slots = []
     for slot_name in sorted(pack.slots):
-        slot: ContextSlot = pack.slots[slot_name]
+        slot: ContextSlot = redact_context_slot(pack.slots[slot_name])
         slots.append(
             {
                 "name": slot.name,

@@ -55,7 +55,7 @@ RenderModeType = Literal[
 
 LLMExposureType = Literal[
     "allowed",  # 可以显示给 LLM
-    "redacted",  # 脱敏后显示
+    "redacted",  # 隐藏整个槽值；选择性脱敏须先在 Collector 中完成
     "never",  # 绝不显示给 LLM
 ]
 

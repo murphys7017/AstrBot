@@ -17,6 +17,7 @@ from ..context_views import (
     project_prompt_context_view,
     resolve_prompt_context_view,
 )
+from ..diagnostics import measure_prompt_stage, record_prompt_timings
 from ..targets import (
     PromptTarget,
     project_context_pack,
@@ -67,7 +68,9 @@ class PromptRenderEngine:
                 f"context view {view_spec.name.value} requires target "
                 f"{view_spec.target.value}, got {resolved_target.value}"
             )
-        view_pack = project_prompt_context_view(pack, context_view)
+        timings = []
+        with measure_prompt_stage(timings, "context_view"):
+            view_pack = project_prompt_context_view(pack, context_view)
         history_turns = profile.history_turns if profile is not None else None
         history_limit_reason = None
         history_max_estimated_tokens = None
@@ -76,39 +79,31 @@ class PromptRenderEngine:
         if view_spec is not None:
             history_limit_reason = view_spec.history_limit_reason
             history_max_estimated_tokens = view_spec.history_max_estimated_tokens
-        target_pack = project_context_pack(
-            view_pack,
-            resolved_target,
-            history_turns=history_turns,
-            history_limit_reason=history_limit_reason,
-            history_max_estimated_tokens=history_max_estimated_tokens,
-            config=config,
-        )
-        selected_pack = self._apply_render_profile(
-            target_pack,
-            profile,
-        )
+        with measure_prompt_stage(timings, "target_projection"):
+            target_pack = project_context_pack(
+                view_pack, resolved_target, history_turns=history_turns,
+                history_limit_reason=history_limit_reason,
+                history_max_estimated_tokens=history_max_estimated_tokens, config=config,
+            )
+        with measure_prompt_stage(timings, "render_profile"):
+            selected_pack = self._apply_render_profile(target_pack, profile)
         renderer = self._resolve_renderer(
             event=event,
             plugin_context=plugin_context,
             config=config,
             provider_request=provider_request,
         )
-        prompt_tree = self.tree_builder.build(
-            selected_pack,
-            layout=self.default_layout,
-            event=event,
-            plugin_context=plugin_context,
-            config=config,
-            provider_request=provider_request,
-        )
-        result = renderer.render_prompt_tree(
-            prompt_tree,
-            event=event,
-            plugin_context=plugin_context,
-            config=config,
-            provider_request=provider_request,
-        )
+        with measure_prompt_stage(timings, "tree_build"):
+            prompt_tree = self.tree_builder.build(
+                selected_pack, layout=self.default_layout, event=event,
+                plugin_context=plugin_context, config=config,
+                provider_request=provider_request,
+            )
+        with measure_prompt_stage(timings, "provider_render"):
+            result = renderer.render_prompt_tree(
+                prompt_tree, event=event, plugin_context=plugin_context,
+                config=config, provider_request=provider_request,
+            )
         if profile is not None:
             result.request_prompt = profile.request_prompt
         result = self._attach_engine_metadata(
@@ -118,6 +113,8 @@ class PromptRenderEngine:
             layout=self.default_layout,
         )
         result.metadata["prompt_target"] = resolved_target.value
+        result.metadata["render_timings"] = timings
+        record_prompt_timings(event, f"render:{resolved_target.value}", timings)
         self._log_render_result(
             result,
             selected_pack=selected_pack,
@@ -137,16 +134,19 @@ class PromptRenderEngine:
         if source.prompt_tree is None:
             raise ValueError("Cannot recompile a render result without a prompt tree")
         renderer = self._resolve_renderer(provider_request=provider_request)
-        result = renderer.render_prompt_tree(
-            deepcopy(source.prompt_tree),
-            provider_request=provider_request,
-        )
+        timings = []
+        with measure_prompt_stage(timings, "provider_recompile"):
+            result = renderer.render_prompt_tree(
+                deepcopy(source.prompt_tree), provider_request=provider_request,
+            )
         result.request_prompt = source.request_prompt
         result.metadata = {
             **source.metadata,
             **result.metadata,
             "renderer_name": renderer.get_name(),
+            "render_timings": timings,
         }
+        record_prompt_timings(None, "provider_recompile", timings)
         return result
 
     @staticmethod

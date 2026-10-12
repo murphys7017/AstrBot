@@ -32,6 +32,32 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+prompt_build_diagnostics_contracts_20261012:
+  date: '2026-10-12'
+  class: bugfix
+  risk: high
+  scope: >-
+    Add content-free collector/cache and merge/projection/layout/render/Apply
+    timing records. Required tool inventory failures propagate; knowledge is
+    explicitly optional; failed static collections are not cached. Slots marked
+    redacted hide their entire value and private metadata in target projection
+    and context-pack Trace; selective redaction remains collector-owned.
+  non_goals: >-
+    Change concurrency, cache lifetime, snapshot copying, Layout ownership,
+    provider calls, Catalog required/multiple enforcement, or partial fallback
+    behavior inside other mixed collectors. Do not restart the host.
+  validation: >-
+    Target projection, request adapter, context builder, and focused collector
+    failure/cache recovery boundary checks passed 52 cases. No live provider
+    latency or end-to-end application acceptance has been performed. The
+    redacted-slot check was rerun after adding context-pack Trace assertions
+    and passed. Scoped Ruff, syntax/YAML checks, runtime validation and diff
+    checks passed.
+  evidence_gap: >-
+    New timings need live samples before choosing performance changes. Marked
+    redacted structured slots may be omitted by their renderer; selective
+    producers must supply pre-redacted allowed values instead.
+
 persona_prompt_clarity_diagnostics_20261012:
   date: '2026-10-12'
   class: bugfix

@@ -3349,6 +3349,8 @@ def _log_persona_prompt_size_diagnostics(
             output_format=render_result.metadata.get("expression_output_format"),
             output_mode=render_result.metadata.get("expression_output_mode"),
             estimated_text_tokens=estimated_tokens,
+            render_timings=render_result.metadata.get("render_timings", []),
+            request_apply_duration_ms=render_result.metadata.get("request_apply_duration_ms"),
             media=media,
             **diagnostic_sections,
         )

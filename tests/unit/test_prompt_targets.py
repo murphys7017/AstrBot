@@ -6,6 +6,7 @@ from astrbot.core.prompt import (
     PromptContextView,
     PromptTarget,
 )
+from astrbot.core.prompt.context_collect import log_context_pack
 from astrbot.core.prompt.render import PromptRenderProfile
 from astrbot.core.prompt.render.engine import PromptRenderEngine
 from astrbot.core.prompt.render.minimax_renderer import MiniMaxPromptRenderer
@@ -31,6 +32,30 @@ def _persona_identity_extension_slot() -> ContextSlot:
         category="extension",
         source="test",
     )
+
+
+def test_redacted_slot_never_renders_original_value_or_metadata(monkeypatch):
+    slot = ContextSlot(
+        "system.global", "private value", "system", "test",
+        llm_exposure="redacted", meta={"private_note": "private metadata"},
+    )
+    pack = ContextPack(slots={slot.name: slot})
+    rendered = PromptRenderEngine().render(pack, target=PromptTarget.CORE)
+    assert "private value" not in rendered.system_prompt
+    assert "private metadata" not in rendered.system_prompt
+    assert "[REDACTED]" in rendered.system_prompt
+    assert slot.value == "private value"
+    assert rendered.metadata["render_timings"]
+    records = []
+    monkeypatch.setattr("astrbot.core.prompt.context_collect.prompt_trace_enabled", lambda: True)
+    monkeypatch.setattr(
+        "astrbot.core.prompt.context_collect.record_prompt_trace",
+        lambda *args, **fields: records.append(fields),
+    )
+    log_context_pack(pack, event=SimpleNamespace())
+    assert "private value" not in str(records)
+    assert "private metadata" not in str(records)
+    assert "[REDACTED]" in str(records)
 
 
 def _canonical_pack() -> ContextPack:

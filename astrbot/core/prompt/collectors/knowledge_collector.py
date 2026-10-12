@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from astrbot.core import logger
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
@@ -22,6 +21,10 @@ if TYPE_CHECKING:
 class KnowledgeCollector(ContextCollectorInterface):
     """Collect non-agentic knowledge-base text blocks for later rendering."""
 
+    @property
+    def failure_policy(self) -> str:
+        return "optional"
+
     async def collect(
         self,
         event: AstrMessageEvent,
@@ -36,21 +39,10 @@ class KnowledgeCollector(ContextCollectorInterface):
         if not query:
             return []
 
-        try:
-            kb_text = await retrieve_knowledge_base_with_cache(
-                query=query,
-                umo=event.unified_msg_origin,
-                context=plugin_context,
-                event=event,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to collect knowledge context: umo=%s error=%s",
-                getattr(event, "unified_msg_origin", None),
-                exc,
-                exc_info=True,
-            )
-            return []
+        kb_text = await retrieve_knowledge_base_with_cache(
+            query=query, umo=event.unified_msg_origin,
+            context=plugin_context, event=event,
+        )
 
         if not kb_text:
             return []

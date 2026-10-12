@@ -6,6 +6,7 @@ from copy import deepcopy
 from enum import Enum
 
 from .context_types import ContextPack, ContextSlot
+from .redaction import redact_context_slot
 from .target_budget import (
     PromptTargetBudget,
     apply_target_budget,
@@ -190,7 +191,7 @@ def _project_slot(
         if projected is None:
             return None
 
-    return projected
+    return redact_context_slot(projected)
 
 
 def _project_plugin_directory(

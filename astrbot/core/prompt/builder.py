@@ -13,6 +13,7 @@ from astrbot.core.star.context import Context
 
 from .context_collect import PromptExtensionCollectorScope, collect_context_pack
 from .context_types import ContextPack, ContextSlot, PromptContextConflictError
+from .diagnostics import measure_prompt_stage, record_prompt_timings
 from .interfaces import ContextCollectorInterface
 
 
@@ -46,12 +47,14 @@ class PromptContextBuilder:
             include_prompt_extensions=include_prompt_extensions,
             prompt_extension_collector_scope=prompt_extension_collector_scope,
         )
-        return merge_context_packs(
-            base,
-            fragment,
-            replace_slots=frozenset(replace_slots),
-            scope=scope,
-        )
+        timings = []
+        with measure_prompt_stage(timings, "merge"):
+            merged = merge_context_packs(
+                base, fragment, replace_slots=frozenset(replace_slots), scope=scope,
+            )
+        merged.meta["build_timings"] = timings
+        record_prompt_timings(self.event, scope, timings)
+        return merged
 
 
 def merge_context_packs(

@@ -188,6 +188,18 @@ Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call�
 
 ## 当前限制
 
+- 构建诊断通过 `DIAG prompt.timings` 和受控 Trace 的 `prompt.timings` 记录普通/插件 Collector
+  耗时、缓存命中、产物数量，以及快照合并、目标投影、Profile、树构建、Provider 渲染/重编译和
+  Request Apply 耗时。时间采用单调时钟，不记录上下文值；并发 Collector 耗时不能直接相加为总耗时。
+  `ContextPack.meta.collector_timings`、`build_timings`、`RenderResult.metadata.render_timings`
+  和 `PromptApplyResult.duration_ms` 可用于关联各阶段。成功 Apply 的耗时也写入 RenderResult metadata。
+- 必需采集器默认传播失败；显式 optional 失败写入 `collector_failures`，静态失败结果不缓存。
+  工具能力解析失败按必需失败处理；知识检索按显式 optional 处理。其他混合采集器现有的局部
+  降级策略仍保留，不应把它们当成已经全量迁移到统一策略。
+- `llm_exposure="redacted"` 没有字段级规则时，目标投影隐藏整个槽值，并移除可能含原文的
+  metadata；ContextPack Trace 同样隐藏该槽。结构化槽可能因此不被渲染。需要部分保留的内容应
+  在 Collector 中完成选择性脱敏后标记为 `allowed`；`never` 仍表示不进入模型。
+
 - Provider renderer family、输出契约能力和工具能力还没有统一成一个 capability 声明。
 - `ContextCatalog` 的 required/lifecycle/redaction 等字段多数仍是描述和告警，不是完整运行时强约束。
 - `ContextPack` 仍是可变数据类型，跨阶段不可变性依赖 Builder 使用约定和测试。

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from astrbot.core import logger
 from astrbot.core.agent.tool import TOOL_TARGET_CORE, normalize_tool_targets
 from astrbot.core.capabilities import CapabilityResolver, CapabilitySnapshot
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -53,21 +52,9 @@ class ToolsCollector(ContextCollectorInterface):
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
-        try:
-            capabilities = await self.resolve_capabilities(
-                event,
-                plugin_context,
-                config,
-                provider_request,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to collect tool inventory: umo=%s error=%s",
-                getattr(event, "unified_msg_origin", None),
-                exc,
-                exc_info=True,
-            )
-            return []
+        capabilities = await self.resolve_capabilities(
+            event, plugin_context, config, provider_request,
+        )
 
         if capabilities.is_empty():
             return []
