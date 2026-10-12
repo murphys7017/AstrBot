@@ -2290,6 +2290,19 @@ async def test_plugin_branch_owns_temporary_media_until_delivery_finishes(tmp_pa
     assert not Path(branch_path).exists()
 
 
+def test_local_file_release_preserves_file_during_cleanup(tmp_path):
+    source = tmp_path / "caller-owned.png"
+    source.write_bytes(b"caller-owned image")
+    event = _DirectEvent(_metadata())
+    event.track_temporary_local_file(str(source))
+    event.track_temporary_local_file(str(source))
+    event.untrack_temporary_local_file(str(source))
+    event.untrack_temporary_local_file(str(source))
+    event.cleanup_temporary_local_files()
+    assert source.exists()
+    assert source.read_bytes() == b"caller-owned image"
+
+
 @pytest.mark.asyncio
 async def test_idle_initiation_is_once_per_user_activity_and_stale_after_new_input():
     key = PersonalRuntimeKey(

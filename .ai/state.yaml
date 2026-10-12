@@ -32,6 +32,20 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+local_media_ownership_release_20261013:
+  date: '2026-10-13'
+  class: bugfix
+  risk: medium
+  scope: >-
+    Implement event untrack_temporary_local_file used by image preprocessing.
+    Releasing ownership is idempotent and never deletes the local input file.
+  validation: >-
+    Public event cleanup ownership smoke check, source tracing of local image
+    preprocessing, scoped Ruff and diff checks. No live desktop image run.
+  non_goals: >-
+    Change image input to the reply model, capability resolution, thinking
+    configuration, concurrency or delivery scheduling. No host restart.
+
 prompt_build_diagnostics_contracts_20261012:
   date: '2026-10-12'
   class: bugfix
