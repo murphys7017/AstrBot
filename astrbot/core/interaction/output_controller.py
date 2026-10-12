@@ -15,7 +15,10 @@ from astrbot.core import file_token_service, html_renderer
 from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.deadline import TurnDeadlineExceeded
 from astrbot.core.message.components import Image, Json, Plain, Record
-from astrbot.core.message.message_chain_delivery import deliver_message_chain
+from astrbot.core.message.message_chain_delivery import (
+    MessageChainDeliveryResult,
+    deliver_message_chain,
+)
 from astrbot.core.message.message_chain_transforms import (
     replace_leading_plain_components,
     replace_plain_text_preserving_components,
@@ -509,6 +512,19 @@ class InteractionOutputController:
                 thought=(prepared_expression.thought if prepared_expression else ""),
                 tendency=prepared_expression.tendency if prepared_expression else {},
             )
+            incremental = await self._deliver_ready_persona_segments(
+                event, message, contribution=merged, phase="immediate",
+                message_kind="immediate_reply", parent_message_id=message_id,
+                persona_result_id=persona_result_id, tts_segments=tts_segments,
+            )
+            if incremental is not None:
+                delivered_message_ids, materialization = incremental
+                self._record_visible_output(
+                    event, message_kind="immediate_reply", text=semantic_text,
+                    message_id=message_id, delivered_message_ids=delivered_message_ids,
+                    metadata=materialization,
+                )
+                return True
             (
                 message,
                 materialization,
@@ -2140,6 +2156,21 @@ class InteractionOutputController:
             if persona_expression is not None
             else None
         )
+        incremental = await self._deliver_ready_persona_segments(
+            event, final_message, contribution=merged, phase="final",
+            message_kind="core_reply", parent_message_id=message_id,
+            persona_result_id=persona_result_id, tts_segments=tts_segments,
+        )
+        if incremental is not None:
+            delivered_message_ids, materialization = incremental
+            self._record_visible_output(
+                event, message_kind="core_reply", text=semantic_text,
+                message_id=message_id, delivered_message_ids=delivered_message_ids,
+                metadata=materialization,
+            )
+            self._materialize_finalized_turn(event)
+            await self._persist_interaction_turn(event)
+            return
         (
             materialized_message,
             materialization,
@@ -2481,7 +2512,10 @@ class InteractionOutputController:
                         POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS,
                     ),
                 )
+        finalizer_deadline = materialization.get("finalizer_deadline")
         for finalize in result_contribution.post_materialization:
+            remaining = (max(0.001, finalizer_deadline - time.monotonic())
+                         if isinstance(finalizer_deadline, (int, float)) else timeout)
             try:
                 payload = await asyncio.wait_for(
                     finalize(
@@ -2493,7 +2527,7 @@ class InteractionOutputController:
                         persona_result_id=persona_result_id,
                         materialization=deepcopy(materialization),
                     ),
-                    timeout=timeout,
+                    timeout=min(timeout, remaining),
                 )
             except asyncio.TimeoutError:
                 logger.warning(
@@ -2611,6 +2645,158 @@ class InteractionOutputController:
             if result_contribution.metadata:
                 extras["metadata"] = dict(result_contribution.metadata)
         return extras
+
+    async def _deliver_ready_persona_segments(
+        self,
+        event: AstrMessageEvent,
+        message: MessageChain,
+        *,
+        contribution: InteractionResultContribution,
+        phase: str,
+        message_kind: str,
+        parent_message_id: str,
+        persona_result_id: str | None,
+        tts_segments: Sequence[str] | None,
+    ) -> tuple[list[str], dict[str, Any]] | None:
+        """Prepare bounded audio jobs and deliver each ordered ready segment.
+
+        Platforms must explicitly implement flushing without closing the parent
+        message. Whole-message finalizers and media transformations retain their
+        existing single-delivery boundary.
+        """
+        if (
+            not callable(getattr(event, "flush_visible_segment", None))
+            or not contribution.supports_segment_materialization
+            or not contribution.post_materialization
+            or contribution.client_objects
+            or not persona_result_id
+            or tts_segments is None
+            or len(message.chain) != 1
+            or not isinstance(message.chain[0], Plain)
+        ):
+            return None
+        options = self._resolve_outbound_options(event)
+        if (
+            not options.tts_enabled
+            or options.tts_trigger_probability != 1.0
+            or options.show_reasoning
+            or (message.use_t2i_ if message.use_t2i_ is not None else options.t2i_enabled)
+        ):
+            return None
+        if not await SessionServiceManager.should_process_tts_request(event):
+            return None
+        prefixed = self._apply_interaction_reply_prefix(event, message, options=options)
+        resolved = self._resolve_interaction_tts_segments(prefixed, tts_segments)
+        if resolved is None:
+            return None
+        _, inputs, segment_count = resolved
+        if not inputs:
+            return None
+        started = time.monotonic()
+        requested_timeout = contribution.post_materialization_timeout_seconds
+        wait_budget = self._get_interaction_config(event).contributor_timeout
+        if isinstance(requested_timeout, (int, float)) and not isinstance(requested_timeout, bool):
+            if math.isfinite(requested_timeout) and requested_timeout > 0:
+                wait_budget = max(wait_budget, min(requested_timeout, POST_MATERIALIZATION_TIMEOUT_MAX_SECONDS))
+        deadline = started + wait_budget
+        gate = asyncio.Semaphore(2)
+        converted: list[dict[str, Any]] = []
+        failures: list[str] = []
+        jobs: list[tuple[int | None, str, str, asyncio.Task]] = []
+
+        async def prepare(index, text, message_id):
+            async with gate:
+                try:
+                    result = await synthesize_text(
+                        self.plugin_context, event, text,
+                        stage="interaction.outbound_tts",
+                        use_file_service=options.tts_use_file_service,
+                        callback_api_base=options.callback_api_base,
+                        require_file_registration_config=True,
+                        turn_id=str(event.get_extra("_turn_id", "") or ""),
+                        message_id=message_id, parent_message_id=parent_message_id,
+                        persona_result_id=persona_result_id,
+                        persona_segment_index=index, persona_segment_count=segment_count,
+                    )
+                    component = Record(
+                        file=result.delivered_file, url=result.delivered_file, text=result.text,
+                        delivery_metadata=build_tts_delivery_metadata(result.state, audio_attachment="present"),
+                    )
+                    item = {
+                        "tts_source_text": result.text, "tts_audio_path": result.audio_path,
+                        "tts_audio_url": result.audio_url, "tts_provider_id": result.provider_id,
+                        "tts_request_id": result.state.tts_request_id,
+                        "message_id": result.state.message_id,
+                        "parent_message_id": parent_message_id,
+                        "persona_result_id": persona_result_id,
+                        "persona_segment_index": index, "persona_segment_count": segment_count,
+                    }
+                except VoiceServiceError as exc:
+                    self._record_outbound_materialization_failure(event, "tts", exc.reason)
+                    if exc.state is None:
+                        raise
+                    component = Plain(text, delivery_metadata=build_tts_delivery_metadata(exc.state, audio_attachment="absent"))
+                    item = {
+                        "message_id": message_id, "parent_message_id": parent_message_id,
+                        "persona_result_id": persona_result_id,
+                        "persona_segment_index": index, "persona_segment_count": segment_count,
+                        "tts_request_id": exc.state.tts_request_id, "tts_failed": True,
+                        "failure_code": exc.state.failure_code or exc.reason,
+                    }
+                logger.debug(
+                    "DIAG interaction.segment_tts_ready: turn_id=%s segment_index=%s elapsed_ms=%.2f",
+                    event.get_extra("_turn_id"), index, (time.monotonic() - started) * 1000,
+                )
+                return component, item
+
+        async def parts():
+            for index, text in inputs:
+                child_id = parent_message_id if not jobs else self._next_output_segment_id(event, "tts")
+                task = asyncio.create_task(prepare(index, text, child_id), name=f"persona-tts:{index}")
+                jobs.append((index, text, child_id, task))
+            try:
+                for position, (index, text, child_id, task) in enumerate(jobs):
+                    component, item = await task
+                    converted.append(item)
+                    if item.get("tts_failed"):
+                        failures.append(str(item["failure_code"]))
+                    materialization = {
+                        "tts": [item], "persona_segment_index": index,
+                        "persona_last_output_segment": position == len(jobs) - 1,
+                        "finalizer_deadline": deadline,
+                    }
+                    extras = self.build_platform_output_base_extras(event, result_contribution=contribution)
+                    extras.pop("persona_speech_segments", None)
+                    extras.update({
+                        "semantic_text": text,
+                        "persona_incremental_delivery": True,
+                        "persona_delivery_parent_message_id": parent_message_id,
+                    })
+                    await self._apply_post_materialization_contributions(
+                        event, contribution, extras, phase=phase,
+                        parent_message_id=parent_message_id,
+                        persona_result_id=persona_result_id, materialization=materialization,
+                    )
+                    yield message.derive([component]), extras, child_id
+            finally:
+                for _, _, _, task in jobs:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*(task for _, _, _, task in jobs), return_exceptions=True)
+
+        delivered = await self._deliver_visible_message(
+            event, message, message_kind=message_kind,
+            platform_extras=self.build_platform_output_base_extras(event, result_contribution=contribution),
+            output_segment_id=parent_message_id, record_send_operation=False,
+            result_is_model_result=True, semantic_text=message.get_plain_text(),
+            message_parts=parts(),
+        )
+        return delivered, {
+            "message_kind": message_kind, "semantic_text": message.get_plain_text(),
+            "delivered_as": "record", "tts": converted,
+            "tts_status": "failed" if failures else "succeeded",
+            "tts_failed": bool(failures), "segment_delivery": "ordered_ready",
+        }
 
     async def materialize_interaction_outbound_message(
         self,
@@ -3164,6 +3350,7 @@ class InteractionOutputController:
         result_is_model_result: bool = False,
         allow_segmented_reply: bool = False,
         semantic_text: str | None = None,
+        message_parts: AsyncGenerator[tuple[MessageChain, dict[str, Any], str], None] | None = None,
     ) -> list[str]:
         """Send a visible message and record it as a turn utterance.
 
@@ -3207,6 +3394,21 @@ class InteractionOutputController:
             ),
         )
 
+        active_semantic_text = semantic_text
+        committed_segment_texts: list[str] = []
+
+        def record_partial_delivery():
+            if message_parts is not None and committed_segment_texts:
+                partial_text = "".join(committed_segment_texts)
+                if message_kind == "immediate_reply":
+                    set_interaction_turn_immediate_reply(event, partial_text)
+                self._record_visible_output(
+                    event, message_kind=message_kind, text=partial_text,
+                    message_id=normalized_segment_id,
+                    delivered_message_ids=delivered_message_ids,
+                    metadata={"segment_delivery": "ordered_ready", "partial_delivery": True},
+                )
+
         async def _send(
             chain: MessageChain,
             delivery_extras: Mapping[str, Any] | None = None,
@@ -3221,7 +3423,7 @@ class InteractionOutputController:
                     message_kind=message_kind,
                     output_segment_id=output_segment_id,
                 ),
-                "semantic_text": semantic_text,
+                "semantic_text": active_semantic_text,
             }
             if isinstance(delivery_extras, Mapping):
                 output_extras.update(delivery_extras)
@@ -3254,26 +3456,60 @@ class InteractionOutputController:
                 platform_extras=output_extras,
                 record_send_operation=record_send_operation,
             )
-            if message_kind == "immediate_reply":
+            if message_kind == "immediate_reply" and message_parts is None:
                 mark_interaction_turn_personal_emitted(event)
             visible_message_id = str(output_extras.get("visible_message_id", "") or "")
             if visible_message_id:
                 delivered_message_ids.append(visible_message_id)
 
         try:
-            delivery = await deliver_message_chain(
-                event,
-                message,
-                send_message=_send,
-                platform_settings=delivery_platform_settings,
-                result_is_model_result=result_is_model_result,
-                allow_segmented_reply=allow_segmented_reply,
-                preserve_record_delivery_groups=(
-                    bool(event.get_extra("_runtime_observation_event", False))
-                    and supports_personal_runtime(event.platform_meta)
-                ),
-            )
+            if message_parts is None:
+                delivery = await deliver_message_chain(
+                    event,
+                    message,
+                    send_message=_send,
+                    platform_settings=delivery_platform_settings,
+                    result_is_model_result=result_is_model_result,
+                    allow_segmented_reply=allow_segmented_reply,
+                    preserve_record_delivery_groups=(
+                        bool(event.get_extra("_runtime_observation_event", False))
+                        and supports_personal_runtime(event.platform_meta)
+                    ),
+                )
+            else:
+                outcomes = []
+                try:
+                    async for part, part_extras, part_message_id in message_parts:
+                        base_extras = self._strip_message_identity_extras(part_extras)
+                        active_semantic_text = str(part_extras.get("semantic_text") or "")
+                        outcome = await deliver_message_chain(
+                            event, part, send_message=_send,
+                            platform_settings=delivery_platform_settings,
+                            result_is_model_result=result_is_model_result,
+                            allow_segmented_reply=False,
+                            preserve_record_delivery_groups=True,
+                        )
+                        outcomes.append(outcome)
+                        if not outcome.sent_any or not outcome.all_succeeded:
+                            raise RuntimeError("Persona segment physical delivery failed")
+                        await event.flush_visible_segment(message_id=part_message_id)
+                        committed_segment_texts.append(active_semantic_text)
+                        if message_kind == "immediate_reply":
+                            mark_interaction_turn_personal_emitted(event)
+                        logger.debug(
+                            "DIAG interaction.segment_delivered: turn_id=%s message_id=%s",
+                            event.get_extra("_turn_id"), part_message_id,
+                        )
+                finally:
+                    await message_parts.aclose()
+                delivery = MessageChainDeliveryResult(
+                    sent_any=any(item.sent_any for item in outcomes),
+                    all_succeeded=bool(outcomes) and all(item.all_succeeded for item in outcomes),
+                    attempted_count=sum(item.attempted_count for item in outcomes),
+                    failed_count=sum(item.failed_count for item in outcomes),
+                )
         except asyncio.CancelledError:
+            record_partial_delivery()
             receipt = finish_interaction_turn_delivery_receipt(
                 event,
                 message_id=normalized_segment_id,
@@ -3284,6 +3520,7 @@ class InteractionOutputController:
             self._trace_delivery_receipt(event, receipt)
             raise
         except Exception:
+            record_partial_delivery()
             receipt = finish_interaction_turn_delivery_receipt(
                 event,
                 message_id=normalized_segment_id,
@@ -3325,6 +3562,7 @@ class InteractionOutputController:
                 message_id=normalized_segment_id,
             )
         except asyncio.CancelledError:
+            record_partial_delivery()
             receipt = finish_interaction_turn_delivery_receipt(
                 event,
                 message_id=normalized_segment_id,
@@ -3335,6 +3573,7 @@ class InteractionOutputController:
             self._trace_delivery_receipt(event, receipt)
             raise
         except Exception:
+            record_partial_delivery()
             receipt = finish_interaction_turn_delivery_receipt(
                 event,
                 message_id=normalized_segment_id,

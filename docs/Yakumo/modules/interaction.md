@@ -618,7 +618,7 @@ Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payl
 
 表达可以使用 Prompt-only JSON，也可以在配置明确选择 XML、Markdown 或严格 Tool Call；Provider 页的 10 次格式诊断只提供稳定性参考，不会自动修改配置。适用 effect 始终由独立 `persona_effect_batch` terminal tool 提供；无适用 effect 时不提供 effect 工具，Core 聚合结果中仍提供空 `effect_calls` 数组。若本轮同时有表达 Tool Call 和 effect Tool Call，两者须在同一响应返回；若表达使用 JSON/XML/Markdown，适用的 effect 仍须通过独立工具调用返回。双通道首轮漏项时，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。
 
-`turn_action` 是单值字符串，枚举按调用场景限制：普通表达仅 `reply`；需要 Core 处理时允许 `reply | delegate`；允许静默的群聊候选允许 `reply | delegate | silent`，且 `silent` 时 `segments` 必须为空。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段并按顺序逐段交给 TTS，不把拼接文本作为单个合成请求。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+`turn_action` 是单值字符串，枚举按调用场景限制：普通表达仅 `reply`；需要 Core 处理时允许 `reply | delegate`；允许静默的群聊候选允许 `reply | delegate | silent`，且 `silent` 时 `segments` 必须为空。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
 开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
@@ -849,6 +849,7 @@ effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source
 - `metadata`: contributor 自己的诊断和附加信息。
 - `priority`: 合并顺序，数值越小越先处理。
 - `post_materialization`: 可选的异步回调列表，在 TTS/其他输出物化完成后、平台投递前按 priority 顺序执行。回调接收 `(event, plugin_context, *, turn_id, phase, parent_message_id, persona_result_id, materialization)`；每个回调收到独立的物化数据深拷贝。返回的 `InteractionResultContribution` 只合并 `platform_extras`、`client_objects` 和 `metadata`，不会再改写已物化的消息。默认使用 contributor timeout，超时或异常会记录日志并跳过。
+- `supports_segment_materialization`: 显式声明上述回调可逐段执行。只有全部相关 finalizer 都声明支持，且平台提供 `flush_visible_segment`、消息满足纯音频分段投递条件时才启用。段级 materialization 包含 `persona_segment_index`、`persona_last_output_segment`、单段 `tts` 和同批 `finalizer_deadline`；每段只合并自己的产物，父消息完成和语义历史仍只执行一次。未声明的普通插件保持整条消息回调。当前实现、限制和现场验收见 [低延迟分段方案](../dev/structured-persona-output/07-low-latency-segment-delivery.md)。
 - `post_materialization_timeout_seconds`: 可选的较长回调超时请求。多 contributor 合并时取最大有效值，单个请求最多按 30 秒计算；每个合并后的回调使用 `max(contributor_timeout, 请求值)`，不能缩短全局默认值。这个共享超时逐个应用于串行回调，因此总等待时间可能累加。非正数、布尔值、非有限数和非数值会被忽略。
 
 result contributor 只能基于只读结果快照产出 contribution。不要修改 `view`，也不要把

@@ -37,11 +37,12 @@
 
 ## 验收要求
 
-### 后续：逐段就绪、按序投递（源码审阅方案，尚未实现）
+### 逐段就绪、按序投递
 
-当前 `_apply_interaction_tts` 逐段 await 合成后返回整条 MessageChain；随后输出贡献
-finalizer 等待 AG99live 的整批动作任务，再统一进入投递。开启动作并发只能缩短整批等待，
-不能让第一段提前投递。本节是后续改造边界，不表示现有实现已支持提前输出。
+普通 `_apply_interaction_tts` 仍逐段合成后返回整条 MessageChain。声明支持段级 finalizer
+与提前 flush 的 OLV 独立动作分支，新增最大并发 2 的 TTS 准备和按段汇合、按序投递。
+源码与边界检查已完成，尚未现场验收，具体条件见
+[低延迟分段投递方案](07-low-latency-segment-delivery.md)。以下为实施与验收边界。
 
 - Core 保留装饰和插件文本修改流程，先确定最终分段，再将 TTS 物化拆为逐段就绪产物。
   每段保留原 segment_index/count 与 parent_message_id、persona_result_id、message_id、

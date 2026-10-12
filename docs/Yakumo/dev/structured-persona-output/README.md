@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 低延迟音频投递新增有界 TTS 并行与逐段汇合、按序 flush，首批覆盖声明支持的 OLV
+  独立分段动作链路；源码和定向边界检查完成，仍待重载与现场验收。实现范围及后续
+  Persona 流式契约见 [07-low-latency-segment-delivery.md](07-low-latency-segment-delivery.md)。
+
 - Canonical Result、表达格式适配和条件性 effect 通道已实施，仍待真实 Provider 组合验收。表达默认是 JSON 文本 + Prompt-only；严格 `persona_expression` tool call 仅在显式配置时使用。
 - Core 分别解析表达和 effect 通道，再聚合并校验为 `PersonaExpressionResult`。表达可由 JSON/XML/Markdown parser 恢复，或由显式选择的 `persona_expression` tool call 承载；当前事件有已注册且适用的 effect 时，同一模型响应还要求独立 `persona_effect_batch` tool call。无适用 effect 时不提供 effect 工具。若首轮漏掉任一通道，Core 会以隔离请求只补缺失通道；若两路都缺失，则依次补表达和 effect。已解析的必发 effect 校验失败时，也会额外请求模型修复 effect batch。
 - Provider 页面提供结构化输出稳定性诊断：可编辑默认 Persona JSON 示例，选择 JSON、XML 或 semantic Markdown；JSON 可选 Prompt-only、Provider 原生 JSON mode 或 Provider 原生 JSON Schema，对单个对话模型最多请求 10 次并检查格式、字段结构和类型。DeepSeek、OpenAI Chat Completions、OpenAI Responses 与 Gemini 已接入原生 JSON 探测，OpenAI Chat Completions 与 Responses 另支持 JSON Schema，MiniMax Token Plan 当前仅 Prompt-only；结果含可复制的单次探测记录，但不会自动持久化，也不改变 Persona 主路径。
@@ -46,7 +50,7 @@
 }
 ```
 
-上例是内部聚合结果，不是单个 Provider payload。表达通道只包含 `turn_action`、`segments`；适用 effect 使用参数仅含 `effect_calls` 的 `persona_effect_batch` 独立 tool call，并与表达在同一模型响应中返回。无适用 effect 时不提供该工具，内部聚合结果以空数组表示。默认表达格式为 JSON + Prompt-only；Provider 页面 10 次稳定性测试由用户判断结果，不自动持久化或修改 Persona Response 配置。`turn_action` 是调用场景允许值中的单个字符串；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段并按顺序逐段合成。
+上例是内部聚合结果，不是单个 Provider payload。表达通道只包含 `turn_action`、`segments`；适用 effect 使用参数仅含 `effect_calls` 的 `persona_effect_batch` 独立 tool call，并与表达在同一模型响应中返回。无适用 effect 时不提供该工具，内部聚合结果以空数组表示。默认表达格式为 JSON + Prompt-only；Provider 页面 10 次稳定性测试由用户判断结果，不自动持久化或修改 Persona Response 配置。`turn_action` 是调用场景允许值中的单个字符串；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段；普通路径逐段合成，声明支持的 OLV 路径可并行准备并按序投递。
 
 ## 阶段状态
 

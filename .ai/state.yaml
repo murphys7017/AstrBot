@@ -32,6 +32,35 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_ready_delivery_20261013:
+  date: '2026-10-13'
+  class: feature
+  risk: high
+  scope: >-
+    Opted-in Persona audio output prepares at most two TTS jobs and delivers
+    ordered segment-ready parts through one parent delivery lifecycle. Result
+    contributors explicitly declare per-segment finalizer support. Partial
+    cancellation records only flushed text. Unsupported media/contributors and
+    ordinary text platforms retain their full-message boundary. Detailed plan
+    documents the implemented scope and the separate, unimplemented streaming
+    Persona commitment contract.
+  verification: >-
+    Public capture boundary passed first-segment early delivery, interruption
+    cleanup/partial text, and second-segment TTS failure using a controlled voice
+    Provider. Plugin finalizer and platform send/flush boundary checks passed;
+    standard TTS segmentation check passed. Static/syntax/diff/runtime checks.
+  assumptions: >-
+    Complete Persona validation precedes scheduling. Current OLV config meets
+    incremental eligibility; local motion parallel was enabled with concurrency
+    two. Installed adapter synchronization uses the repository post-commit hook;
+    running host reload remains pending.
+  evidence_gap: >-
+    No real Provider, Electron, playback, Live2D, network-disconnect or latency
+    acceptance. Consumer phase-three streaming parsing is not implemented.
+  non_goals: >-
+    No host restart. No early unvalidated model output or generic
+    full-message plugin lifecycle rewrite.
+
 request_preparation_controls_diagnostics_20261013:
   date: '2026-10-13'
   class: maintenance

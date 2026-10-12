@@ -96,6 +96,8 @@ class InteractionResultContribution:
         default_factory=list
     )
     post_materialization_timeout_seconds: float | None = None
+    # Explicit opt-in: these callbacks accept one segment's materialization.
+    supports_segment_materialization: bool = False
 
 
 def freeze_interaction_snapshot(value: Any) -> Any:
@@ -412,6 +414,10 @@ def merge_result_contributions(
     contributions: list[InteractionResultContribution],
 ) -> InteractionResultContribution:
     merged = InteractionResultContribution(plugin_id="__merged__")
+    merged.supports_segment_materialization = all(
+        not item.post_materialization or item.supports_segment_materialization
+        for item in contributions
+    )
     for contribution in sorted(
         contributions,
         key=lambda item: (item.priority, item.plugin_id),
