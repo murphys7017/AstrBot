@@ -32,6 +32,22 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_action_segmentation_fix_20261013:
+  date: '2026-10-13'
+  class: bugfix
+  risk: medium
+  scope: >-
+    Clarify runtime Persona prompt and tool schema: same-segment actions are
+    simultaneous intentions; sequential speech-associated actions need separate
+    segments. Allow directional action words but prohibit execution parameters.
+    Document the paired Electron playback boundary fix in AG99live.
+  validation: >-
+    Scoped Ruff, syntax, diff and AI runtime checks passed. Paired Electron
+    renderer typecheck/build and a segment-selection boundary smoke passed.
+  evidence_gap: >-
+    No live LLM segmentation or audio/Live2D acceptance. Prompt semantics do not
+    guarantee provider compliance; no programmatic semantic splitting is added.
+
 persona_ready_delivery_identity_fix_20261013:
   date: '2026-10-13'
   class: bugfix

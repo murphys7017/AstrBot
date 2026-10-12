@@ -59,10 +59,12 @@ flowchart LR
   最后一个实际输出段完成后才移除整轮 work；普通整批 finalizer 保持一次汇合。
 - OLV 的 flush_visible_segment 只调用现有输出协调器的 finalize_output_segment，不关闭
   parent 或 Turn。整轮 synth_finished / playback_finished 的原生命周期保留。
-- Electron 的 getNextPlaybackReleaseSegment 优先返回当前可播放段，协调器在拿到段时
+- Electron 的 getActivePlaybackSegment 返回首个尚未本地结算的段，协调器在拿到段时
   不等待 synthFinished；播放完成协调器仍要求 synthFinished 才确认整轮结束。native
-  runtime 的 SegmentAssembler 按连续序号立即发布 ready 段。这些前端条件无需改动，
+  runtime 的 SegmentAssembler 按连续序号立即发布 ready 段。首段无需等待整批生成结束，
   但源码检查不能代替实际声音播放验收。
+- Electron 播放选择首个尚未本地结算的段；语音已结束但动作仍在执行时也不跳过该段。
+  时间线等待所有必需 sink 结束后才释放下一段，生成和投递仍可并行提前准备。
 
 ### 失败与中断
 

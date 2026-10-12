@@ -676,8 +676,13 @@ def build_persona_runtime_system_prompt(
         + f"{effect_channel_guidance}"
         + f"{required_effect_guidance}"
         "segments 按说话时动作或情绪状态变化切分，按顺序生成；每段都必须包含 speech、actions、thought 和 tendency。\n"
+        "同一段 actions 可以包含同时发生的动作；需要先后配合不同话语执行的动作必须拆成不同 segments，不能把 actions 数组当作动作时间序列。"
+        "例如先向左转头再向右转头，应分别生成 speech 为‘左……’、actions 为 ['turn_head_left'] 的段，"
+        "以及 speech 为‘右……’、actions 为 ['turn_head_right'] 的段；每段仍须完整填写 thought 和 tendency。"
+        "没有动作或状态变化时不必拆段；不要为了凑段数重复文本或添加无意义的动作。\n"
         "segments 中的 speech 依次拼接后形成发给文本平台的整合可见文本；语音合成保留这些分段并按原顺序逐段交给 TTS，不要把段边界改写成外部 speech cue。需要 TTS 标签时由后续适配器处理。\n"
-        "actions 是简单动作词数组，只表达动作意图，不写参数、方向、时长或插件 effect 数据。\n"
+        "actions 是简单动作词数组，只表达动作意图，允许 turn_head_left 等包含自然方向的动作词，"
+        "不写角度、坐标、速度、时长等执行参数或插件 effect 数据。\n"
         "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。\n"
         "tendency 是角色当前情绪强度，使用 Plutchik 八个维度 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、Anticipation，"
         "每个值应是 0 到 10 的整数；0 表示没有明显表现，10 表示强烈表现。若收到整数越界值，Core 会在内部裁剪到 0 或 10，但不要依赖该容错。\n"
@@ -760,7 +765,7 @@ def build_persona_expression_tool_parameters(
             "actions": {
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
-                "description": "本段说话时的简单动作词数组。",
+                "description": "本段同时发生的简单动作意图数组，可含自然方向；先后配合不同话语的动作须拆为不同段，不包含执行参数。",
             },
             "thought": {
                 "type": "string",
@@ -787,7 +792,7 @@ def build_persona_expression_tool_parameters(
             "type": "array",
             "items": segment_schema,
             "minItems": 0,
-            "description": "按说话时动作或状态变化切分的表达片段，按顺序处理。",
+            "description": "按说话时动作或状态变化切分的表达片段，按顺序处理；先后配合不同话语执行的动作必须分段。",
         },
     }
     actions = [
