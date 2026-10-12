@@ -6,7 +6,7 @@
 
 - 状态：Phase 1 至 Phase 5 的底层 owner 迁移已完成。普通对话已收敛为一次 Personal Response
   Plan；真实 Provider 日志 smoke、首回复延迟、长请求 deadline 与后续消息队头延迟仍待运行确认。
-- 更新日期：2026-09。
+- 更新日期：2026-10-12。
 - 实施基线：`ef389bce0`（`docs: plan runtime function unification`）。
 - 日志基线：`data/logs/astrbot.log` 与 `data/logs/astrbot.trace.log` 的 2026-08-03 样本。
 - 任务类型：架构重构与性能修复。
@@ -23,8 +23,8 @@
 
 此前 Phase 5A/5B 中“Personal 与 Router 并行”的叙述是历史实施记录，不再是当前主链。普通
 消息和合格群聊候选现在只调用一次即时 Persona Expression；默认以 JSON 文本 + Prompt-only 约束输出，
-并解析为统一的 `turn_action`、`segments`（每段含 `speech`、`actions`、`thought`、八维 `tendency`）与 `effect_calls`。
-严格 `persona_expression` Tool Call 仅在显式配置时使用，适用 effect 始终走独立 `persona_effect_batch` 通道：
+并解析为统一的 `turn_action`、`segments`（每段含 `speech`、`actions`、`thought`、八维 `tendency`）与内部聚合的 `effect_calls`。
+默认表达使用 JSON 文本 + Prompt-only；严格 `persona_expression` Tool Call 仅在显式配置时使用，适用 effect 始终走独立 `persona_effect_batch` 通道：
 
 ```text
 Personal Response Plan
@@ -71,7 +71,8 @@ interaction turn
              -> run plugin lifecycle once
             -> shared Agent loop
                   -> business tool call: execute and continue
-                  -> persona_expression: terminal structured result
+                  -> configured JSON/XML/Markdown parser: terminal structured result
+                  -> persona_expression: terminal only when Tool Call is selected
              -> immediate Output
        -> Router
             -> persona: no Core
@@ -80,8 +81,9 @@ interaction turn
   -> Core result -> Personal final Output
 ```
 
-普通无工具消息应在 Persona 第一次模型响应中直接调用 `persona_expression`。只有模型实际
-选择了业务工具，才继续下一轮模型调用。
+普通无工具消息应在 Persona 第一次模型响应中直接返回符合 Canonical Schema 的 JSON 文本，
+或按配置返回 XML/Markdown；显式选择严格 Tool Call 时才调用 `persona_expression`。只有模型
+实际选择了业务工具，才继续下一轮模型调用。
 
 后续再按“一个职责一个 owner”的原则，依次统一工具解析、ProviderRequest 生命周期、上下文
 预算、超时、群聊准入和类型化诊断。这里的“统一”不是把所有功能塞进一个巨型类，而是每个
@@ -97,7 +99,7 @@ interaction turn
 | D-002 | `plugin_tool_targets` 只决定插件 FunctionTool 对 `core` 还是 `personal_expression` 可见。 |
 | D-003 | 插件 LLM 生命周期默认属于 `personal_expression`；插件工具默认属于 `core`，只有显式声明或配置才进入 Persona。 |
 | D-004 | Persona 允许调用明确授权的业务工具；不能因为它是人格表达层就删除工具能力。 |
-| D-005 | `persona_expression` 是终止 Agent 循环的结构化输出协议，不是插件业务工具，不进入普通工具执行器。 |
+| D-005 | `persona_expression` 是可选的终止 Agent 循环结构化输出协议；默认表达走 JSON + Prompt-only。它不是插件业务工具，不进入普通工具执行器。 |
 | D-006 | 不再使用独立 LLM 调用预判“是否需要工具”；配置和 capability snapshot 决定工具是否可见，模型在正式 Agent 循环内选择是否调用。 |
 | D-007 | 官方 Pipeline Handler、命令、关键词回复、事件监听和 `stop_event` 语义保持原位置，不迁移为 Persona 工具或 Persona Hook。 |
 | D-008 | 旧插件不需要为了本次统一修改代码；兼容边界由 AstrBot Runtime 承担。 |
@@ -245,11 +247,12 @@ official Pipeline / plugin handlers
          -> Persona lifecycle hooks run once
          -> Shared Agent Runner receives:
               business Persona tools
-              + terminal persona_expression schema
+              + configured expression parser
+              + terminal persona_expression only when Tool Call is selected
          -> first model response
-              -> persona_expression: finish immediately
+              -> parsed expression or persona_expression: finish immediately
               -> business tool call: execute, append result, continue loop
-         -> final persona_expression
+         -> final parsed expression or persona_expression
          -> response/done hooks
          -> claim immediate output and send without waiting for Router/Planner
        Router:
@@ -259,15 +262,15 @@ official Pipeline / plugin handlers
 
 关键协议：
 
-- `persona_expression` 与业务工具同时对模型可见，但它是 terminal action，不注册到普通
-  FunctionTool Manager，也不触发 `OnUsingLLMTool`。
+- 严格 Tool Call 配置下，`persona_expression` 与业务工具同时对模型可见，但它是 terminal action，
+  不注册到普通 FunctionTool Manager，也不触发 `OnUsingLLMTool`；JSON/XML/Markdown 配置不注册该表达工具。
 - 业务工具调用保持官方 `OnUsingLLMTool` / `OnLLMToolRespond` 语义。
-- Provider 支持“任意工具 required”时，首轮要求模型选择业务工具或
-  `persona_expression`；不应在首轮强制指定 `persona_expression`，否则业务工具永远没有机会。
-- 模型返回业务工具后继续循环；模型返回 `persona_expression` 后立即终止，不再追加一次
+- Provider 支持“任意工具 required”时，严格 Tool Call 配置下首轮要求模型选择业务工具或
+  `persona_expression`；文本格式配置直接解析模型文本，不注册表达工具。
+- 模型返回业务工具后继续循环；模型返回结构化表达或 `persona_expression` 后立即终止，不再追加一次
   “最终表达调用”。
 - 对不支持协议工具的 Provider，沿用 Output Contract 的显式受控降级，不静默伪装成功。
-- 无工具普通消息的目标调用数是 Router 一次、Persona 一次。
+- 无工具普通消息的目标调用数是 Router 一次、Persona 一次；表达传输方式由当前配置决定。
 - `route_mode`、`personal_status` 和 `turn_outcome` 是三个独立事实；Router 较晚返回 `silent`
   时，已经送达的 Personal 保持 `turn_outcome=replied`。
 
@@ -397,7 +400,7 @@ group message
 
 实现结果：
 
-1. Persona 业务工具与 terminal `persona_expression` 由同一个 `ToolLoopAgentRunner` 驱动；当前事件存在适用 effect 时，同一请求还注册 terminal `persona_effect_batch`。
+1. Persona 业务工具与结构化表达由同一个 `ToolLoopAgentRunner` 驱动；严格 Tool Call 配置下注册 terminal `persona_expression`，当前事件存在适用 effect 时同一请求还注册 terminal `persona_effect_batch`。
 2. `persona_expression` 与 `persona_effect_batch` 只作为 Provider 可见的协议输出工具，不进入 `FunctionToolExecutor`，与业务
    工具混合返回时也不会执行任何副作用。
 3. 无工具或工具未使用时只产生一次 Persona Provider 调用；适用的 effect batch 与表达在同一响应返回。实际业务工具结果直接留在同一
@@ -508,8 +511,9 @@ group message
 2. Persona 删除 `ProviderRequest` 快照、字段差异回放和 fallback 重渲染。Hook 后请求成为该
    lifecycle 的冻结请求；fallback 只替换 Provider binding，不重跑业务 Hook，也不复制
    FunctionTool handler、Context、event 或 Future。
-3. Persona 在解析出 terminal `persona_expression` 后才触发 `OnLLMResponse` / `OnAgentDone`，
-   因此旧插件看到的是最终用户可见文本，而不是空的协议 tool-call MessageChain。
+3. Persona 在解析出结构化表达（文本格式或 terminal `persona_expression`）后才触发
+   `OnLLMResponse` / `OnAgentDone`，因此旧插件看到的是最终用户可见文本，而不是空的协议
+   tool-call MessageChain。
 4. Core 在 `OnLLMRequest` 后对最终 `func_tool` 做一次确定性重新授权，并将同一个
    `CapabilitySnapshot` 同步到 `ProviderRequest`、`MainAgentBuildResult`、
    `CoreExecutionSpec`、工具 schema slot 与预算诊断；不增加模型预判。

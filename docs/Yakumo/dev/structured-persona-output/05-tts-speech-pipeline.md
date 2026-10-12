@@ -6,7 +6,7 @@
 
 - Persona 的 `segments[].speech` 是分段用户可见文本和 TTS 输入来源。
 - 文本平台路径先按 `segments[].speech` 顺序整合成一个 Plain 文本，便于一次发送；TTS 路径保留分段，OutputController 按顺序把每个非空 speech 段交给 `synthesize_text`。
-- 一个 Persona 结果对应一个文本消息，但可以对应多个有序 TTS Record；每个音频 Record 带有 `persona_segment_index` 和 `persona_segment_count`，用于保持消费顺序和关联。
+- 一个 Persona 结果对应一个文本消息，但可以对应多个有序 TTS Record；每个音频 Record 带有 `parent_message_id`、`persona_result_id`、`persona_segment_index`、`persona_segment_count`、`message_id` 和 `tts_request_id`，用于在并发、取消和插件回调场景下保持消费顺序和关联。
 - actions、thought、tendency 和 effect_calls 不会自动拼接进 speech。
 - speech_cues、phrase_index、before、after 等外置时序结构不是 Canonical Schema；分段本身就是 TTS 的时序边界。
 - 个别 TTS Provider 会格式化自己的合成请求。例如 [MiMo TTS adapter](../../../../astrbot/core/provider/sources/mimo_tts_api_source.py) 可将 style/dialect 包成 `<style>...` 前缀加到 TTS 请求文本；这是合成请求的 Provider-specific 处理，不会反向注入 Persona 生成 Prompt，也不提供通用 speech 标签解析或清理。

@@ -8,7 +8,7 @@
 
 ### 首次登录的账号和随机密码
 
-首次启动时，WebUI 用户名通常为 `astrbot`，初始密码会随机生成并打印在启动日志中。请使用日志中的 `Initial username` 和 `Initial password` 登录，登录后会进入账号设置流程。
+首次启动时，WebUI 用户名通常为 `astrbot`，初始密码会随机生成并打印在启动日志中。请使用日志中的 `Initial username` 和 `Initial password` 登录；如果服务端要求修改初始密码，登录成功后会直接进入账号设置流程。
 
 如果需要在自动化部署中指定初始密码，可以在首次生成配置前设置环境变量 `ASTRBOT_DASHBOARD_INITIAL_PASSWORD`。密码至少 8 位，并包含大小写字母和数字。
 
@@ -27,7 +27,7 @@ sudo docker restart astrbot # 修改后需要重启容器才能生效
 
 其中第一个 `astrbot` 是容器名，如果你的容器名不同，请相应替换（可通过 `sudo docker ps` 查看容器名）。
 
-如需同时修改用户名，可以加 `--username` 参数：`sudo docker exec -it astrbot astrbot password --username <新用户名>`。
+如需同时修改用户名，可以加 `--username` 参数：`sudo docker exec -it astrbot astrbot password --username <新用户名>`。CLI 重置后的新密码可直接登录；只有服务端仍标记为首次改密时，登录后才会进入账号设置页。
 
 #### uv / pip 软件包部署
 
@@ -37,7 +37,7 @@ sudo docker restart astrbot # 修改后需要重启容器才能生效
 astrbot password
 ```
 
-如需同时修改用户名，可以加 `--username` 参数：`astrbot password --username <新用户名>`。
+如需同时修改用户名，可以加 `--username` 参数：`astrbot password --username <新用户名>`。CLI 重置后的新密码可直接登录；只有服务端仍标记为首次改密时，登录后才会进入账号设置页。
 
 然后重启 AstrBot 生效。
 

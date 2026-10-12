@@ -17,6 +17,23 @@
 - 这是 Dashboard 服务端入口
 - 也是 WebUI 和核心运行时之间的接口层
 
+### 认证与改密状态
+
+认证 API 由 `astrbot/dashboard/services/auth_service.py` 和
+`astrbot/dashboard/password_state.py` 共同维护。登录成功响应包含新的 JWT，以及
+`change_pwd_hint`、`legacy_pwd_hint`、`password_upgrade_required` 状态。需要改密时，
+前端先保存 token 和改密标记，再用 `router.replace('/auth/setup')` 进入改密页；改密成功后
+后端清除 `password_change_required` 并签发新 JWT。
+
+`dashboard/src/views/authentication/auth/SetupPage.vue` 在已有 token 且
+`change_pwd_hint=true` 时把该会话视为可继续的改密会话，即使 `setup-status` 暂时返回
+不一致或请求失败也不会立即跳回登录。`dashboard/src/main.ts` 对 Axios 和 fetch 都记录
+请求实际携带的 Bearer token；只有 401 对应当前 token 时才清理本地会话，避免登录或改密
+期间迟到的旧请求覆盖新会话。认证挑战接口本身不触发全局 401 清理。
+
+这是一条已实施的前端会话保护路径，生产构建和类型检查已通过；真实浏览器账号流程仍需
+在部署实例上验收。
+
 ## Dashboard 路由
 
 ### `astrbot/dashboard/routes/*`

@@ -195,7 +195,10 @@ class MyWorkPlugin(Star):
 可执行工具独立遵守：`plugin_capability_targets[插件名称].tools` 用户配置、工具自身
 `tool_targets` 声明、最后是 `core` 默认值。工具名称精确项优先于 `*`。只有明确解析为 `personal_expression` 的工具
 才会进入 Persona Agent 循环，普通 Persona 对话不会因为 Core 工具产生额外模型调用。Persona
-即使没有业务工具，也使用同一个 Agent 循环生成 terminal `persona_expression`；若当前事件有已注册且适用的 Persona Effect，同一响应还会包含独立的 `persona_effect_batch` terminal tool call。正常生成不会为 effect 单独请求模型；已解析 batch 中的必发 effect 校验失败时沿用现有的 effect batch 校正请求。
+即使没有业务工具，也使用同一个 Agent 循环生成结构化表达；默认返回 JSON 文本，只有显式选择
+严格 Tool Call 时才生成 terminal `persona_expression`。若当前事件有已注册且适用的 Persona Effect，
+同一响应还会包含独立的 `persona_effect_batch` terminal tool call。正常生成不会为 effect 单独请求模型；
+已解析 batch 中的必发 effect 校验失败时沿用现有的 effect batch 校正请求。
 
 WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。编辑器会列出已安装插件和
 插件工具；目标值通过固定选项限制为 `core` 或
@@ -214,7 +217,7 @@ WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。�
   其非协议修改会在同一个 Agent context 中保留到最终表达；请求钩子读取的是人格分支私有的
   `ProviderRequest`，不会覆盖 Core 共享请求；钩子收到的仍是同一个
   `AstrMessageEvent`，以兼容既有类型检查与 event extras 用法。
-- Persona Provider 同时看到明确授权的业务工具、terminal `persona_expression`，以及（仅在当前事件有适用 effect 时）terminal `persona_effect_batch`。业务工具结果直接追加到同一 Agent context，再由下一轮模型返回最终结构化结果；terminal 协议本身不进入 `FunctionToolExecutor`，也不触发工具观察 Hook。模型同时返回 terminal 与业务工具时会直接终止，不执行混合调用中的副作用。
+- Persona Provider 会看到明确授权的业务工具；只有显式选择严格 `tool_call` 表达格式时才看到 terminal `persona_expression`，当前事件存在适用 effect 时再看到独立 terminal `persona_effect_batch`。业务工具结果直接追加到同一 Agent context，再由下一轮模型返回最终结构化结果；terminal 协议本身不进入 `FunctionToolExecutor`，也不触发工具观察 Hook。模型同时返回 terminal 与业务工具时会直接终止，不执行混合调用中的副作用。
 - Persona 工具调用中，旧插件返回的 `MessageEventResult` / `CommandResult`，以及
   `event.send()`、`emit_output()`、`emit_progress()` 和发往当前会话的 `Context.send_message()`，
   都会收集为模型可见的工具材料，富媒体随最终 Persona Expression 投递。显式跨会话

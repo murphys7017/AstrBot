@@ -3,6 +3,16 @@
 > 本页保留实施时间线供追溯；下方带日期的小节是当时的历史快照，不代表现在仍未实现。
 > 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。
 
+## 2026-10-12 当前交付基线
+
+本节是结合当前 HEAD `f9fa8472b` 对源码、测试和近期运行边界的同步说明。
+
+- Persona Expression 的默认表达传输是 JSON 文本加 Prompt-only 约束；严格 `persona_expression` Tool Call 是显式配置选项。当前事件有已注册且适用的 Persona Effect 时，才额外注册独立的 `persona_effect_batch` Tool Call；它只承载 `effect_calls`，不属于表达字段，也不进入业务工具执行器。无适用 effect 时不向模型提供该工具，内部聚合结果仍保留空数组。
+- JSON、语义 XML 和语义 Markdown 都解析为同一 Canonical Persona 结果。Provider 页面可对编辑后的结构执行最多 10 次稳定性诊断；结果只供用户判断，不持久化、不自动改生产配置，也不证明 effect 双通道或真实平台链路已经通过。
+- Canonical 结果包含单值 `turn_action`、分段 `segments` 和内部聚合的 `effect_calls`。每段含 `speech`、简单动作词数组 `actions`、角色心理想法 `thought` 和 Plutchik 八维 `tendency`；情绪值为 `0..10` 整数。文本平台按顺序拼接 `segments[].speech`，TTS 保留原始分段逐段合成，并携带 `parent_message_id`、`persona_result_id`、`persona_segment_index`、`persona_segment_count`、`message_id` 与 `tts_request_id` 等关联信息。
+- TTS 厂商标签仍需由适配器在生成 Prompt 中注入并在 TTS 边界按厂商规则清理；Core 没有通用 `speech_cues` 平行字段，也不会从 `thought` 或 `tendency` 推断标签。
+- Dashboard 改密流程在登录成功后先保存新会话和 `change_pwd_hint`，再直接进入 `/auth/setup`；Setup 页面在已有有效会话且仍待改密时不会因暂时的 setup-status 不一致而退回登录。迟到的旧 token 401 也不会清理已经建立的新会话。该路径已完成前端类型检查、生产构建、产物同步和差异校验；真实账号浏览器端到端验收仍待执行。
+
 ## 现行执行器与 Prompt 边界
 
 Core 已有 Native 与 Codex CLI 执行器注册和配置选择、`ExecutorRun` 中立契约、

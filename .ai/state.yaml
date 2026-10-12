@@ -32,6 +32,30 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+full_documentation_sync_20261012:
+  date: '2026-10-12'
+  class: documentation
+  risk: low
+  status: updated_and_validated
+  scope: >-
+    Synchronize the canonical Yakumo Persona, Prompt, Provider-format, TTS,
+    plugin-output, and Dashboard-auth documentation with source code through
+    HEAD f9fa8472b, and clarify the WebUI first-login and forgotten-password
+    paths.
+  non_goals: >-
+    Do not change runtime code, rebuild or deploy assets, claim live Provider,
+    browser-account, platform, or audio acceptance, or modify the pre-existing
+    untracked .jspace/ directory.
+  verification: >-
+    Source cross-check and targeted stale-contract scans completed. Markdown
+    diff checks, state YAML parsing, and tools/validate_runtime.py passed.
+    No tests or documentation-site build were run because this change only
+    updates documentation.
+  evidence_gap: >-
+    The corrected Dashboard password-change flow still needs a real browser
+    account run; Persona format and plugin/TTS combinations still need live
+    Provider and platform acceptance.
+
 persona_response_output_formats_20261011:
   date: '2026-10-11'
   class: feature

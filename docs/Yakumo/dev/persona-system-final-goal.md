@@ -70,8 +70,10 @@ LLM 生命周期 Hook，用于避免把同一轮即时与最终表达误判为�
 
 Persona Expression 负责“怎么以这个人格表达”，不负责通用任务规划、Core 执行、平台投递或
 解释插件领域 effect。它可以调用已声明并授权给 `personal_expression` 的插件 FunctionTool，
-但所有结果仍必须由 terminal `persona_expression` 协议收口为唯一用户可见表达。静态 Persona、
-动态人格状态、对话历史和 Memory 由 Prompt 系统收集后，按 Persona target 渲染。
+但所有结果仍必须通过 Persona Expression 的 Canonical Schema 校验，并收口为唯一用户可见表达。
+Provider wire format 由输出契约决定；JSON、XML、Markdown 文本解析和显式选择的 terminal
+`persona_expression` Tool Call 都归一为同一结果类型。静态 Persona、动态人格状态、对话历史和
+Memory 由 Prompt 系统收集后，按 Persona target 渲染。
 
 ### Personal Response Plan 与 Core Planner
 
