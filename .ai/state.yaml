@@ -32,6 +32,28 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_ready_delivery_identity_fix_20261013:
+  date: '2026-10-13'
+  class: bugfix
+  risk: medium
+  scope: >-
+    Carry Persona index/count in physical delivery metadata for ready audio
+    segments and failed-TTS Plain segments, matching standard segmented TTS.
+  evidence: >-
+    User runtime log shows one Persona speech segment and successful motion
+    generation/binding, but output_motion_candidates has a missing Persona
+    index and output_segment_sent reports motion_state=absent. Source trace
+    confirms ready delivery omitted top-level Persona identity metadata.
+  validation: >-
+    One public capture-boundary smoke passed with physical-send index/count
+    assertions and ordered early flush. Scoped Ruff, diff and runtime checks
+    passed. These do not establish frontend or real audio/motion execution.
+  evidence_gap: >-
+    Backend log contains no frontend motion execution times. It cannot establish
+    the reported simultaneous playback cause. Live audio/motion recheck pending.
+  non_goals: >-
+    No frontend timing changes or host restart in this batch.
+
 persona_ready_delivery_20261013:
   date: '2026-10-13'
   class: feature

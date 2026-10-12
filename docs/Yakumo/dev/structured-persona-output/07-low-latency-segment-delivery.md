@@ -47,6 +47,9 @@ flowchart LR
   OLV 每个产物通过既有物理发送接口入队，然后 flush 本段；全部完成后才 complete 父消息。
 - 普通文本平台仍得到一次拼接文本。OLV 音频段直接使用 Record 的分段文本，不额外重复
   发送整个 Plain 回显。原始 segment_index/count 保留，空段不生成音频。
+- Record 及 TTS 失败后的 Plain 均在实际 delivery_metadata 顶层携带
+  persona_segment_index/count，不能只把索引写入物化结果或嵌套 TTS 状态。
+  插件使用这些字段选择本段动作；缺失时会拒绝使用带索引的动作。
 
 ### AG99live 边界
 

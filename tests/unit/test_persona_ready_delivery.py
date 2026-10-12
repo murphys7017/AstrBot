@@ -44,6 +44,10 @@ async def test_ready_delivery_emits_first_segment_before_second_finishes(tmp_pat
             sent.extend(message.chain)
 
         async def send_message_with_extras(self, message, **kwargs):
+            extras = kwargs["platform_extras"]
+            assert extras["persona_segment_index"] == len(sent)
+            assert extras["persona_segment_count"] == 2
+            assert extras["output_segment"]["message_id"] not in flushed
             sent.extend(message.chain)
 
         async def flush_visible_segment(self, *, message_id):

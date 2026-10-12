@@ -2743,6 +2743,14 @@ class InteractionOutputController:
                         "tts_request_id": exc.state.tts_request_id, "tts_failed": True,
                         "failure_code": exc.state.failure_code or exc.reason,
                     }
+                # Carry the Persona identity at the physical delivery boundary,
+                # as the full-message TTS path does. The materialization ledger
+                # alone is not forwarded to platform motion consumers.
+                if index is not None:
+                    component.delivery_metadata.update({
+                        "persona_segment_index": index,
+                        "persona_segment_count": segment_count,
+                    })
                 logger.debug(
                     "DIAG interaction.segment_tts_ready: turn_id=%s segment_index=%s elapsed_ms=%.2f",
                     event.get_extra("_turn_id"), index, (time.monotonic() - started) * 1000,
