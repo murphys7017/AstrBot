@@ -188,6 +188,14 @@ Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call�
 
 ## 当前限制
 
+- `DIAG request.prepare` 使用单调时钟记录人格解析、工具清单选择、准入筛选、
+  Schema 快照构建和 waiting hook 耗时，包含 turn ID、目标与数量，不记录内容。
+  waiting hook 日志另含 lifecycle ID；没有实际执行的缓存阶段不会重复计时。
+  `DIAG provider.controls` 在 Anthropic/MiniMax 与 DeepSeek 的流式及非流式 SDK 调用前，
+  按 SDK 的 extra_body 覆盖规则记录最终 thinking.type、budget_tokens、effort 和 max_tokens。
+  未发送 thinking 时标为 provider_default；该日志证明请求参数，不证明服务端内部行为。
+  两类日志均为 DEBUG，未输出 Prompt、思考正文、图片或凭据。
+
 - 构建诊断通过 `DIAG prompt.timings` 和受控 Trace 的 `prompt.timings` 记录普通/插件 Collector
   耗时、缓存命中、产物数量，以及快照合并、目标投影、Profile、树构建、Provider 渲染/重编译和
   Request Apply 耗时。时间采用单调时钟，不记录上下文值；并发 Collector 耗时不能直接相加为总耗时。

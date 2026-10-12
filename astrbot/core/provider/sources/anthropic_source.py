@@ -38,6 +38,7 @@ from astrbot.core.utils.network_utils import (
     is_connection_error,
     log_connection_failure,
 )
+from astrbot.core.utils.runtime_diagnostics import log_provider_controls
 
 from ..headers import build_conversation_headers, build_provider_headers
 from ..register import register_provider_adapter
@@ -609,6 +610,7 @@ class ProviderAnthropic(Provider):
             payloads["max_tokens"] = 65536
         self._apply_thinking_config(payloads)
         self._sanitize_assistant_messages(payloads)
+        log_provider_controls(self, payloads, extra_body, stream=False)
 
         try:
             completion = await self.client.messages.create(
@@ -725,6 +727,7 @@ class ProviderAnthropic(Provider):
             payloads["max_tokens"] = 65536
         self._apply_thinking_config(payloads)
         self._sanitize_assistant_messages(payloads)
+        log_provider_controls(self, payloads, extra_body, stream=True)
 
         async with self.client.messages.stream(
             **payloads,

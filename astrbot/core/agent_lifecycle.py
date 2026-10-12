@@ -28,6 +28,7 @@ from astrbot.core.postprocess.types import PostProcessTrigger
 from astrbot.core.prompt.render import PROMPT_APPLY_RESULT_EXTRA_KEY
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 from astrbot.core.star.star_handler import EventType
+from astrbot.core.utils.runtime_diagnostics import measure_runtime_stage
 
 _MISSING = object()
 
@@ -114,14 +115,15 @@ class AgentRequestLifecycle:
         if self._waiting_dispatched:
             return self._waiting_stopped
         self._waiting_dispatched = True
-        with self.expose_request():
-            self._waiting_stopped = bool(
-                await self.hook_dispatcher(
-                    self.event,
-                    EventType.OnWaitingLLMRequestEvent,
-                    execution_surface=self.execution_surface,
+        with measure_runtime_stage(self.event, "lifecycle.waiting_hook", lifecycle_id=self.lifecycle_id, target=self.execution_surface):
+            with self.expose_request():
+                self._waiting_stopped = bool(
+                    await self.hook_dispatcher(
+                        self.event,
+                        EventType.OnWaitingLLMRequestEvent,
+                        execution_surface=self.execution_surface,
+                    )
                 )
-            )
         return self._waiting_stopped
 
     async def dispatch_request(self) -> bool:

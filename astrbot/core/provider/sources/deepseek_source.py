@@ -11,6 +11,7 @@ from astrbot import logger
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.provider.entities import LLMResponse
+from astrbot.core.utils.runtime_diagnostics import log_provider_controls
 
 from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
@@ -547,6 +548,7 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
         conversation_id: str | None = None,
     ) -> LLMResponse:
         payloads, extra_body, tools = self._prepare_request(payloads, tools)
+        log_provider_controls(self, payloads, extra_body, stream=False)
 
         completion = await self.client.chat.completions.create(
             **payloads,
@@ -576,6 +578,7 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
         conversation_id: str | None = None,
     ) -> AsyncGenerator[LLMResponse, None]:
         payloads, extra_body, tools = self._prepare_request(payloads, tools)
+        log_provider_controls(self, payloads, extra_body, stream=True)
 
         stream = await self.client.chat.completions.create(
             **payloads,

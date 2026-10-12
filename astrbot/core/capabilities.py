@@ -22,6 +22,7 @@ from astrbot.core.plugin_runtime import (
     tool_plugin_is_selected,
     tool_supports_runtime_target,
 )
+from astrbot.core.utils.runtime_diagnostics import measure_runtime_stage
 
 if TYPE_CHECKING:
     from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -173,29 +174,31 @@ class CapabilityResolver:
                 exclude_handoff_tools=exclude_handoff_tools,
             )
 
-        if persona_selection is None:
-            persona_id, persona = await self._resolve_persona(
-                event=event,
-                plugin_context=plugin_context,
-                config=config,
-                provider_request=provider_request,
-            )
-        else:
-            persona_id, persona = persona_selection
-        tool_manager = plugin_context.get_llm_tool_manager()
-        if tool_manager is None:
-            registered_candidates: list[FunctionTool] = []
-            selection_mode = "none"
-            pre_decisions: list[CapabilityDecision] = []
-        else:
-            (
-                registered_candidates,
-                selection_mode,
-                pre_decisions,
-            ) = self._select_registered_tools(
-                tool_manager=tool_manager,
-                persona=persona,
-            )
+        with measure_runtime_stage(event, "capability.persona", target=target):
+            if persona_selection is None:
+                persona_id, persona = await self._resolve_persona(
+                    event=event,
+                    plugin_context=plugin_context,
+                    config=config,
+                    provider_request=provider_request,
+                )
+            else:
+                persona_id, persona = persona_selection
+        with measure_runtime_stage(event, "capability.inventory", target=target):
+            tool_manager = plugin_context.get_llm_tool_manager()
+            if tool_manager is None:
+                registered_candidates: list[FunctionTool] = []
+                selection_mode = "none"
+                pre_decisions: list[CapabilityDecision] = []
+            else:
+                (
+                    registered_candidates,
+                    selection_mode,
+                    pre_decisions,
+                ) = self._select_registered_tools(
+                    tool_manager=tool_manager,
+                    persona=persona,
+                )
 
         candidate_toolset = ToolSet()
         if not isinstance(request_toolset, ToolSet) or include_registered_tools:
@@ -312,32 +315,34 @@ class CapabilityResolver:
     ) -> CapabilitySnapshot:
         selected = ToolSet()
         decisions = list(pre_decisions)
-        for tool in candidates:
-            reason = self._exclusion_reason(
-                event,
-                tool,
-                target,
-                excluded_tool_names,
-                exclude_handoff_tools,
-            )
-            included = reason is None
-            decisions.append(
-                CapabilityDecision(
-                    tool_name=str(getattr(tool, "name", "") or ""),
-                    included=included,
-                    reason=reason or CAPABILITY_REASON_INCLUDED,
+        with measure_runtime_stage(event, "capability.admission", target=target, candidate_count=len(candidates)):
+            for tool in candidates:
+                reason = self._exclusion_reason(
+                    event,
+                    tool,
+                    target,
+                    excluded_tool_names,
+                    exclude_handoff_tools,
                 )
-            )
-            if included:
-                selected.add_tool(tool)
+                included = reason is None
+                decisions.append(
+                    CapabilityDecision(
+                        tool_name=str(getattr(tool, "name", "") or ""),
+                        included=included,
+                        reason=reason or CAPABILITY_REASON_INCLUDED,
+                    )
+                )
+                if included:
+                    selected.add_tool(tool)
 
-        return self._build_snapshot(
-            target=target,
-            persona_id=persona_id,
-            selection_mode=selection_mode,
-            tools=list(selected),
-            decisions=decisions,
-        )
+        with measure_runtime_stage(event, "capability.schema", target=target, selected_count=len(selected)):
+            return self._build_snapshot(
+                target=target,
+                persona_id=persona_id,
+                selection_mode=selection_mode,
+                tools=list(selected),
+                decisions=decisions,
+            )
 
     def _build_snapshot(
         self,

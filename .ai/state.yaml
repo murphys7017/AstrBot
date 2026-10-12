@@ -32,6 +32,26 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+request_preparation_controls_diagnostics_20261013:
+  date: '2026-10-13'
+  class: maintenance
+  risk: medium
+  scope: >-
+    Add content-free DEBUG timing for persona/inventory/admission/schema and
+    waiting lifecycle hook. Log final thinking/effort/max_tokens at Anthropic
+    and DeepSeek SDK boundaries, including streaming requests. Document the
+    source-reviewed per-segment readiness and ordered delivery development scope.
+  validation: >-
+    Core capability summary boundary smoke and waiting lifecycle request
+    exposure/restoration smoke passed. Scoped Ruff and diff/runtime checks.
+    SDK extra_body top-level override semantics verified from installed source.
+  evidence_gap: >-
+    No live requests or timing comparison. Diagnostics describe sent parameters,
+    not server behavior. Ordered early delivery is a proposal, not implemented.
+  non_goals: >-
+    Change thinking configuration priority, model inputs, concurrency, provider
+    requests or output lifecycle. No host restart or config mutation.
+
 local_media_ownership_release_20261013:
   date: '2026-10-13'
   class: bugfix
