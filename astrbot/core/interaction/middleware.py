@@ -36,6 +36,7 @@ from .execution_capability_summary import (
     get_core_execution_capability_summary,
 )
 from .expression_agent import (
+    PERSONA_RESULT_ID_METADATA_KEY,
     InteractionExpressionAgent,
     InteractionExpressionError,
     PersonaExpressionIntent,
@@ -1356,7 +1357,13 @@ class InteractionMiddleware:
                 InteractionFailureKind.PERSONA_EXPRESSION_FAILED,
             ):
                 return LOCAL_FAST_EXPRESSION_SILENT_RESULT
-            return LOCAL_FAST_EXPRESSION_FALLBACK_RESULT
+            return PersonaExpressionResult(
+                speech=LOCAL_FAST_EXPRESSION_FALLBACK_RESULT.speech,
+                metadata={
+                    PERSONA_RESULT_ID_METADATA_KEY: uuid.uuid4().hex,
+                    "interaction.local_fallback": True,
+                },
+            )
         try:
             return await self.persona_runtime.express_visible_reply(
                 event,
@@ -1403,7 +1410,11 @@ class InteractionMiddleware:
             InteractionFailureKind.PERSONA_EXPRESSION_FAILED,
         ):
             return LOCAL_FAST_EXPRESSION_SILENT_RESULT
-        return LOCAL_FAST_EXPRESSION_FALLBACK_RESULT
+        return await self.expression_agent.publish_local_expression(
+            event,
+            speech=LOCAL_FAST_EXPRESSION_FALLBACK_RESULT.speech,
+            request=request or PersonaExpressionRequest(),
+        )
 
     async def _materialize_inbound_media(self, event: AstrMessageEvent) -> None:
         runtime_config = self._get_runtime_config(event)

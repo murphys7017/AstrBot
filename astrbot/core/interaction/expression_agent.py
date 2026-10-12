@@ -1402,6 +1402,47 @@ def _build_expression_prompt(
 
 
 class InteractionExpressionAgent:
+    async def publish_local_expression(
+        self,
+        event: AstrMessageEvent,
+        *,
+        speech: str,
+        request: PersonaExpressionRequest,
+    ) -> PersonaExpressionResult:
+        """Notify result consumers of a fresh local reply without running an LLM."""
+        provider_request = ProviderRequest(
+            session_id=event.session_id,
+            metadata={
+                _PERSONA_EXPRESSION_INTENT_METADATA_KEY: MappingProxyType(
+                    request.intent.as_metadata()
+                ),
+                "interaction.local_fallback": True,
+            },
+        )
+        lifecycle = AgentRequestLifecycle(
+            event,
+            execution_surface=PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+            provider_request=provider_request,
+        )
+        result = PersonaExpressionResult(
+            speech=speech,
+            metadata={
+                PERSONA_RESULT_ID_METADATA_KEY: lifecycle.lifecycle_id,
+                "interaction.local_fallback": True,
+            },
+        )
+        with lifecycle.expose_request():
+            stopped = await call_event_hook(
+                event,
+                EventType.OnPersonaExpressionResultEvent,
+                result,
+                execution_surface=PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+            )
+        if stopped:
+            return PersonaExpressionResult()
+        validate_persona_expression_result(request, result)
+        return result
+
     async def generate_expression(
         self,
         event,

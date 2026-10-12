@@ -67,6 +67,59 @@ def _persona_payload(speech: str = "", **overrides):
     return payload
 
 
+@pytest.mark.asyncio
+async def test_local_expression_notifies_consumers_with_fresh_identity(monkeypatch):
+    class Event:
+        session_id = "local-fallback"
+
+        def __init__(self):
+            self._extras = {"provider_request": "original"}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    observed = []
+
+    async def consume_result(event, hook_type, result, **kwargs):
+        assert hook_type.name == "OnPersonaExpressionResultEvent"
+        assert kwargs["execution_surface"] == "personal_expression"
+        active_request = event.get_extra("provider_request")
+        assert active_request.metadata["interaction.local_fallback"] is True
+        assert active_request.metadata["interaction.persona_expression_intent"] == {
+            "kind": "reply",
+            "source": "user_message",
+            "phase": "immediate",
+        }
+        observed.append(result)
+        return False
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.call_event_hook", consume_result
+    )
+    event = Event()
+    agent = InteractionExpressionAgent()
+    request = PersonaExpressionRequest(
+        intent=PersonaExpressionIntent(source="user_message", phase="immediate")
+    )
+    first = await agent.publish_local_expression(
+        event, speech="服务暂不可用", request=request
+    )
+    second = await agent.publish_local_expression(
+        event, speech="服务暂不可用", request=request
+    )
+    assert observed == [first, second]
+    assert first.speech_segments == ("服务暂不可用",)
+    assert first.metadata["interaction.persona_result_id"]
+    assert (
+        first.metadata["interaction.persona_result_id"]
+        != second.metadata["interaction.persona_result_id"]
+    )
+    assert event.get_extra("provider_request") == "original"
+
+
 def _persona_capabilities(tools: ToolSet) -> CapabilitySnapshot:
     return CapabilitySnapshot(
         target="personal_expression",

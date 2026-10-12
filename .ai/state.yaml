@@ -32,6 +32,27 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_local_fallback_identity_20261012:
+  date: '2026-10-12'
+  class: bugfix
+  risk: medium
+  scope: >-
+    Give visible local Persona fallback replies fresh result identities and
+    notify Persona result consumers before TTS with the original expression
+    intent in an isolated request scope. Do not replay LLM lifecycle hooks.
+  non_goals: >-
+    Change text JSON parsing, provider configuration, image preprocessing, or
+    the AG99live motion failure reason merge; those issues were investigated only.
+  verification: >-
+    Persona expression, failure policy, and segmented TTS tests passed 72 cases.
+    Scoped Ruff, Python compilation, state YAML parsing, runtime validation,
+    and git diff checks passed. The original failed provider response bodies
+    were absent from available logs; local json_repair probes recovered fenced
+    and missing-comma JSON but not plain speech, and collapsed duplicate keys.
+  evidence_gap: >-
+    Live AG99live motion and TTS delivery remain unverified. Its audio/text
+    failure-reason conflict still needs a separate plugin fix.
+
 full_documentation_sync_20261012:
   date: '2026-10-12'
   class: documentation

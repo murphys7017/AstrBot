@@ -558,6 +558,12 @@ output intent、诊断和兼容投影；不能为减少 extra 数量而同时维
 
 ## Persona Expression 与 Effect 输出契约
 
+Persona Provider 全部失败后的本地错误回复也使用独立的结果实例和 `persona_result_id`。
+插件上下文可用时，Core 在 TTS 物化前通知 `OnPersonaExpressionResultEvent`，并在隔离的
+请求上下文中提供原表达的 intent 和 `interaction.local_fallback=true` 标记，供分段消费者
+建立结果与 TTS 的关联。此通知不调用回复模型，也不重放 LLM 请求或响应生命周期钩子；
+本地错误回复不生成插件 effect_calls。插件上下文不可用时只创建独立结果，不分发插件钩子。
+
 Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payload 是 JSON 文本；严格 Tool Call 是显式选择的另一种传输格式。表达通道只包含 `turn_action` 与 `segments`：
 
 ```json
