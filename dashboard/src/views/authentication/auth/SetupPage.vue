@@ -23,16 +23,26 @@ function toggleTheme() {
 
 onMounted(async () => {
   const hasToken = authStore.has_token();
+  const passwordChangePending =
+    localStorage.getItem('change_pwd_hint') === 'true';
+  const canContinuePasswordChange = hasToken && passwordChangePending;
 
   try {
     const setupStatus = await axios.get('/api/auth/setup-status');
     const setupRequired = !!setupStatus.data?.data?.setup_required;
     const canSkipDefaultPassword = !!setupStatus.data?.data?.skip_default_password_auth;
-    if (!setupRequired || (!hasToken && !canSkipDefaultPassword)) {
-      router.push('/auth/login');
+    if (
+      (!setupRequired && !canContinuePasswordChange) ||
+      (!hasToken && !canSkipDefaultPassword)
+    ) {
+      router.replace('/auth/login');
     }
-  } catch {
-    router.push('/auth/login');
+  } catch (error) {
+    if (canContinuePasswordChange) {
+      console.error('Failed to verify the required password change:', error);
+      return;
+    }
+    router.replace('/auth/login');
   }
 });
 </script>

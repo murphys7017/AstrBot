@@ -41,12 +41,13 @@ export const useAuthStore = defineStore("auth", {
         localStorage.removeItem('password_upgrade_required');
       }
 
-      const onboardingCompleted = await this.checkOnboardingCompleted();
       this.returnUrl = null;
       if (passwordWarning) {
-        router.push('/auth/setup');
+        router.replace('/auth/setup');
         return;
       }
+
+      const onboardingCompleted = await this.checkOnboardingCompleted();
       if (onboardingCompleted) {
         router.push('/dashboard/default');
       } else {

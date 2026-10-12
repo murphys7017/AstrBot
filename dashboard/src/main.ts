@@ -123,6 +123,28 @@ function isAuthChallengePath(pathname: string) {
   ].includes(pathname);
 }
 
+function getBearerToken(headers: unknown): string | null {
+  if (!headers || typeof headers !== 'object') {
+    return null;
+  }
+
+  const headerBag = headers as {
+    get?: (name: string) => unknown;
+    Authorization?: unknown;
+    authorization?: unknown;
+  };
+  const authorization =
+    typeof headerBag.get === 'function'
+      ? headerBag.get('Authorization')
+      : headerBag.Authorization || headerBag.authorization;
+  if (typeof authorization !== 'string') {
+    return null;
+  }
+
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 function redirectToLoginIfNeeded() {
   const currentRoute = getCurrentRouteForRedirect();
   if (currentRoute.startsWith('/auth/login')) {
@@ -132,7 +154,11 @@ function redirectToLoginIfNeeded() {
   window.location.hash = `/auth/login?redirect=${redirect}`;
 }
 
-function maybeHandleUnauthorized(urlLike: string, status: number) {
+function maybeHandleUnauthorized(
+  urlLike: string,
+  status: number,
+  requestToken: string | null,
+) {
   if (status !== 401) {
     return;
   }
@@ -150,6 +176,12 @@ function maybeHandleUnauthorized(urlLike: string, status: number) {
   } catch {
     return;
   }
+
+  const currentToken = localStorage.getItem('token');
+  if (currentToken && requestToken !== currentToken) {
+    return;
+  }
+
   clearStoredDashboardSession();
   redirectToLoginIfNeeded();
 }
@@ -163,7 +195,11 @@ axios.interceptors.response.use(
       requestUrl && baseURL && !/^([a-z][a-z\d+\-.]*:)?\/\//i.test(requestUrl)
         ? `${String(baseURL).replace(/\/+$/, '')}/${String(requestUrl).replace(/^\/+/, '')}`
         : requestUrl;
-    maybeHandleUnauthorized(resolvedUrl, error?.response?.status);
+    maybeHandleUnauthorized(
+      resolvedUrl,
+      error?.response?.status,
+      getBearerToken(error?.config?.headers),
+    );
     return Promise.reject(error);
   }
 );
@@ -183,6 +219,7 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     headers.set('Accept-Language', locale);
   }
   const requestInit = token || locale ? { ...init, headers } : init;
+  const requestToken = getBearerToken(headers);
   return _origFetch(input, requestInit).then((response) => {
     let requestUrl = '';
     if (typeof input === 'string') {
@@ -192,7 +229,7 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     } else {
       requestUrl = input.url;
     }
-    maybeHandleUnauthorized(requestUrl, response.status);
+    maybeHandleUnauthorized(requestUrl, response.status, requestToken);
     return response;
   });
 };
