@@ -110,3 +110,32 @@ def test_openai_schema_sorts_tools_by_name_without_mutating_toolset_order():
         "zebra",
     ]
     assert [tool.name for tool in toolset.tools] == ["zebra", "alpha", "middle"]
+
+
+def test_provider_schemas_supply_fallback_descriptions_for_undocumented_tools():
+    tool_module = load_tool_module()
+    FunctionTool = tool_module.FunctionTool
+    ToolSet = tool_module.ToolSet
+
+    toolset = ToolSet(
+        [
+            FunctionTool(
+                name="weather_lookup",
+                description="",
+                parameters={
+                    "type": "object",
+                    "properties": {"city": {"type": "string"}},
+                },
+            )
+        ]
+    )
+
+    openai_description = toolset.openai_schema()[0]["function"]["description"]
+    anthropic_description = toolset.anthropic_schema()[0]["description"]
+    google_description = toolset.google_schema()["function_declarations"][0][
+        "description"
+    ]
+
+    assert "weather_lookup" in openai_description
+    assert "city" in anthropic_description
+    assert google_description == openai_description

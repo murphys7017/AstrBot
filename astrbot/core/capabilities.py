@@ -16,6 +16,7 @@ from astrbot.core.agent.tool import (
     normalize_action_semantic_capabilities,
     normalize_semantic_capabilities,
     normalize_tool_targets,
+    tool_description_for_model,
 )
 from astrbot.core.persona_resolution import resolve_event_persona
 from astrbot.core.plugin_runtime import (
@@ -427,7 +428,7 @@ def _serialize_tool(tool: FunctionTool) -> dict[str, Any]:
     schema = ToolSet([tool]).openai_schema()
     return {
         "name": tool.name,
-        "description": tool.description,
+        "description": tool_description_for_model(tool),
         "parameters": deepcopy(tool.parameters),
         "active": bool(getattr(tool, "active", True)),
         "handler_module_path": getattr(tool, "handler_module_path", None),

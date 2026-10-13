@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
@@ -682,6 +683,24 @@ def register_llm_tool(
                 if type_name == "array":
                     arg_json_schema["items"] = {"type": sub_type_name}
             args.append(arg_json_schema)
+
+        signature = inspect.signature(awaitable)
+        documented_names = {arg["name"] for arg in args}
+        required_names = [
+            name
+            for name, parameter in signature.parameters.items()
+            if name in documented_names
+            and parameter.default is inspect.Parameter.empty
+            and parameter.kind
+            in {
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }
+        ]
+        if required_names:
+            for arg in args:
+                arg["required"] = arg["name"] in required_names
 
         if not registering_agent:
             doc_desc = docstring.description.strip() if docstring.description else ""

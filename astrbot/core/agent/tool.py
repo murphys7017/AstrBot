@@ -170,6 +170,30 @@ class FunctionTool(ToolSchema, Generic[TContext]):
         )
 
 
+def tool_description_for_model(tool: FunctionTool) -> str:
+    """Return a useful description at the provider schema boundary."""
+
+    description = str(getattr(tool, "description", "") or "").strip()
+    if description:
+        return description
+    name = str(getattr(tool, "name", "") or "").strip()
+    parameters = getattr(tool, "parameters", None)
+    properties = (
+        parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+    )
+    parameter_names = [
+        str(parameter).strip()
+        for parameter in properties
+        if str(parameter).strip()
+    ]
+    if parameter_names:
+        return (
+            f"Tool {name}. Use it only when the request matches this tool. "
+            f"Parameters: {', '.join(parameter_names)}."
+        )
+    return f"Tool {name}. Use it only when its name matches the requested operation."
+
+
 @dataclass
 class ToolSet:
     """A set of function tools that can be used in function calling.
@@ -228,7 +252,7 @@ class ToolSet:
                 FunctionTool(
                     name=tool.name,
                     parameters=light_params,
-                    description=tool.description,
+                    description=tool_description_for_model(tool),
                     handler=None,
                     execution_targets=tool.execution_targets,
                     semantic_capabilities=tool.semantic_capabilities,
@@ -252,7 +276,7 @@ class ToolSet:
                 FunctionTool(
                     name=tool.name,
                     parameters=params,
-                    description="",
+                    description=tool_description_for_model(tool),
                     handler=None,
                     execution_targets=tool.execution_targets,
                     semantic_capabilities=tool.semantic_capabilities,
@@ -308,8 +332,9 @@ class ToolSet:
          # Stable ordering preserves prompt-cache prefixes for compatible providers.
         for tool in sorted(self.tools, key=lambda tool: tool.name):
             func_def = {"type": "function", "function": {"name": tool.name}}
-            if tool.description:
-                func_def["function"]["description"] = tool.description
+            description = tool_description_for_model(tool)
+            if description:
+                func_def["function"]["description"] = description
 
             if tool.parameters is not None:
                 if (
@@ -323,14 +348,15 @@ class ToolSet:
     def anthropic_schema(self) -> list[dict]:
         """Convert tools to Anthropic API format."""
         result = []
-        for tool in self.tools:
+        for tool in sorted(self.tools, key=lambda item: item.name):
             input_schema = {"type": "object"}
             if tool.parameters:
                 input_schema["properties"] = tool.parameters.get("properties", {})
                 input_schema["required"] = tool.parameters.get("required", [])
             tool_def = {"name": tool.name, "input_schema": input_schema}
-            if tool.description:
-                tool_def["description"] = tool.description
+            description = tool_description_for_model(tool)
+            if description:
+                tool_def["description"] = description
             result.append(tool_def)
         return result
 
@@ -419,10 +445,11 @@ class ToolSet:
             return result
 
         tools = []
-        for tool in self.tools:
+        for tool in sorted(self.tools, key=lambda item: item.name):
             d: dict[str, Any] = {"name": tool.name}
-            if tool.description:
-                d["description"] = tool.description
+            description = tool_description_for_model(tool)
+            if description:
+                d["description"] = description
             if tool.parameters:
                 d["parameters"] = convert_schema(tool.parameters)
             tools.append(d)

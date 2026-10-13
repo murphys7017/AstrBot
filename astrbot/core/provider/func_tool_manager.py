@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import inspect
 import json
 import os
 import threading
@@ -312,6 +313,32 @@ class FunctionToolManager:
             p = copy.deepcopy(param)
             p.pop("name", None)
             params["properties"][param["name"]] = p
+        required = [
+            str(param["name"])
+            for param in func_args
+            if param.get("required") is True
+        ]
+        if not required:
+            try:
+                signature = inspect.signature(handler)
+            except (TypeError, ValueError):
+                signature = None
+            if signature is not None:
+                documented_names = set(params["properties"])
+                required = [
+                    name
+                    for name, parameter in signature.parameters.items()
+                    if name in documented_names
+                    and parameter.default is inspect.Parameter.empty
+                    and parameter.kind
+                    in {
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        inspect.Parameter.KEYWORD_ONLY,
+                    }
+                ]
+        if required:
+            params["required"] = required
         return FunctionTool(
             name=name,
             parameters=params,

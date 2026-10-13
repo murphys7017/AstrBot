@@ -2334,6 +2334,174 @@ async def test_follow_up_after_stop_not_merged_into_tool_result(
         assert ticket_before.resolved.is_set()
 
 
+@pytest.mark.asyncio
+async def test_tool_result_error_is_marked_for_the_next_model_turn(
+    runner, mock_hooks
+):
+    class ErrorExecutor:
+        @classmethod
+        def execute(cls, tool, run_context, **tool_args):
+            async def generator():
+                from mcp.types import CallToolResult, TextContent
+
+                yield CallToolResult(
+                    content=[TextContent(type="text", text="upstream unavailable")],
+                    isError=True,
+                )
+
+            return generator()
+
+    provider = SequentialToolProvider(["test_tool"])
+    tool = FunctionTool(
+        name="test_tool",
+        description="A test tool.",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+        handler=AsyncMock(),
+    )
+    request = ProviderRequest(
+        prompt="Use the tool",
+        func_tool=ToolSet(tools=[tool]),
+        contexts=[],
+    )
+    await runner.reset(
+        provider=provider,
+        request=request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=ErrorExecutor(),
+        agent_hooks=mock_hooks,
+        streaming=False,
+    )
+
+    async for _ in runner.step_until_done(2):
+        pass
+
+    tool_message = next(
+        message
+        for message in runner.run_context.messages
+        if getattr(message, "role", None) == "tool"
+    )
+    assert "Tool reported an error" in str(tool_message.content)
+    assert "upstream unavailable" in str(tool_message.content)
+
+
+@pytest.mark.asyncio
+async def test_invalid_local_tool_arguments_are_rejected_before_handler(
+    runner, mock_hooks
+):
+    class RecordingExecutor:
+        called = False
+
+        @classmethod
+        def execute(cls, tool, run_context, **tool_args):
+            cls.called = True
+            return MockToolExecutor.execute(tool, run_context, **tool_args)
+
+    class SingleResponseProvider(MockProvider):
+        async def text_chat(self, **kwargs):
+            self.call_count += 1
+            if self.call_count == 1:
+                return LLMResponse(
+                    role="assistant",
+                    completion_text="",
+                    tools_call_name=["test_tool"],
+                    tools_call_args=[{}],
+                    tools_call_ids=["call_invalid"],
+                )
+            return LLMResponse(
+                role="assistant",
+                completion_text="done",
+                usage=TokenUsage(input_other=1, output=1),
+            )
+
+    provider = SingleResponseProvider()
+    handler = AsyncMock()
+    tool = FunctionTool(
+        name="test_tool",
+        description="A test tool.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+        handler=handler,
+    )
+    request = ProviderRequest(
+        prompt="Use the tool",
+        func_tool=ToolSet(tools=[tool]),
+        contexts=[],
+    )
+    await runner.reset(
+        provider=provider,
+        request=request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=RecordingExecutor(),
+        agent_hooks=mock_hooks,
+        streaming=False,
+    )
+
+    async for _ in runner.step_until_done(1):
+        pass
+
+    assert RecordingExecutor.called is False
+    assert handler.await_count == 0
+    tool_message = next(
+        message
+        for message in runner.run_context.messages
+        if getattr(message, "role", None) == "tool"
+    )
+    assert "Invalid arguments" in str(tool_message.content)
+
+
+@pytest.mark.asyncio
+async def test_tool_end_hook_receives_filtered_args_after_execution_error(
+    runner,
+):
+    class RaisingExecutor:
+        @classmethod
+        def execute(cls, tool, run_context, **tool_args):
+            async def generator():
+                raise RuntimeError("executor failed")
+                yield  # pragma: no cover
+
+            return generator()
+
+    class CapturingHooks(MockHooks):
+        def __init__(self):
+            super().__init__()
+            self.end_args = None
+
+        async def on_tool_end(self, run_context, tool, tool_args, tool_result):
+            self.end_args = (tool_args, tool_result)
+
+    hooks = CapturingHooks()
+    provider = SequentialToolProvider(["test_tool"])
+    tool = FunctionTool(
+        name="test_tool",
+        description="A test tool.",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+        handler=AsyncMock(),
+    )
+    request = ProviderRequest(
+        prompt="Use the tool",
+        func_tool=ToolSet(tools=[tool]),
+        contexts=[],
+    )
+    await runner.reset(
+        provider=provider,
+        request=request,
+        run_context=ContextWrapper(context=None),
+        tool_executor=RaisingExecutor(),
+        agent_hooks=hooks,
+        streaming=False,
+    )
+
+    async for _ in runner.step_until_done(1):
+        pass
+
+    assert hooks.end_args is not None
+    assert hooks.end_args[0] == {"query": "step-1"}
+
+
 if __name__ == "__main__":
     # 运行测试
     pytest.main([__file__, "-v"])

@@ -165,7 +165,8 @@ class FunctionToolExecutor(BaseFunctionToolExecutor[AstrAgentContext]):
         )
         if permission_error is not None:
             yield mcp.types.CallToolResult(
-                content=[mcp.types.TextContent(type="text", text=permission_error)]
+                content=[mcp.types.TextContent(type="text", text=permission_error)],
+                isError=True,
             )
             return
 

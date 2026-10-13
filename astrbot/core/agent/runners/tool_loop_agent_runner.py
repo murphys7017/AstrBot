@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import jsonschema
 from mcp.types import (
     BlobResourceContents,
     CallToolResult,
@@ -1298,11 +1299,32 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 ),
             )
 
-        tool_call_batch_size = min(
-            len(llm_response.tools_call_name),
-            len(llm_response.tools_call_args),
-            len(llm_response.tools_call_ids),
-        )
+        call_count = len(llm_response.tools_call_name)
+        if not (
+            len(llm_response.tools_call_args) == call_count
+            and len(llm_response.tools_call_ids) == call_count
+        ):
+            mismatch = (
+                f"tool call arrays have inconsistent lengths: "
+                f"names={call_count}, args={len(llm_response.tools_call_args)}, "
+                f"ids={len(llm_response.tools_call_ids)}"
+            )
+            logger.error(mismatch)
+            for index, tool_name in enumerate(llm_response.tools_call_name):
+                call_id = (
+                    llm_response.tools_call_ids[index]
+                    if index < len(llm_response.tools_call_ids)
+                    else f"malformed_call_{index}"
+                )
+                _append_tool_call_result(call_id, f"error: {mismatch}")
+            self._clear_tool_call_batch_context()
+            if tool_call_result_blocks:
+                yield _HandleFunctionToolsResult.from_tool_call_result_blocks(
+                    tool_call_result_blocks
+                )
+            return
+
+        tool_call_batch_size = call_count
 
         # 执行函数调用
         for tool_call_index, (func_tool_name, func_tool_args, func_tool_id) in enumerate(zip(
@@ -1314,6 +1336,10 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             self.run_context.tool_call_batch_size = tool_call_batch_size
             tool_result_blocks_start = len(tool_call_result_blocks)
             tool_call_streak = self._track_tool_call_streak(func_tool_name)
+            func_tool: FunctionTool | None = None
+            valid_params: dict = {}
+            _final_resp: CallToolResult | None = None
+            tool_started = False
             yield _HandleFunctionToolsResult.from_message_chain(
                 MessageChain(
                     type="tool_call",
@@ -1402,6 +1428,20 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     # 如果没有 handler（如 MCP 工具），使用所有参数
                     valid_params = func_tool_args
 
+                if func_tool.handler:
+                    validation_error = self._validate_local_tool_parameters(
+                        func_tool,
+                        valid_params,
+                    )
+                    if validation_error is not None:
+                        _append_tool_call_result(
+                            func_tool_id,
+                            f"error: Invalid arguments for tool {func_tool_name}: "
+                            f"{validation_error}",
+                        )
+                        continue
+
+                tool_started = True
                 try:
                     await self.agent_hooks.on_tool_start(
                         self.run_context,
@@ -1417,15 +1457,19 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     **valid_params,  # 只传递有效的参数
                 )
 
-                _final_resp: CallToolResult | None = None
                 async for resp in self._iter_tool_results_with_deadline(executor):  # type: ignore
                     if isinstance(resp, CallToolResult):
                         res = resp
                         _final_resp = resp
+                        result_prefix = (
+                            "error: Tool reported an error: "
+                            if bool(res.isError)
+                            else ""
+                        )
                         if not res.content:
                             _append_tool_call_result(
                                 func_tool_id,
-                                "The tool returned no content.",
+                                result_prefix + "The tool returned no content.",
                             )
                             continue
 
@@ -1489,7 +1533,8 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                             )
                             _append_tool_call_result(
                                 func_tool_id,
-                                inline_result
+                                result_prefix
+                                + inline_result
                                 + self._build_repeated_tool_call_guidance(
                                     func_tool_name, tool_call_streak
                                 ),
@@ -1524,15 +1569,6 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                             ),
                         )
 
-                try:
-                    await self.agent_hooks.on_tool_end(
-                        self.run_context,
-                        func_tool,
-                        func_tool_args,
-                        _final_resp,
-                    )
-                except Exception as e:
-                    logger.error(f"Error in on_tool_end hook: {e}", exc_info=True)
             except TurnDeadlineExceeded:
                 raise
             except Exception as e:
@@ -1546,6 +1582,17 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                         func_tool_name, tool_call_streak
                     ),
                 )
+            finally:
+                if tool_started:
+                    try:
+                        await self.agent_hooks.on_tool_end(
+                            self.run_context,
+                            func_tool,
+                            valid_params,
+                            _final_resp,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error in on_tool_end hook: {e}", exc_info=True)
 
             if len(tool_call_result_blocks) > tool_result_blocks_start:
                 tool_result_content = str(tool_call_result_blocks[-1].content)
@@ -1575,6 +1622,25 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             yield _HandleFunctionToolsResult.from_tool_call_result_blocks(
                 tool_call_result_blocks
             )
+
+    @staticmethod
+    def _validate_local_tool_parameters(
+        tool: FunctionTool,
+        params: dict,
+    ) -> str | None:
+        schema = tool.parameters
+        if not isinstance(schema, dict) or not schema:
+            return None
+        errors = sorted(
+            jsonschema.Draft202012Validator(schema).iter_errors(params),
+            key=lambda error: list(error.path),
+        )
+        if not errors:
+            return None
+        error = errors[0]
+        path = ".".join(str(part) for part in error.path)
+        location = f"{path}: " if path else ""
+        return f"{location}{error.message}"
 
     def _build_tool_requery_context(
         self,
