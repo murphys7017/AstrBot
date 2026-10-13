@@ -749,24 +749,6 @@ class BaseDatabase(abc.ABC):
         """Delete conflict records."""
         ...
 
-    # @abc.abstractmethod
-    # async def insert_llm_message(
-    #     self,
-    #     cid: str,
-    #     role: str,
-    #     content: list,
-    #     tool_calls: list = None,
-    #     tool_call_id: str = None,
-    #     parent_id: str = None,
-    # ) -> LLMMessage:
-    #     """Insert a new LLM message into the conversation."""
-    #     ...
-
-    # @abc.abstractmethod
-    # async def get_llm_messages(self, cid: str) -> list[LLMMessage]:
-    #     """Get all LLM messages for a specific conversation."""
-    #     ...
-
     @abc.abstractmethod
     async def get_session_conversations(
         self,

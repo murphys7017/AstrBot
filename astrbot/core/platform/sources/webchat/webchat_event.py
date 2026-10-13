@@ -259,18 +259,6 @@ class WebChatMessageEvent(AstrMessageEvent):
                 await web_chat_back_queue.put(payload)
                 continue
 
-            # if chain.type == "break" and final_data:
-            #     # 分割符
-            #     await web_chat_back_queue.put(
-            #         {
-            #             "type": "break",  # break means a segment end
-            #             "data": final_data,
-            #             "streaming": True,
-            #         },
-            #     )
-            #     final_data = ""
-            #     continue
-
             r = await WebChatMessageEvent._send(
                 message_id=message_id,
                 message=chain,

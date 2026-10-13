@@ -1852,7 +1852,6 @@ class PluginService(DashboardService):
                 ignore_version_check=ignore_version_check,
                 download_url=download_url,
             )
-            # self.core_lifecycle.restart()
             await self._sync_skills_after_plugin_change()
             logger.info(f"安装插件 {repo_url} 成功。")
             return Response().ok(plugin_info, "安装成功。").__dict__
@@ -1895,7 +1894,6 @@ class PluginService(DashboardService):
                 file_path,
                 ignore_version_check=ignore_version_check,
             )
-            # self.core_lifecycle.restart()
             await self._sync_skills_after_plugin_change()
             logger.info(f"安装插件 {file.filename} 成功")
             return Response().ok(plugin_info, "安装成功。").__dict__
