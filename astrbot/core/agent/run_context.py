@@ -19,6 +19,11 @@ class ContextWrapper(Generic[TContext]):
     tool_call_timeout: int = 120  # Default tool call timeout in seconds
     tool_execution_surface: str = "core"
     """Execution surface currently running this tool loop."""
+    # Position metadata for one model response's tool-call batch.  The runner
+    # updates these fields before lifecycle hooks so progress observers can
+    # distinguish an intermediate result from the end of the batch.
+    tool_call_batch_index: int | None = None
+    tool_call_batch_size: int | None = None
 
 
 NoContext = ContextWrapper[None]

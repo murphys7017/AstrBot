@@ -887,6 +887,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         """
         if not self.req:
             raise ValueError(REQUEST_NOT_SET_MESSAGE)
+        self._clear_tool_call_batch_context()
 
         if self._step_budget_max is not None:
             self._step_budget_used += 1
@@ -1133,6 +1134,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                             data=AgentResponseData(chain=chain),
                         )
             except _ToolExecutionInterrupted:
+                self._clear_tool_call_batch_context()
                 yield await self._finalize_aborted_step(llm_resp)
                 return
 
@@ -1240,6 +1242,10 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         self._step_budget_used = 0
         self._step_budget_notified = set()
 
+    def _clear_tool_call_batch_context(self) -> None:
+        self.run_context.tool_call_batch_index = None
+        self.run_context.tool_call_batch_size = None
+
     async def step_until_done(
         self, max_step: int
     ) -> T.AsyncGenerator[AgentResponse, None]:
@@ -1292,12 +1298,20 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 ),
             )
 
+        tool_call_batch_size = min(
+            len(llm_response.tools_call_name),
+            len(llm_response.tools_call_args),
+            len(llm_response.tools_call_ids),
+        )
+
         # 执行函数调用
-        for func_tool_name, func_tool_args, func_tool_id in zip(
+        for tool_call_index, (func_tool_name, func_tool_args, func_tool_id) in enumerate(zip(
             llm_response.tools_call_name,
             llm_response.tools_call_args,
             llm_response.tools_call_ids,
-        ):
+        )):
+            self.run_context.tool_call_batch_index = tool_call_index
+            self.run_context.tool_call_batch_size = tool_call_batch_size
             tool_result_blocks_start = len(tool_call_result_blocks)
             tool_call_streak = self._track_tool_call_streak(func_tool_name)
             yield _HandleFunctionToolsResult.from_message_chain(
@@ -1556,6 +1570,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 )
 
         # 处理函数调用响应
+        self._clear_tool_call_batch_context()
         if tool_call_result_blocks:
             yield _HandleFunctionToolsResult.from_tool_call_result_blocks(
                 tool_call_result_blocks

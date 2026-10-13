@@ -385,7 +385,61 @@ async def test_tool_stage_observer_coalesces_same_stage_within_one_turn():
             event,
             descriptor="资料检索",
             phase="completed",
+            tool_name="web_search",
+            tool_result=None,
+            batch_index=None,
+            batch_size=None,
         )
+    finally:
+        await turn_state.execution_scope.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_stage_observer_defers_intermediate_serial_batch_result():
+    class Event:
+        def __init__(self):
+            self._extras = {}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "test"
+
+        def is_stopped(self):
+            return False
+
+    event = Event()
+    turn_state = ensure_interaction_turn_state(event)
+    controller = InteractionOutputController()
+    controller._observe_tool_stage = AsyncMock(return_value=True)
+    first_tool = FunctionTool(
+        name="web_search",
+        description="Search current web sources.",
+        parameters={"type": "object", "properties": {}},
+    )
+    second_tool = FunctionTool(
+        name="web_search_tavily",
+        description="Search current web sources.",
+        parameters={"type": "object", "properties": {}},
+    )
+
+    try:
+        event.set_extra("_interaction_tool_batch_index", 0)
+        event.set_extra("_interaction_tool_batch_size", 2)
+        await controller.observe_core_tool_start(event, first_tool, {})
+        await controller.observe_core_tool_end(event, first_tool, {}, None)
+        controller._observe_tool_stage.assert_not_awaited()
+
+        event.set_extra("_interaction_tool_batch_index", 1)
+        await controller.observe_core_tool_start(event, second_tool, {})
+        await controller.observe_core_tool_end(event, second_tool, {}, None)
+        controller._observe_tool_stage.assert_awaited_once()
+        assert controller._observe_tool_stage.await_args.kwargs["batch_index"] == 1
+        assert controller._observe_tool_stage.await_args.kwargs["batch_size"] == 2
     finally:
         await turn_state.execution_scope.close()
 

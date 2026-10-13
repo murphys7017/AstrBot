@@ -1399,6 +1399,9 @@ class InteractionOutputController:
             "tool": tool,
             "descriptor": descriptor,
             "emitted": False,
+            "tool_name": str(getattr(tool, "name", "") or "").strip(),
+            "batch_index": event.get_extra("_interaction_tool_batch_index"),
+            "batch_size": event.get_extra("_interaction_tool_batch_size"),
         }
         records = get_interaction_turn_tool_stage_observation_records(event)
         records.append(record)
@@ -1421,6 +1424,17 @@ class InteractionOutputController:
                 event,
                 descriptor=descriptor,
                 phase="running",
+                tool_name=str(record.get("tool_name", "") or ""),
+                batch_index=(
+                    record.get("batch_index")
+                    if isinstance(record.get("batch_index"), int)
+                    else None
+                ),
+                batch_size=(
+                    record.get("batch_size")
+                    if isinstance(record.get("batch_size"), int)
+                    else None
+                ),
             )
             record["emitted"] = emitted
             stage_state["running_emitted"] = emitted
@@ -1441,7 +1455,7 @@ class InteractionOutputController:
         tool_args: dict | None,
         _tool_result: Any = None,
     ) -> None:
-        """Emit one completion-stage update without exposing a tool's raw result."""
+        """Emit one bounded completion update for the final call in a tool batch."""
         records = get_interaction_turn_tool_stage_observation_records(event)
         record = next(
             (item for item in reversed(records) if item.get("tool") is tool), None
@@ -1458,6 +1472,17 @@ class InteractionOutputController:
             or record.get("stage_attempt_started")
             or not self._tool_stage_observation_allowed(event)
         ):
+            return
+        batch_index = record.get("batch_index")
+        batch_size = record.get("batch_size")
+        if (
+            isinstance(batch_index, int)
+            and isinstance(batch_size, int)
+            and batch_size > 1
+            and batch_index < batch_size - 1
+        ):
+            # ToolLoopAgentRunner executes one model response's tool calls
+            # serially. The final call in the batch owns the completion update.
             return
         if any(
             item.get("descriptor") == record.get("descriptor") for item in records
@@ -1476,6 +1501,10 @@ class InteractionOutputController:
             event,
             descriptor=str(record["descriptor"]),
             phase="completed",
+            tool_name=str(record.get("tool_name", "") or ""),
+            tool_result=_tool_result,
+            batch_index=batch_index if isinstance(batch_index, int) else None,
+            batch_size=batch_size if isinstance(batch_size, int) else None,
         )
         stage_state["completed_emitted"] = True
 
@@ -1543,25 +1572,45 @@ class InteractionOutputController:
         *,
         descriptor: str,
         phase: str,
+        tool_name: str = "",
+        tool_result: Any = None,
+        batch_index: int | None = None,
+        batch_size: int | None = None,
     ) -> bool:
         if not self._tool_stage_observation_allowed(event):
             return False
+        result_summary = self._summarize_tool_result(tool_result)
+        batch_summary = self._format_tool_batch_summary(
+            batch_index=batch_index,
+            batch_size=batch_size,
+        )
         if phase == "running":
             source_text = (
-                f"单个{descriptor}步骤仍在处理中。只简短告知用户仍在处理，"
-                "不要猜测或转述任何工具结果。"
+                f"工具 {tool_name or descriptor} 正在处理当前任务。"
+                "只简短告知用户仍在处理，不要猜测或转述尚未返回的工具结果。"
             )
         else:
             source_text = (
-                f"单个{descriptor}步骤已经结束；这不代表其他检索、工具步骤或整个任务已经完成。"
-                "只简短告知用户正在继续整理，不要转述工具原始内容。"
+                f"工具 {tool_name or descriptor} 已返回当前回执。"
+                "这不等于任务阶段或整个任务完成；请根据当前材料说明正在核对、整理或继续处理。"
             )
+        progress_context = "\n".join(
+            item
+            for item in (
+                f"工具名称：{tool_name}" if tool_name else "",
+                f"工具类别：{descriptor}",
+                batch_summary,
+                f"当前工具回执：{result_summary}" if phase == "completed" else "",
+            )
+            if item
+        )
         decision = await self._decide_stream_interjection(
             event,
             observed_text=source_text,
             total_text=get_interaction_turn_stream_text(event),
             window_index=get_interaction_turn_stream_observation_count(event) + 1,
             source_text=source_text,
+            progress_context=progress_context,
             observation_kind="tool_stage",
             progress_stage=f"tool_{phase}",
             metadata={"tool_stage": descriptor, "tool_phase": phase},
@@ -1606,6 +1655,7 @@ class InteractionOutputController:
         window_index: int,
         is_final: bool = False,
         source_text: str = "",
+        progress_context: str = "",
         observation_kind: str = "stream_text",
         progress_stage: str = "stream_text",
         metadata: Mapping[str, Any] | None = None,
@@ -1629,6 +1679,7 @@ class InteractionOutputController:
             return await self._render_stream_interjection_via_persona(
                 event,
                 source_text=(decision.reply or source_text).strip(),
+                progress_context=progress_context,
                 observed_text=observed_text,
                 total_text=total_text,
                 window_index=window_index,
@@ -1640,6 +1691,7 @@ class InteractionOutputController:
         return await self._render_stream_interjection_via_persona(
             event,
             source_text=source_text,
+            progress_context=progress_context,
             observed_text=observed_text,
             total_text=total_text,
             window_index=window_index,
@@ -1653,6 +1705,7 @@ class InteractionOutputController:
         event: AstrMessageEvent,
         *,
         source_text: str = "",
+        progress_context: str = "",
         observed_text: str,
         total_text: str,
         window_index: int,
@@ -1672,6 +1725,7 @@ class InteractionOutputController:
                 event,
                 PersonaExpressionRequest(
                     source_text=source_text,
+                    progress_context=progress_context,
                     observed_text=observed_text,
                     total_text=total_text,
                     pending_text=get_interaction_turn_stream_pending_text(event),
@@ -1719,6 +1773,53 @@ class InteractionOutputController:
             reply=reply or None,
             reason=reason,
         )
+
+    @staticmethod
+    def _summarize_tool_result(tool_result: Any) -> str:
+        if tool_result is None:
+            return "工具没有提供可读的结构化回执；不要据此断言来源为空。"
+        content = getattr(tool_result, "content", None)
+        if not content:
+            return "工具返回空内容。"
+        parts: list[str] = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if text:
+                parts.append(str(text))
+                continue
+            resource = getattr(item, "resource", None)
+            resource_text = getattr(resource, "text", None)
+            if resource_text:
+                parts.append(str(resource_text))
+                continue
+            parts.append(f"[{type(item).__name__}]")
+        summary = "\n\n".join(part.strip() for part in parts if part.strip())
+        if not summary:
+            return "工具返回了非文本内容。"
+        if bool(getattr(tool_result, "isError", False)):
+            summary = f"工具明确报告错误：{summary}"
+        return summary if len(summary) <= 1200 else f"{summary[:1197].rstrip()}..."
+
+    @staticmethod
+    def _format_tool_batch_summary(
+        *,
+        batch_index: int | None,
+        batch_size: int | None,
+    ) -> str:
+        if (
+            isinstance(batch_index, int)
+            and isinstance(batch_size, int)
+            and batch_size > 0
+        ):
+            return (
+                f"本轮模型工具调用批次：第 {batch_index + 1} 个，共 {batch_size} 个；"
+                + (
+                    "这是本批最后一个工具回执。"
+                    if batch_index == batch_size - 1
+                    else "本批仍有后续工具调用。"
+                )
+            )
+        return "工具调用批次信息不可用；不要推断任务步骤已经完成。"
 
     async def _collect_stream_interjection_from_plugins(
         self,

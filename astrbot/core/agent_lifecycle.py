@@ -222,6 +222,8 @@ class AgentRequestLifecycle:
         self,
         tool: FunctionTool,
         tool_args: dict | None,
+        *,
+        run_context: ContextWrapper | None = None,
     ) -> None:
         self.tool_execution_count += 1
         with self.expose_request():
@@ -232,13 +234,22 @@ class AgentRequestLifecycle:
                 tool_args,
                 execution_surface=self.execution_surface,
             )
-        await self._notify_interaction_tool_stage("start", tool, tool_args)
+        await self._notify_interaction_tool_stage(
+            "start",
+            tool,
+            tool_args,
+            batch_context=self._tool_batch_context(run_context)
+            if run_context is not None
+            else None,
+        )
 
     async def dispatch_tool_end(
         self,
         tool: FunctionTool,
         tool_args: dict | None,
         tool_result,
+        *,
+        run_context: ContextWrapper | None = None,
     ) -> None:
         with self.expose_request():
             self.event.clear_result()
@@ -250,7 +261,22 @@ class AgentRequestLifecycle:
                 tool_result,
                 execution_surface=self.execution_surface,
             )
-        await self._notify_interaction_tool_stage("end", tool, tool_args, tool_result)
+        await self._notify_interaction_tool_stage(
+            "end",
+            tool,
+            tool_args,
+            tool_result,
+            batch_context=self._tool_batch_context(run_context)
+            if run_context is not None
+            else None,
+        )
+
+    @staticmethod
+    def _tool_batch_context(run_context: ContextWrapper) -> dict[str, object]:
+        return {
+            "batch_index": getattr(run_context, "tool_call_batch_index", None),
+            "batch_size": getattr(run_context, "tool_call_batch_size", None),
+        }
 
     async def _notify_interaction_tool_stage(
         self,
@@ -258,6 +284,8 @@ class AgentRequestLifecycle:
         tool: FunctionTool,
         tool_args: dict | None,
         tool_result=None,
+        *,
+        batch_context: dict[str, object] | None = None,
     ) -> None:
         """Bridge Core tool lifecycle into Interaction without runner coupling."""
         if self.execution_surface != TOOL_TARGET_CORE:
@@ -266,6 +294,16 @@ class AgentRequestLifecycle:
         callback = getattr(controller, f"observe_core_tool_{phase}", None)
         if not callable(callback):
             return
+        batch_context = batch_context or {}
+        context_keys = {
+            "_interaction_tool_batch_index": batch_context.get("batch_index"),
+            "_interaction_tool_batch_size": batch_context.get("batch_size"),
+        }
+        previous_values = {
+            key: self.event.get_extra(key, _MISSING) for key in context_keys
+        }
+        for key, value in context_keys.items():
+            self.event.set_extra(key, value)
         try:
             await callback(self.event, tool, tool_args, tool_result)
         except Exception:  # Progress feedback must never affect tool execution.
@@ -275,6 +313,9 @@ class AgentRequestLifecycle:
                 getattr(tool, "name", "<unknown>"),
                 exc_info=True,
             )
+        finally:
+            for key, previous in previous_values.items():
+                self._restore_extra(key, previous)
 
     def _restore_extra(self, key: str, previous: object) -> None:
         overlay = get_active_agent_lifecycle(self.event)
@@ -351,8 +392,11 @@ class AgentRequestLifecycleHooks(BaseAgentRunHooks):
         tool: FunctionTool,
         tool_args: dict | None,
     ) -> None:
-        del run_context
-        await self.lifecycle.dispatch_tool_start(tool, tool_args)
+        await self.lifecycle.dispatch_tool_start(
+            tool,
+            tool_args,
+            run_context=run_context,
+        )
 
     async def on_tool_end(
         self,
@@ -361,8 +405,12 @@ class AgentRequestLifecycleHooks(BaseAgentRunHooks):
         tool_args: dict | None,
         tool_result,
     ) -> None:
-        del run_context
-        await self.lifecycle.dispatch_tool_end(tool, tool_args, tool_result)
+        await self.lifecycle.dispatch_tool_end(
+            tool,
+            tool_args,
+            tool_result,
+            run_context=run_context,
+        )
 
 
 __all__ = ["AgentRequestLifecycle", "AgentRequestLifecycleHooks"]

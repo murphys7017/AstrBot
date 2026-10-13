@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 
 _PERSONA_PROGRESS_TEXT_MAX_CHARS = 480
+_PERSONA_PROGRESS_CONTEXT_MAX_CHARS = 1200
 _PERSONA_PROGRESS_ACKNOWLEDGEMENT_MAX_CHARS = 240
 _PERSONA_PROACTIVE_TEXT_MAX_CHARS = 1000
 
@@ -49,6 +50,9 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
             "phase": str(getattr(intent, "phase", "standalone") or "standalone"),
             "source": str(getattr(intent, "source", "direct") or "direct"),
             "source_text": str(getattr(request, "source_text", "") or "").strip(),
+            "progress_context": str(
+                getattr(request, "progress_context", "") or ""
+            ).strip(),
             "immediate_reply": str(
                 getattr(request, "immediate_reply", "") or ""
             ).strip(),
@@ -71,6 +75,10 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                 "phase": payload["phase"],
                 "source": payload["source"],
                 "progress_stage": payload["progress_stage"],
+                "progress_context": _truncate_phase_local_text(
+                    payload["progress_context"],
+                    max_chars=_PERSONA_PROGRESS_CONTEXT_MAX_CHARS,
+                ),
                 "observed_text": _truncate_phase_local_text(
                     payload["observed_text"],
                     max_chars=_PERSONA_PROGRESS_TEXT_MAX_CHARS,

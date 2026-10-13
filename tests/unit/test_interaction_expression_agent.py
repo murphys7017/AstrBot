@@ -902,6 +902,26 @@ async def test_progress_visible_reply_material_excludes_old_results_and_bounds_s
 
 
 @pytest.mark.asyncio
+async def test_progress_visible_reply_material_includes_current_tool_material():
+    event = AstrMessageEvent.__new__(AstrMessageEvent)
+    event._extras = {}
+    slots = await PersonaVisibleReplyCollector(
+        PersonaExpressionRequest(
+            progress_context="工具名称：web_search\n当前工具回执：石家庄 20/11℃",
+            progress_stage="tool_completed",
+            intent=PersonaExpressionIntent(kind="interjection"),
+        )
+    ).collect(event, None, None)
+
+    material = next(
+        slot for slot in slots if slot.name == "input.visible_reply_material"
+    )
+    assert material.value["progress_context"] == (
+        "工具名称：web_search\n当前工具回执：石家庄 20/11℃"
+    )
+
+
+@pytest.mark.asyncio
 async def test_core_visible_reply_material_preserves_immediate_reply_context():
     request = PersonaExpressionRequest.core_final(
         "核心天气结果",
@@ -960,7 +980,8 @@ def test_persona_progress_prompt_keeps_single_tool_completion_local():
         )
     )
 
-    assert "单个步骤已结束" in prompt
+    assert "收到工具回执" in prompt
+    assert "第一步完成" in prompt
     assert "所有来源、所有检索或整个任务已经完成" in prompt
 
 
