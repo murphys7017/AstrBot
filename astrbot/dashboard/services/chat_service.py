@@ -24,9 +24,9 @@ from astrbot.core.platform.sources.webchat.webchat_queue_mgr import webchat_queu
 from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.core.utils.datetime_utils import generate_timestamp_id, to_utc_isoformat
+from astrbot.core.utils.upload import UploadTooLargeError
 from astrbot.dashboard.asgi_runtime import AdapterResponse as QuartResponse
 from astrbot.dashboard.asgi_runtime import g, make_response, request, send_file
-from astrbot.core.utils.upload import UploadTooLargeError
 
 from .base import DashboardService, Response, ServiceContext
 from .chunked_upload_service import ChunkedUploadService

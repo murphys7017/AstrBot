@@ -23,8 +23,8 @@ from astrbot.core.utils.astrbot_path import (
     get_astrbot_backups_path,
     get_astrbot_data_path,
 )
-from astrbot.dashboard.asgi_runtime import g, request, send_file
 from astrbot.core.utils.upload import UploadTooLargeError
+from astrbot.dashboard.asgi_runtime import g, request, send_file
 from astrbot.dashboard.password_state import is_dashboard_auth_version_current
 
 from .auth_service import DASHBOARD_JWT_COOKIE_NAME
@@ -430,7 +430,7 @@ class BackupService(DashboardService):
             zip_path = os.path.join(self.backup_dir, unique_filename)
             try:
                 await file.save(zip_path, max_bytes=MAX_BACKUP_UPLOAD_BYTES)
-            except UploadTooLargeError as exc:
+            except UploadTooLargeError:
                 return Response().error(
                     f"备份文件过大，限制为 {MAX_BACKUP_UPLOAD_BYTES // (1024 * 1024)} MiB"
                 ).__dict__
@@ -606,7 +606,7 @@ class BackupService(DashboardService):
                         f"分片大小不匹配：收到 {written} 字节，应为 {expected_size} 字节"
                     )
                 os.replace(temp_path, chunk_path)
-            except UploadTooLargeError as exc:
+            except UploadTooLargeError:
                 Path(temp_path).unlink(missing_ok=True)
                 return Response().error("分片超过 1 MiB 限制").__dict__
             except Exception:
