@@ -13,10 +13,7 @@ from copy import deepcopy
 from typing import Any, Literal
 
 from astrbot.core import logger
-from astrbot.core.capabilities import (
-    CapabilityResolver,
-    CapabilitySnapshot,
-)
+from astrbot.core.capabilities import CapabilitySnapshot
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.plugin_admission import build_plugin_admission_snapshot
 from astrbot.core.star.context import Context
@@ -64,29 +61,6 @@ _CONTROL_PLANE_COLLECTOR_MODULE_PREFIXES = (
     "astrbot.core.",
     "astrbot.builtin_stars.",
 )
-
-
-async def resolve_toolset_for_target(
-    *,
-    event: AstrMessageEvent,
-    plugin_context: Context,
-    config,
-    target: str,
-    provider_request=None,
-):
-    """Compatibility wrapper around the runtime capability owner."""
-    capabilities = await CapabilityResolver().resolve(
-        event=event,
-        plugin_context=plugin_context,
-        config=config,
-        target=target,
-        provider_request=provider_request,
-    )
-    return (
-        capabilities.persona_id,
-        capabilities.to_toolset(),
-        capabilities.selection_mode,
-    )
 
 
 def _default_collectors(
