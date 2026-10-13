@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import random
+import re
 import time
 import uuid
 from pathlib import Path
@@ -501,7 +502,6 @@ class QQOfficialPlatformAdapter(Platform):
         """
         import base64
         import json
-        import re
 
         def replace_face(match):
             face_tag = match.group(0)
