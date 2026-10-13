@@ -881,6 +881,24 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             for tool_name in llm_resp.tools_call_name
         ]
 
+    @staticmethod
+    def _normalize_tool_call_shape(llm_resp: LLMResponse) -> None:
+        names = list(llm_resp.tools_call_name or [])
+        args = list(llm_resp.tools_call_args or [])
+        ids = list(llm_resp.tools_call_ids or [])
+        if len(names) == len(args) == len(ids):
+            return
+        logger.error(
+            "Malformed provider tool-call response: names=%s args=%s ids=%s",
+            len(names),
+            len(args),
+            len(ids),
+        )
+        llm_resp.tools_call_name = []
+        llm_resp.tools_call_args = []
+        llm_resp.tools_call_ids = []
+        llm_resp.completion_text = "工具调用协议返回不完整，未执行任何工具。请重新尝试。"
+
     @override
     async def step(self):
         """Process a single step of the agent.
@@ -988,6 +1006,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
 
         # 处理 LLM 响应
         llm_resp = llm_resp_result
+        self._normalize_tool_call_shape(llm_resp)
 
         if llm_resp.role == "err":
             # 如果 LLM 响应错误，转换到错误状态
@@ -1575,6 +1594,15 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 if isinstance(e, _ToolExecutionInterrupted):
                     raise
                 logger.warning(traceback.format_exc())
+                _final_resp = CallToolResult(
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"Tool execution failed: {e!s}",
+                        )
+                    ],
+                    isError=True,
+                )
                 _append_tool_call_result(
                     func_tool_id,
                     f"error: {e!s}"

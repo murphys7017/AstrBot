@@ -79,6 +79,30 @@ def test_get_builtin_tool_by_class_returns_cached_instance():
     assert tool_by_class.name == "send_message_to_user"
 
 
+def test_spec_to_func_preserves_required_parameters_at_object_level():
+    manager = FunctionToolManager()
+
+    async def handler(_event, query: str):
+        return query
+
+    tool = manager.spec_to_func(
+        "lookup",
+        [
+            {
+                "name": "query",
+                "type": "string",
+                "description": "Search query.",
+                "required": True,
+            }
+        ],
+        "Look up information.",
+        handler,
+    )
+
+    assert tool.parameters["required"] == ["query"]
+    assert "required" not in tool.parameters["properties"]["query"]
+
+
 def test_builtin_tool_ignores_inactivated_llm_tools():
     manager = FunctionToolManager()
     sp.put(

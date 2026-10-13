@@ -309,9 +309,12 @@ class FunctionToolManager:
             "type": "object",  # hard-coded here
             "properties": {},
         }
+        required: list[str] = []
         for param in func_args:
             p = copy.deepcopy(param)
             p.pop("name", None)
+            if p.pop("required", False) is True:
+                required.append(str(param["name"]))
             params["properties"][param["name"]] = p
         required = [
             str(param["name"])
