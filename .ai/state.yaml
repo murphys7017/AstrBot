@@ -32,6 +32,35 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+persona_rewrite_and_motion_failure_review_20261013:
+  date: '2026-10-13'
+  class: bugfix
+  risk: high
+  scope: >-
+    Remove proportional projection of rewritten Persona speech. Unchanged text
+    and prefix truncation retain original boundaries; arbitrary whole-speech
+    rewrites are ignored with persona_text_rewrite_requires_segment_boundaries,
+    preserving the original reply in legacy response hooks and Persona result
+    text overrides unless the contributor supplies an exact per-segment text
+    projection. AG99live hidden-markup cleanup supplies that projection.
+    AG99live separately preserves deferred-motion expectation and indexed
+    failure results.
+  validation: >-
+    Public Persona replacement/truncation and explicit projection smoke checks
+    passed. AG99 finalizer and timeout/missing-work output-envelope checks
+    passed. Scoped Ruff, diff, runtime, syntax and state YAML checks passed.
+  evidence_gap: >-
+    No live failure/rewrite acceptance. Arbitrary whole-text rewrites without an
+    exact segment projection are ignored. A contributor supplying segment text
+    must preserve its action semantics or regenerate actions; semantic action
+    regeneration is not implemented. No host restart or commit.
+  review_only: >-
+    Current state motion observation DB has 14 curve requests and 14 not-ready
+    skips in the seven latest segmented turns. Suggest disabling optional curve
+    LLM requests in segmented mode; configuration is unchanged. Motion Prompt
+    retains dialogue/memory/examples/history; stable capability projection and
+    once-per-turn system serialization are candidates, not implemented.
+
 persona_action_segmentation_fix_20261013:
   date: '2026-10-13'
   class: bugfix

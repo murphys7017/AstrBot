@@ -49,6 +49,7 @@ from .contributors import (
 from .core_bridge import get_interaction_route_decision
 from .expression_agent import (
     PERSONA_RESULT_ID_METADATA_KEY,
+    InteractionExpressionError,
     PersonaExpressionIntent,
     PersonaExpressionRequest,
     PersonaExpressionResult,
@@ -483,15 +484,21 @@ class InteractionOutputController:
             )
             merged = merge_result_contributions(contributions)
             if merged.final_text_override is not None:
-                message = replace_plain_text_preserving_components(
-                    message,
-                    merged.final_text_override,
-                )
-                semantic_text = message.get_plain_text()
                 if prepared_expression is not None:
-                    tts_segments = prepared_expression.speech_segments_for_text(
+                    projected_segments = self._project_persona_text_override(
+                        event,
+                        merged,
+                        prepared_expression,
                         merged.final_text_override,
                     )
+                    if projected_segments is not None:
+                        tts_segments = projected_segments
+                if prepared_expression is None or tts_segments is not None:
+                    message = replace_plain_text_preserving_components(
+                        message,
+                        merged.final_text_override,
+                    )
+                    semantic_text = message.get_plain_text()
             message = await self._prepare_model_expression(
                 event,
                 message,
@@ -739,13 +746,18 @@ class InteractionOutputController:
             )
             result_contribution = merge_result_contributions(contributions)
             if result_contribution.final_text_override is not None:
-                message = replace_plain_text_preserving_components(
-                    message,
+                projected_segments = self._project_persona_text_override(
+                    event,
+                    result_contribution,
+                    result,
                     result_contribution.final_text_override,
                 )
-                tts_segments = result.speech_segments_for_text(
-                    result_contribution.final_text_override,
-                )
+                if projected_segments is not None:
+                    tts_segments = projected_segments
+                    message = replace_plain_text_preserving_components(
+                        message,
+                        result_contribution.final_text_override,
+                    )
             message = await self._prepare_model_expression(
                 event,
                 message,
@@ -2120,12 +2132,18 @@ class InteractionOutputController:
             else None
         )
         if merged.final_text_override is not None:
-            final_message = replace_plain_text_preserving_components(
-                final_message,
-                merged.final_text_override,
-            )
             if persona_expression is not None:
-                tts_segments = persona_expression.speech_segments_for_text(
+                projected_segments = self._project_persona_text_override(
+                    event,
+                    merged,
+                    persona_expression,
+                    merged.final_text_override,
+                )
+                if projected_segments is not None:
+                    tts_segments = projected_segments
+            if persona_expression is None or tts_segments is not None:
+                final_message = replace_plain_text_preserving_components(
+                    final_message,
                     merged.final_text_override,
                 )
 
@@ -2303,6 +2321,35 @@ class InteractionOutputController:
             reply=reply_text,
             reason=str(payload.get("reason", "") or "plugin_decision"),
         )
+
+    @staticmethod
+    def _project_persona_text_override(
+        event: AstrMessageEvent,
+        contribution: InteractionResultContribution,
+        expression: PersonaExpressionResult,
+        value: str,
+    ) -> tuple[str, ...] | None:
+        try:
+            segment_texts = contribution.platform_extras.get(
+                "persona_speech_segments"
+            )
+            if not isinstance(segment_texts, (list, tuple)):
+                segment_texts = None
+            return expression.speech_segments_for_text(
+                value,
+                segment_texts=segment_texts,
+            )
+        except InteractionExpressionError as exc:
+            logger.warning(
+                "Rejected whole-text override for segmented Persona output; "
+                "preserving original speech and action bindings: turn_id=%s "
+                "plugin_id=%s reason=%s",
+                event.get_extra("_turn_id", "<missing>"),
+                contribution.plugin_id,
+                exc.reason,
+            )
+            contribution.final_text_override = None
+            return None
 
     async def _collect_result_contributions(
         self,

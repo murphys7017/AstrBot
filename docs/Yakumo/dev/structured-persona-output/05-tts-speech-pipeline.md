@@ -8,6 +8,13 @@
 - 文本平台路径先按 `segments[].speech` 顺序整合成一个 Plain 文本，便于一次发送；TTS 路径保留分段，OutputController 按顺序把每个非空 speech 段交给 `synthesize_text`。
 - 一个 Persona 结果对应一个文本消息，但可以对应多个有序 TTS Record；每个音频 Record 带有 `parent_message_id`、`persona_result_id`、`persona_segment_index`、`persona_segment_count`、`message_id` 和 `tts_request_id`，用于在并发、取消和插件回调场景下保持消费顺序和关联。
 - actions、thought、tendency 和 effect_calls 不会自动拼接进 speech。
+- 已存在 Persona 分段时，只允许保持原文或按原边界进行前缀截断。响应 hook 或
+  `final_text_override` 任意改写整合文本时，Core 忽略该次改写并记录
+  `persona_text_rewrite_requires_segment_boundaries`，保留原始回复；不按旧段长度比例
+  猜测新边界，也不把旧动作绑定到改变后的语义。单段也适用；普通非 Persona 文本不受此限制。
+  贡献者可以通过 `platform_extras.persona_speech_segments` 提交与最终整合文本完全一致、
+  数量相同的逐段文本；贡献者须确保各段语义和原动作仍匹配，语义改变时应先重新生成动作。
+  AG99live 的隐藏标记清理按原段逐段处理，使用该路径保持 TTS 文本与动作索引一致。
 - speech_cues、phrase_index、before、after 等外置时序结构不是 Canonical Schema；分段本身就是 TTS 的时序边界。
 - 个别 TTS Provider 会格式化自己的合成请求。例如 [MiMo TTS adapter](../../../../astrbot/core/provider/sources/mimo_tts_api_source.py) 可将 style/dialect 包成 `<style>...` 前缀加到 TTS 请求文本；这是合成请求的 Provider-specific 处理，不会反向注入 Persona 生成 Prompt，也不提供通用 speech 标签解析或清理。
 

@@ -286,12 +286,28 @@ class PersonaExpressionResult:
 
         return tuple(segment.speech for segment in self.segments)
 
-    def speech_segments_for_text(self, value: str) -> tuple[str, ...]:
-        """Project a rewritten visible text onto the existing segment boundaries."""
+    def speech_segments_for_text(
+        self,
+        value: str,
+        *,
+        segment_texts: Sequence[str] | None = None,
+    ) -> tuple[str, ...]:
+        """Resolve unchanged, truncated, or explicitly boundary-preserving text."""
 
         text = str(value or "")
         if not self.segments:
             return (text,) if text else ()
+        if segment_texts is not None:
+            resolved_segments = tuple(segment_texts)
+            if (
+                len(resolved_segments) != len(self.segments)
+                or any(not isinstance(segment, str) for segment in resolved_segments)
+                or "".join(resolved_segments) != text
+            ):
+                raise InteractionExpressionError(
+                    "persona_segment_text_override_invalid"
+                )
+            return resolved_segments
         if not text:
             return tuple("" for _ in self.segments)
         if self.speech.startswith(text):
@@ -302,21 +318,9 @@ class PersonaExpressionResult:
                 projected.append(segment_text)
                 remaining -= len(segment_text)
             return tuple(projected)
-        original_lengths = [len(segment.speech) for segment in self.segments]
-        original_total = sum(original_lengths)
-        if original_total <= 0:
-            return (text,) + tuple("" for _ in self.segments[1:])
-        projected: list[str] = []
-        offset = 0
-        for index, original_length in enumerate(original_lengths):
-            if index == len(original_lengths) - 1:
-                projected.append(text[offset:])
-                break
-            target_length = round(len(text) * original_length / original_total)
-            target_length = max(0, min(target_length, len(text) - offset))
-            projected.append(text[offset : offset + target_length])
-            offset += target_length
-        return tuple(projected)
+        raise InteractionExpressionError(
+            "persona_text_rewrite_requires_segment_boundaries"
+        )
 
     @property
     def actions(self) -> list[str]:
@@ -359,7 +363,7 @@ class PersonaExpressionResult:
         }
 
     def replace_visible_speech(self, value: str) -> None:
-        """Replace the concatenated speech while retaining segment boundaries."""
+        """Apply unchanged speech or prefix truncation without guessing boundaries."""
 
         text = str(value or "")
         if not self.segments:
@@ -384,13 +388,16 @@ class PersonaExpressionResult:
 
     @speech.setter
     def speech(self, value: str) -> None:
-        """Update the visible text while retaining the first segment's state.
+        """Accept boundary-preserving mutations from legacy response hooks."""
 
-        Result hooks historically mutate ``speech`` directly.  Keep that
-        mutation meaningful while the canonical payload remains segmented.
-        """
-
-        self.replace_visible_speech(str(value or ""))
+        try:
+            self.replace_visible_speech(str(value or ""))
+        except InteractionExpressionError as exc:
+            logger.warning(
+                "Rejected Persona response-hook text rewrite; preserving original "
+                "speech segments and action bindings: reason=%s",
+                exc.reason,
+            )
 
     @actions.setter
     def actions(self, value: Sequence[str]) -> None:
