@@ -481,7 +481,6 @@ class WecomAIBotAdapter(Platform):
         """转换队列中的消息数据为AstrBotMessage，类似webchat的convert_message"""
         message_data = payload["message_data"]
         session_id = payload["session_id"]
-        # callback_params = payload["callback_params"]  # 保留但暂时不使用
 
         # 解析消息内容
         msgtype = message_data.get("msgtype")
