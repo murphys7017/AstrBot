@@ -546,7 +546,6 @@ class QQOfficialPlatformAdapter(Platform):
         abm.timestamp = int(time.time())
         abm.raw_message = message
         abm.message_id = message.id
-        # abm.tag = "qq_official"
         msg: list[BaseMessageComponent] = []
 
         if isinstance(message, botpy.message.GroupMessage) or isinstance(
