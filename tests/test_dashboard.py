@@ -2352,8 +2352,9 @@ async def test_batch_upload_skills_accepts_zip_files(
         zip_path: str,
         *,
         overwrite: bool = True,
+        skill_name_hint: str | None = None,
     ):
-        _ = self, overwrite
+        _ = self, overwrite, skill_name_hint
         assert zip_path.endswith(".zip")
         return "demo_skill"
 
@@ -2478,8 +2479,9 @@ async def test_batch_upload_skills_partial_success(
         zip_path: str,
         *,
         overwrite: bool = True,
+        skill_name_hint: str | None = None,
     ):
-        _ = self, overwrite
+        _ = self, overwrite, skill_name_hint
         if "ok_skill" in zip_path:
             return "ok_skill"
         raise RuntimeError("install failed")

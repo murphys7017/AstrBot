@@ -259,20 +259,11 @@ class SkillsService(DashboardService):
             temp_path = _next_available_temp_path(temp_dir, filename)
             await file.save(temp_path)
 
-            try:
-                try:
-                    skill_name = skill_mgr.install_skill_from_zip(
-                        temp_path, overwrite=False, skill_name_hint=Path(filename).stem
-                    )
-                except TypeError:
-                    # Backward compatibility for callers that do not accept skill_name_hint
-                    skill_name = skill_mgr.install_skill_from_zip(
-                        temp_path, overwrite=False
-                    )
-            except Exception:
-                # Keep behavior consistent with previous implementation
-                # and bubble up install errors (including duplicates).
-                raise
+            skill_name = skill_mgr.install_skill_from_zip(
+                temp_path,
+                overwrite=False,
+                skill_name_hint=Path(filename).stem,
+            )
 
             try:
                 await sync_skills_to_active_sandboxes()
@@ -340,21 +331,6 @@ class SkillsService(DashboardService):
                             overwrite=False,
                             skill_name_hint=Path(filename).stem,
                         )
-                    except TypeError:
-                        # Backward compatibility for monkeypatched implementations in tests
-                        try:
-                            skill_name = skill_mgr.install_skill_from_zip(
-                                temp_path, overwrite=False
-                            )
-                        except FileExistsError:
-                            skipped.append(
-                                {
-                                    "filename": filename,
-                                    "name": Path(filename).stem,
-                                    "error": "Skill already exists.",
-                                }
-                            )
-                            skill_name = None
                     except FileExistsError:
                         skipped.append(
                             {

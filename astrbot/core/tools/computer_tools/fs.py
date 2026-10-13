@@ -922,12 +922,6 @@ class FileDownloadTool(FunctionTool):
                         f"but sending to user failed: {e}"
                     )
 
-                # remove
-                # try:
-                #     os.remove(local_path)
-                # except Exception as e:
-                #     logger.error(f"Error removing temp file {local_path}: {e}")
-
                 return (
                     f"File downloaded successfully to {local_path} "
                     f"and sent to user as {sent_as}."
