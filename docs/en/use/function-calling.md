@@ -38,6 +38,14 @@ Tool management can be done in the WebUI, including viewing tool lists, enabling
 
 Some models may not support function calling and will return errors such as `tool call is not supported`, `function calling is not supported`, `tool use is not supported`, etc. In most cases, AstrBot can detect these errors and automatically remove function calling tools for you. If you find that a model doesn't support function calling, disable all function calling tools in the WebUI, then try again. You can also switch to a model that supports function calling.
 
+## Tool-call contract and error handling
+
+Before executing a local plugin tool, AstrBot validates its arguments against the tool's declared JSON Schema. Missing required arguments, type mismatches, and other schema violations are rejected before the handler runs, so they cannot produce side effects. When a tool is registered from a function signature, parameters without defaults are inferred as required only when they are declared in the tool schema.
+
+Provider tool calls must contain matching name, argument, and call-ID arrays. If their lengths differ, AstrBot rejects the entire batch and executes none of the calls, preventing an item from being paired with the wrong tool or ID. A tool result marked with `isError`, or an exception raised during execution, is returned to the model as an error result. Tools that have started execution still receive the end hook with the filtered arguments that were actually passed to the executor.
+
+Tool descriptions are normalized across the OpenAI, Anthropic, and Google request formats. Tools without descriptions receive a minimal usage description, and serialized tool order is stable to reduce prompt-cache variation across compatible providers. If an MCP tool name violates a provider's naming restrictions, AstrBot sends a stable escaped name while routing execution back to the original MCP tool.
+
 
 Below are some common tool calling demos:
 
