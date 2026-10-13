@@ -42,7 +42,6 @@ class KookRolesRecord:
     """自动和缓存获取机器人所需响应的消息频道的role信息"""
 
     def __init__(self, bot_id: str, http_client: aiohttp.ClientSession):
-        # self._locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._lock = asyncio.Lock()
         self._bot_id = bot_id
         self._http_client = http_client

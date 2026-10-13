@@ -98,7 +98,6 @@ class AstrMessageEvent(abc.ABC):
             message_type=message_type,
             session_id=session_id,
         )
-        # self.unified_msg_origin = str(self.session)
         """统一的消息来源字符串。格式为 platform_name:message_type:session_id"""
         self._result: MessageEventResult | None = None
         """消息事件的结果"""
