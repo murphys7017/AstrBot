@@ -1,0 +1,14 @@
+name: astrbot_plugin_neurobrain
+display_name: NeuroBrain Bridge
+desc: Send AG99 Persona tendency states to an isolated NeuroBrain WebSocket service and expose read-only state to other plugins.
+version: 0.1.0
+author: YakumoAki
+repo: https://github.com/murphys7017/NeuroBrain
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp
+  - webchat
+tags:
+  - AG99
+  - NeuroBrain
+  - state

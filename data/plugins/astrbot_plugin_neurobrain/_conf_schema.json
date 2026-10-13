@@ -1,0 +1,47 @@
+{
+  "enabled": {
+    "description": "是否启用 NeuroBrain 桥接",
+    "type": "bool",
+    "default": true
+  },
+  "server_url": {
+    "description": "独立 NeuroBrain 服务的 WebSocket 地址",
+    "type": "string",
+    "default": "ws://127.0.0.1:8765"
+  },
+  "write_token": {
+    "description": "必须与 NeuroBrain 服务的 NEUROBRAIN_WRITE_TOKEN 或 --write-token 一致",
+    "type": "string",
+    "default": ""
+  },
+  "client_id": {
+    "description": "本桥接客户端标识",
+    "type": "string",
+    "default": "astrbot"
+  },
+  "state_scope": {
+    "description": "NeuroBrain 连续状态隔离方式",
+    "type": "string",
+    "default": "persona",
+    "options": ["global", "persona", "conversation"]
+  },
+  "default_persona_id": {
+    "description": "无法从当前轮次读取角色 ID 时使用的角色名",
+    "type": "string",
+    "default": "Alice pro"
+  },
+  "request_timeout_seconds": {
+    "description": "单次 WebSocket 请求等待时间（秒）",
+    "type": "float",
+    "default": 2.0,
+    "minimum": 0.1,
+    "maximum": 30.0
+  },
+  "connect_timeout_seconds": {
+    "description": "连接 NeuroBrain 服务的超时时间（秒）",
+    "type": "float",
+    "default": 5.0,
+    "minimum": 0.1,
+    "maximum": 30.0
+  }
+}

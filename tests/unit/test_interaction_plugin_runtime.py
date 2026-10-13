@@ -23,7 +23,10 @@ from astrbot.core.interaction.contributors import (
     merge_result_contributions,
 )
 from astrbot.core.interaction.effects import PersonaEffectCall
-from astrbot.core.interaction.expression_agent import PersonaExpressionResult
+from astrbot.core.interaction.expression_agent import (
+    PersonaExpressionResult,
+    PersonaExpressionSegment,
+)
 from astrbot.core.interaction.middleware import InteractionMiddleware
 from astrbot.core.interaction.output_adapter import InteractionEventOutputAdapter
 from astrbot.core.interaction.output_controller import InteractionOutputController
@@ -1832,6 +1835,60 @@ async def test_immediate_text_override_keeps_persona_tool_rich_output():
     assert len(delivered) == 1
     assert delivered[0].get_plain_text() == "rewritten reply"
     assert [type(component) for component in delivered[0].chain] == [Plain, Image]
+
+
+@pytest.mark.asyncio
+async def test_rejected_segmented_text_override_preserves_original_visible_reply():
+    class Event:
+        def __init__(self):
+            self._extras = {"_interaction_emitting_immediate_reply": True}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    controller = object.__new__(InteractionOutputController)
+    delivered = []
+    controller._collect_result_contributions = AsyncMock(
+        return_value=[
+            InteractionResultContribution(
+                plugin_id="rewrite",
+                final_text_override="unmappable rewrite",
+            )
+        ]
+    )
+    controller._next_output_segment_id = lambda _event, _kind: "segment-1"
+    controller._deliver_ready_persona_segments = AsyncMock(return_value=None)
+    controller.materialize_immediate_interaction_outbound_message = AsyncMock(
+        side_effect=lambda _event, message, **_kwargs: (message, {})
+    )
+    controller._prepare_model_expression = AsyncMock(
+        side_effect=lambda _event, message, **_kwargs: message
+    )
+    controller._deliver_visible_message = AsyncMock(
+        side_effect=lambda _event, message, **_kwargs: delivered.append(message) or []
+    )
+    controller._apply_post_materialization_contributions = AsyncMock()
+    controller.build_platform_output_base_extras = lambda _event, **_kwargs: {}
+    controller._record_visible_output = Mock()
+    persona = PersonaExpressionResult(
+        segments=[
+            PersonaExpressionSegment(speech="original ", actions=["look_left"]),
+            PersonaExpressionSegment(speech="reply", actions=["look_right"]),
+        ],
+        metadata={"interaction.persona_result_id": "result-1"},
+    )
+
+    await controller.capture_message_chain(
+        MessageChain([Plain(persona.speech)]),
+        Event(),
+        prepared_expression=persona,
+    )
+
+    assert len(delivered) == 1
+    assert delivered[0].get_plain_text() == "original reply"
 
 
 @pytest.mark.asyncio

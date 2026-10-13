@@ -484,19 +484,25 @@ class InteractionOutputController:
             )
             merged = merge_result_contributions(contributions)
             if merged.final_text_override is not None:
+                text_override = merged.final_text_override
                 if prepared_expression is not None:
                     projected_segments = self._project_persona_text_override(
                         event,
                         merged,
                         prepared_expression,
-                        merged.final_text_override,
+                        text_override,
                     )
                     if projected_segments is not None:
                         tts_segments = projected_segments
-                if prepared_expression is None or tts_segments is not None:
+                        message = replace_plain_text_preserving_components(
+                            message,
+                            text_override,
+                        )
+                        semantic_text = message.get_plain_text()
+                else:
                     message = replace_plain_text_preserving_components(
                         message,
-                        merged.final_text_override,
+                        text_override,
                     )
                     semantic_text = message.get_plain_text()
             message = await self._prepare_model_expression(
@@ -2132,19 +2138,24 @@ class InteractionOutputController:
             else None
         )
         if merged.final_text_override is not None:
+            text_override = merged.final_text_override
             if persona_expression is not None:
                 projected_segments = self._project_persona_text_override(
                     event,
                     merged,
                     persona_expression,
-                    merged.final_text_override,
+                    text_override,
                 )
                 if projected_segments is not None:
                     tts_segments = projected_segments
-            if persona_expression is None or tts_segments is not None:
+                    final_message = replace_plain_text_preserving_components(
+                        final_message,
+                        text_override,
+                    )
+            else:
                 final_message = replace_plain_text_preserving_components(
                     final_message,
-                    merged.final_text_override,
+                    text_override,
                 )
 
         final_message = await self._prepare_model_expression(
