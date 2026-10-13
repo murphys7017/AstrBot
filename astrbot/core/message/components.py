@@ -431,9 +431,6 @@ class Music(BaseMessageComponent):
     image: str | None = ""
 
     def __init__(self, **_) -> None:
-        # for k in _.keys():
-        #     if k == "_type" and _[k] not in ["qq", "163", "xm", "custom"]:
-        #         logger.warn(f"Protocol: {k}={_[k]} doesn't match values")
         super().__init__(**_)
 
 
