@@ -178,5 +178,4 @@ class SparseRetriever:
         results.sort(key=lambda x: x.score, reverse=True)
         for rank, result in enumerate(results, start=1):
             result.rank = rank
-        # return results[: len(results) // len(kb_ids)]
         return results[:top_k_sparse]

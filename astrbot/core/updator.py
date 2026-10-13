@@ -160,7 +160,7 @@ class AstrBotUpdator(RepoZipUpdator):
         )
 
     async def get_releases(self) -> list:
-        return await self.fetch_release_info(self.ASTRBOT_RELEASE_API)
+        return await self.fetch_release_info(self.ASTRBOT_RELEASE_API, latest=False)
 
     async def update(
         self,

@@ -257,10 +257,6 @@ class KBHelper:
         media_paths: list[Path] = []
         file_size = 0
 
-        # file_path = self.kb_files_dir / f"{doc_id}.{file_type}"
-        # async with aiofiles.open(file_path, "wb") as f:
-        #     await f.write(file_content)
-
         try:
             chunks_text = []
             saved_media = []
@@ -459,9 +455,6 @@ class KBHelper:
                 logger.warning(f"上传文档失败: {e}", extra={"details": e.details})
             else:
                 logger.error(f"上传文档失败: {e}", exc_info=True)
-            # if file_path.exists():
-            #     file_path.unlink()
-
             for media_path in media_paths:
                 try:
                     if media_path.exists():

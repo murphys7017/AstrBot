@@ -233,21 +233,7 @@ class RepoZipUpdator:
                 result = response.json()
             if not result:
                 return []
-            # if latest:
-            #     ret = self.github_api_release_parser([result[0]])
-            # else:
-            #     ret = self.github_api_release_parser(result)
-            ret = []
-            for release in result:
-                ret.append(
-                    {
-                        "version": release["name"],
-                        "published_at": release["published_at"],
-                        "body": release["body"],
-                        "tag_name": release["tag_name"],
-                        "zipball_url": release["zipball_url"],
-                    },
-                )
+            ret = self.github_api_release_parser(result[:1] if latest else result)
         except httpx.HTTPStatusError as e:
             response_body = ""
             if e.response is not None:
@@ -509,7 +495,10 @@ class RepoZipUpdator:
         current_version: str,
         consider_prerelease: bool = True,
     ) -> ReleaseInfo | None:
-        update_data = await self.fetch_release_info(url)
+        update_data = await self.fetch_release_info(
+            url,
+            latest=consider_prerelease,
+        )
 
         sel_release_data = None
         if consider_prerelease:

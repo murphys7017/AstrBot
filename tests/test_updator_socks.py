@@ -420,6 +420,88 @@ async def test_fetch_release_info_uses_httpx_client_with_env_proxy_support(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("latest, expected_count", [(True, 1), (False, 2)])
+async def test_fetch_release_info_honors_latest_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_async_client_state: _FakeAsyncClientState,
+    latest: bool,
+    expected_count: int,
+) -> None:
+    import astrbot.core.zip_updator as zip_updator_module
+
+    fake_async_client_state.json_payload = [
+        {
+            "name": "AstrBot v4.23.2",
+            "published_at": "2026-04-16T00:00:00Z",
+            "body": "latest",
+            "tag_name": "v4.23.2",
+            "zipball_url": "https://example.com/latest.zip",
+        },
+        {
+            "name": "AstrBot v4.23.1",
+            "published_at": "2026-04-15T00:00:00Z",
+            "body": "previous",
+            "tag_name": "v4.23.1",
+            "zipball_url": "https://example.com/previous.zip",
+        },
+    ]
+    monkeypatch.setattr(
+        zip_updator_module,
+        "httpx",
+        _build_fake_httpx_module(fake_async_client_state),
+        raising=False,
+    )
+
+    releases = await RepoZipUpdator().fetch_release_info(
+        "https://api.soulter.top/releases",
+        latest=latest,
+    )
+
+    assert len(releases) == expected_count
+    assert releases[0]["tag_name"] == "v4.23.2"
+
+
+@pytest.mark.asyncio
+async def test_check_update_finds_stable_release_after_prerelease(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_async_client_state: _FakeAsyncClientState,
+) -> None:
+    import astrbot.core.zip_updator as zip_updator_module
+
+    fake_async_client_state.json_payload = [
+        {
+            "name": "AstrBot v4.24.0-beta.1",
+            "published_at": "2026-05-02T00:00:00Z",
+            "body": "beta",
+            "tag_name": "v4.24.0-beta.1",
+            "zipball_url": "https://example.com/beta.zip",
+        },
+        {
+            "name": "AstrBot v4.23.3",
+            "published_at": "2026-05-01T00:00:00Z",
+            "body": "stable",
+            "tag_name": "v4.23.3",
+            "zipball_url": "https://example.com/stable.zip",
+        },
+    ]
+    monkeypatch.setattr(
+        zip_updator_module,
+        "httpx",
+        _build_fake_httpx_module(fake_async_client_state),
+        raising=False,
+    )
+
+    release = await RepoZipUpdator().check_update(
+        "https://api.soulter.top/releases",
+        "v4.23.0",
+        consider_prerelease=False,
+    )
+
+    assert release is not None
+    assert release.version == "v4.23.3"
+
+
+@pytest.mark.asyncio
 async def test_download_from_repo_url_uses_head_for_unspecified_branch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

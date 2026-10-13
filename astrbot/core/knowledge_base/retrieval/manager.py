@@ -287,7 +287,6 @@ class RetrievalManager:
 
         # 按相似度排序并返回 top_k
         all_results.sort(key=lambda x: x.similarity, reverse=True)
-        # return all_results[: len(all_results) // len(kb_ids)]
         return all_results
 
     async def _rerank(
