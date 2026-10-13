@@ -832,7 +832,7 @@ class TestBuildMainAgent:
             part.text for part in result.provider_request.extra_user_content_parts
         ] == [
             "<user_input>\n  <text>Hello</text>\n</user_input>",
-            "[Video Attachment: name video.mp4, path path/to/video.mp4]",
+            "[Video Attachment: name video.mp4, path /path/to/video.mp4]",
         ]
 
     @pytest.mark.asyncio
@@ -874,7 +874,7 @@ class TestBuildMainAgent:
         assert result is not None
         assert (
             "[Video Attachment in quoted message: "
-            "name quoted-video.mp4, path path/to/quoted-video.mp4]"
+            "name quoted-video.mp4, path /path/to/quoted-video.mp4]"
         ) in [part.text for part in result.provider_request.extra_user_content_parts]
 
     @pytest.mark.asyncio

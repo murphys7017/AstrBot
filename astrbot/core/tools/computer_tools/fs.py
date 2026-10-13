@@ -55,13 +55,12 @@ from astrbot.core.utils.astrbot_path import (
 )
 
 from ..registry import builtin_tool
-from . import util as computer_util
 from .util import (
     check_admin_permission,
     check_local_file_permission,
     get_local_permission_policy,
     is_local_runtime,
-    normalize_umo_for_workspace,
+    workspace_root,
     workspace_root_for_context,
 )
 
@@ -87,7 +86,7 @@ def _restricted_env_path_labels(
         labels.append("data/plugins/*/skills")
     labels.extend(
         [
-            str(current_workspace_root or _workspace_root(umo)),
+            str(current_workspace_root or workspace_root(umo)),
             get_astrbot_system_tmp_path(),
             get_astrbot_temp_path(),
         ]
@@ -95,22 +94,11 @@ def _restricted_env_path_labels(
     return labels
 
 
-def get_astrbot_workspaces_path() -> str:
-    """Compatibility wrapper for tests and older module-level monkeypatches."""
-    return computer_util.get_astrbot_workspaces_path()
-
-
-def _workspace_root(umo: str) -> Path:
-    """Workspace root that follows both util-level and fs-level getter monkeypatches."""
-    normalized_umo = normalize_umo_for_workspace(umo)
-    return (Path(get_astrbot_workspaces_path()) / normalized_umo).resolve(strict=False)
-
-
 async def _workspace_root_for_context(
     context: ContextWrapper[AstrAgentContext],
 ) -> Path:
     if getattr(context.context.context, "_db", None) is None:
-        return _workspace_root(context.context.event.unified_msg_origin)
+        return workspace_root(context.context.event.unified_msg_origin)
     return await workspace_root_for_context(context)
 
 
@@ -133,7 +121,7 @@ def _read_allowed_roots(
     return (
         Path(get_astrbot_skills_path()).resolve(strict=False),
         *_plugin_skill_roots(),
-        current_workspace_root or _workspace_root(umo),
+        current_workspace_root or workspace_root(umo),
         Path(get_astrbot_system_tmp_path()).resolve(strict=False),
         Path(get_astrbot_temp_path()).resolve(strict=False),
     )
@@ -152,7 +140,7 @@ def _write_allowed_roots(
             if include_installed_skills
             else ()
         ),
-        current_workspace_root or _workspace_root(umo),
+        current_workspace_root or workspace_root(umo),
         Path(get_astrbot_system_tmp_path()).resolve(strict=False),
         Path(get_astrbot_temp_path()).resolve(strict=False),
     )
@@ -179,7 +167,7 @@ def _resolve_tool_path(
         return str(candidate.resolve(strict=False))
     if local_env:
         return str(
-            ((current_workspace_root or _workspace_root(umo)) / candidate).resolve(
+            ((current_workspace_root or workspace_root(umo)) / candidate).resolve(
                 strict=False,
             ),
         )
@@ -197,7 +185,7 @@ def _resolve_user_path(
     if candidate.is_absolute():
         return candidate.resolve(strict=False)
     if local_env:
-        return ((current_workspace_root or _workspace_root(umo)) / candidate).resolve(
+        return ((current_workspace_root or workspace_root(umo)) / candidate).resolve(
             strict=False,
         )
     return (Path.cwd() / candidate).resolve(strict=False)
@@ -368,7 +356,7 @@ class FileReadTool(FunctionTool):
                 workspace_dir=(
                     str(
                         current_workspace_root
-                        or _workspace_root(context.context.event.unified_msg_origin)
+                        or workspace_root(context.context.event.unified_msg_origin)
                     )
                     if local_env
                     else None
@@ -691,7 +679,7 @@ class GrepTool(FunctionTool):
                     for root in _read_allowed_roots(umo, current_workspace_root)
                 ]
             if local_env:
-                return [str(current_workspace_root or _workspace_root(umo))]
+                return [str(current_workspace_root or workspace_root(umo))]
             return ["."]
 
         if restricted:
