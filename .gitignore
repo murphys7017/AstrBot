@@ -58,6 +58,7 @@ astrbot.lock
 
 # Other
 chroma
+jieba.cache
 venv/*
 pytest.ini
 IFLOW.md
