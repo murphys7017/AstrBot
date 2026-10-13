@@ -3,7 +3,7 @@ import posixpath
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import certifi
 import httpx
@@ -185,16 +185,28 @@ class _FakeZipArchive:
     def namelist(self) -> list[str]:
         return self._names
 
+    def infolist(self) -> list[ZipInfo]:
+        return [ZipInfo(name) for name in self._names]
+
     def extractall(self, target_dir: str) -> None:  # noqa: ARG002
         return None
 
 
 def _build_fake_archive_entries(archive_root: str) -> list[str]:
-    return [archive_root, posixpath.join(archive_root, ".dockerignore")]
+    root = archive_root.rstrip("/")
+    directory_entry = f"{root}/" if root != "." else "./"
+    return [directory_entry, posixpath.join(root, ".dockerignore")]
 
 
 def _build_fake_archive_entries_with_first_file(root_dir: str) -> list[str]:
     return [f"{root_dir}/README.md", f"{root_dir}/src/app.py"]
+
+
+def _create_empty_test_archive(tmp_path: Path) -> str:
+    archive_path = tmp_path / "temp.zip"
+    with ZipFile(archive_path, "w"):
+        pass
+    return str(archive_path)
 
 
 def _exercise_unzip_file_windows_path_normalization(
@@ -203,6 +215,7 @@ def _exercise_unzip_file_windows_path_normalization(
     updater_module,
     zip_updator_module,
     updater,
+    zip_path: str,
     target_dir: str,
     archive_root: str,
     logger_method: str,
@@ -229,6 +242,12 @@ def _exercise_unzip_file_windows_path_normalization(
         "ZipFile",
         lambda path, mode: _FakeZipArchive(_build_fake_archive_entries(archive_root)),
     )
+    if isinstance(updater, RepoZipUpdator):
+        monkeypatch.setattr(
+            updater,
+            "_extract_archive_members",
+            lambda archive, target, members: None,
+        )
     monkeypatch.setattr(updater_module.logger, logger_method, lambda message: None)
     monkeypatch.setattr(updater_module.logger, "warning", lambda message: None)
     monkeypatch.setattr(updater_module.os, "listdir", fake_listdir)
@@ -248,7 +267,7 @@ def _exercise_unzip_file_windows_path_normalization(
         lambda path: captured.__setitem__("removed", path),
     )
 
-    updater.unzip_file("temp.zip", target_dir)
+    updater.unzip_file(zip_path, target_dir)
 
     return captured
 
@@ -256,6 +275,7 @@ def _exercise_unzip_file_windows_path_normalization(
 def _assert_unzip_file_windows_path_normalization(
     captured: dict[str, object | None],
     *,
+    zip_path: str,
     target_dir: str,
     archive_root: str,
 ) -> None:
@@ -267,7 +287,7 @@ def _assert_unzip_file_windows_path_normalization(
     )
     expected_file = ntpath.join(expected_root, ".dockerignore")
 
-    assert captured["removed"] == "temp.zip"
+    assert captured["removed"] == zip_path
     if normalized_root == ".":
         assert captured["listdir"] is None
         assert captured["move"] is None
@@ -699,23 +719,29 @@ async def test_download_file_logs_url_and_target_path_on_failure(
 )
 def test_repo_unzip_file_normalizes_windows_extended_length_paths(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     archive_root: str,
 ) -> None:
     import astrbot.core.zip_updator as zip_updator_module
 
     target_dir = r"\\?\C:\Users\admin\AppData\Local\AstrBot\backend\app"
+    zip_path = _create_empty_test_archive(tmp_path)
     captured = _exercise_unzip_file_windows_path_normalization(
         monkeypatch,
         updater_module=zip_updator_module,
         zip_updator_module=zip_updator_module,
         updater=RepoZipUpdator(),
+        zip_path=zip_path,
         target_dir=target_dir,
         archive_root=archive_root,
         logger_method="debug",
     )
 
     _assert_unzip_file_windows_path_normalization(
-        captured, target_dir=target_dir, archive_root=archive_root
+        captured,
+        zip_path=zip_path,
+        target_dir=target_dir,
+        archive_root=archive_root,
     )
 
 
@@ -730,12 +756,14 @@ def test_repo_unzip_file_normalizes_windows_extended_length_paths(
 )
 def test_plugin_unzip_file_normalizes_windows_extended_length_paths(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     archive_root: str,
 ) -> None:
     import astrbot.core.star.updator as plugin_updator_module
     import astrbot.core.zip_updator as zip_updator_module
 
     target_dir = r"\\?\C:\Users\admin\AppData\Local\AstrBot\data\plugins\demo"
+    zip_path = _create_empty_test_archive(tmp_path)
     updater = PluginUpdator.__new__(PluginUpdator)
     monkeypatch.setattr(
         updater,
@@ -752,13 +780,17 @@ def test_plugin_unzip_file_normalizes_windows_extended_length_paths(
         updater_module=plugin_updator_module,
         zip_updator_module=zip_updator_module,
         updater=updater,
+        zip_path=zip_path,
         target_dir=target_dir,
         archive_root=archive_root,
         logger_method="info",
     )
 
     _assert_unzip_file_windows_path_normalization(
-        captured, target_dir=target_dir, archive_root=archive_root
+        captured,
+        zip_path=zip_path,
+        target_dir=target_dir,
+        archive_root=archive_root,
     )
 
 
@@ -797,17 +829,19 @@ def test_zip_updaters_reject_windows_device_name_aliases(
 @pytest.mark.parametrize(
     ("archive_root", "expected_error"),
     [
-        ("../escape/", "path escapes root directory"),
-        ("C:/escape", "path escapes root directory"),
+        ("../escape/", "Unsafe update archive path"),
+        ("C:/escape", "Unsafe update archive path"),
     ],
 )
 def test_repo_unzip_file_rejects_archive_roots_outside_target_dir(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     archive_root: str,
     expected_error: str,
 ) -> None:
     import astrbot.core.zip_updator as zip_updator_module
 
+    zip_path = _create_empty_test_archive(tmp_path)
     monkeypatch.setattr(zip_updator_module, "ensure_dir", lambda path: None)
     monkeypatch.setattr(zip_updator_module.os.path, "join", ntpath.join)
     monkeypatch.setattr(zip_updator_module.os.path, "normpath", ntpath.normpath)
@@ -819,15 +853,17 @@ def test_repo_unzip_file_rejects_archive_roots_outside_target_dir(
     )
 
     with pytest.raises(ValueError, match=expected_error):
-        RepoZipUpdator().unzip_file("temp.zip", r"\\?\C:\Users\admin\target")
+        RepoZipUpdator().unzip_file(zip_path, r"\\?\C:\Users\admin\target")
 
 
 def test_repo_unzip_file_handles_archives_without_explicit_root_dir_entry(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     import astrbot.core.zip_updator as zip_updator_module
 
     target_dir = r"\\?\C:\Users\admin\AppData\Local\AstrBot\backend\app"
+    zip_path = _create_empty_test_archive(tmp_path)
     archive_root = "repo-root"
     expected_root = ntpath.join(target_dir, archive_root)
     expected_file = ntpath.join(expected_root, "README.md")
@@ -855,6 +891,12 @@ def test_repo_unzip_file_handles_archives_without_explicit_root_dir_entry(
             _build_fake_archive_entries_with_first_file(archive_root)
         ),
     )
+    updater = RepoZipUpdator()
+    monkeypatch.setattr(
+        updater,
+        "_extract_archive_members",
+        lambda archive, target, members: None,
+    )
     monkeypatch.setattr(zip_updator_module.logger, "debug", lambda message: None)
     monkeypatch.setattr(zip_updator_module.logger, "warning", lambda message: None)
     monkeypatch.setattr(zip_updator_module.os, "listdir", fake_listdir)
@@ -874,9 +916,9 @@ def test_repo_unzip_file_handles_archives_without_explicit_root_dir_entry(
         lambda path: captured.__setitem__("removed", path),
     )
 
-    RepoZipUpdator().unzip_file("temp.zip", target_dir)
+    updater.unzip_file(zip_path, target_dir)
 
     assert captured["listdir"] == expected_root
     assert captured["move"] == (expected_file, target_dir)
     assert captured["cleanup"] == expected_root
-    assert captured["removed"] == "temp.zip"
+    assert captured["removed"] == zip_path
