@@ -12,6 +12,7 @@ from astrbot.core.platform.sources.dingtalk.dingtalk_adapter import (
     DINGTALK_RECONNECT_MAX_DELAY,
     DingtalkPlatformAdapter,
     _dingtalk_reconnect_delay,
+    _DingtalkSdkLogger,
 )
 
 
@@ -46,6 +47,22 @@ def test_dingtalk_reconnect_delay_has_minimum_delay():
 
 def test_dingtalk_reconnect_delay_is_capped():
     assert _dingtalk_reconnect_delay(20) == DINGTALK_RECONNECT_MAX_DELAY
+
+
+def test_dingtalk_sdk_logger_formats_positional_arguments_safely():
+    class TargetLogger:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def exception(self, message, **kwargs):
+            self.calls.append((message, kwargs))
+
+    target = TargetLogger()
+    adapter = _DingtalkSdkLogger(target)
+
+    adapter.exception("unknown exception", ValueError("boom"))
+
+    assert target.calls == [("unknown exception (ValueError('boom'),)", {})]
 
 
 @pytest.mark.asyncio

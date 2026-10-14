@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import threading
 import time
 import uuid
@@ -38,6 +39,38 @@ from .dingtalk_event import DingtalkMessageEvent
 DINGTALK_RECONNECT_INITIAL_DELAY = 10
 DINGTALK_RECONNECT_MAX_DELAY = 300
 DINGTALK_RECONNECT_STABLE_SECONDS = 300
+
+
+class _DingtalkSdkLogger:
+    """Adapt SDK logging calls to AstrBot's logger contract."""
+
+    def __init__(self, target: logging.Logger) -> None:
+        self._target = target
+
+    @staticmethod
+    def _render(message: object, args: tuple[object, ...]) -> str:
+        text = str(message)
+        if not args:
+            return text
+        try:
+            return text % args
+        except (TypeError, ValueError):
+            return f"{text} {args!r}"
+
+    def debug(self, message: object, *args: object, **kwargs: object) -> None:
+        self._target.debug(self._render(message, args), **kwargs)
+
+    def info(self, message: object, *args: object, **kwargs: object) -> None:
+        self._target.info(self._render(message, args), **kwargs)
+
+    def warning(self, message: object, *args: object, **kwargs: object) -> None:
+        self._target.warning(self._render(message, args), **kwargs)
+
+    def error(self, message: object, *args: object, **kwargs: object) -> None:
+        self._target.error(self._render(message, args), **kwargs)
+
+    def exception(self, message: object, *args: object, **kwargs: object) -> None:
+        self._target.exception(self._render(message, args), **kwargs)
 
 
 def _dingtalk_reconnect_delay(retry_count: int) -> int:
@@ -93,7 +126,10 @@ class DingtalkPlatformAdapter(Platform):
         self.client = AstrCallbackClient()
 
         credential = dingtalk_stream.Credential(self.client_id, self.client_secret)
-        client = dingtalk_stream.DingTalkStreamClient(credential, logger=logger)
+        client = dingtalk_stream.DingTalkStreamClient(
+            credential,
+            logger=_DingtalkSdkLogger(logger),
+        )
         client.register_all_event_handler(MyEventHandler())
         client.register_callback_handler(
             dingtalk_stream.ChatbotMessage.TOPIC,
