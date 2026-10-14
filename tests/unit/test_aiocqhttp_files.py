@@ -1,3 +1,5 @@
+import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, call
 
@@ -5,7 +7,7 @@ import pytest
 from aiocqhttp import Event
 
 import astrbot.api  # noqa: F401
-from astrbot.core.message.components import File, Image
+from astrbot.core.message.components import File, Image, Reply
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import (
     AiocqhttpAdapter,
 )
@@ -101,3 +103,35 @@ async def test_onebot_image_preserves_sticker_metadata_without_serializing_it():
         "path": "",
         "url": "https://example.com/sticker.jpg",
     }
+
+
+@pytest.mark.asyncio
+async def test_reply_fetch_timeout_keeps_original_reply_component(monkeypatch):
+    event = Event.from_payload(
+        {
+            "post_type": "message",
+            "message_type": "group",
+            "self_id": 123,
+            "user_id": 456,
+            "group_id": 789,
+            "sender": {"user_id": 456, "nickname": "Tester"},
+            "message_id": 1,
+            "message": [{"type": "reply", "data": {"id": "42"}}],
+        }
+    )
+
+    async def slow_get_msg(**_kwargs):
+        await asyncio.sleep(1)
+
+    adapter = AiocqhttpAdapter.__new__(AiocqhttpAdapter)
+    adapter._schedule_group_member_refresh = lambda _group_id: None
+    adapter._REPLY_FETCH_TIMEOUT_SECONDS = 0.01
+    adapter.bot = SimpleNamespace(call_action=slow_get_msg)
+
+    started = time.monotonic()
+    result = await adapter._convert_handle_message_event(event)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.5
+    assert isinstance(result.message[0], Reply)
+    assert result.message[0].id == "42"

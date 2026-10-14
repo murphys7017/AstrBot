@@ -40,6 +40,7 @@ class AiocqhttpAdapter(Platform):
     _GROUP_MEMBER_PREWARM_ATTEMPTS = 3
     _GROUP_MEMBER_REFRESH_TIMEOUT_SECONDS = 15.0
     _GROUP_MEMBER_REFRESH_RETRY_DELAY_SECONDS = 60.0
+    _REPLY_FETCH_TIMEOUT_SECONDS = 5.0
 
     def __init__(
         self,
@@ -347,9 +348,12 @@ class AiocqhttpAdapter(Platform):
                         abm.message.append(a)
                     else:
                         try:
-                            reply_event_data = await self.bot.call_action(
-                                action="get_msg",
-                                message_id=int(m["data"]["id"]),
+                            reply_event_data = await asyncio.wait_for(
+                                self.bot.call_action(
+                                    action="get_msg",
+                                    message_id=int(m["data"]["id"]),
+                                ),
+                                timeout=self._REPLY_FETCH_TIMEOUT_SECONDS,
                             )
                             # 添加必要的 post_type 字段，防止 Event.from_payload 报错
                             reply_event_data["post_type"] = "message"
@@ -376,8 +380,14 @@ class AiocqhttpAdapter(Platform):
                             )
 
                             abm.message.append(reply_seg)
-                        except BaseException as e:
-                            logger.error(f"获取引用消息失败: {e}。")
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            logger.warning(
+                                "获取引用消息失败，保留原始引用组件: error_type=%s error=%r",
+                                type(e).__name__,
+                                e,
+                            )
                             a = ComponentTypes[t](**m["data"])
                             abm.message.append(a)
             elif t == "at":
