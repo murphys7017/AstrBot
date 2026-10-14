@@ -255,6 +255,7 @@ DEFAULT_CONFIG = {
         "expression_provider_id": "",
         "expression_output_format": "json",
         "expression_output_mode": "prompt_only",
+        "persona_segment_stream_enabled": False,
         "expression_temperature": 0.6,
         "expression_timeout": 8.0,
         "planner_provider_id": "",
@@ -4576,6 +4577,11 @@ CONFIG_METADATA_3 = {
                         "options": ["prompt_only", "provider_native_json", "provider_native_json_schema"],
                         "labels": ["Prompt-only", "Provider 原生 JSON", "Provider 原生 JSON Schema"],
                         "hint": "原生模式仅适用于支持对应 Provider 参数的 JSON 输出；XML/Markdown 使用 Prompt-only。",
+                    },
+                    "interaction_middleware.persona_segment_stream_enabled": {
+                        "description": "启用 WebChat Persona 分段流式输出（实验）",
+                        "type": "bool",
+                        "hint": "默认关闭。启用后使用独立的 segment_stream_v1 协议；遇到不兼容的输出钩子、安全过滤、工具或 effect 时会在发送前拒绝本次流式请求。",
                     },
                     "interaction_middleware.expression_temperature": {
                         "description": "表达温度",

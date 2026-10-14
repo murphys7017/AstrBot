@@ -5,7 +5,7 @@ import copy
 import json
 import logging
 import math
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Literal
@@ -77,7 +77,7 @@ from astrbot.core.provider.output_contract_tools import (
 )
 from astrbot.core.provider.request_media import normalize_provider_request_images
 from astrbot.core.star.context import Context
-from astrbot.core.star.star_handler import EventType
+from astrbot.core.star.star_handler import EventType, star_handlers_registry
 from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
 from .collectors import PersonaVisibleReplyCollector
@@ -1204,6 +1204,207 @@ def _build_persona_expression_result_from_payload(
     )
 
 
+class PersonaSegmentStreamParser:
+    """Parse and validate the line-framed segment_stream_v1 model protocol."""
+
+    MAX_RECORD_CHARS = 64_000
+    MAX_RECORDS = 2_048
+    MAX_SEGMENTS = 128
+    MAX_STREAM_CHARS = 256_000
+
+    def __init__(self, req: PersonaExpressionRequest) -> None:
+        self.req = req
+        self._buffer = ""
+        self._wire_text = ""
+        self._record_count = 0
+        self._turn_action: PersonalResponseAction | None = None
+        self._segments: list[PersonaExpressionSegment] = []
+        self._current_segment: PersonaExpressionSegment | None = None
+        self._delta_index = 0
+        self._finished = False
+
+    def feed(self, text: str) -> list[dict[str, Any]]:
+        if self._finished and text:
+            raise InteractionExpressionError("persona_stream_data_after_finish")
+        if len(self._wire_text) + len(text) > self.MAX_STREAM_CHARS:
+            raise InteractionExpressionError("persona_stream_too_large")
+        self._wire_text += text
+        self._buffer += text
+        records = self._buffer.split("\n")
+        self._buffer = records.pop()
+        events: list[dict[str, Any]] = []
+        for line in records:
+            event = self._consume_line(line)
+            if event is not None and event.get("type") != "finish":
+                events.append(event)
+        if len(self._buffer) > self.MAX_RECORD_CHARS:
+            raise InteractionExpressionError("persona_stream_record_too_large")
+        return events
+
+    def finish(self) -> PersonaExpressionResult:
+        if self._buffer:
+            event = self._consume_line(self._buffer)
+            self._buffer = ""
+            if event is not None and event.get("type") == "finish":
+                self._finished = True
+        if not self._finished:
+            raise InteractionExpressionError("persona_stream_missing_finish")
+        result = PersonaExpressionResult(
+            segments=self._segments,
+            turn_action=self._turn_action,
+        )
+        validate_persona_expression_result(self.req, result)
+        return result
+
+    @property
+    def wire_text(self) -> str:
+        return self._wire_text
+
+    def _consume_line(self, line: str) -> dict[str, Any] | None:
+        if len(line) > self.MAX_RECORD_CHARS:
+            raise InteractionExpressionError("persona_stream_record_too_large")
+        if not line.strip():
+            raise InteractionExpressionError("persona_stream_empty_record")
+        self._record_count += 1
+        if self._record_count > self.MAX_RECORDS:
+            raise InteractionExpressionError("persona_stream_too_many_records")
+        try:
+            record = json.loads(line, object_pairs_hook=self._unique_object)
+        except InteractionExpressionError:
+            raise
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise InteractionExpressionError(
+                "persona_stream_invalid_json", str(exc)
+            ) from exc
+        if not isinstance(record, dict):
+            raise InteractionExpressionError("persona_stream_record_not_object")
+        if self._finished:
+            raise InteractionExpressionError("persona_stream_data_after_finish")
+        if type(record.get("v")) is not int or record.get("v") != 1:
+            raise InteractionExpressionError("persona_stream_unsupported_version")
+        record_type = record.get("record")
+
+        if self._turn_action is None:
+            if record_type != "header" or set(record) != {"v", "record", "turn_action"}:
+                raise InteractionExpressionError("persona_stream_header_required")
+            try:
+                action = PersonalResponseAction(str(record["turn_action"]))
+            except ValueError as exc:
+                raise InteractionExpressionError(
+                    "persona_stream_invalid_turn_action"
+                ) from exc
+            if action not in _allowed_persona_turn_actions(self.req):
+                raise InteractionExpressionError(
+                    "persona_stream_disallowed_turn_action"
+                )
+            if action is not PersonalResponseAction.REPLY:
+                raise InteractionExpressionError(
+                    "persona_stream_turn_action_unsupported"
+                )
+            self._turn_action = action
+            return {"type": "header", "turn_action": action.value}
+
+        if record_type == "header":
+            raise InteractionExpressionError("persona_stream_duplicate_header")
+        if record_type == "segment_start":
+            if self._turn_action is not PersonalResponseAction.REPLY:
+                raise InteractionExpressionError(
+                    "persona_stream_segment_without_reply"
+                )
+            if self._current_segment is not None:
+                raise InteractionExpressionError("persona_stream_nested_segment")
+            if set(record) != {"v", "record", "actions", "tendency"}:
+                raise InteractionExpressionError("persona_stream_invalid_segment_start")
+            if len(self._segments) >= self.MAX_SEGMENTS:
+                raise InteractionExpressionError("persona_stream_too_many_segments")
+            self._current_segment = _validated_persona_segment(
+                {
+                    "speech": "",
+                    "actions": record.get("actions"),
+                    "thought": "",
+                    "tendency": record.get("tendency"),
+                }
+            )
+            return {
+                "type": "segment_start",
+                "segment_index": len(self._segments),
+                "actions": list(self._current_segment.actions),
+                "tendency": dict(self._current_segment.tendency),
+            }
+        if record_type == "speech_delta":
+            if self._current_segment is None:
+                raise InteractionExpressionError("persona_stream_delta_outside_segment")
+            if set(record) != {"v", "record", "text"}:
+                raise InteractionExpressionError("persona_stream_invalid_speech_delta")
+            delta = record.get("text")
+            if not isinstance(delta, str) or not delta:
+                raise InteractionExpressionError("persona_stream_invalid_speech_delta")
+            self._current_segment.speech += delta
+            event = {
+                "type": "speech_delta",
+                "segment_index": len(self._segments),
+                "delta_index": self._delta_index,
+                "text": delta,
+            }
+            self._delta_index += 1
+            return event
+        if record_type == "segment_end":
+            if self._current_segment is None:
+                raise InteractionExpressionError("persona_stream_end_without_segment")
+            if set(record) != {"v", "record", "thought"}:
+                raise InteractionExpressionError("persona_stream_invalid_segment_end")
+            thought = record.get("thought")
+            if not isinstance(thought, str):
+                raise InteractionExpressionError("invalid_persona_thought")
+            self._current_segment.thought = thought
+            segment = _validated_persona_segment(self._current_segment.to_mapping())
+            self._segments.append(segment)
+            self._current_segment = None
+            self._delta_index = 0
+            return {
+                "type": "segment_end",
+                "segment_index": len(self._segments) - 1,
+                "segment": segment.to_mapping(),
+            }
+        if record_type == "finish":
+            if self._current_segment is not None:
+                raise InteractionExpressionError("persona_stream_unclosed_segment")
+            if set(record) != {"v", "record", "effect_calls"}:
+                raise InteractionExpressionError("persona_stream_invalid_finish")
+            if record.get("effect_calls") != []:
+                raise InteractionExpressionError("persona_stream_effects_unsupported")
+            self._finished = True
+            return {"type": "finish", "segment_count": len(self._segments)}
+        raise InteractionExpressionError("persona_stream_unknown_record")
+
+    @staticmethod
+    def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise InteractionExpressionError("persona_stream_duplicate_field")
+            result[key] = value
+        return result
+
+
+def _build_persona_segment_stream_prompt() -> str:
+    dimensions = ", ".join(PERSONA_TENDENCY_DIMENSIONS)
+    return (
+        "\n\n【本轮输出协议：segment_stream_v1】"
+        "本协议覆盖此前所有输出格式要求。只输出逐行 JSONL 记录，不要 Markdown、"
+        "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
+        '第一条必须是 {"v":1,"record":"header","turn_action":"reply"}。'
+        '每段依次输出 {"v":1,"record":"segment_start","actions":[],"tendency":{...}}，'
+        '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
+        '再输出 {"v":1,"record":"segment_end","thought":"简短心理状态"}。'
+        'tendency 必须且只能包含八维整数，键为 '
+        f"{dimensions}，取值 0 到 10。"
+        '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
+        "动作或状态变化应拆成独立 segment；同一 segment 内的 speech_delta 按原文顺序拼接。"
+        "silent 时不得输出 segment。effect_calls 必须为空；不要调用工具。"
+    )
+
+
 def extract_persona_expression_result(
     text: object,
     *,
@@ -1508,6 +1709,82 @@ class InteractionExpressionAgent:
                 attachment_capture,
             )
 
+    async def generate_segment_stream_expression(
+        self,
+        event,
+        plugin_context: Context,
+        interaction_config: InteractionAgentConfig,
+        req: PersonaExpressionRequest,
+        *,
+        emit_record: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> PersonaExpressionResult:
+        """Generate one experimental segment_stream_v1 Persona response."""
+        if (
+            interaction_config.expression_output_format != "json"
+            or interaction_config.expression_output_mode != "prompt_only"
+        ):
+            raise InteractionExpressionError(
+                "persona_stream_output_mode_unsupported"
+            )
+        incompatible_hooks = (
+            EventType.OnWaitingLLMRequestEvent,
+            EventType.OnLLMRequestEvent,
+            EventType.OnLLMResponseEvent,
+            EventType.OnAgentBeginEvent,
+            EventType.OnAgentDoneEvent,
+            EventType.OnPersonaExpressionResultEvent,
+        )
+        if any(
+            star_handlers_registry.get_handlers_by_event_type(
+                event_type,
+                only_activated=False,
+                plugins_name=None,
+            )
+            for event_type in incompatible_hooks
+        ):
+            raise InteractionExpressionError("persona_stream_hooks_unsupported")
+        deadline = get_interaction_turn_deadline(event)
+        try:
+            timeout_context = (
+                deadline.enforce(
+                    "persona_expression",
+                    interaction_config.expression_timeout,
+                )
+                if deadline is not None
+                else asyncio.timeout(interaction_config.expression_timeout)
+            )
+            async with timeout_context:
+                provider, provider_id = await resolve_interaction_chat_provider(
+                    event,
+                    plugin_context,
+                    interaction_config.expression_provider_id,
+                )
+                if provider is None:
+                    raise InteractionExpressionError(
+                        "provider_unavailable",
+                        f"provider unavailable: provider_id={provider_id}",
+                    )
+                if not callable(
+                    getattr(provider, "support_stream", None)
+                ) or not provider.support_stream():
+                    raise InteractionExpressionError("provider_stream_unsupported")
+                effects = self._list_persona_effects(plugin_context, event)
+                if _enabled_persona_effects(effects):
+                    raise InteractionExpressionError("persona_effects_unsupported")
+                return await self._generate_expression_with_provider(
+                    event,
+                    plugin_context,
+                    interaction_config,
+                    provider,
+                    req=req,
+                    persona_effect_specs=effects,
+                    segment_stream_callback=emit_record,
+                )
+        except TurnDeadlineExceeded:
+            raise
+        except TimeoutError:
+            raise InteractionExpressionError("timeout") from None
+
     async def _generate_expression_with_attachments(
         self,
         event,
@@ -1730,8 +2007,16 @@ class InteractionExpressionAgent:
         req: PersonaExpressionRequest,
         prepared: _PreparedPersonaExpression | None = None,
         persona_effect_specs: Sequence[PersonaEffectSpec] | None = None,
+        segment_stream_callback: Callable[
+            [dict[str, Any]], Awaitable[None]
+        ]
+        | None = None,
     ) -> PersonaExpressionResult:
         if prepared is not None:
+            if segment_stream_callback is not None:
+                raise InteractionExpressionError(
+                    "segment_stream_fallback_unsupported"
+                )
             prepared = await self._prepare_fallback_persona_expression(
                 provider,
                 prepared,
@@ -1767,7 +2052,7 @@ class InteractionExpressionAgent:
 
         output_format = interaction_config.expression_output_format
         output_mode = interaction_config.expression_output_mode
-        if not _supports_persona_output_format(
+        if segment_stream_callback is None and not _supports_persona_output_format(
             provider,
             output_format,
             output_mode,
@@ -1879,6 +2164,23 @@ class InteractionExpressionAgent:
         else:
             provider_request.func_tool = ToolSet()
 
+        if segment_stream_callback is not None:
+            if _enabled_persona_effects(rendered_effect_specs):
+                raise InteractionExpressionError("persona_effects_unsupported")
+            if isinstance(provider_request.func_tool, ToolSet) and not provider_request.func_tool.empty():
+                raise InteractionExpressionError("persona_tools_unsupported")
+            provider_request.func_tool = ToolSet()
+            provider_request.terminal_tools = ToolSet()
+            provider_request.output_contract = None
+            provider_request.compiled_output_contract = None
+            provider_request.system_prompt = (
+                f"{provider_request.system_prompt or ''}"
+                f"{_build_persona_segment_stream_prompt()}"
+            )
+            provider_request.metadata["interaction.persona_output_protocol"] = (
+                "segment_stream_v1"
+            )
+
         run_context = _build_persona_hook_run_context(
             plugin_context,
             event,
@@ -1898,6 +2200,7 @@ class InteractionExpressionAgent:
             interaction_config,
             provider,
             prepared,
+            segment_stream_callback=segment_stream_callback,
         )
 
     async def _prepare_fallback_persona_expression(
@@ -2003,6 +2306,11 @@ class InteractionExpressionAgent:
         interaction_config: InteractionAgentConfig,
         provider: Provider,
         prepared: _PreparedPersonaExpression,
+        *,
+        segment_stream_callback: Callable[
+            [dict[str, Any]], Awaitable[None]
+        ]
+        | None = None,
     ) -> PersonaExpressionResult:
         req = prepared.req
         render_result = prepared.render_result
@@ -2064,11 +2372,12 @@ class InteractionExpressionAgent:
             prepared.lifecycle.lifecycle_id,
         )
         try:
-            llm_resp, tool_execution_count = await self._run_persona_agent(
+            llm_resp, tool_execution_count, streamed_result = await self._run_persona_agent(
                 event,
                 interaction_config,
                 provider,
                 prepared,
+                segment_stream_callback=segment_stream_callback,
             )
             prepared.tool_execution_count = tool_execution_count
         except InteractionExpressionError as exc:
@@ -2102,7 +2411,13 @@ class InteractionExpressionAgent:
             and not str(llm_resp.completion_text or "").strip()
         )
         try:
-            if (
+            if segment_stream_callback is not None:
+                if streamed_result is None:
+                    raise InteractionExpressionError(
+                        "persona_stream_result_missing"
+                    )
+                result = streamed_result
+            elif (
                 has_effect_channel
                 and (expression_tool_missing or expression_text_missing)
                 and not prepared.expression_correction_attempted
@@ -2303,6 +2618,14 @@ class InteractionExpressionAgent:
             exc.tool_execution_count = prepared.tool_execution_count
             exc.prepared = prepared
             raise
+        if segment_stream_callback is not None:
+            await segment_stream_callback(
+                {
+                    "type": "finish",
+                    "persona_result_id": prepared.lifecycle.lifecycle_id,
+                    "result": result,
+                }
+            )
         logger.info(
             "Persona expression generated: turn_id=%s target=persona_expression "
             "platform_id=%s session_id=%s phase=%s lifecycle_id=%s length=%s "
@@ -2687,7 +3010,12 @@ class InteractionExpressionAgent:
         interaction_config: InteractionAgentConfig,
         provider: Provider,
         prepared: _PreparedPersonaExpression,
-    ) -> tuple[LLMResponse, int]:
+        *,
+        segment_stream_callback: Callable[
+            [dict[str, Any]], Awaitable[None]
+        ]
+        | None = None,
+    ) -> tuple[LLMResponse, int, PersonaExpressionResult | None]:
         provider_request = prepared.provider_request
         terminal_tool_name = _resolve_terminal_tool_name(
             provider_request.output_contract,
@@ -2729,7 +3057,7 @@ class InteractionExpressionAgent:
         }
         if _enabled_persona_effects(persona_effect_specs):
             provider_kwargs["tool_choice"] = "required"
-        if output_format == "json" and output_mode in {
+        if segment_stream_callback is None and output_format == "json" and output_mode in {
             "provider_native_json",
             "provider_native_json_schema",
         }:
@@ -2757,6 +3085,11 @@ class InteractionExpressionAgent:
             sorted(terminal_tool_names),
         )
         runner = ToolLoopAgentRunner[AstrAgentContext]()
+        segment_parser = (
+            PersonaSegmentStreamParser(prepared.req)
+            if segment_stream_callback is not None
+            else None
+        )
         await runner.reset(
             provider=provider,
             request=provider_request,
@@ -2766,14 +3099,23 @@ class InteractionExpressionAgent:
                 prepared.lifecycle,
                 dispatch_agent_stages=False,
             ),
-            streaming=False,
+            streaming=segment_parser is not None,
+            buffer_streaming_tool_steps=segment_parser is not None,
             terminal_tool_names=terminal_tool_names,
             provider_kwargs=provider_kwargs,
             deadline=get_interaction_turn_deadline(event),
         )
         try:
-            async for _ in runner.step_until_done(8):
-                pass
+            async for response in runner.step_until_done(8):
+                if segment_parser is None or response.type != "streaming_delta":
+                    continue
+                chain = response.data.get("chain")
+                if chain is None or chain.type == "reasoning":
+                    continue
+                for record in segment_parser.feed(chain.get_plain_text()):
+                    if record.get("type") == "header":
+                        record["persona_result_id"] = prepared.lifecycle.lifecycle_id
+                    await segment_stream_callback(record)
         except TurnDeadlineExceeded:
             raise
         except TimeoutError:
@@ -2807,7 +3149,22 @@ class InteractionExpressionAgent:
                 llm_resp.completion_text or "provider returned an error response",
                 tool_execution_count=prepared.lifecycle.tool_execution_count,
             )
-        return llm_resp, prepared.lifecycle.tool_execution_count
+        if segment_parser is not None:
+            if llm_resp.tools_call_name:
+                raise InteractionExpressionError(
+                    "persona_stream_tool_call_unsupported",
+                    tool_execution_count=prepared.lifecycle.tool_execution_count,
+                )
+            final_text = str(llm_resp.completion_text or "")
+            if final_text and final_text != segment_parser.wire_text:
+                raise InteractionExpressionError(
+                    "persona_stream_final_response_mismatch",
+                    tool_execution_count=prepared.lifecycle.tool_execution_count,
+                )
+            streamed_result = segment_parser.finish()
+        else:
+            streamed_result = None
+        return llm_resp, prepared.lifecycle.tool_execution_count, streamed_result
 
     async def _resolve_personal_expression_capabilities(
         self,

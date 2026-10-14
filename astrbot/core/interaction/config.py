@@ -92,6 +92,9 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
         expression_provider_id=expression_provider_id,
         expression_output_format=expression_output_format,
         expression_output_mode=expression_output_mode,
+        persona_segment_stream_enabled=bool(
+            interaction_config.get("persona_segment_stream_enabled", False)
+        ),
         expression_temperature=_float_or_default(
             interaction_config.get("expression_temperature", 0.6),
             0.6,

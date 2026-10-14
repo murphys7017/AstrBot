@@ -17,6 +17,7 @@ from astrbot.core.interaction.expression_agent import (
     PersonaExpressionRequest,
     PersonaExpressionResult,
     PersonaExpressionSegment,
+    PersonaSegmentStreamParser,
     _build_expression_prompt,
     build_persona_effect_batch_tool_parameters,
     build_persona_expression_output_contract,
@@ -65,6 +66,66 @@ def _persona_payload(speech: str = "", **overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def test_persona_segment_stream_parser_handles_fragmented_records():
+    tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
+    records = [
+        {"v": 1, "record": "header", "turn_action": "reply"},
+        {
+            "v": 1,
+            "record": "segment_start",
+            "actions": [],
+            "tendency": tendency,
+        },
+        {"v": 1, "record": "speech_delta", "text": "你好"},
+        {"v": 1, "record": "speech_delta", "text": "，世界。"},
+        {"v": 1, "record": "segment_end", "thought": ""},
+        {"v": 1, "record": "finish", "effect_calls": []},
+    ]
+    wire = "\n".join(json.dumps(record, ensure_ascii=False) for record in records)
+    parser = PersonaSegmentStreamParser(
+        PersonaExpressionRequest(require_turn_action=True)
+    )
+
+    emitted = []
+    for chunk in (wire[:37], wire[37:119], wire[119:]):
+        emitted.extend(parser.feed(chunk))
+    result = parser.finish()
+
+    assert [item["type"] for item in emitted] == [
+        "header",
+        "segment_start",
+        "speech_delta",
+        "speech_delta",
+        "segment_end",
+    ]
+    assert [item["text"] for item in emitted if item["type"] == "speech_delta"] == [
+        "你好",
+        "，世界。",
+    ]
+    assert result.speech == "你好，世界。"
+    assert result.segment_mappings == (
+        {
+            "speech": "你好，世界。",
+            "actions": [],
+            "thought": "",
+            "tendency": tendency,
+        },
+    )
+
+
+def test_persona_segment_stream_parser_rejects_empty_reply():
+    parser = PersonaSegmentStreamParser(
+        PersonaExpressionRequest(require_turn_action=True)
+    )
+    parser.feed(
+        '{"v":1,"record":"header","turn_action":"reply"}\n'
+        '{"v":1,"record":"finish","effect_calls":[]}\n'
+    )
+
+    with pytest.raises(InteractionExpressionError):
+        parser.finish()
 
 
 @pytest.mark.asyncio

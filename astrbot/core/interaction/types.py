@@ -231,6 +231,7 @@ class InteractionAgentConfig:
     expression_provider_id: str = ""
     expression_output_format: str = "json"
     expression_output_mode: str = "prompt_only"
+    persona_segment_stream_enabled: bool = False
     expression_temperature: float = 0.6
     expression_timeout: float = 8.0
     planner_provider_id: str = ""
