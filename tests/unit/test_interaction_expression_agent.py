@@ -51,7 +51,10 @@ from astrbot.core.prompt.render import (
 )
 from astrbot.core.prompt.render.interfaces import RenderResult
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
-from astrbot.core.star.star_handler import EventType
+from astrbot.core.star.star_handler import (
+    PERSONA_SEGMENT_STREAM_SAFE_KEY,
+    EventType,
+)
 
 
 def _provider_context_text(call: dict) -> str:
@@ -201,6 +204,81 @@ def test_persona_segment_ready_hook_is_registered_as_public_event(monkeypatch):
             {"priority": 17},
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream_safe", [False, True])
+async def test_olv_segment_stream_requires_explicitly_safe_hooks(
+    monkeypatch,
+    stream_safe,
+):
+    class Provider:
+        @staticmethod
+        def support_stream():
+            return True
+
+    event = SimpleNamespace(
+        get_platform_name=lambda: "olv_pet_adapter",
+        get_extra=lambda key, default=None: (
+            True
+            if key == "_interaction_persona_segment_stream_requested"
+            else default
+        ),
+    )
+    provider = Provider()
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.star_handlers_registry.get_handlers_by_event_type",
+        lambda event_type, **_kwargs: (
+            [
+                SimpleNamespace(
+                    extras_configs={PERSONA_SEGMENT_STREAM_SAFE_KEY: stream_safe}
+                )
+            ]
+            if event_type is EventType.OnLLMRequestEvent
+            else []
+        ),
+    )
+    resolve_provider = AsyncMock(return_value=(provider, "provider-1"))
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.resolve_interaction_chat_provider",
+        resolve_provider,
+    )
+    agent = InteractionExpressionAgent()
+    agent._list_persona_effects = lambda *_args: []
+    generate_expression = AsyncMock(
+        return_value=PersonaExpressionResult(speech="hello")
+    )
+    agent._generate_expression_with_provider = generate_expression
+    config = InteractionAgentConfig(
+        expression_output_format="json",
+        expression_output_mode="prompt_only",
+    )
+
+    if stream_safe:
+        result = await agent.generate_segment_stream_expression(
+            event,
+            object(),
+            config,
+            PersonaExpressionRequest(),
+            emit_record=AsyncMock(),
+            message_id="message-1",
+        )
+        assert result.speech == "hello"
+        resolve_provider.assert_awaited_once()
+        generate_expression.assert_awaited_once()
+    else:
+        with pytest.raises(InteractionExpressionError) as exc_info:
+            await agent.generate_segment_stream_expression(
+                event,
+                object(),
+                config,
+                PersonaExpressionRequest(),
+                emit_record=AsyncMock(),
+                message_id="message-1",
+            )
+        assert exc_info.value.reason == "persona_stream_hooks_unsupported"
+        resolve_provider.assert_not_awaited()
+        generate_expression.assert_not_awaited()
 
 
 @pytest.mark.asyncio

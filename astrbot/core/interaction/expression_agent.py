@@ -77,7 +77,11 @@ from astrbot.core.provider.output_contract_tools import (
 )
 from astrbot.core.provider.request_media import normalize_provider_request_images
 from astrbot.core.star.context import Context
-from astrbot.core.star.star_handler import EventType, star_handlers_registry
+from astrbot.core.star.star_handler import (
+    PERSONA_SEGMENT_STREAM_SAFE_KEY,
+    EventType,
+    star_handlers_registry,
+)
 from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
 from .collectors import PersonaVisibleReplyCollector
@@ -1736,13 +1740,35 @@ class InteractionExpressionAgent:
             EventType.OnAgentDoneEvent,
             EventType.OnPersonaExpressionResultEvent,
         )
-        if any(
-            star_handlers_registry.get_handlers_by_event_type(
+        get_platform_name = getattr(event, "get_platform_name", None)
+        olv_segment_stream_requested = (
+            callable(get_platform_name)
+            and str(get_platform_name() or "").lower() == "olv_pet_adapter"
+            and bool(
+                event.get_extra(
+                    "_interaction_persona_segment_stream_requested",
+                    False,
+                )
+            )
+        )
+        incompatible_handlers = [
+            handler
+            for event_type in incompatible_hooks
+            for handler in star_handlers_registry.get_handlers_by_event_type(
                 event_type,
                 only_activated=False,
                 plugins_name=None,
             )
-            for event_type in incompatible_hooks
+        ]
+        if incompatible_handlers and (
+            not olv_segment_stream_requested
+            or any(
+                getattr(handler, "extras_configs", {}).get(
+                    PERSONA_SEGMENT_STREAM_SAFE_KEY
+                )
+                is not True
+                for handler in incompatible_handlers
+            )
         ):
             raise InteractionExpressionError("persona_stream_hooks_unsupported")
         deadline = get_interaction_turn_deadline(event)

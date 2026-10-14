@@ -8,6 +8,8 @@ from typing import Any, Generic, Literal, TypeVar, overload
 from .filter import HandlerFilter
 from .star import star_map
 
+PERSONA_SEGMENT_STREAM_SAFE_KEY = "persona_segment_stream_safe"
+
 T = TypeVar("T", bound="StarHandlerMetadata")
 
 

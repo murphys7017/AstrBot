@@ -439,6 +439,9 @@ def register_on_llm_request(**kwargs):
 
     请务必接收两个参数：event, request
 
+    Persona segment stream 的无损 handler 可设置
+    ``persona_segment_stream_safe=True``；此时仍会按正常生命周期调用。
+
     """
 
     def decorator(awaitable):
@@ -461,6 +464,9 @@ def register_on_llm_response(**kwargs):
     ```
 
     请务必接收两个参数：event, request
+
+    Persona segment stream 的无损 handler 可设置
+    ``persona_segment_stream_safe=True``；此时仍会按正常生命周期调用。
 
     """
 
@@ -530,7 +536,11 @@ def register_on_agent_done(**kwargs):
 
 
 def register_on_persona_expression_result(**kwargs):
-    """在 Persona 结构化表达完成后修改结果。处理器返回值会被忽略。"""
+    """在 Persona 结构化表达完成后修改结果。处理器返回值会被忽略。
+
+    OLV Persona segment stream 可由只处理终态的 handler 声明
+    ``persona_segment_stream_safe=True``；该 handler 仍会在流结束时调用。
+    """
 
     def decorator(awaitable):
         _ = get_handler_or_create(
