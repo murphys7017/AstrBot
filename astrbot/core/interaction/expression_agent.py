@@ -1718,6 +1718,7 @@ class InteractionExpressionAgent:
         req: PersonaExpressionRequest,
         *,
         emit_record: Callable[[dict[str, Any]], Awaitable[None]],
+        message_id: str,
     ) -> PersonaExpressionResult:
         """Generate one experimental segment_stream_v1 Persona response."""
         if (
@@ -1780,6 +1781,7 @@ class InteractionExpressionAgent:
                     req=req,
                     persona_effect_specs=effects,
                     segment_stream_callback=emit_record,
+                    segment_message_id=message_id,
                 )
         except TurnDeadlineExceeded:
             raise
@@ -2012,6 +2014,7 @@ class InteractionExpressionAgent:
             [dict[str, Any]], Awaitable[None]
         ]
         | None = None,
+        segment_message_id: str | None = None,
     ) -> PersonaExpressionResult:
         if prepared is not None:
             if segment_stream_callback is not None:
@@ -2202,6 +2205,7 @@ class InteractionExpressionAgent:
             provider,
             prepared,
             segment_stream_callback=segment_stream_callback,
+            segment_message_id=segment_message_id,
         )
 
     async def _prepare_fallback_persona_expression(
@@ -2312,6 +2316,7 @@ class InteractionExpressionAgent:
             [dict[str, Any]], Awaitable[None]
         ]
         | None = None,
+        segment_message_id: str | None = None,
     ) -> PersonaExpressionResult:
         req = prepared.req
         render_result = prepared.render_result
@@ -2379,6 +2384,7 @@ class InteractionExpressionAgent:
                 provider,
                 prepared,
                 segment_stream_callback=segment_stream_callback,
+                segment_message_id=segment_message_id,
             )
             prepared.tool_execution_count = tool_execution_count
         except InteractionExpressionError as exc:
@@ -3016,6 +3022,7 @@ class InteractionExpressionAgent:
             [dict[str, Any]], Awaitable[None]
         ]
         | None = None,
+        segment_message_id: str | None = None,
     ) -> tuple[LLMResponse, int, PersonaExpressionResult | None]:
         provider_request = prepared.provider_request
         terminal_tool_name = _resolve_terminal_tool_name(
@@ -3091,6 +3098,7 @@ class InteractionExpressionAgent:
             if segment_stream_callback is not None
             else None
         )
+        stream_turn_action: PersonalResponseAction | None = None
         await runner.reset(
             provider=provider,
             request=provider_request,
@@ -3116,7 +3124,35 @@ class InteractionExpressionAgent:
                 for record in segment_parser.feed(chain.get_plain_text()):
                     if record.get("type") == "header":
                         record["persona_result_id"] = prepared.lifecycle.lifecycle_id
+                        stream_turn_action = PersonalResponseAction(
+                            record["turn_action"]
+                        )
                     await segment_stream_callback(record)
+                    if record.get("type") == "segment_end":
+                        segment = _validated_persona_segment(record["segment"])
+                        with prepared.lifecycle.expose_request():
+                            hook_stopped = await call_event_hook(
+                                event,
+                                EventType.OnPersonaExpressionSegmentReadyEvent,
+                                turn_id=str(
+                                    event.get_extra("_turn_id", "") or ""
+                                ),
+                                persona_result_id=prepared.lifecycle.lifecycle_id,
+                                segment_index=record["segment_index"],
+                                message_id=segment_message_id,
+                                segment=segment.to_mapping(),
+                                turn_action=stream_turn_action,
+                                execution_surface=(
+                                    PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
+                                ),
+                            )
+                        if hook_stopped:
+                            raise InteractionExpressionError(
+                                "persona_segment_ready_hook_stopped",
+                                tool_execution_count=(
+                                    prepared.lifecycle.tool_execution_count
+                                ),
+                            )
         except TurnDeadlineExceeded:
             raise
         except TimeoutError:

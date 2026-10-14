@@ -1207,13 +1207,14 @@ class InteractionMiddleware:
                 )
             return True
 
-        async def produce(emit_record) -> PersonaExpressionResult:
+        async def produce(emit_record, message_id) -> PersonaExpressionResult:
             return await self.expression_agent.generate_segment_stream_expression(
                 event,
                 self.plugin_context,
                 interaction_config,
                 request,
                 emit_record=emit_record,
+                message_id=message_id,
             )
 
         try:

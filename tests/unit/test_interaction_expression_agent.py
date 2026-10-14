@@ -1,9 +1,11 @@
 import json
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from astrbot.api.event.filter import on_persona_expression_segment_ready
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.capabilities import CapabilitySnapshot
@@ -46,6 +48,7 @@ from astrbot.core.prompt.render import (
 )
 from astrbot.core.prompt.render.interfaces import RenderResult
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
+from astrbot.core.star.star_handler import EventType
 
 
 def _provider_context_text(call: dict) -> str:
@@ -168,6 +171,169 @@ def test_persona_segment_stream_parser_accepts_silent_without_segments():
 
     assert result.turn_action is PersonalResponseAction.SILENT
     assert result.segments == []
+
+
+def test_persona_segment_ready_hook_is_registered_as_public_event(monkeypatch):
+    registrations = []
+
+    monkeypatch.setattr(
+        "astrbot.core.star.register.star_handler.get_handler_or_create",
+        lambda handler, event_type, **kwargs: registrations.append(
+            (handler, event_type, kwargs)
+        ),
+    )
+
+    async def handler(_event, **_kwargs):
+        return None
+
+    decorated = on_persona_expression_segment_ready(priority=42)(handler)
+
+    assert decorated is handler
+    assert registrations == [
+        (handler, EventType.OnPersonaExpressionSegmentReadyEvent, {"priority": 42})
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hook_stopped", [False, True])
+async def test_persona_segment_ready_hook_receives_validated_segment_identity(
+    monkeypatch,
+    hook_stopped,
+):
+    tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
+    wire = "\n".join(
+        json.dumps(record)
+        for record in (
+            {"v": 1, "record": "header", "turn_action": "reply"},
+            {
+                "v": 1,
+                "record": "segment_start",
+                "actions": ["look_left"],
+                "tendency": tendency,
+            },
+            {"v": 1, "record": "speech_delta", "text": "hello"},
+            {"v": 1, "record": "segment_end", "thought": ""},
+            {"v": 1, "record": "finish", "effect_calls": []},
+        )
+    ) + "\n"
+
+    class Chain:
+        type = "normal"
+
+        @staticmethod
+        def get_plain_text():
+            return wire
+
+    class Runner:
+        async def reset(self, **_kwargs):
+            return None
+
+        async def step_until_done(self, _limit):
+            yield SimpleNamespace(
+                type="streaming_delta",
+                data={"chain": Chain()},
+            )
+
+        @staticmethod
+        def get_final_llm_resp():
+            return SimpleNamespace(
+                role="assistant",
+                tools_call_name=[],
+                completion_text=wire,
+            )
+
+    class RunnerFactory:
+        def __class_getitem__(cls, _context):
+            return lambda: runner
+
+    event = SimpleNamespace(
+        session_id="session-1",
+        get_extra=lambda key, default=None: {"_turn_id": "turn-1"}.get(
+            key,
+            default,
+        ),
+        get_platform_id=lambda: "webchat",
+    )
+    lifecycle = SimpleNamespace(
+        lifecycle_id="persona-result-1",
+        tool_execution_count=0,
+        expose_request=nullcontext,
+    )
+    prepared = SimpleNamespace(
+        req=PersonaExpressionRequest(require_turn_action=True),
+        render_result=SimpleNamespace(
+            metadata={
+                "persona_effect_specs": [],
+                "expression_output_format": "json",
+                "expression_output_mode": "prompt_only",
+            }
+        ),
+        provider_request=SimpleNamespace(
+            output_contract=None,
+            compiled_output_contract=None,
+            func_tool=ToolSet(),
+        ),
+        run_context=SimpleNamespace(),
+        lifecycle=lifecycle,
+    )
+    runner = Runner()
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.ToolLoopAgentRunner",
+        RunnerFactory,
+    )
+
+    observed = []
+
+    async def observe_hook(_event, hook_type, **kwargs):
+        assert hook_type is EventType.OnPersonaExpressionSegmentReadyEvent
+        observed.append(("hook", kwargs))
+        return hook_stopped
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.call_event_hook",
+        observe_hook,
+    )
+
+    async def capture_record(record):
+        observed.append(("record", record["type"]))
+
+    run = InteractionExpressionAgent()._run_persona_agent(
+        event,
+        InteractionAgentConfig(),
+        object(),
+        prepared,
+        segment_stream_callback=capture_record,
+        segment_message_id="message-1",
+    )
+    if hook_stopped:
+        with pytest.raises(InteractionExpressionError) as exc_info:
+            await run
+        assert exc_info.value.reason == "persona_segment_ready_hook_stopped"
+    else:
+        _, _, result = await run
+        assert result.speech == "hello"
+    assert [item[1] for item in observed if item[0] == "record"] == [
+        "header",
+        "segment_start",
+        "speech_delta",
+        "segment_end",
+    ]
+    assert observed[-2][1] == "segment_end"
+    assert observed[-1][0] == "hook"
+    assert observed[-1][1] == {
+        "turn_id": "turn-1",
+        "persona_result_id": "persona-result-1",
+        "segment_index": 0,
+        "message_id": "message-1",
+        "segment": {
+            "speech": "hello",
+            "actions": ["look_left"],
+            "thought": "",
+            "tendency": tendency,
+        },
+        "turn_action": PersonalResponseAction.REPLY,
+        "execution_surface": "personal_expression",
+    }
 
 
 @pytest.mark.asyncio

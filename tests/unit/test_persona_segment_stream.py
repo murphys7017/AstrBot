@@ -63,7 +63,7 @@ async def test_persona_stream_cancellation_drains_tasks(header_first):
     producer_cancelled = asyncio.Event()
     wait_forever = asyncio.Event()
 
-    async def producer(emit_record):
+    async def producer(emit_record, _message_id):
         producer_started.set()
         try:
             if header_first:
@@ -113,7 +113,8 @@ async def test_silent_persona_stream_does_not_start_webchat_delivery():
 
     event = StreamEvent()
 
-    async def producer(emit_record):
+    async def producer(emit_record, message_id):
+        assert message_id == "stream-1"
         result = PersonaExpressionResult(
             speech="",
             turn_action=PersonalResponseAction.SILENT,
@@ -147,7 +148,7 @@ async def test_completed_stream_preserves_empty_segment_persona_state():
     controller._notify_lifecycle = AsyncMock()
     event = StreamEvent()
 
-    async def producer(emit_record):
+    async def producer(emit_record, _message_id):
         await emit_record({"type": "header", "turn_action": "reply"})
         await emit_record({"type": "segment_start", "segment_index": 0})
         await emit_record(
@@ -232,7 +233,7 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
         stalled_synthesis,
     )
 
-    async def producer(emit_record):
+    async def producer(emit_record, _message_id):
         await emit_record({"type": "header", "turn_action": "reply"})
         for segment_index, segment_text in enumerate(("hello", " world")):
             segment = {

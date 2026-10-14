@@ -425,7 +425,7 @@ class InteractionOutputController:
         event: AstrMessageEvent,
         *,
         producer: Callable[
-            [Callable[[dict[str, Any]], Awaitable[None]]],
+            [Callable[[dict[str, Any]], Awaitable[None]], str],
             Awaitable[PersonaExpressionResult],
         ],
         on_header: Callable[[dict[str, Any]], Awaitable[bool | None]],
@@ -577,7 +577,7 @@ class InteractionOutputController:
 
         async def produce() -> None:
             try:
-                result = await producer(emit_record)
+                result = await producer(emit_record, message_id)
                 if not state["header"]:
                     raise InteractionExpressionError("persona_stream_header_required")
                 if not state["finish"] or result.speech != "".join(state["text_parts"]):

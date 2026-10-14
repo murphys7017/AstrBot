@@ -543,6 +543,25 @@ def register_on_persona_expression_result(**kwargs):
     return decorator
 
 
+def register_on_persona_expression_segment_ready(**kwargs):
+    """在 Persona 流式段通过校验后通知处理器。
+
+    处理器接收 turn_id、persona_result_id、segment_index、message_id、segment
+    和 turn_action 参数。segment 是独立快照，修改不会影响 Core 输出；返回值会被忽略，
+    调用 event.stop_event() 会停止后续流式生成。
+    """
+
+    def decorator(awaitable):
+        _ = get_handler_or_create(
+            awaitable,
+            EventType.OnPersonaExpressionSegmentReadyEvent,
+            **kwargs,
+        )
+        return awaitable
+
+    return decorator
+
+
 def register_on_using_llm_tool(**kwargs):
     """当调用函数工具前的事件。
     会传入 tool 和 tool_args 参数。

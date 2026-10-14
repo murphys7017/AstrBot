@@ -1575,6 +1575,7 @@ async def test_segment_stream_header_preserves_personal_route_action(
 
     async def emit_persona_segment_stream(_event, *, producer, on_header):
         publish_stream = await on_header({"turn_action": action.value})
+        await producer(AsyncMock(), "message-1")
         return SimpleNamespace(
             expression=result,
             emitted=publish_stream,
@@ -1600,6 +1601,8 @@ async def test_segment_stream_header_preserves_personal_route_action(
     )
 
     assert returned is result
+    generate_expression = middleware.expression_agent.generate_segment_stream_expression
+    assert generate_expression.await_args.kwargs["message_id"] == "message-1"
     assert turn_state.route_decision.route_mode is expected_route
     assert turn_state.speculative_persona_status is expected_status
 
