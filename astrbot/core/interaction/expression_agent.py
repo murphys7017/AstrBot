@@ -1297,17 +1297,13 @@ class PersonaSegmentStreamParser:
                 raise InteractionExpressionError(
                     "persona_stream_disallowed_turn_action"
                 )
-            if action is not PersonalResponseAction.REPLY:
-                raise InteractionExpressionError(
-                    "persona_stream_turn_action_unsupported"
-                )
             self._turn_action = action
             return {"type": "header", "turn_action": action.value}
 
         if record_type == "header":
             raise InteractionExpressionError("persona_stream_duplicate_header")
         if record_type == "segment_start":
-            if self._turn_action is not PersonalResponseAction.REPLY:
+            if self._turn_action is PersonalResponseAction.SILENT:
                 raise InteractionExpressionError(
                     "persona_stream_segment_without_reply"
                 )
@@ -1387,13 +1383,17 @@ class PersonaSegmentStreamParser:
         return result
 
 
-def _build_persona_segment_stream_prompt() -> str:
+def _build_persona_segment_stream_prompt(req: PersonaExpressionRequest) -> str:
     dimensions = ", ".join(PERSONA_TENDENCY_DIMENSIONS)
+    allowed_actions = ", ".join(
+        f'"{action.value}"' for action in _allowed_persona_turn_actions(req)
+    )
     return (
         "\n\n【本轮输出协议：segment_stream_v1】"
         "本协议覆盖此前所有输出格式要求。只输出逐行 JSONL 记录，不要 Markdown、"
         "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
-        '第一条必须是 {"v":1,"record":"header","turn_action":"reply"}。'
+        '第一条必须是 {"v":1,"record":"header","turn_action":"..."}；'
+        f"turn_action 必须从 {allowed_actions} 中选择，并遵守本轮原有路由规则。"
         '每段依次输出 {"v":1,"record":"segment_start","actions":[],"tendency":{...}}，'
         '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
         '再输出 {"v":1,"record":"segment_end","thought":"简短心理状态"}。'
@@ -1401,7 +1401,8 @@ def _build_persona_segment_stream_prompt() -> str:
         f"{dimensions}，取值 0 到 10。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
         "动作或状态变化应拆成独立 segment；同一 segment 内的 speech_delta 按原文顺序拼接。"
-        "silent 时不得输出 segment。effect_calls 必须为空；不要调用工具。"
+        "reply 或 delegate 时输出 Persona 语音 segment；silent 时不得输出 segment。"
+        "effect_calls 必须为空；不要调用工具。"
     )
 
 
@@ -2175,7 +2176,7 @@ class InteractionExpressionAgent:
             provider_request.compiled_output_contract = None
             provider_request.system_prompt = (
                 f"{provider_request.system_prompt or ''}"
-                f"{_build_persona_segment_stream_prompt()}"
+                f"{_build_persona_segment_stream_prompt(req)}"
             )
             provider_request.metadata["interaction.persona_output_protocol"] = (
                 "segment_stream_v1"

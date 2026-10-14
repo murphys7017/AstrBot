@@ -1171,15 +1171,15 @@ class InteractionMiddleware:
             ),
         )
 
-        async def on_header(record: dict[str, Any]) -> None:
-            if record.get("turn_action") != PersonalResponseAction.REPLY.value:
+        async def on_header(record: dict[str, Any]) -> bool:
+            try:
+                action = PersonalResponseAction(record.get("turn_action"))
+            except ValueError as exc:
                 raise InteractionExpressionError(
-                    "persona_stream_turn_action_unsupported"
-                )
+                    "persona_stream_invalid_turn_action"
+                ) from exc
             turn_state = ensure_interaction_turn_state(event)
-            route = InteractionRouteDecision.from_personal_action(
-                PersonalResponseAction.REPLY
-            )
+            route = InteractionRouteDecision.from_personal_action(action)
             async with turn_state.lock:
                 if (
                     turn_state.speculative_persona_status
@@ -1192,17 +1192,20 @@ class InteractionMiddleware:
             self._record_personal_response_plan_diagnostics(
                 event,
                 route,
-                PersonalResponseAction.REPLY,
+                action,
             )
             self.attach_event_context(
                 event,
                 turn_id=str(event.get_extra("_turn_id", "") or ""),
                 route_decision=route,
             )
+            if action is PersonalResponseAction.SILENT:
+                return False
             if not await reserve_interaction_turn_immediate_output(event):
                 raise InteractionExpressionError(
                     "persona_stream_immediate_output_unavailable"
                 )
+            return True
 
         async def produce(emit_record) -> PersonaExpressionResult:
             return await self.expression_agent.generate_segment_stream_expression(
@@ -1220,6 +1223,15 @@ class InteractionMiddleware:
                 on_header=on_header,
             )
         except asyncio.CancelledError:
+            event.set_extra("_interaction_persona_segment_stream_status", "cancelled")
+            self._set_speculative_persona_status(
+                event,
+                InteractionSpeculativePersonaStatus.FAILED,
+            )
+            await self._complete_incomplete_persona_stream_turn(
+                event,
+                "cancelled",
+            )
             raise
         except Exception as exc:  # noqa: BLE001
             reason = getattr(exc, "reason", None) or "persona_segment_stream_failed"

@@ -428,7 +428,7 @@ class InteractionOutputController:
             [Callable[[dict[str, Any]], Awaitable[None]]],
             Awaitable[PersonaExpressionResult],
         ],
-        on_header: Callable[[dict[str, Any]], Awaitable[None]],
+        on_header: Callable[[dict[str, Any]], Awaitable[bool | None]],
     ) -> PersonaSegmentStreamOutcome:
         self._ensure_persona_segment_stream_compatible(event)
         options = self._resolve_outbound_options(event)
@@ -461,6 +461,7 @@ class InteractionOutputController:
             "text_parts": [],
             "segments": [],
             "tts": [],
+            "tts_attempted": False,
             "tts_failures": [],
             "result": None,
             "error": None,
@@ -473,21 +474,26 @@ class InteractionOutputController:
             if record_type == "header":
                 if state["header"]:
                     raise InteractionExpressionError("persona_stream_duplicate_header")
-                await on_header(record)
+                publish_stream = await on_header(record)
                 state["header"] = True
+                state["publish_stream"] = publish_stream is not False
                 state["persona_result_id"] = str(
                     record.get("persona_result_id") or ""
                 ).strip() or None
                 platform_extras["persona_stream"].update(
                     {"persona_result_id": state["persona_result_id"]}
                 )
-                await self._notify_lifecycle(
-                    event,
-                    "speaking",
-                    {"message_kind": "immediate_reply", "protocol": "segment_stream_v1"},
-                )
+                if state["publish_stream"]:
+                    await self._notify_lifecycle(
+                        event,
+                        "speaking",
+                        {
+                            "message_kind": "immediate_reply",
+                            "protocol": "segment_stream_v1",
+                        },
+                    )
                 if not ready.done():
-                    ready.set_result(True)
+                    ready.set_result(state["publish_stream"])
                 return
 
             if not state["header"]:
@@ -633,6 +639,7 @@ class InteractionOutputController:
                         event,
                         "persona_tts",
                     )
+                    state["tts_attempted"] = True
                     result = await synthesize_text(
                         self.plugin_context,
                         event,
@@ -686,9 +693,81 @@ class InteractionOutputController:
                         exc.reason,
                     )
 
+        def finalize_outcome() -> PersonaSegmentStreamOutcome:
+            status = state["status"]
+            if state["error"] is not None and status != "cancelled":
+                event.set_extra(
+                    "_interaction_persona_segment_stream_failure_reason",
+                    self._persona_stream_error_reason(state["error"]),
+                )
+            event.set_extra("_interaction_persona_segment_stream_status", status)
+            emitted_text = "".join(state["text_parts"])
+            if emitted_text:
+                set_interaction_turn_immediate_reply(event, emitted_text)
+                mappings = list(state["segments"])
+                set_interaction_turn_immediate_persona_state(
+                    event,
+                    segments=mappings,
+                    actions=[
+                        action
+                        for segment in mappings
+                        for action in segment.get("actions", [])
+                    ],
+                    thought="\n".join(
+                        str(segment.get("thought") or "")
+                        for segment in mappings
+                        if str(segment.get("thought") or "")
+                    ),
+                    tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
+                )
+                tts_status = platform_extras["persona_stream"].get(
+                    "tts_status",
+                    "cancelled" if status == "cancelled" else "not_attempted",
+                )
+                self._record_visible_output(
+                    event,
+                    message_kind="immediate_reply",
+                    text=emitted_text,
+                    message_id=message_id,
+                    delivered_message_ids=_visible_message_ids_from_extras(
+                        platform_extras
+                    ),
+                    metadata={
+                        "delivered_as": "stream",
+                        "persona_result_id": state["persona_result_id"],
+                        "persona_stream_status": status,
+                        "tts_status": tts_status,
+                        "tts": list(state["tts"]),
+                    },
+                )
+
+            expression = state["result"]
+            if status != "completed" and emitted_text:
+                expression = PersonaExpressionResult(
+                    speech=emitted_text,
+                    turn_action=PersonalResponseAction.REPLY,
+                    metadata={
+                        PERSONA_RESULT_ID_METADATA_KEY: state["persona_result_id"],
+                        "interaction.persona_stream_status": status,
+                    },
+                )
+            elif expression is not None:
+                expression.metadata["interaction.persona_stream_status"] = status
+
+            return PersonaSegmentStreamOutcome(
+                expression=expression,
+                emitted=bool(emitted_text),
+                status=status,
+                failure_reason=(
+                    self._persona_stream_error_reason(state["error"])
+                    if state["error"] is not None and status != "cancelled"
+                    else None
+                ),
+            )
+
         producer_task = asyncio.create_task(produce())
         try:
-            await ready
+            publish_stream = await ready
         except BaseException as exc:
             if not producer_task.done():
                 producer_task.cancel()
@@ -699,29 +778,41 @@ class InteractionOutputController:
                 raise state["error"]
             raise
 
-        delivery_task = asyncio.create_task(
-            event.send_interaction_streaming(
-                stream_messages(),
-                platform_extras=platform_extras,
-                use_fallback=False,
+        delivery_task = (
+            asyncio.create_task(
+                event.send_interaction_streaming(
+                    stream_messages(),
+                    platform_extras=platform_extras,
+                    use_fallback=False,
+                )
             )
+            if publish_stream
+            else None
         )
         try:
-            children = asyncio.gather(producer_task, delivery_task)
+            children = asyncio.gather(
+                producer_task,
+                *([delivery_task] if delivery_task is not None else []),
+            )
             await asyncio.shield(children)
         except asyncio.CancelledError:
             state["status"] = "cancelled"
             platform_extras["persona_stream"]["status"] = "cancelled"
+            platform_extras["persona_stream"]["tts_status"] = (
+                "cancelled" if state["tts_attempted"] else "not_attempted"
+            )
             state["delivery_failed"] = True
-            if not delivery_task.done():
+            if delivery_task is not None and not delivery_task.done():
                 delivery_task.cancel()
             if not producer_task.done():
                 producer_task.cancel()
             await asyncio.gather(
                 producer_task,
-                delivery_task,
+                *([delivery_task] if delivery_task is not None else []),
                 return_exceptions=True,
             )
+            await asyncio.gather(children, return_exceptions=True)
+            finalize_outcome()
             raise
         except Exception as exc:  # noqa: BLE001
             state["error"] = state["error"] or exc
@@ -732,74 +823,7 @@ class InteractionOutputController:
             state["status"] = "incomplete"
             platform_extras["persona_stream"]["status"] = "incomplete"
 
-        if state["error"] is not None:
-            event.set_extra(
-                "_interaction_persona_segment_stream_failure_reason",
-                self._persona_stream_error_reason(state["error"]),
-            )
-        event.set_extra("_interaction_persona_segment_stream_status", state["status"])
-        emitted_text = "".join(state["text_parts"])
-        if emitted_text:
-            set_interaction_turn_immediate_reply(event, emitted_text)
-            mappings = list(state["segments"])
-            set_interaction_turn_immediate_persona_state(
-                event,
-                segments=mappings,
-                actions=[
-                    action
-                    for segment in mappings
-                    for action in segment.get("actions", [])
-                ],
-                thought="\n".join(
-                    str(segment.get("thought") or "")
-                    for segment in mappings
-                    if str(segment.get("thought") or "")
-                ),
-                tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
-            )
-            tts_status = platform_extras["persona_stream"].get(
-                "tts_status", "not_attempted"
-            )
-            self._record_visible_output(
-                event,
-                message_kind="immediate_reply",
-                text=emitted_text,
-                message_id=message_id,
-                delivered_message_ids=_visible_message_ids_from_extras(
-                    platform_extras
-                ),
-                metadata={
-                    "delivered_as": "stream",
-                    "persona_result_id": state["persona_result_id"],
-                    "persona_stream_status": state["status"],
-                    "tts_status": tts_status,
-                    "tts": list(state["tts"]),
-                },
-            )
-
-        expression = state["result"]
-        if state["status"] != "completed" and emitted_text:
-            expression = PersonaExpressionResult(
-                speech=emitted_text,
-                turn_action=PersonalResponseAction.REPLY,
-                metadata={
-                    PERSONA_RESULT_ID_METADATA_KEY: state["persona_result_id"],
-                    "interaction.persona_stream_status": state["status"],
-                },
-            )
-        elif expression is not None:
-            expression.metadata["interaction.persona_stream_status"] = "completed"
-
-        return PersonaSegmentStreamOutcome(
-            expression=expression,
-            emitted=bool(emitted_text),
-            status=state["status"],
-            failure_reason=(
-                self._persona_stream_error_reason(state["error"])
-                if state["error"] is not None
-                else None
-            ),
-        )
+        return finalize_outcome()
 
     def _ensure_persona_segment_stream_compatible(
         self,

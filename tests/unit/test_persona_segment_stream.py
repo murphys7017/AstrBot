@@ -6,6 +6,11 @@ import pytest
 
 from astrbot.core.interaction.expression_agent import PersonaExpressionResult
 from astrbot.core.interaction.output_controller import InteractionOutputController
+from astrbot.core.interaction.turn_state import (
+    get_interaction_turn_immediate_reply,
+    get_interaction_turn_visible_outputs,
+)
+from astrbot.core.interaction.types import PersonalResponseAction
 
 
 class StreamEvent:
@@ -93,6 +98,41 @@ async def test_persona_stream_cancellation_drains_tasks(header_first):
 
 
 @pytest.mark.asyncio
+async def test_silent_persona_stream_does_not_start_webchat_delivery():
+    controller = InteractionOutputController()
+    controller._ensure_persona_segment_stream_compatible = lambda _event: None
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        tts_enabled=False
+    )
+    controller._next_output_segment_id = lambda _event, _kind: "stream-1"
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+
+    event = StreamEvent()
+
+    async def producer(emit_record):
+        result = PersonaExpressionResult(
+            speech="",
+            turn_action=PersonalResponseAction.SILENT,
+        )
+        await emit_record({"type": "header", "turn_action": "silent"})
+        await emit_record({"type": "finish", "result": result})
+        return result
+
+    outcome = await controller.emit_persona_segment_stream(
+        event,
+        producer=producer,
+        on_header=AsyncMock(return_value=False),
+    )
+
+    assert outcome.expression.turn_action is PersonalResponseAction.SILENT
+    assert outcome.status == "completed"
+    assert outcome.emitted is False
+    assert event.sender_started.is_set() is False
+    controller._notify_lifecycle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     controller = InteractionOutputController()
     controller._ensure_persona_segment_stream_compatible = lambda _event: None
@@ -172,3 +212,9 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     assert isinstance(result[0], asyncio.CancelledError)
     assert tts_cancelled.is_set()
     assert event.sender_finished.is_set()
+    assert event.get_extra("_interaction_persona_segment_stream_status") == (
+        "cancelled"
+    )
+    assert get_interaction_turn_immediate_reply(event) == "hello"
+    visible_outputs = get_interaction_turn_visible_outputs(event)
+    assert visible_outputs[-1]["text"] == "hello"

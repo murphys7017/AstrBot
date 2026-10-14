@@ -1511,6 +1511,155 @@ async def test_persona_route_allows_explicitly_targeted_function_tools():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "expected_route", "expected_status"),
+    [
+        (
+            PersonalResponseAction.REPLY,
+            InteractionRouteMode.PERSONA,
+            InteractionSpeculativePersonaStatus.EMITTED,
+        ),
+        (
+            PersonalResponseAction.DELEGATE,
+            InteractionRouteMode.HYBRID,
+            InteractionSpeculativePersonaStatus.EMITTED,
+        ),
+        (
+            PersonalResponseAction.SILENT,
+            InteractionRouteMode.SILENT,
+            InteractionSpeculativePersonaStatus.SUPPRESSED,
+        ),
+    ],
+)
+async def test_segment_stream_header_preserves_personal_route_action(
+    monkeypatch,
+    action,
+    expected_route,
+    expected_status,
+):
+    class Event:
+        session_id = "session-1"
+
+        def __init__(self):
+            self._extras = {"_turn_id": "turn-1"}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "webchat"
+
+        def get_platform_name(self):
+            return "webchat"
+
+    event = Event()
+    turn_state = ensure_interaction_turn_state(event)
+    turn_state.speculative_persona_status = (
+        InteractionSpeculativePersonaStatus.PENDING
+    )
+    middleware = object.__new__(InteractionMiddleware)
+    middleware.plugin_context = object()
+    middleware.expression_agent = SimpleNamespace(
+        generate_segment_stream_expression=AsyncMock()
+    )
+    middleware.output_controller = SimpleNamespace()
+    middleware._record_personal_response_plan_diagnostics = Mock()
+    middleware.attach_event_context = Mock()
+    result = PersonaExpressionResult(
+        speech="reply" if action is not PersonalResponseAction.SILENT else "",
+        turn_action=action,
+    )
+
+    async def emit_persona_segment_stream(_event, *, producer, on_header):
+        publish_stream = await on_header({"turn_action": action.value})
+        return SimpleNamespace(
+            expression=result,
+            emitted=publish_stream,
+            status="completed",
+            failure_reason=None,
+        )
+
+    middleware.output_controller.emit_persona_segment_stream = (
+        emit_persona_segment_stream
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.middleware.group_conversation_allows_silent",
+        lambda _event: True,
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.middleware.reserve_interaction_turn_immediate_output",
+        AsyncMock(return_value=True),
+    )
+
+    returned = await middleware._generate_and_stream_persona(
+        event,
+        SimpleNamespace(persona_segment_stream_enabled=True),
+    )
+
+    assert returned is result
+    assert turn_state.route_decision.route_mode is expected_route
+    assert turn_state.speculative_persona_status is expected_status
+
+
+@pytest.mark.asyncio
+async def test_persona_stream_cancellation_completes_cancelled_lifecycle(monkeypatch):
+    class Event:
+        session_id = "session-1"
+
+        def __init__(self):
+            self._extras = {"_turn_id": "turn-1"}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "webchat"
+
+        def get_platform_name(self):
+            return "webchat"
+
+    event = Event()
+    turn_state = ensure_interaction_turn_state(event)
+    turn_state.speculative_persona_status = (
+        InteractionSpeculativePersonaStatus.PENDING
+    )
+    middleware = object.__new__(InteractionMiddleware)
+    middleware.plugin_context = object()
+    middleware.expression_agent = SimpleNamespace()
+    middleware.output_controller = SimpleNamespace(
+        emit_persona_segment_stream=AsyncMock(side_effect=asyncio.CancelledError)
+    )
+    middleware._complete_incomplete_persona_stream_turn = AsyncMock()
+    monkeypatch.setattr(
+        "astrbot.core.interaction.middleware.group_conversation_allows_silent",
+        lambda _event: False,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await middleware._generate_and_stream_persona(
+            event,
+            SimpleNamespace(persona_segment_stream_enabled=True),
+        )
+
+    assert event.get_extra("_interaction_persona_segment_stream_status") == (
+        "cancelled"
+    )
+    assert turn_state.speculative_persona_status is (
+        InteractionSpeculativePersonaStatus.FAILED
+    )
+    middleware._complete_incomplete_persona_stream_turn.assert_awaited_once_with(
+        event,
+        "cancelled",
+    )
+
+
+@pytest.mark.asyncio
 async def test_persona_completion_delegates_to_interaction_delivery_boundary():
     class Controller:
         def __init__(self):

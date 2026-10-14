@@ -128,6 +128,48 @@ def test_persona_segment_stream_parser_rejects_empty_reply():
         parser.finish()
 
 
+def test_persona_segment_stream_parser_preserves_delegate_action():
+    tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
+    parser = PersonaSegmentStreamParser(
+        PersonaExpressionRequest(require_turn_action=True)
+    )
+    records = [
+        {"v": 1, "record": "header", "turn_action": "delegate"},
+        {
+            "v": 1,
+            "record": "segment_start",
+            "actions": [],
+            "tendency": tendency,
+        },
+        {"v": 1, "record": "speech_delta", "text": "我来查一下。"},
+        {"v": 1, "record": "segment_end", "thought": ""},
+        {"v": 1, "record": "finish", "effect_calls": []},
+    ]
+
+    for record in records:
+        parser.feed(json.dumps(record, ensure_ascii=False) + "\n")
+
+    result = parser.finish()
+
+    assert result.turn_action is PersonalResponseAction.DELEGATE
+    assert result.speech == "我来查一下。"
+
+
+def test_persona_segment_stream_parser_accepts_silent_without_segments():
+    parser = PersonaSegmentStreamParser(
+        PersonaExpressionRequest(require_turn_action=True, allow_silent=True)
+    )
+    parser.feed(
+        '{"v":1,"record":"header","turn_action":"silent"}\n'
+        '{"v":1,"record":"finish","effect_calls":[]}\n'
+    )
+
+    result = parser.finish()
+
+    assert result.turn_action is PersonalResponseAction.SILENT
+    assert result.segments == []
+
+
 @pytest.mark.asyncio
 async def test_local_expression_notifies_consumers_with_fresh_identity(monkeypatch):
     class Event:
