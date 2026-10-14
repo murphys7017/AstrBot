@@ -1511,6 +1511,36 @@ async def test_persona_route_allows_explicitly_targeted_function_tools():
 
 
 @pytest.mark.asyncio
+async def test_olv_persona_segment_stream_request_selects_core_stream_path():
+    middleware = object.__new__(InteractionMiddleware)
+    streamed_result = PersonaExpressionResult(
+        speech="hello",
+        turn_action=PersonalResponseAction.REPLY,
+    )
+    middleware._generate_and_stream_persona = AsyncMock(return_value=streamed_result)
+    event = SimpleNamespace(
+        get_platform_name=lambda: "olv_pet_adapter",
+        get_extra=lambda key, default=None: (
+            True
+            if key == "_interaction_persona_segment_stream_requested"
+            else default
+        ),
+    )
+    interaction_config = SimpleNamespace(persona_segment_stream_enabled=False)
+
+    result = await middleware._generate_and_emit_persona(
+        event,
+        interaction_config,
+    )
+
+    assert result is streamed_result
+    middleware._generate_and_stream_persona.assert_awaited_once_with(
+        event,
+        interaction_config,
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("action", "expected_route", "expected_status"),
     [

@@ -433,6 +433,15 @@ class InteractionOutputController:
         on_header: Callable[[dict[str, Any]], Awaitable[bool | None]],
     ) -> PersonaSegmentStreamOutcome:
         self._ensure_persona_segment_stream_compatible(event)
+        is_olv_segment_stream = (
+            str(event.get_platform_name() or "").lower() == "olv_pet_adapter"
+            and bool(
+                event.get_extra(
+                    "_interaction_persona_segment_stream_requested",
+                    False,
+                )
+            )
+        )
         options = self._resolve_outbound_options(event)
         use_tts = (
             options.tts_enabled
@@ -528,23 +537,29 @@ class InteractionOutputController:
                 state["current_text"].append(text)
                 state["text_parts"].append(text)
                 state["next_delta_index"] += 1
-                await queue.put(
-                    {
-                        "type": "speech_delta",
-                        "text": text,
-                        "segment_index": segment_index,
-                        "delta_index": delta_index,
-                    }
-                )
+                if not is_olv_segment_stream:
+                    await queue.put(
+                        {
+                            "type": "speech_delta",
+                            "text": text,
+                            "segment_index": segment_index,
+                            "delta_index": delta_index,
+                        }
+                    )
                 return
 
             if record_type == "segment_end":
                 segment_index = int(record["segment_index"])
                 segment = record.get("segment")
+                raw_speech = record.get(
+                    "raw_speech",
+                    segment.get("speech") if isinstance(segment, dict) else None,
+                )
                 if (
                     not isinstance(segment, dict)
                     or segment_index != state["current_index"]
-                    or "".join(state["current_text"]) != segment.get("speech")
+                    or not isinstance(raw_speech, str)
+                    or "".join(state["current_text"]) != raw_speech
                 ):
                     raise InteractionExpressionError("persona_stream_segment_mismatch")
                 state["segments"].append(segment)
@@ -553,7 +568,15 @@ class InteractionOutputController:
                 platform_extras["persona_stream"]["segment_count"] = len(
                     state["segments"]
                 )
-                if use_tts and str(segment.get("speech") or "").strip():
+                if is_olv_segment_stream and str(segment.get("speech") or "").strip():
+                    await queue.put(
+                        {
+                            "type": "persona_segment",
+                            "text": segment["speech"],
+                            "segment_index": segment_index,
+                        }
+                    )
+                elif use_tts and str(segment.get("speech") or "").strip():
                     await queue.put(
                         {
                             "type": "tts_segment",
@@ -646,6 +669,28 @@ class InteractionOutputController:
                     ).append(item["text"])
                     continue
 
+                if item["type"] == "persona_segment" and not use_tts:
+                    segment_message_id = self._next_output_segment_id(
+                        event,
+                        "persona_segment",
+                    )
+                    yield MessageChain(
+                        [
+                            Plain(
+                                item["text"],
+                                delivery_metadata={
+                                    "message_id": segment_message_id,
+                                    "persona_result_id": state["persona_result_id"],
+                                    "persona_segment_index": item["segment_index"],
+                                    "semantic_text": item["text"],
+                                    "audio_attachment": "absent",
+                                },
+                            )
+                        ],
+                        type="persona_stream_segment",
+                    )
+                    continue
+
                 try:
                     tts_message_id = self._next_output_segment_id(
                         event,
@@ -675,8 +720,20 @@ class InteractionOutputController:
                             "stream_event": "tts_segment",
                             "persona_result_id": state["persona_result_id"],
                             "persona_segment_index": item["segment_index"],
+                            "semantic_text": item["text"],
                         }
                     )
+                    if is_olv_segment_stream:
+                        output_segment_metadata = delivery_metadata.get(
+                            "output_segment"
+                        )
+                        tts_metadata = (
+                            output_segment_metadata.get("tts")
+                            if isinstance(output_segment_metadata, dict)
+                            else None
+                        )
+                        if isinstance(tts_metadata, dict):
+                            tts_metadata.pop("persona_segment_count", None)
                     state["tts"].append(
                         {
                             "persona_segment_index": item["segment_index"],
@@ -704,6 +761,120 @@ class InteractionOutputController:
                         item["segment_index"],
                         exc.reason,
                     )
+                    if is_olv_segment_stream:
+                        delivery_metadata = (
+                            build_tts_delivery_metadata(
+                                exc.state,
+                                audio_attachment="absent",
+                            )
+                            if exc.state is not None
+                            else {
+                                "output_segment": {
+                                    "turn_id": str(
+                                        event.get_extra("_turn_id", "") or ""
+                                    ),
+                                    "message_id": tts_message_id,
+                                    "tts": {
+                                        "status": "failed",
+                                        "failure_code": exc.reason,
+                                    },
+                                },
+                                "audio_attachment": "absent",
+                            }
+                        )
+                        delivery_metadata.update(
+                            {
+                                "message_id": tts_message_id,
+                                "stream_event": "tts_segment",
+                                "persona_result_id": state["persona_result_id"],
+                                "persona_segment_index": item["segment_index"],
+                                "semantic_text": item["text"],
+                                "failure_code": exc.reason,
+                            }
+                        )
+                        output_segment_metadata = delivery_metadata.get(
+                            "output_segment"
+                        )
+                        tts_metadata = (
+                            output_segment_metadata.get("tts")
+                            if isinstance(output_segment_metadata, dict)
+                            else None
+                        )
+                        if isinstance(tts_metadata, dict):
+                            tts_metadata.pop("persona_segment_count", None)
+                        yield MessageChain(
+                            [
+                                Plain(
+                                    item["text"],
+                                    delivery_metadata=delivery_metadata,
+                                )
+                            ],
+                            type="persona_stream_segment",
+                        )
+
+        async def deliver_olv_segments() -> None:
+            olv_platform_extras = dict(platform_extras)
+            olv_platform_extras.pop("persona_stream", None)
+
+            async def message_parts():
+                async for message in stream_messages():
+                    if message.type == "persona_speech_delta" or not message.chain:
+                        continue
+                    component = message.chain[0]
+                    metadata = getattr(component, "delivery_metadata", None)
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    output_segment = metadata.get("output_segment")
+                    segment_message_id = str(
+                        metadata.get("message_id")
+                        or (
+                            output_segment.get("message_id")
+                            if isinstance(output_segment, dict)
+                            else ""
+                        )
+                        or ""
+                    ).strip()
+                    if not segment_message_id:
+                        raise InteractionExpressionError(
+                            "persona_stream_segment_message_id_missing"
+                        )
+                    segment_index = metadata.get("persona_segment_index")
+                    if isinstance(segment_index, bool) or not isinstance(
+                        segment_index,
+                        int,
+                    ):
+                        raise InteractionExpressionError(
+                            "persona_stream_segment_index_missing"
+                        )
+                    semantic_text = str(metadata.get("semantic_text") or "")
+                    part_extras = {
+                        "persona_result_id": state["persona_result_id"],
+                        "persona_segment_index": segment_index,
+                        "persona_streaming": True,
+                        "persona_incremental_delivery": True,
+                        "persona_delivery_parent_message_id": message_id,
+                        "semantic_text": semantic_text,
+                    }
+                    yield message, part_extras, segment_message_id
+                    if semantic_text:
+                        state["delivered_text_parts"].append(semantic_text)
+                        state["delivered_segment_parts"].setdefault(
+                            segment_index,
+                            [],
+                        ).append(semantic_text)
+
+            await self._deliver_visible_message(
+                event,
+                MessageChain([Plain("")], type="persona_stream_olv"),
+                message_kind="immediate_reply",
+                platform_extras=olv_platform_extras,
+                output_segment_id=message_id,
+                record_send_operation=False,
+                result_is_model_result=True,
+                allow_segmented_reply=False,
+                semantic_text="",
+                message_parts=message_parts(),
+            )
 
         def finalize_outcome() -> PersonaSegmentStreamOutcome:
             status = state["status"]
@@ -838,7 +1009,9 @@ class InteractionOutputController:
 
         delivery_task = (
             asyncio.create_task(
-                event.send_interaction_streaming(
+                deliver_olv_segments()
+                if is_olv_segment_stream
+                else event.send_interaction_streaming(
                     stream_messages(),
                     platform_extras=platform_extras,
                     use_fallback=False,
@@ -890,10 +1063,24 @@ class InteractionOutputController:
         self,
         event: AstrMessageEvent,
     ) -> None:
-        if str(event.get_platform_name() or "").lower() != "webchat":
-            raise InteractionExpressionError("persona_stream_webchat_only")
-        if not callable(getattr(event, "send_interaction_streaming", None)):
-            raise InteractionExpressionError("persona_stream_output_unsupported")
+        platform_name = str(event.get_platform_name() or "").lower()
+        if platform_name == "webchat":
+            if not callable(getattr(event, "send_interaction_streaming", None)):
+                raise InteractionExpressionError("persona_stream_output_unsupported")
+        elif platform_name == "olv_pet_adapter" and bool(
+            event.get_extra("_interaction_persona_segment_stream_requested", False)
+        ):
+            if not all(
+                callable(getattr(event, method, None))
+                for method in (
+                    "send_message_with_extras",
+                    "flush_visible_segment",
+                    "complete_visible_message",
+                )
+            ):
+                raise InteractionExpressionError("persona_stream_output_unsupported")
+        else:
+            raise InteractionExpressionError("persona_stream_platform_unsupported")
         options = self._resolve_outbound_options(event)
         if (
             options.reply_prefix

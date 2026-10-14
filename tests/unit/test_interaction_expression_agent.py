@@ -295,6 +295,7 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
 
     async def observe_hook(_event, hook_type, **kwargs):
         assert hook_type is EventType.OnPersonaExpressionSegmentReadyEvent
+        kwargs["segment"]["speech"] = "sanitized"
         observed.append(("hook", kwargs))
         return hook_stopped
 
@@ -304,7 +305,7 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
     )
 
     async def capture_record(record):
-        observed.append(("record", record["type"]))
+        observed.append(("record", record["type"], record.get("segment")))
 
     run = InteractionExpressionAgent()._run_persona_agent(
         event,
@@ -327,15 +328,16 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
         "speech_delta",
         "segment_end",
     ]
-    assert observed[-2][1] == "segment_end"
-    assert observed[-1][0] == "hook"
-    assert observed[-1][1] == {
+    assert observed[-2][0] == "hook"
+    assert observed[-1][1] == "segment_end"
+    assert observed[-1][2]["speech"] == "sanitized"
+    assert observed[-2][1] == {
         "turn_id": "turn-1",
         "persona_result_id": "persona-result-1",
         "segment_index": 0,
         "message_id": "message-1",
         "segment": {
-            "speech": "hello",
+            "speech": "sanitized",
             "actions": ["look_left"],
             "thought": "",
             "tendency": tendency,

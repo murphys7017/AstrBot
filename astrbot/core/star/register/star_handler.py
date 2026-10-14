@@ -547,8 +547,9 @@ def register_on_persona_expression_segment_ready(**kwargs):
     """在 Persona 流式段通过校验后通知处理器。
 
     处理器接收 turn_id、persona_result_id、segment_index、message_id、segment
-    和 turn_action 参数。segment 是独立快照，修改不会影响 Core 输出；返回值会被忽略，
-    调用 event.stop_event() 会停止后续流式生成。
+    和 turn_action 参数。segment 是独立副本；Core 会重新校验处理器的修改，
+    并将有效修改用于该段后续交付，不会改变模型最终结果。返回值会被忽略，调用
+    event.stop_event() 会停止后续流式生成。
     """
 
     def decorator(awaitable):

@@ -1035,11 +1035,25 @@ class InteractionMiddleware:
         interaction_config,
     ) -> PersonaExpressionResult | None:
         get_platform_name = getattr(event, "get_platform_name", None)
-        if (
-            getattr(interaction_config, "persona_segment_stream_enabled", False)
-            and callable(get_platform_name)
-            and str(get_platform_name() or "").lower() == "webchat"
-        ):
+        platform_name = (
+            str(get_platform_name() or "").lower()
+            if callable(get_platform_name)
+            else ""
+        )
+        webchat_stream_enabled = (
+            platform_name == "webchat"
+            and getattr(interaction_config, "persona_segment_stream_enabled", False)
+        )
+        olv_stream_requested = (
+            platform_name == "olv_pet_adapter"
+            and bool(
+                event.get_extra(
+                    "_interaction_persona_segment_stream_requested",
+                    False,
+                )
+            )
+        )
+        if webchat_stream_enabled or olv_stream_requested:
             return await self._generate_and_stream_persona(
                 event,
                 interaction_config,

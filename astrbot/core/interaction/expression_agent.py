@@ -3127,9 +3127,10 @@ class InteractionExpressionAgent:
                         stream_turn_action = PersonalResponseAction(
                             record["turn_action"]
                         )
-                    await segment_stream_callback(record)
                     if record.get("type") == "segment_end":
-                        segment = _validated_persona_segment(record["segment"])
+                        raw_segment = record["segment"]
+                        raw_speech = raw_segment["speech"]
+                        record["raw_speech"] = raw_speech
                         with prepared.lifecycle.expose_request():
                             hook_stopped = await call_event_hook(
                                 event,
@@ -3140,12 +3141,15 @@ class InteractionExpressionAgent:
                                 persona_result_id=prepared.lifecycle.lifecycle_id,
                                 segment_index=record["segment_index"],
                                 message_id=segment_message_id,
-                                segment=segment.to_mapping(),
+                                segment=raw_segment,
                                 turn_action=stream_turn_action,
                                 execution_surface=(
                                     PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
                                 ),
                             )
+                        segment = _validated_persona_segment(record["segment"])
+                        record["segment"] = segment.to_mapping()
+                        await segment_stream_callback(record)
                         if hook_stopped:
                             raise InteractionExpressionError(
                                 "persona_segment_ready_hook_stopped",
@@ -3153,6 +3157,8 @@ class InteractionExpressionAgent:
                                     prepared.lifecycle.tool_execution_count
                                 ),
                             )
+                    else:
+                        await segment_stream_callback(record)
         except TurnDeadlineExceeded:
             raise
         except TimeoutError:

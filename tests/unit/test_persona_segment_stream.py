@@ -16,6 +16,7 @@ from astrbot.core.interaction.turn_state import (
 )
 from astrbot.core.interaction.types import PersonalResponseAction
 from astrbot.core.star.star_handler import EventType
+from astrbot.core.voice import TTSState
 
 
 class StreamEvent:
@@ -313,6 +314,169 @@ async def test_incomplete_stream_reports_accepted_segment_prefix(monkeypatch):
     assert finish_events[0]["status"] == "incomplete"
     assert finish_events[0]["segment_count"] == 1
     assert finish_events[0]["failure_reason"] == "provider_failed"
+
+
+@pytest.mark.asyncio
+async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
+    monkeypatch,
+):
+    controller = InteractionOutputController()
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        tts_enabled=True,
+        tts_trigger_probability=1.0,
+        tts_use_file_service=False,
+        callback_api_base=None,
+        reply_prefix="",
+        show_reasoning=False,
+        t2i_enabled=False,
+    )
+    controller._next_output_segment_id = lambda _event, kind: {
+        "persona_stream": "stream-1",
+        "persona_tts": "tts-1",
+    }[kind]
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+
+    class OLVStreamEvent(StreamEvent):
+        def __init__(self):
+            super().__init__()
+            self._extras["_interaction_persona_segment_stream_requested"] = True
+
+        def get_platform_name(self):
+            return "olv_pet_adapter"
+
+        async def send_message_with_extras(self, *_args, **_kwargs):
+            raise AssertionError("the streaming adapter path should not send here")
+
+        async def flush_visible_segment(self, **_kwargs):
+            return None
+
+        async def complete_visible_message(self, **_kwargs):
+            return None
+
+    event = OLVStreamEvent()
+    controller._get_runtime_config = lambda _event: {}
+    segment_delivered = asyncio.Event()
+    provider_finished = asyncio.Event()
+    deliveries = []
+
+    async def deliver_visible(_event, _message, *, message_parts, **_kwargs):
+        async for message, extras, message_id in message_parts:
+            deliveries.append(
+                (message, extras, message_id, provider_finished.is_set())
+            )
+            segment_delivered.set()
+        return ["visible-1"]
+
+    controller._deliver_visible_message = deliver_visible
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.SessionServiceManager.should_process_tts_request",
+        AsyncMock(return_value=True),
+    )
+
+    async def synthesize(_context, _event, text, **kwargs):
+        assert text == "hello"
+        assert kwargs["persona_result_id"] == "result-1"
+        state = TTSState(
+            turn_id="turn-1",
+            message_id=kwargs["message_id"],
+            tts_request_id="tts-request-1",
+            stage="interaction.outbound_tts",
+            status="succeeded",
+            provider_id="test",
+            audio_path="C:/audio.wav",
+            audio_url="https://local/audio.wav",
+            parent_message_id="stream-1",
+            persona_result_id="result-1",
+            persona_segment_index=0,
+        )
+        return SimpleNamespace(
+            state=state,
+            delivered_file="https://local/audio.wav",
+            text=text,
+            audio_path=state.audio_path,
+            audio_url=state.audio_url,
+            provider_id="test",
+        )
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.synthesize_text",
+        synthesize,
+    )
+
+    tendency = {
+        "Joy": 0,
+        "Trust": 0,
+        "Fear": 0,
+        "Surprise": 0,
+        "Sadness": 0,
+        "Disgust": 0,
+        "Anger": 0,
+        "Anticipation": 0,
+    }
+
+    async def producer(emit_record, message_id):
+        assert message_id == "stream-1"
+        await emit_record(
+            {
+                "type": "header",
+                "turn_action": "reply",
+                "persona_result_id": "result-1",
+            }
+        )
+        await emit_record({"type": "segment_start", "segment_index": 0})
+        await emit_record(
+            {
+                "type": "speech_delta",
+                "segment_index": 0,
+                "delta_index": 0,
+                "text": "hello",
+            }
+        )
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 0,
+                "segment": {
+                    "speech": "hello",
+                    "actions": [],
+                    "thought": "",
+                    "tendency": tendency,
+                },
+            }
+        )
+        await asyncio.wait_for(segment_delivered.wait(), timeout=1)
+        result = PersonaExpressionResult(speech="hello")
+        await emit_record({"type": "finish", "result": result})
+        provider_finished.set()
+        return result
+
+    outcome = await controller.emit_persona_segment_stream(
+        event,
+        producer=producer,
+        on_header=AsyncMock(return_value=True),
+    )
+
+    assert outcome.status == "completed"
+    assert outcome.emitted is True
+    assert event.sender_started.is_set() is False
+    assert len(deliveries) == 1
+    message, extras, message_id, finished_before_delivery = deliveries[0]
+    assert message.type == "persona_stream_tts"
+    assert message.chain[0].file == "https://local/audio.wav"
+    assert "persona_segment_count" not in message.chain[0].delivery_metadata[
+        "output_segment"
+    ]["tts"]
+    assert message_id == "tts-1"
+    assert extras["persona_result_id"] == "result-1"
+    assert extras["persona_segment_index"] == 0
+    assert extras["persona_streaming"] is True
+    assert "persona_segment_count" not in extras
+    assert finished_before_delivery is False
 
 
 @pytest.mark.asyncio
