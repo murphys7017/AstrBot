@@ -1612,6 +1612,46 @@ async def test_suppressed_persona_reply_does_not_materialize_raw_expression():
 
 
 @pytest.mark.asyncio
+async def test_failed_empty_persona_stream_is_not_completed_as_silent():
+    class Event:
+        def __init__(self):
+            self._extras = {"_interaction_persona_segment_stream_status": "incomplete"}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    async def suppressed_expression():
+        return None
+
+    event = Event()
+    turn_state = ensure_interaction_turn_state(event)
+    turn_state.speculative_persona_status = (
+        InteractionSpeculativePersonaStatus.SUPPRESSED
+    )
+    middleware = object.__new__(InteractionMiddleware)
+    middleware._complete_incomplete_persona_stream_turn = AsyncMock()
+    middleware._materialize_silent_turn = Mock()
+    middleware._finalize_turn = AsyncMock()
+
+    await middleware.complete_routed_turn(
+        event,
+        interaction_config=None,
+        persona_task=asyncio.create_task(suppressed_expression()),
+        route=InteractionRouteDecision(route_mode=InteractionRouteMode.PERSONA),
+    )
+
+    middleware._complete_incomplete_persona_stream_turn.assert_awaited_once_with(
+        event,
+        "incomplete",
+    )
+    middleware._materialize_silent_turn.assert_not_called()
+    middleware._finalize_turn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_visible_message_completion_follows_all_physical_deliveries():
     class Event:
         def __init__(self):

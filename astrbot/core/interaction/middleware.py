@@ -866,6 +866,15 @@ class InteractionMiddleware:
         turn_state = ensure_interaction_turn_state(event)
         route = turn_state.route_decision
         if not isinstance(route, InteractionRouteDecision):
+            stream_status = event.get_extra(
+                "_interaction_persona_segment_stream_status"
+            )
+            if stream_status in {"failed", "incomplete", "cancelled"}:
+                await self._complete_incomplete_persona_stream_turn(
+                    event,
+                    str(stream_status),
+                )
+                return
             raise RuntimeError("Personal response plan did not publish a route")
         await self.complete_routed_turn(
             event,
@@ -1025,6 +1034,16 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         interaction_config,
     ) -> PersonaExpressionResult | None:
+        get_platform_name = getattr(event, "get_platform_name", None)
+        if (
+            getattr(interaction_config, "persona_segment_stream_enabled", False)
+            and callable(get_platform_name)
+            and str(get_platform_name() or "").lower() == "webchat"
+        ):
+            return await self._generate_and_stream_persona(
+                event,
+                interaction_config,
+            )
         if self.plugin_context is None:
             record_interaction_turn_expression_failure(
                 event,
@@ -1127,6 +1146,132 @@ class InteractionMiddleware:
             )
         return expression
 
+    async def _generate_and_stream_persona(
+        self,
+        event: AstrMessageEvent,
+        interaction_config: InteractionAgentConfig,
+    ) -> PersonaExpressionResult | None:
+        if self.plugin_context is None:
+            record_interaction_turn_expression_failure(
+                event,
+                "plugin_context_unavailable",
+            )
+            self._set_speculative_persona_status(
+                event,
+                InteractionSpeculativePersonaStatus.SUPPRESSED,
+            )
+            return None
+
+        request = PersonaExpressionRequest(
+            require_turn_action=True,
+            allow_silent=group_conversation_allows_silent(event),
+            intent=PersonaExpressionIntent(
+                source="user_message",
+                phase="immediate",
+            ),
+        )
+
+        async def on_header(record: dict[str, Any]) -> None:
+            if record.get("turn_action") != PersonalResponseAction.REPLY.value:
+                raise InteractionExpressionError(
+                    "persona_stream_turn_action_unsupported"
+                )
+            turn_state = ensure_interaction_turn_state(event)
+            route = InteractionRouteDecision.from_personal_action(
+                PersonalResponseAction.REPLY
+            )
+            async with turn_state.lock:
+                if (
+                    turn_state.speculative_persona_status
+                    is not InteractionSpeculativePersonaStatus.PENDING
+                ):
+                    raise InteractionExpressionError(
+                        "persona_stream_turn_already_committed"
+                    )
+                set_interaction_turn_route_decision(event, route)
+            self._record_personal_response_plan_diagnostics(
+                event,
+                route,
+                PersonalResponseAction.REPLY,
+            )
+            self.attach_event_context(
+                event,
+                turn_id=str(event.get_extra("_turn_id", "") or ""),
+                route_decision=route,
+            )
+            if not await reserve_interaction_turn_immediate_output(event):
+                raise InteractionExpressionError(
+                    "persona_stream_immediate_output_unavailable"
+                )
+
+        async def produce(emit_record) -> PersonaExpressionResult:
+            return await self.expression_agent.generate_segment_stream_expression(
+                event,
+                self.plugin_context,
+                interaction_config,
+                request,
+                emit_record=emit_record,
+            )
+
+        try:
+            outcome = await self.output_controller.emit_persona_segment_stream(
+                event,
+                producer=produce,
+                on_header=on_header,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            reason = getattr(exc, "reason", None) or "persona_segment_stream_failed"
+            event.set_extra("_interaction_persona_segment_stream_status", "failed")
+            event.set_extra(
+                "_interaction_persona_segment_stream_failure_reason",
+                str(reason),
+            )
+            record_interaction_turn_expression_failure(event, str(reason))
+            record_interaction_turn_failure(
+                event,
+                stage="persona_segment_stream",
+                reason=str(reason),
+                exception=exc,
+                user_visible_action="none",
+            )
+            self._set_speculative_persona_status(
+                event,
+                InteractionSpeculativePersonaStatus.FAILED,
+            )
+            logger.warning(
+                "Interaction Persona segment stream stopped before publication: "
+                "platform_id=%s session_id=%s turn_id=%s reason=%s",
+                event.get_platform_id(),
+                event.session_id,
+                event.get_extra("_turn_id"),
+                reason,
+                exc_info=True,
+            )
+            return None
+
+        if outcome.failure_reason:
+            record_interaction_turn_expression_failure(
+                event,
+                outcome.failure_reason,
+            )
+            record_interaction_turn_failure(
+                event,
+                stage="persona_segment_stream",
+                reason=outcome.failure_reason,
+                user_visible_action="none",
+            )
+        self._set_speculative_persona_status(
+            event,
+            (
+                InteractionSpeculativePersonaStatus.EMITTED
+                if outcome.emitted
+                else InteractionSpeculativePersonaStatus.SUPPRESSED
+            ),
+        )
+        return outcome.expression
+
     async def _suppress_or_await_speculative_persona(
         self,
         event: AstrMessageEvent,
@@ -1189,6 +1334,15 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         expression: PersonaExpressionResult | None,
     ) -> None:
+        stream_status = event.get_extra(
+            "_interaction_persona_segment_stream_status"
+        )
+        if stream_status in {"failed", "incomplete", "cancelled"}:
+            await self._complete_incomplete_persona_stream_turn(
+                event,
+                str(stream_status),
+            )
+            return
         turn_state = ensure_interaction_turn_state(event)
         if (
             turn_state.speculative_persona_status
@@ -1211,6 +1365,17 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         expression: PersonaExpressionResult | None,
     ) -> None:
+        stream_status = (
+            expression.metadata.get("interaction.persona_stream_status")
+            if expression is not None
+            else None
+        )
+        if stream_status in {"incomplete", "cancelled"}:
+            await self._complete_incomplete_persona_stream_turn(
+                event,
+                str(stream_status),
+            )
+            return
         if expression is None or not expression.speech.strip():
             record_interaction_turn_failure(
                 event,
@@ -1235,6 +1400,36 @@ class InteractionMiddleware:
         completed = await self._complete_visible_turn_or_record_failure(event)
         if completed:
             await self._finalize_turn(event)
+        event.stop_event()
+
+    async def _complete_incomplete_persona_stream_turn(
+        self,
+        event: AstrMessageEvent,
+        status: str,
+    ) -> None:
+        completed = await self._complete_visible_turn_or_record_failure(event)
+        if not completed:
+            return
+        if status == "cancelled":
+            mark_interaction_turn_cancelled(event)
+            await dispatch_interaction_lifecycle(
+                event,
+                self.plugin_context,
+                InteractionLifecycleStage.CANCELLED,
+                metadata={"reason": "persona_segment_stream_cancelled"},
+            )
+        else:
+            record_interaction_turn_completion_failure(
+                event,
+                "persona_segment_stream_incomplete",
+            )
+            mark_interaction_turn_failed(event)
+            await dispatch_interaction_lifecycle(
+                event,
+                self.plugin_context,
+                InteractionLifecycleStage.FAILED,
+                metadata={"reason": "persona_segment_stream_incomplete"},
+            )
         event.stop_event()
 
     @staticmethod

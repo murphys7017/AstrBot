@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import os
@@ -28,6 +29,33 @@ def _extract_conversation_id(session_id: str) -> str:
     return session_id
 
 
+def _snapshot_platform_extras(platform_extras: dict | None) -> dict:
+    if not isinstance(platform_extras, dict):
+        return {}
+    snapshot = dict(platform_extras)
+    persona_stream = snapshot.get("persona_stream")
+    if isinstance(persona_stream, dict):
+        snapshot["persona_stream"] = dict(persona_stream)
+    return snapshot
+
+
+def _attach_delivery_metadata(payload: dict, component) -> None:
+    metadata = getattr(component, "delivery_metadata", None)
+    if not isinstance(metadata, dict) or not metadata:
+        return
+    metadata = dict(metadata)
+    payload["delivery_metadata"] = metadata
+    for key in ("stream_event", "persona_result_id", "delta_index"):
+        if key in metadata:
+            payload[key] = metadata[key]
+    segment_index = metadata.get(
+        "segment_index",
+        metadata.get("persona_segment_index"),
+    )
+    if segment_index is not None:
+        payload["segment_index"] = segment_index
+
+
 class WebChatMessageEvent(AstrMessageEvent):
     def __init__(self, message_str, message_obj, platform_meta, session_id) -> None:
         super().__init__(message_str, message_obj, platform_meta, session_id)
@@ -42,6 +70,7 @@ class WebChatMessageEvent(AstrMessageEvent):
         emit_complete: bool = False,
         platform_extras: dict | None = None,
     ) -> str | None:
+        platform_extras = _snapshot_platform_extras(platform_extras)
         request_id = str(message_id)
         conversation_id = _extract_conversation_id(session_id)
         web_chat_back_queue = webchat_queue_mgr.get_or_create_back_queue(
@@ -55,7 +84,7 @@ class WebChatMessageEvent(AstrMessageEvent):
                     "data": "",
                     "streaming": False,
                     "message_id": message_id,
-                    "platform_extras": platform_extras or {},
+                    "platform_extras": platform_extras,
                 },  # end means this request is finished
             )
             return
@@ -64,16 +93,16 @@ class WebChatMessageEvent(AstrMessageEvent):
         for comp in message.chain:
             if isinstance(comp, Plain):
                 data = comp.text
-                await web_chat_back_queue.put(
-                    {
-                        "type": "plain",
-                        "data": data,
-                        "streaming": streaming,
-                        "chain_type": message.type,
-                        "message_id": message_id,
-                        "platform_extras": platform_extras or {},
-                    },
-                )
+                payload = {
+                    "type": "plain",
+                    "data": data,
+                    "streaming": streaming,
+                    "chain_type": message.type,
+                    "message_id": message_id,
+                    "platform_extras": platform_extras,
+                }
+                _attach_delivery_metadata(payload, comp)
+                await web_chat_back_queue.put(payload)
             elif isinstance(comp, Json):
                 await web_chat_back_queue.put(
                     {
@@ -82,7 +111,7 @@ class WebChatMessageEvent(AstrMessageEvent):
                         "streaming": streaming,
                         "chain_type": message.type,
                         "message_id": message_id,
-                        "platform_extras": platform_extras or {},
+                        "platform_extras": platform_extras,
                     },
                 )
             elif isinstance(comp, Image):
@@ -102,7 +131,7 @@ class WebChatMessageEvent(AstrMessageEvent):
                         "data": data,
                         "streaming": streaming,
                         "message_id": message_id,
-                        "platform_extras": platform_extras or {},
+                        "platform_extras": platform_extras,
                     },
                 )
             elif isinstance(comp, Record):
@@ -113,15 +142,16 @@ class WebChatMessageEvent(AstrMessageEvent):
                 with open(path, "wb") as f:
                     f.write(base64.b64decode(record_base64))
                 data = f"[RECORD]{filename}"
-                await web_chat_back_queue.put(
-                    {
-                        "type": "record",
-                        "data": data,
-                        "streaming": streaming,
-                        "message_id": message_id,
-                        "platform_extras": platform_extras or {},
-                    },
-                )
+                payload = {
+                    "type": "record",
+                    "data": data,
+                    "streaming": streaming,
+                    "chain_type": message.type,
+                    "message_id": message_id,
+                    "platform_extras": platform_extras,
+                }
+                _attach_delivery_metadata(payload, comp)
+                await web_chat_back_queue.put(payload)
             elif isinstance(comp, File):
                 # save file to local
                 file_path = await comp.get_file()
@@ -144,7 +174,7 @@ class WebChatMessageEvent(AstrMessageEvent):
                         "data": data,
                         "streaming": streaming,
                         "message_id": message_id,
-                        "platform_extras": platform_extras or {},
+                        "platform_extras": platform_extras,
                     },
                 )
             else:
@@ -158,7 +188,7 @@ class WebChatMessageEvent(AstrMessageEvent):
                     "streaming": streaming,
                     "chain_type": message.type,
                     "message_id": message_id,
-                    "platform_extras": platform_extras or {},
+                        "platform_extras": platform_extras,
                 },
             )
 
@@ -225,64 +255,113 @@ class WebChatMessageEvent(AstrMessageEvent):
         generator,
         platform_extras: dict | None = None,
     ) -> None:
-        final_data = ""
-        reasoning_content = ""
+        stream_state = {"final_data": "", "reasoning_content": ""}
+        stream_metadata = (
+            platform_extras.get("persona_stream")
+            if isinstance(platform_extras, dict)
+            else None
+        )
         request_id = str(message_id)
         conversation_id = _extract_conversation_id(session_id)
         web_chat_back_queue = webchat_queue_mgr.get_or_create_back_queue(
             request_id,
             conversation_id,
         )
-        async for chain in generator:
-            # 处理音频流（Live Mode）
-            if chain.type == "audio_chunk":
-                # 音频流数据，直接发送
-                audio_b64 = ""
-                text = None
 
-                if chain.chain and isinstance(chain.chain[0], Plain):
-                    audio_b64 = chain.chain[0].text
-
-                if len(chain.chain) > 1 and isinstance(chain.chain[1], Json):
-                    text = chain.chain[1].data.get("text")
-
-                payload = {
-                    "type": "audio_chunk",
-                    "data": audio_b64,
-                    "streaming": True,
-                    "message_id": message_id,
-                    "platform_extras": platform_extras or {},
-                }
-                if text:
-                    payload["text"] = text
-
-                await web_chat_back_queue.put(payload)
-                continue
-
-            r = await WebChatMessageEvent._send(
-                message_id=message_id,
-                message=chain,
-                session_id=session_id,
-                streaming=True,
-                platform_extras=platform_extras,
-            )
-            if not r:
-                continue
-            if chain.type == "reasoning":
-                reasoning_content += chain.get_plain_text()
-            else:
-                final_data += r
-
-        await web_chat_back_queue.put(
-            {
+        async def enqueue_complete(
+            status: str | None = None,
+            *,
+            best_effort: bool = False,
+        ) -> None:
+            if isinstance(stream_metadata, dict) and status is not None:
+                stream_metadata["status"] = status
+                if status == "incomplete":
+                    stream_metadata.setdefault(
+                        "failure_reason",
+                        "webchat_delivery_failed",
+                    )
+            extras_snapshot = _snapshot_platform_extras(platform_extras)
+            complete_payload = {
                 "type": "complete",  # complete means we return the final result
-                "data": final_data,
-                "reasoning": reasoning_content,
+                "data": stream_state["final_data"],
+                "reasoning": stream_state["reasoning_content"],
                 "streaming": True,
                 "message_id": message_id,
-                "platform_extras": platform_extras or {},
-            },
-        )
+                "platform_extras": extras_snapshot,
+            }
+            persona_stream = extras_snapshot.get("persona_stream")
+            if isinstance(persona_stream, dict):
+                complete_payload["persona_stream"] = dict(persona_stream)
+            if best_effort:
+                try:
+                    web_chat_back_queue.put_nowait(complete_payload)
+                except asyncio.QueueFull:
+                    logger.debug(
+                        "Dropping WebChat stream terminal event because the back queue is full: "
+                        "message_id=%s status=%s",
+                        message_id,
+                        status,
+                    )
+            else:
+                await web_chat_back_queue.put(complete_payload)
+
+        async def send_chunks() -> None:
+            async for chain in generator:
+                # 处理音频流（Live Mode）
+                if chain.type == "audio_chunk":
+                    # 音频流数据，直接发送
+                    audio_b64 = ""
+                    text = None
+
+                    if chain.chain and isinstance(chain.chain[0], Plain):
+                        audio_b64 = chain.chain[0].text
+
+                    if len(chain.chain) > 1 and isinstance(chain.chain[1], Json):
+                        text = chain.chain[1].data.get("text")
+
+                    payload = {
+                        "type": "audio_chunk",
+                        "data": audio_b64,
+                        "streaming": True,
+                        "message_id": message_id,
+                        "platform_extras": _snapshot_platform_extras(
+                            platform_extras
+                        ),
+                    }
+                    if text:
+                        payload["text"] = text
+
+                    await web_chat_back_queue.put(payload)
+                    continue
+
+                result = await WebChatMessageEvent._send(
+                    message_id=message_id,
+                    message=chain,
+                    session_id=session_id,
+                    streaming=True,
+                    platform_extras=platform_extras,
+                )
+                if not result or chain.type == "persona_stream_tts":
+                    continue
+                if chain.type == "reasoning":
+                    stream_state["reasoning_content"] += chain.get_plain_text()
+                else:
+                    stream_state["final_data"] += result
+
+        try:
+            await send_chunks()
+        except asyncio.CancelledError:
+            if isinstance(stream_metadata, dict):
+                await asyncio.shield(
+                    enqueue_complete("cancelled", best_effort=True)
+                )
+            raise
+        except Exception:
+            if isinstance(stream_metadata, dict):
+                await enqueue_complete("incomplete")
+            raise
+        else:
+            await enqueue_complete()
 
     async def send_streaming(self, generator, use_fallback: bool = False) -> None:
         logger.debug(

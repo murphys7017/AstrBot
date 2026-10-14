@@ -28,6 +28,7 @@ from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordi
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import supports_personal_runtime
 from astrbot.core.star.session_llm_manager import SessionServiceManager
+from astrbot.core.star.star_handler import EventType, star_handlers_registry
 from astrbot.core.voice import (
     TTSState,
     VoiceServiceError,
@@ -179,6 +180,14 @@ class OutboundMaterializationOptions:
     t2i_word_threshold: int
     t2i_use_network: bool
     t2i_active_template: str
+
+
+@dataclass(frozen=True, slots=True)
+class PersonaSegmentStreamOutcome:
+    expression: PersonaExpressionResult | None
+    emitted: bool
+    status: str
+    failure_reason: str | None = None
 
 
 class InteractionOutputController:
@@ -410,6 +419,435 @@ class InteractionOutputController:
                 )
         finally:
             set_interaction_turn_emitting_immediate_reply(event, False)
+
+    async def emit_persona_segment_stream(
+        self,
+        event: AstrMessageEvent,
+        *,
+        producer: Callable[
+            [Callable[[dict[str, Any]], Awaitable[None]]],
+            Awaitable[PersonaExpressionResult],
+        ],
+        on_header: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> PersonaSegmentStreamOutcome:
+        self._ensure_persona_segment_stream_compatible(event)
+        options = self._resolve_outbound_options(event)
+        use_tts = (
+            options.tts_enabled
+            and random.random() <= options.tts_trigger_probability
+            and await SessionServiceManager.should_process_tts_request(event)
+        )
+        message_id = self._next_output_segment_id(event, "persona_stream")
+        platform_extras = self.build_platform_output_extras(
+            event,
+            message_kind="immediate_reply",
+            output_segment_id=message_id,
+        )
+        platform_extras["persona_stream"] = {
+            "protocol": "segment_stream_v1",
+            "status": "streaming",
+            "segment_count": 0,
+        }
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=128)
+        loop = asyncio.get_running_loop()
+        ready: asyncio.Future[bool] = loop.create_future()
+        state: dict[str, Any] = {
+            "header": False,
+            "finish": False,
+            "delivery_failed": False,
+            "current_index": None,
+            "current_text": [],
+            "next_delta_index": 0,
+            "text_parts": [],
+            "segments": [],
+            "tts": [],
+            "tts_failures": [],
+            "result": None,
+            "error": None,
+            "status": "failed",
+            "persona_result_id": None,
+        }
+
+        async def emit_record(record: dict[str, Any]) -> None:
+            record_type = record.get("type")
+            if record_type == "header":
+                if state["header"]:
+                    raise InteractionExpressionError("persona_stream_duplicate_header")
+                await on_header(record)
+                state["header"] = True
+                state["persona_result_id"] = str(
+                    record.get("persona_result_id") or ""
+                ).strip() or None
+                platform_extras["persona_stream"].update(
+                    {"persona_result_id": state["persona_result_id"]}
+                )
+                await self._notify_lifecycle(
+                    event,
+                    "speaking",
+                    {"message_kind": "immediate_reply", "protocol": "segment_stream_v1"},
+                )
+                if not ready.done():
+                    ready.set_result(True)
+                return
+
+            if not state["header"]:
+                raise InteractionExpressionError("persona_stream_header_required")
+
+            if record_type == "segment_start":
+                if state["current_index"] is not None:
+                    raise InteractionExpressionError("persona_stream_nested_segment")
+                state["current_index"] = int(record["segment_index"])
+                state["current_text"] = []
+                state["next_delta_index"] = 0
+                return
+
+            if record_type == "speech_delta":
+                segment_index = int(record["segment_index"])
+                delta_index = int(record["delta_index"])
+                text = str(record.get("text") or "")
+                if (
+                    segment_index != state["current_index"]
+                    or delta_index != state["next_delta_index"]
+                    or not text
+                ):
+                    raise InteractionExpressionError("persona_stream_invalid_delta_order")
+                state["current_text"].append(text)
+                state["text_parts"].append(text)
+                state["next_delta_index"] += 1
+                await queue.put(
+                    {
+                        "type": "speech_delta",
+                        "text": text,
+                        "segment_index": segment_index,
+                        "delta_index": delta_index,
+                    }
+                )
+                return
+
+            if record_type == "segment_end":
+                segment_index = int(record["segment_index"])
+                segment = record.get("segment")
+                if (
+                    not isinstance(segment, dict)
+                    or segment_index != state["current_index"]
+                    or "".join(state["current_text"]) != segment.get("speech")
+                ):
+                    raise InteractionExpressionError("persona_stream_segment_mismatch")
+                state["segments"].append(segment)
+                state["current_index"] = None
+                state["current_text"] = []
+                platform_extras["persona_stream"]["segment_count"] = len(
+                    state["segments"]
+                )
+                if use_tts and str(segment.get("speech") or "").strip():
+                    await queue.put(
+                        {
+                            "type": "tts_segment",
+                            "text": segment["speech"],
+                            "segment_index": segment_index,
+                        }
+                    )
+                return
+
+            if record_type == "finish":
+                result = record.get("result")
+                if (
+                    not isinstance(result, PersonaExpressionResult)
+                    or result.speech != "".join(state["text_parts"])
+                    or state["current_index"] is not None
+                ):
+                    raise InteractionExpressionError("persona_stream_result_mismatch")
+                state["finish"] = True
+                state["result"] = result
+                return
+
+            raise InteractionExpressionError("persona_stream_unknown_event")
+
+        async def produce() -> None:
+            try:
+                result = await producer(emit_record)
+                if not state["header"]:
+                    raise InteractionExpressionError("persona_stream_header_required")
+                if not state["finish"] or result.speech != "".join(state["text_parts"]):
+                    raise InteractionExpressionError("persona_stream_finish_required")
+                state["result"] = result
+                state["status"] = "completed"
+            except asyncio.CancelledError as exc:
+                state["error"] = state["error"] or exc
+                state["status"] = "cancelled" if state["header"] else "failed"
+                raise
+            except Exception as exc:  # noqa: BLE001
+                state["error"] = exc
+                state["status"] = "incomplete" if state["header"] else "failed"
+            finally:
+                if not ready.done():
+                    if state["error"] is not None:
+                        ready.set_exception(state["error"])
+                    else:
+                        ready.set_exception(
+                            InteractionExpressionError(
+                                "persona_stream_header_required"
+                            )
+                        )
+                if state["header"] and not state["delivery_failed"]:
+                    await queue.put(None)
+
+        async def stream_messages() -> AsyncGenerator[MessageChain, None]:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    stream_meta = platform_extras["persona_stream"]
+                    stream_meta["status"] = state["status"]
+                    stream_meta["segment_count"] = len(state["segments"])
+                    stream_meta["tts_status"] = (
+                        "failed"
+                        if state["tts_failures"]
+                        else "succeeded"
+                        if state["tts"]
+                        else "not_attempted"
+                    )
+                    if state["error"] is not None:
+                        stream_meta["failure_reason"] = self._persona_stream_error_reason(
+                            state["error"]
+                        )
+                    return
+                if item["type"] == "speech_delta":
+                    yield MessageChain(
+                        [
+                            Plain(
+                                item["text"],
+                                delivery_metadata={
+                                    "stream_event": "speech_delta",
+                                    "persona_result_id": state["persona_result_id"],
+                                    "segment_index": item["segment_index"],
+                                    "delta_index": item["delta_index"],
+                                },
+                            )
+                        ],
+                        type="persona_speech_delta",
+                    )
+                    continue
+
+                try:
+                    tts_message_id = self._next_output_segment_id(
+                        event,
+                        "persona_tts",
+                    )
+                    result = await synthesize_text(
+                        self.plugin_context,
+                        event,
+                        item["text"],
+                        stage="interaction.outbound_tts",
+                        use_file_service=options.tts_use_file_service,
+                        callback_api_base=options.callback_api_base,
+                        require_file_registration_config=True,
+                        turn_id=str(event.get_extra("_turn_id", "") or ""),
+                        message_id=tts_message_id,
+                        parent_message_id=message_id,
+                        persona_result_id=state["persona_result_id"],
+                        persona_segment_index=item["segment_index"],
+                    )
+                    delivery_metadata = build_tts_delivery_metadata(
+                        result.state,
+                        audio_attachment="present",
+                    )
+                    delivery_metadata.update(
+                        {
+                            "stream_event": "tts_segment",
+                            "persona_result_id": state["persona_result_id"],
+                            "persona_segment_index": item["segment_index"],
+                        }
+                    )
+                    state["tts"].append(
+                        {
+                            "persona_segment_index": item["segment_index"],
+                            "tts_request_id": result.state.tts_request_id,
+                            "message_id": result.state.message_id,
+                            "audio_available": bool(result.audio_path),
+                        }
+                    )
+                    yield MessageChain(
+                        [
+                            Record(
+                                file=result.delivered_file,
+                                url=result.delivered_file,
+                                text=result.text,
+                                delivery_metadata=delivery_metadata,
+                            )
+                        ],
+                        type="persona_stream_tts",
+                    )
+                except VoiceServiceError as exc:
+                    state["tts_failures"].append(exc.reason)
+                    logger.warning(
+                        "Persona segment stream TTS failed: turn_id=%s segment_index=%s reason=%s",
+                        event.get_extra("_turn_id"),
+                        item["segment_index"],
+                        exc.reason,
+                    )
+
+        producer_task = asyncio.create_task(produce())
+        try:
+            await ready
+        except BaseException as exc:
+            if not producer_task.done():
+                producer_task.cancel()
+            await asyncio.gather(producer_task, return_exceptions=True)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            if isinstance(state["error"], BaseException):
+                raise state["error"]
+            raise
+
+        delivery_task = asyncio.create_task(
+            event.send_interaction_streaming(
+                stream_messages(),
+                platform_extras=platform_extras,
+                use_fallback=False,
+            )
+        )
+        try:
+            children = asyncio.gather(producer_task, delivery_task)
+            await asyncio.shield(children)
+        except asyncio.CancelledError:
+            state["status"] = "cancelled"
+            platform_extras["persona_stream"]["status"] = "cancelled"
+            state["delivery_failed"] = True
+            if not delivery_task.done():
+                delivery_task.cancel()
+            if not producer_task.done():
+                producer_task.cancel()
+            await asyncio.gather(
+                producer_task,
+                delivery_task,
+                return_exceptions=True,
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            state["error"] = state["error"] or exc
+            state["delivery_failed"] = True
+            if not producer_task.done():
+                producer_task.cancel()
+            await asyncio.gather(producer_task, return_exceptions=True)
+            state["status"] = "incomplete"
+            platform_extras["persona_stream"]["status"] = "incomplete"
+
+        if state["error"] is not None:
+            event.set_extra(
+                "_interaction_persona_segment_stream_failure_reason",
+                self._persona_stream_error_reason(state["error"]),
+            )
+        event.set_extra("_interaction_persona_segment_stream_status", state["status"])
+        emitted_text = "".join(state["text_parts"])
+        if emitted_text:
+            set_interaction_turn_immediate_reply(event, emitted_text)
+            mappings = list(state["segments"])
+            set_interaction_turn_immediate_persona_state(
+                event,
+                segments=mappings,
+                actions=[
+                    action
+                    for segment in mappings
+                    for action in segment.get("actions", [])
+                ],
+                thought="\n".join(
+                    str(segment.get("thought") or "")
+                    for segment in mappings
+                    if str(segment.get("thought") or "")
+                ),
+                tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
+            )
+            tts_status = platform_extras["persona_stream"].get(
+                "tts_status", "not_attempted"
+            )
+            self._record_visible_output(
+                event,
+                message_kind="immediate_reply",
+                text=emitted_text,
+                message_id=message_id,
+                delivered_message_ids=_visible_message_ids_from_extras(
+                    platform_extras
+                ),
+                metadata={
+                    "delivered_as": "stream",
+                    "persona_result_id": state["persona_result_id"],
+                    "persona_stream_status": state["status"],
+                    "tts_status": tts_status,
+                    "tts": list(state["tts"]),
+                },
+            )
+
+        expression = state["result"]
+        if state["status"] != "completed" and emitted_text:
+            expression = PersonaExpressionResult(
+                speech=emitted_text,
+                turn_action=PersonalResponseAction.REPLY,
+                metadata={
+                    PERSONA_RESULT_ID_METADATA_KEY: state["persona_result_id"],
+                    "interaction.persona_stream_status": state["status"],
+                },
+            )
+        elif expression is not None:
+            expression.metadata["interaction.persona_stream_status"] = "completed"
+
+        return PersonaSegmentStreamOutcome(
+            expression=expression,
+            emitted=bool(emitted_text),
+            status=state["status"],
+            failure_reason=(
+                self._persona_stream_error_reason(state["error"])
+                if state["error"] is not None
+                else None
+            ),
+        )
+
+    def _ensure_persona_segment_stream_compatible(
+        self,
+        event: AstrMessageEvent,
+    ) -> None:
+        if str(event.get_platform_name() or "").lower() != "webchat":
+            raise InteractionExpressionError("persona_stream_webchat_only")
+        if not callable(getattr(event, "send_interaction_streaming", None)):
+            raise InteractionExpressionError("persona_stream_output_unsupported")
+        options = self._resolve_outbound_options(event)
+        if (
+            options.reply_prefix
+            or options.show_reasoning
+            or options.t2i_enabled
+        ):
+            raise InteractionExpressionError("persona_stream_output_transform_unsupported")
+        runtime_config = self._get_runtime_config(event)
+        if not isinstance(runtime_config, Mapping):
+            raise InteractionExpressionError(
+                "persona_stream_runtime_config_unavailable"
+            )
+        safety = runtime_config.get("content_safety", {})
+        if safety and not isinstance(safety, Mapping):
+            raise InteractionExpressionError(
+                "persona_stream_safety_config_invalid"
+            )
+        if isinstance(safety, Mapping) and safety.get("also_use_in_response"):
+            raise InteractionExpressionError("persona_stream_safety_filter_unsupported")
+        if star_handlers_registry.get_handlers_by_event_type(
+            EventType.OnDecoratingResultEvent,
+            only_activated=False,
+            plugins_name=None,
+        ):
+            raise InteractionExpressionError("persona_stream_output_hooks_unsupported")
+        list_contributors = getattr(
+            self.plugin_context,
+            "list_interaction_result_contributors",
+            None,
+        )
+        if callable(list_contributors) and list_contributors(event=event):
+            raise InteractionExpressionError(
+                "persona_stream_output_contributors_unsupported"
+            )
+
+    @staticmethod
+    def _persona_stream_error_reason(error: BaseException) -> str:
+        reason = getattr(error, "reason", None)
+        return str(reason or type(error).__name__)
 
     async def capture_message_chain(
         self,

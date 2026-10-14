@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from astrbot.core.message.components import Json, Plain
+from astrbot.core.message.components import Json, Plain, Record
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.astrbot_message import AstrBotMessage, MessageMember
 from astrbot.core.platform.message_type import MessageType
@@ -112,6 +112,151 @@ class TestWebChatMessageEventSend:
 
 
 class TestWebChatMessageEventStreaming:
+    @pytest.mark.asyncio
+    async def test_persona_stream_forwards_correlation_and_terminal_state(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        queue = asyncio.Queue()
+        monkeypatch.setattr(
+            "astrbot.core.platform.sources.webchat.webchat_event.attachments_dir",
+            str(tmp_path),
+        )
+        platform_extras = {
+            "persona_stream": {"protocol": "segment_stream_v1", "status": "streaming"}
+        }
+        delta = MessageChain(
+            [
+                Plain(
+                    "hello",
+                    delivery_metadata={
+                        "stream_event": "speech_delta",
+                        "persona_result_id": "result-1",
+                        "segment_index": 0,
+                        "delta_index": 0,
+                    },
+                )
+            ],
+            type="persona_speech_delta",
+        )
+        tts = MessageChain(
+            [
+                Record.fromBase64(
+                    "UklGRg==",
+                    delivery_metadata={
+                        "stream_event": "tts_segment",
+                        "persona_result_id": "result-1",
+                        "persona_segment_index": 0,
+                    },
+                )
+            ],
+            type="persona_stream_tts",
+        )
+
+        async def generator():
+            yield delta
+            platform_extras["persona_stream"]["status"] = "completed"
+            yield tts
+
+        with patch(
+            "astrbot.core.platform.sources.webchat.webchat_event.webchat_queue_mgr.get_or_create_back_queue",
+            return_value=queue,
+        ):
+            await WebChatMessageEvent._send_streaming_via_back_queue(
+                message_id="msg123",
+                session_id="webchat!user!session123",
+                generator=generator(),
+                platform_extras=platform_extras,
+            )
+
+        plain_payload = queue.get_nowait()
+        record_payload = queue.get_nowait()
+        complete_payload = queue.get_nowait()
+
+        assert plain_payload["data"] == "hello"
+        assert plain_payload["stream_event"] == "speech_delta"
+        assert plain_payload["persona_result_id"] == "result-1"
+        assert plain_payload["segment_index"] == 0
+        assert plain_payload["delta_index"] == 0
+        assert plain_payload["platform_extras"]["persona_stream"]["status"] == "streaming"
+        assert record_payload["type"] == "record"
+        assert record_payload["chain_type"] == "persona_stream_tts"
+        assert record_payload["stream_event"] == "tts_segment"
+        assert record_payload["segment_index"] == 0
+        assert complete_payload["data"] == "hello"
+        assert complete_payload["persona_stream"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_persona_stream_delivery_error_emits_incomplete_complete(
+        self,
+    ):
+        queue = asyncio.Queue()
+        platform_extras = {
+            "persona_stream": {"protocol": "segment_stream_v1", "status": "streaming"}
+        }
+
+        async def generator():
+            yield MessageChain([Plain("partial")], type="persona_speech_delta")
+            raise RuntimeError("delivery failed")
+
+        with (
+            patch(
+                "astrbot.core.platform.sources.webchat.webchat_event.webchat_queue_mgr.get_or_create_back_queue",
+                return_value=queue,
+            ),
+            pytest.raises(RuntimeError, match="delivery failed"),
+        ):
+            await WebChatMessageEvent._send_streaming_via_back_queue(
+                message_id="msg123",
+                session_id="webchat!user!session123",
+                generator=generator(),
+                platform_extras=platform_extras,
+            )
+
+        plain_payload = queue.get_nowait()
+        complete_payload = queue.get_nowait()
+        assert plain_payload["platform_extras"]["persona_stream"]["status"] == "streaming"
+        assert complete_payload["data"] == "partial"
+        assert complete_payload["persona_stream"]["status"] == "incomplete"
+
+    @pytest.mark.asyncio
+    async def test_persona_stream_cancel_does_not_wait_for_full_back_queue(self):
+        queue = asyncio.Queue(maxsize=1)
+        platform_extras = {
+            "persona_stream": {"protocol": "segment_stream_v1", "status": "streaming"}
+        }
+        yielded = asyncio.Event()
+        wait_forever = asyncio.Event()
+
+        async def generator():
+            yield MessageChain([Plain("partial")], type="persona_speech_delta")
+            yielded.set()
+            await wait_forever.wait()
+
+        with patch(
+            "astrbot.core.platform.sources.webchat.webchat_event.webchat_queue_mgr.get_or_create_back_queue",
+            return_value=queue,
+        ):
+            task = asyncio.create_task(
+                WebChatMessageEvent._send_streaming_via_back_queue(
+                    message_id="msg123",
+                    session_id="webchat!user!session123",
+                    generator=generator(),
+                    platform_extras=platform_extras,
+                )
+            )
+            await asyncio.wait_for(yielded.wait(), timeout=1)
+            assert queue.full()
+            task.cancel()
+            result = await asyncio.wait_for(
+                asyncio.gather(task, return_exceptions=True),
+                timeout=1,
+            )
+
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert queue.get_nowait()["data"] == "partial"
+
     @pytest.mark.asyncio
     async def test_send_streaming_emits_payload_and_completion(self, webchat_event):
         queue = asyncio.Queue()
