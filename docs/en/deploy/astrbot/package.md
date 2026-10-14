@@ -9,6 +9,13 @@ If `uv` is not installed, install it first by following the official guide:
 
 `uv` supports Linux, Windows, and macOS.
 
+This project’s in-process NeuroBrain integration also uses fixed CUDA 13.0 PyTorch wheels.
+`uv sync` installs those wheels only on Linux `x86_64/aarch64` and Windows `AMD64`.
+macOS and Windows ARM are not blocked by those CUDA requirements, but the current NeuroBrain
+plugin does not receive a usable CUDA runtime on those platforms. Whether the full AstrBot
+environment installs on another platform still depends on wheel support for its other
+dependencies; use `uv`'s resolution result as the source of truth.
+
 ## Important Notes
 
 > [!WARNING]

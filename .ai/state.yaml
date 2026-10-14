@@ -32,6 +32,54 @@ runtime:
   mode: minimal_v1
   current_batch: null
 
+task_execution_progress_contract_20261013:
+  date: '2026-10-13'
+  class: bugfix
+  risk: high
+  status: implemented_pending_live_acceptance
+  scope: >-
+    Carry one model response's serial tool-call batch position through the
+    lifecycle hooks so progress updates are emitted only for the final call in
+    that batch. Feed Persona interjections the current tool name, batch
+    position, and bounded tool-result material while keeping the wording model
+    generated. Strengthen Core result classification so non-empty, stale,
+    conflicting, partial, blocked, empty, and explicit-error evidence are not
+    collapsed into a generic no-result claim.
+  non_goals: >-
+    Do not change business-tool execution order, final Core result delivery,
+    provider selection, TTS, or plugin effect-call contracts. Do not touch
+    pyproject.toml, uv.lock, or unrelated dirty plugin changes.
+  validation: >-
+    Focused lifecycle, serial-batch deferral, progress-material, and prompt
+    tests passed; Python compilation and scoped Ruff checks passed.
+  evidence_gap: >-
+    No live OLV weather run has confirmed the generated wording or final
+    classification after restart. The broader expression suite retains
+    pre-existing response-hook/fallback fixture failures outside this change.
+
+tool_execution_contract_review_20261014:
+  date: '2026-10-14'
+  class: bugfix
+  risk: high
+  status: implemented_pending_live_acceptance
+  scope: >-
+    Validate local FunctionTool arguments before side effects, preserve tool
+    lifecycle cleanup on execution errors, propagate explicit tool error status,
+    reject malformed provider tool-call arrays, align hook arguments with the
+    executed filtered parameters, and improve provider-facing descriptions and
+    required-parameter schemas for registered tools.
+  non_goals: >-
+    Do not change tool admission policy, provider selection, business tool
+    ordering, plugin tool implementations, or unrelated NeuroBrain,
+    pyproject.toml, and uv.lock changes.
+  validation: >-
+    Focused runner and provider-schema tests passed; Python compilation, Ruff,
+    and diff checks passed.
+  evidence_gap: >-
+    No live provider request has confirmed model tool selection after restart.
+    MCP-side schema validation remains owned by the MCP server because MCP tools
+    do not expose local handlers.
+
 persona_rewrite_and_motion_failure_review_20261013:
   date: '2026-10-13'
   class: bugfix
@@ -1894,3 +1942,82 @@ logging_channel_consolidation:
     After restart, confirm ordinary console/file logs contain only compact
     diagnostics, and with trace_log_enable=true confirm Prompt context and
     render previews appear only in the configured Trace file.
+
+neurobrain_in_process_astrbot_integration_20261013:
+  date: '2026-10-13'
+  class: feature
+  risk: high
+  status: validated_pending_live_acceptance
+  scope: >-
+    Replace the NeuroBrain WebSocket bridge in the tracked local AstrBot plugin
+    with NeuroBrainStateStore in the AstrBot process. Advance state from
+    Persona segment tendencies, expose a read-only API compatible with the
+    AG99live third-chain waiter, and dynamically read current emotion and
+    behavior into eligible Core and Persona prompts. Configure checkpoint,
+    inference device, and delta seconds through plugin settings.
+  architecture_impact: >-
+    AstrBot owns model loading and stimulus writes. Prompt collection reads the
+    live in-process state on each build; other plugins retain read-only access.
+    The local NeuroBrain package is installed into AstrBot's environment with
+    uv pip and is not recorded as a project lockfile dependency.
+  assumptions:
+    - The checkpoint path remains unset until a model trained for the target Persona is selected.
+    - Prompt injection follows AstrBot plugin_set and per-session disable policy.
+    - CUDA is preferred when available, with CPU available as an explicit fallback.
+  validation: >-
+    CUDA state-store and full plugin lifecycle smoke checks passed for tendency
+    clamping, segmented state updates, read-only snapshots, dynamic Prompt
+    Extension output, AG99live wait compatibility, missing-checkpoint completion,
+    plugin teardown, and plugin hot-reload initialization. Seven focused Prompt
+    Extension tests passed. Ruff, Python compilation, plugin structure check,
+    metadata/schema parsing, uv lock check, platform dry-runs, and git diff checks
+    passed. uv pip check still reports the three pre-existing OpenTelemetry and
+    Cartesia/httpx-sse version conflicts.
+  evidence_gap: >-
+    AstrBot was not restarted and no live provider request was made. The only
+    available checkpoint is trained from Kurisu material and was used only for
+    technical smoke testing; Alice pro output quality is unvalidated. A
+    whitelist plugin_set must include astrbot_plugin_neurobrain.
+  non_goals: >-
+    Do not change AG99live source or protocol, stop the existing AstrBot process,
+    configure the Kurisu checkpoint as Alice pro, or commit changes.
+
+neurobrain_plugin_publication_20261013:
+  date: '2026-10-13'
+  class: release
+  risk: high
+  status: published
+  scope: >-
+    Publish the standalone in-process NeuroBrain AstrBot plugin as a public
+    GitHub repository, add MIT licensing, and publish/pin the required
+    NeuroBrain state-store API and CUDA dependency update. Keep AstrBot host
+    changes and unrelated working-tree changes out of the plugin repository.
+  repository: murphys7017/astrbot_plugin_neurobrain
+  commit: 0b347697003a6b7f2f982e64a435b9789f928462
+  dependency_repository: murphys7017/NeuroBrain
+  dependency_commit: 368e4b730a770cf76bf3dcf66d58a43975f5ab0b
+  review: >-
+    The public NeuroBrain main initially lacked NeuroBrainStateStore although
+    the plugin imports it. Publish the two required NeuroBrain feature commits
+    plus the CUDA dependency/documentation commit, then pin the plugin install
+    instructions to that public commit with --no-deps. GitHub detects the plugin
+    LICENSE as MIT. The plugin intentionally requires NeuroBrain and runtime
+    dependencies to be installed into the customized AstrBot environment; it
+    does not claim compatibility with unmodified upstream AstrBot.
+  validation: >-
+    Plugin structure check passed with zero errors, warnings, or informational
+    notices; JSON schema, staged diff checks, both uv lock checks, public branch,
+    commit hashes, and remote MIT detection passed. NeuroBrain test suite passed
+    46 tests on the AstrBot CUDA 13.0 environment. AstrBot runtime reports Torch
+    2.14.1+cu130, TorchAudio 2.11.0+cu130, TorchVision 0.29.1+cu130, and CUDA
+    available. Full NeuroBrain Ruff scan reports 20 style findings. uv pip check
+    still reports three OpenTelemetry and Cartesia/httpx-sse incompatibilities.
+    Gitleaks is not installed in the environment.
+  evidence_gap: >-
+    No live AstrBot restart or provider request. No Alice pro checkpoint is
+    available. The separate NeuroBrain development venv remains on Torch
+    2.9.1+cu126; the plugin runtime is the verified AstrBot venv. A clean
+    installation on unmodified upstream AstrBot was not tested or claimed.
+  non_goals: >-
+    Do not commit AstrBot host dependency or other concurrent changes as part of
+    the plugin repository publication.

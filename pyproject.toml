@@ -74,6 +74,11 @@ dependencies = [
   "pyffmpeg>=2.5.2.3.2",
   "python-ripgrep==0.0.8 ; python_version < '3.14'",
   "json-repair>=0.61.0",
+  "ncps==1.0.1",
+  "numpy>=2.2.0,<2.5.0",
+  "torch==2.14.1+cu130 ; (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')) or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+  "torchaudio==2.11.0+cu130 ; (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')) or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+  "torchvision==0.29.1+cu130 ; (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')) or (sys_platform == 'win32' and platform_machine == 'AMD64')",
 ]
 
 [dependency-groups]
@@ -153,3 +158,13 @@ path = "scripts/hatch_build.py"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download-r2.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }

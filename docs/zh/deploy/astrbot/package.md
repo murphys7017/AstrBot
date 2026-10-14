@@ -8,6 +8,11 @@
 
 `uv` 支持 Linux、Windows、macOS。
 
+本项目的 NeuroBrain 进程内集成另外使用固定的 CUDA 13.0 PyTorch wheel。`uv sync` 只会在
+Linux `x86_64/aarch64` 和 Windows `AMD64` 上解析并安装这些 wheel；macOS 和 Windows ARM
+不会安装这组 CUDA wheel，当前 NeuroBrain 插件也不会随基础环境获得可用的 CUDA 运行时；
+完整部署是否可用仍取决于其他依赖的 wheel 支持情况，以 `uv` 的解析结果为准。
+
 ## 注意事项
 
 > [!WARNING]

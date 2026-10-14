@@ -82,6 +82,11 @@ AG99 不是 AstrBot 的替代品，也不以复制上游为目标。它保留 As
 
 前提：Python `3.12+`，以及 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
 
+本仓库的 NeuroBrain 集成依赖固定的 CUDA 13.0 PyTorch wheel，仅在 Linux `x86_64/aarch64`
+和 Windows `AMD64` 环境中由 `uv sync` 安装。macOS、Windows ARM 等平台不会安装这组 CUDA
+依赖，也不能直接运行当前 NeuroBrain 进程内插件；完整部署是否可用仍取决于其他依赖的 wheel
+支持情况，安装时以 `uv` 的解析结果为准。
+
 ```bash
 uv sync
 uv run main.py

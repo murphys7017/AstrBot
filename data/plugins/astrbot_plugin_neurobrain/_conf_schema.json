@@ -1,23 +1,26 @@
 {
   "enabled": {
-    "description": "是否启用 NeuroBrain 桥接",
+    "description": "是否启用 NeuroBrain 进程内集成",
     "type": "bool",
     "default": true
   },
-  "server_url": {
-    "description": "独立 NeuroBrain 服务的 WebSocket 地址",
-    "type": "string",
-    "default": "ws://127.0.0.1:8765"
-  },
-  "write_token": {
-    "description": "必须与 NeuroBrain 服务的 NEUROBRAIN_WRITE_TOKEN 或 --write-token 一致",
+  "checkpoint_path": {
+    "description": "NeuroBrain 模型 checkpoint 文件路径；请使用适用于当前 Persona 的模型",
     "type": "string",
     "default": ""
   },
-  "client_id": {
-    "description": "本桥接客户端标识",
+  "device": {
+    "description": "推理设备；auto 会在 CUDA 可用时使用 GPU",
     "type": "string",
-    "default": "astrbot"
+    "default": "auto",
+    "options": ["auto", "cuda", "cuda:0", "cpu"]
+  },
+  "delta_seconds": {
+    "description": "每个 Persona 分段推进 NeuroBrain 的模拟时间间隔（秒）",
+    "type": "float",
+    "default": 1.0,
+    "minimum": 0.0,
+    "maximum": 60.0
   },
   "state_scope": {
     "description": "NeuroBrain 连续状态隔离方式",
@@ -29,19 +32,5 @@
     "description": "无法从当前轮次读取角色 ID 时使用的角色名",
     "type": "string",
     "default": "Alice pro"
-  },
-  "request_timeout_seconds": {
-    "description": "单次 WebSocket 请求等待时间（秒）",
-    "type": "float",
-    "default": 2.0,
-    "minimum": 0.1,
-    "maximum": 30.0
-  },
-  "connect_timeout_seconds": {
-    "description": "连接 NeuroBrain 服务的超时时间（秒）",
-    "type": "float",
-    "default": 5.0,
-    "minimum": 0.1,
-    "maximum": 30.0
   }
 }

@@ -1,26 +1,43 @@
-# NeuroBrain Bridge
+# NeuroBrain for AstrBot
 
-这是 AG99 专用桥接插件。AstrBot 负责产生并校验 Persona 的八维 `tendency`，插件把结构化结果发送到独立 NeuroBrain WebSocket 服务；插件本身不导入 PyTorch、CUDA 或 `ncps`。
+AstrBot owns Persona's eight-dimensional `tendency` input. This plugin updates an in-process NeuroBrain session after each Persona result, reads the latest state into every eligible model prompt, and exposes a read-only API to other AstrBot plugins. No NeuroBrain service or WebSocket connection is required.
 
-## 启动顺序
+This plugin targets the customized AstrBot 4.29.0-beta.1 environment used by this project. It is not a compatibility claim for unmodified upstream AstrBot.
 
-在 NeuroBrain 自己的虚拟环境中启动服务：
+## Install
+
+Install the local NeuroBrain package into AstrBot's Python environment. From the AstrBot repository root:
 
 ```powershell
-$env:NEUROBRAIN_WRITE_TOKEN = "replace-with-a-long-random-secret"
-uv run --locked python scripts/neurobrain_server.py `
-  --checkpoint artifacts/kurisu-two-volumes-baseline-cfc512.pt `
-  --device cpu `
-  --host 127.0.0.1 `
-  --port 8765 `
-  --write-token $env:NEUROBRAIN_WRITE_TOKEN
+$neuroBrainRepo = "C:\path\to\NeuroBrain"
+git clone https://github.com/murphys7017/NeuroBrain.git $neuroBrainRepo
+git -C $neuroBrainRepo checkout 368e4b730a770cf76bf3dcf66d58a43975f5ab0b
+uv pip install --python .venv\Scripts\python.exe --no-deps $neuroBrainRepo
 ```
 
-然后在 AstrBot 中启用本插件，并把同一令牌填入 `write_token`。Persona 结果提交在后台执行，不会等待 NeuroBrain 服务响应；服务不可用时会记录警告，AG99live 本轮动作上下文会跳过 NeuroBrain 状态。
+The AstrBot environment must also contain the NeuroBrain runtime dependencies from AstrBot's project configuration. The tracked CUDA 13.0 wheels are resolved only for Linux `x86_64/aarch64` and Windows `AMD64`; macOS and Windows ARM do not receive the CUDA runtime required by this current plugin. Whether the full AstrBot environment installs on another platform still depends on the wheels available for its other dependencies. Restart AstrBot after installing or replacing Python packages so the running process loads the installed package. Installing the plugin repository alone does not install NeuroBrain or its CUDA runtime dependencies.
 
-## 只读状态
+NeuroBrain is installed from a local repository and is not pinned as an AstrBot lockfile dependency. Repeat the install command after any full environment sync that removes packages outside AstrBot's lockfile.
 
-其他插件通过已加载的插件实例读取，不应调用写入方法：
+In the plugin settings, set `checkpoint_path` to a trained checkpoint for the Persona being used. The repository's current `kurisu-two-volumes-baseline-cfc512.pt` checkpoint was trained from Kurisu material; do not use it as an Alice pro checkpoint. Leave the path empty until a suitable checkpoint is available. `device=auto` selects CUDA when PyTorch reports it available and otherwise uses CPU.
+
+The model loads when AstrBot loads or hot-reloads the plugin, so saving the plugin configuration applies a new `checkpoint_path`, device, or delta interval on the next reload. Persona updates run through NeuroBrain's asynchronous state store, with inference dispatched to a worker thread. Prompt collection is dynamic and reads the latest snapshot on every prompt build; reads never advance model state. If no checkpoint is configured or loading fails, the plugin logs the reason and omits NeuroBrain state from prompts.
+
+Prompt extensions follow AstrBot's plugin admission policy. The default `plugin_set=["*"]` allows this plugin; if using a plugin whitelist, include `astrbot_plugin_neurobrain` and ensure the current session has not disabled it.
+
+## State Scope
+
+`state_scope` determines which continuous state is updated and read:
+
+- `persona`: one state per active Persona; this is the default.
+- `conversation`: one state per AstrBot conversation.
+- `global`: one state shared by all conversations.
+
+Each Persona speech segment advances the selected state once. AstrBot's tendency converter clamps integer values below `0` to `0` and above `10` to `10`, then normalizes them to NeuroBrain's `0..1` inputs.
+
+## Read-Only API
+
+Other plugins can read current snapshots without advancing NeuroBrain:
 
 ```python
 metadata = context.get_registered_star("astrbot_plugin_neurobrain")
@@ -28,6 +45,8 @@ plugin = metadata.star_cls if metadata is not None else None
 state = plugin.readonly_api.get_state("persona:Alice pro") if plugin else None
 ```
 
-`get_state()`、`list_states()` 都只读取桥接插件缓存，不推进模型。需要主动从服务查询时使用异步 `await plugin.readonly_api.fetch_state(state_key)`。
+`get_state()`, `list_states()`, and `fetch_state()` read the in-process state. `wait_for_persona_result()` waits for the update associated with one AstrBot Persona result and returns that result's snapshot; AG99live uses this on its third motion chain. State writes remain owned by the NeuroBrain plugin.
 
-服务端必须配置非空 writer token，匿名写入会被拒绝。reader 未配置读令牌时可以直接读取；配置了读令牌后，reader 需提供读令牌或 writer token。
+## License
+
+This plugin is licensed under the MIT License. See [LICENSE](LICENSE).
