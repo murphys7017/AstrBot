@@ -717,11 +717,14 @@ class InteractionOutputController:
                 mappings = [
                     segment
                     for segment_index, segment in enumerate(state["segments"])
-                    if not segment.get("speech")
-                    or "".join(
-                        state["delivered_segment_parts"].get(segment_index, [])
+                    if status == "completed"
+                    or (
+                        bool(segment.get("speech"))
+                        and "".join(
+                            state["delivered_segment_parts"].get(segment_index, [])
+                        )
+                        == segment["speech"]
                     )
-                    == segment["speech"]
                 ]
                 set_interaction_turn_immediate_persona_state(
                     event,

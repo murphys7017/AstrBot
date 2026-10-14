@@ -259,6 +259,19 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
                     "segment": segment,
                 }
             )
+        await emit_record({"type": "segment_start", "segment_index": 2})
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 2,
+                "segment": {
+                    "speech": "",
+                    "actions": ["blink"],
+                    "thought": "",
+                    "tendency": {},
+                },
+            }
+        )
         result = PersonaExpressionResult(speech="hello world")
         await emit_record({"type": "finish", "result": result})
         producer_finished.set()
@@ -287,5 +300,6 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
         "cancelled"
     )
     assert get_interaction_turn_immediate_reply(event) == "hello"
+    assert get_interaction_turn_immediate_persona_state(event)[0] == ()
     visible_outputs = get_interaction_turn_visible_outputs(event)
     assert visible_outputs[-1]["text"] == "hello"
