@@ -18,6 +18,7 @@ class StreamEvent:
         self._extras = {"_turn_id": "turn-1"}
         self.sender_started = asyncio.Event()
         self.sender_finished = asyncio.Event()
+        self.delivered_text_parts = []
 
     def get_extra(self, key, default=None):
         return self._extras.get(key, default)
@@ -37,8 +38,9 @@ class StreamEvent:
     ):
         self.sender_started.set()
         try:
-            async for _ in generator:
-                pass
+            async for message in generator:
+                if message.type == "persona_speech_delta":
+                    self.delivered_text_parts.append(message.get_plain_text())
         finally:
             self.sender_finished.set()
 
@@ -153,6 +155,7 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     event = StreamEvent()
     tts_started = asyncio.Event()
     tts_cancelled = asyncio.Event()
+    producer_finished = asyncio.Event()
     wait_forever = asyncio.Event()
 
     async def stalled_synthesis(*_args, **_kwargs):
@@ -168,31 +171,35 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     )
 
     async def producer(emit_record):
-        segment = {
-            "speech": "hello",
-            "actions": [],
-            "thought": "",
-            "tendency": {},
-        }
         await emit_record({"type": "header", "turn_action": "reply"})
-        await emit_record({"type": "segment_start", "segment_index": 0})
-        await emit_record(
-            {
-                "type": "speech_delta",
-                "segment_index": 0,
-                "delta_index": 0,
-                "text": "hello",
+        for segment_index, segment_text in enumerate(("hello", " world")):
+            segment = {
+                "speech": segment_text,
+                "actions": [],
+                "thought": "",
+                "tendency": {},
             }
-        )
-        await emit_record(
-            {
-                "type": "segment_end",
-                "segment_index": 0,
-                "segment": segment,
-            }
-        )
-        result = PersonaExpressionResult(speech="hello")
+            await emit_record(
+                {"type": "segment_start", "segment_index": segment_index}
+            )
+            await emit_record(
+                {
+                    "type": "speech_delta",
+                    "segment_index": segment_index,
+                    "delta_index": 0,
+                    "text": segment_text,
+                }
+            )
+            await emit_record(
+                {
+                    "type": "segment_end",
+                    "segment_index": segment_index,
+                    "segment": segment,
+                }
+            )
+        result = PersonaExpressionResult(speech="hello world")
         await emit_record({"type": "finish", "result": result})
+        producer_finished.set()
         return result
 
     task = asyncio.create_task(
@@ -203,6 +210,7 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
         )
     )
     await asyncio.wait_for(tts_started.wait(), timeout=1)
+    await asyncio.wait_for(producer_finished.wait(), timeout=1)
     task.cancel()
     result = await asyncio.wait_for(
         asyncio.gather(task, return_exceptions=True),
@@ -212,6 +220,7 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     assert isinstance(result[0], asyncio.CancelledError)
     assert tts_cancelled.is_set()
     assert event.sender_finished.is_set()
+    assert event.delivered_text_parts == ["hello"]
     assert event.get_extra("_interaction_persona_segment_stream_status") == (
         "cancelled"
     )

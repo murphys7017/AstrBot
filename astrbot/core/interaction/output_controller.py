@@ -459,6 +459,8 @@ class InteractionOutputController:
             "current_text": [],
             "next_delta_index": 0,
             "text_parts": [],
+            "delivered_text_parts": [],
+            "delivered_segment_parts": {},
             "segments": [],
             "tts": [],
             "tts_attempted": False,
@@ -467,6 +469,7 @@ class InteractionOutputController:
             "error": None,
             "status": "failed",
             "persona_result_id": None,
+            "turn_action": None,
         }
 
         async def emit_record(record: dict[str, Any]) -> None:
@@ -477,6 +480,9 @@ class InteractionOutputController:
                 publish_stream = await on_header(record)
                 state["header"] = True
                 state["publish_stream"] = publish_stream is not False
+                state["turn_action"] = PersonalResponseAction(
+                    record["turn_action"]
+                )
                 state["persona_result_id"] = str(
                     record.get("persona_result_id") or ""
                 ).strip() or None
@@ -632,6 +638,10 @@ class InteractionOutputController:
                         ],
                         type="persona_speech_delta",
                     )
+                    state["delivered_text_parts"].append(item["text"])
+                    state["delivered_segment_parts"].setdefault(
+                        item["segment_index"], []
+                    ).append(item["text"])
                     continue
 
                 try:
@@ -701,10 +711,18 @@ class InteractionOutputController:
                     self._persona_stream_error_reason(state["error"]),
                 )
             event.set_extra("_interaction_persona_segment_stream_status", status)
-            emitted_text = "".join(state["text_parts"])
+            emitted_text = "".join(state["delivered_text_parts"])
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
-                mappings = list(state["segments"])
+                mappings = [
+                    segment
+                    for segment_index, segment in enumerate(state["segments"])
+                    if segment.get("speech")
+                    and "".join(
+                        state["delivered_segment_parts"].get(segment_index, [])
+                    )
+                    == segment["speech"]
+                ]
                 set_interaction_turn_immediate_persona_state(
                     event,
                     segments=mappings,
@@ -745,7 +763,7 @@ class InteractionOutputController:
             if status != "completed" and emitted_text:
                 expression = PersonaExpressionResult(
                     speech=emitted_text,
-                    turn_action=PersonalResponseAction.REPLY,
+                    turn_action=state["turn_action"],
                     metadata={
                         PERSONA_RESULT_ID_METADATA_KEY: state["persona_result_id"],
                         "interaction.persona_stream_status": status,
