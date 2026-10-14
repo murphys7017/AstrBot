@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from astrbot.core.interaction.expression_agent import PersonaExpressionResult
+from astrbot.core.interaction.expression_agent import (
+    InteractionExpressionError,
+    PersonaExpressionResult,
+)
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
     get_interaction_turn_immediate_persona_state,
@@ -12,6 +15,7 @@ from astrbot.core.interaction.turn_state import (
     get_interaction_turn_visible_outputs,
 )
 from astrbot.core.interaction.types import PersonalResponseAction
+from astrbot.core.star.star_handler import EventType
 
 
 class StreamEvent:
@@ -137,7 +141,7 @@ async def test_silent_persona_stream_does_not_start_webchat_delivery():
 
 
 @pytest.mark.asyncio
-async def test_completed_stream_preserves_empty_segment_persona_state():
+async def test_completed_stream_preserves_empty_segment_persona_state(monkeypatch):
     controller = InteractionOutputController()
     controller._ensure_persona_segment_stream_compatible = lambda _event: None
     controller._resolve_outbound_options = lambda _event: SimpleNamespace(
@@ -147,9 +151,35 @@ async def test_completed_stream_preserves_empty_segment_persona_state():
     controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
     controller._notify_lifecycle = AsyncMock()
     event = StreamEvent()
+    finish_events = []
+
+    def registered_handlers(event_type, **_kwargs):
+        if event_type is EventType.OnPersonaExpressionStreamFinishedEvent:
+            return [object()]
+        return []
+
+    async def capture_finish(_event, event_type, **kwargs):
+        assert event_type is EventType.OnPersonaExpressionStreamFinishedEvent
+        finish_events.append(kwargs)
+        return False
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        registered_handlers,
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.call_event_hook",
+        capture_finish,
+    )
 
     async def producer(emit_record, _message_id):
-        await emit_record({"type": "header", "turn_action": "reply"})
+        await emit_record(
+            {
+                "type": "header",
+                "turn_action": "reply",
+                "persona_result_id": "result-1",
+            }
+        )
         await emit_record({"type": "segment_start", "segment_index": 0})
         await emit_record(
             {
@@ -195,6 +225,94 @@ async def test_completed_stream_preserves_empty_segment_persona_state():
     )
 
     assert get_interaction_turn_immediate_persona_state(event)[0] == ("blink",)
+    assert finish_events == [
+        {
+            "turn_id": "turn-1",
+            "persona_result_id": "result-1",
+            "message_id": "stream-1",
+            "segment_count": 2,
+            "status": "completed",
+            "failure_reason": None,
+            "execution_surface": "personal_expression",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_incomplete_stream_reports_accepted_segment_prefix(monkeypatch):
+    controller = InteractionOutputController()
+    controller._ensure_persona_segment_stream_compatible = lambda _event: None
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        tts_enabled=False
+    )
+    controller._next_output_segment_id = lambda _event, _kind: "stream-1"
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+    event = StreamEvent()
+    finish_events = []
+
+    def registered_handlers(event_type, **_kwargs):
+        if event_type is EventType.OnPersonaExpressionStreamFinishedEvent:
+            return [object()]
+        return []
+
+    async def capture_finish(_event, event_type, **kwargs):
+        assert event_type is EventType.OnPersonaExpressionStreamFinishedEvent
+        finish_events.append(kwargs)
+        return False
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        registered_handlers,
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.call_event_hook",
+        capture_finish,
+    )
+
+    async def producer(emit_record, _message_id):
+        await emit_record(
+            {
+                "type": "header",
+                "turn_action": "reply",
+                "persona_result_id": "result-1",
+            }
+        )
+        await emit_record({"type": "segment_start", "segment_index": 0})
+        await emit_record(
+            {
+                "type": "speech_delta",
+                "segment_index": 0,
+                "delta_index": 0,
+                "text": "accepted",
+            }
+        )
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 0,
+                "segment": {
+                    "speech": "accepted",
+                    "actions": [],
+                    "thought": "",
+                    "tendency": {},
+                },
+            }
+        )
+        raise InteractionExpressionError("provider_failed")
+
+    outcome = await controller.emit_persona_segment_stream(
+        event,
+        producer=producer,
+        on_header=AsyncMock(return_value=True),
+    )
+
+    assert outcome.status == "incomplete"
+    assert outcome.failure_reason == "provider_failed"
+    assert event.delivered_text_parts == ["accepted"]
+    assert finish_events[0]["status"] == "incomplete"
+    assert finish_events[0]["segment_count"] == 1
+    assert finish_events[0]["failure_reason"] == "provider_failed"
 
 
 @pytest.mark.asyncio

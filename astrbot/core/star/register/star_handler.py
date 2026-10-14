@@ -562,6 +562,26 @@ def register_on_persona_expression_segment_ready(**kwargs):
     return decorator
 
 
+def register_on_persona_expression_stream_finished(**kwargs):
+    """Register a callback for a Persona segment stream's terminal state.
+
+    The handler receives turn_id, persona_result_id, message_id, segment_count,
+    status, and failure_reason keyword arguments. segment_count is the number of
+    validated segments accepted before termination. status is completed,
+    incomplete, failed, or cancelled.
+    """
+
+    def decorator(awaitable):
+        _ = get_handler_or_create(
+            awaitable,
+            EventType.OnPersonaExpressionStreamFinishedEvent,
+            **kwargs,
+        )
+        return awaitable
+
+    return decorator
+
+
 def register_on_using_llm_tool(**kwargs):
     """当调用函数工具前的事件。
     会传入 tool 和 tool_args 参数。

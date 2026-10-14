@@ -106,6 +106,14 @@ class StarHandlerRegistry(Generic[T]):
     @overload
     def get_handlers_by_event_type(
         self,
+        event_type: Literal[EventType.OnPersonaExpressionStreamFinishedEvent],
+        only_activated=True,
+        plugins_name: list[str] | None = None,
+    ) -> list[StarHandlerMetadata[Callable[..., Awaitable[Any]]]]: ...
+
+    @overload
+    def get_handlers_by_event_type(
+        self,
         event_type: Literal[EventType.OnDecoratingResultEvent],
         only_activated=True,
         plugins_name: list[str] | None = None,
@@ -270,6 +278,7 @@ class EventType(enum.Enum):
     OnTTSStateChangedEvent = enum.auto()  # 文本转语音生成状态变化
     OnPersonaExpressionResultEvent = enum.auto()  # Persona 结构化表达结果完成
     OnPersonaExpressionSegmentReadyEvent = enum.auto()  # Persona 流式段校验完成
+    OnPersonaExpressionStreamFinishedEvent = enum.auto()  # Persona 流式表达终态
 
 
 H = TypeVar("H", bound=Callable[..., Any])

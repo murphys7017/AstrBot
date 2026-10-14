@@ -25,8 +25,10 @@ from astrbot.core.message.message_chain_transforms import (
 )
 from astrbot.core.message.message_event_result import MessageChain, ResultContentType
 from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordinator
+from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import supports_personal_runtime
+from astrbot.core.plugin_runtime import PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
 from astrbot.core.star.session_llm_manager import SessionServiceManager
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 from astrbot.core.voice import (
@@ -786,6 +788,37 @@ class InteractionOutputController:
                 ),
             )
 
+        async def notify_stream_finished(
+            outcome: PersonaSegmentStreamOutcome,
+        ) -> None:
+            hook_type = EventType.OnPersonaExpressionStreamFinishedEvent
+            if not star_handlers_registry.get_handlers_by_event_type(
+                hook_type,
+                only_activated=False,
+                plugins_name=None,
+            ):
+                return
+            try:
+                await call_event_hook(
+                    event,
+                    hook_type,
+                    turn_id=str(event.get_extra("_turn_id", "") or ""),
+                    persona_result_id=state["persona_result_id"],
+                    message_id=message_id,
+                    segment_count=len(state["segments"]),
+                    status=outcome.status,
+                    failure_reason=outcome.failure_reason,
+                    execution_surface=PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Persona segment stream finished hook failed: "
+                    "turn_id=%s message_id=%s status=%s",
+                    event.get_extra("_turn_id"),
+                    message_id,
+                    outcome.status,
+                )
+
         producer_task = asyncio.create_task(produce())
         try:
             publish_stream = await ready
@@ -793,6 +826,10 @@ class InteractionOutputController:
             if not producer_task.done():
                 producer_task.cancel()
             await asyncio.gather(producer_task, return_exceptions=True)
+            if isinstance(exc, asyncio.CancelledError):
+                state["status"] = "cancelled"
+            outcome = finalize_outcome()
+            await notify_stream_finished(outcome)
             if isinstance(exc, asyncio.CancelledError):
                 raise
             if isinstance(state["error"], BaseException):
@@ -833,7 +870,8 @@ class InteractionOutputController:
                 return_exceptions=True,
             )
             await asyncio.gather(children, return_exceptions=True)
-            finalize_outcome()
+            outcome = finalize_outcome()
+            await notify_stream_finished(outcome)
             raise
         except Exception as exc:  # noqa: BLE001
             state["error"] = state["error"] or exc
@@ -844,7 +882,9 @@ class InteractionOutputController:
             state["status"] = "incomplete"
             platform_extras["persona_stream"]["status"] = "incomplete"
 
-        return finalize_outcome()
+        outcome = finalize_outcome()
+        await notify_stream_finished(outcome)
+        return outcome
 
     def _ensure_persona_segment_stream_compatible(
         self,

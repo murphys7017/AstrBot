@@ -116,6 +116,7 @@ def capability_kind_for_event_type(event_type: Any) -> CapabilityKind:
         "OnDecoratingResultEvent", "OnAfterMessageSentEvent",
         "OnTTSStateChangedEvent", "OnPersonaExpressionResultEvent",
         "OnPersonaExpressionSegmentReadyEvent",
+        "OnPersonaExpressionStreamFinishedEvent",
     }:
         return CapabilityKind.OUTPUT_HOOK
     return CapabilityKind.HANDLER

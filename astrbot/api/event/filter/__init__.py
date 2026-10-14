@@ -31,6 +31,9 @@ from astrbot.core.star.register import (
 from astrbot.core.star.register import (
     register_on_persona_expression_segment_ready as on_persona_expression_segment_ready,
 )
+from astrbot.core.star.register import (
+    register_on_persona_expression_stream_finished as on_persona_expression_stream_finished,
+)
 from astrbot.core.star.register import register_on_platform_loaded as on_platform_loaded
 from astrbot.core.star.register import register_on_plugin_error as on_plugin_error
 from astrbot.core.star.register import register_on_plugin_loaded as on_plugin_loaded
@@ -74,6 +77,7 @@ __all__ = [
     "on_plugin_unloaded",
     "on_persona_expression_result",
     "on_persona_expression_segment_ready",
+    "on_persona_expression_stream_finished",
     "on_platform_loaded",
     "on_waiting_llm_request",
     "permission_type",

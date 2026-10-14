@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from astrbot.api.event.filter import on_persona_expression_segment_ready
+from astrbot.api.event.filter import (
+    on_persona_expression_segment_ready,
+    on_persona_expression_stream_finished,
+)
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.capabilities import CapabilitySnapshot
@@ -187,10 +190,16 @@ def test_persona_segment_ready_hook_is_registered_as_public_event(monkeypatch):
         return None
 
     decorated = on_persona_expression_segment_ready(priority=42)(handler)
+    on_persona_expression_stream_finished(priority=17)(handler)
 
     assert decorated is handler
     assert registrations == [
-        (handler, EventType.OnPersonaExpressionSegmentReadyEvent, {"priority": 42})
+        (handler, EventType.OnPersonaExpressionSegmentReadyEvent, {"priority": 42}),
+        (
+            handler,
+            EventType.OnPersonaExpressionStreamFinishedEvent,
+            {"priority": 17},
+        ),
     ]
 
 
