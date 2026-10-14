@@ -445,6 +445,13 @@ class Image(BaseMessageComponent):
     def __init__(self, file: str | None, **_) -> None:
         super().__init__(file=file, **_)
 
+    def is_animated_sticker(self) -> bool:
+        """Return whether this image is a platform sticker rather than a photo."""
+        metadata = self.delivery_metadata
+        subtype = str(metadata.get("onebot_sub_type", "")).strip().lower()
+        summary = str(metadata.get("onebot_summary", "")).strip()
+        return subtype in {"1", "animated", "gif"} or "动画表情" in summary
+
     @staticmethod
     def fromURL(url: str, **_):
         if url.startswith("http://") or url.startswith("https://"):

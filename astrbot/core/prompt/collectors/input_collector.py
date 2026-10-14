@@ -370,6 +370,8 @@ class InputCollector(ContextCollectorInterface):
         for index, comp in enumerate(event.message_obj.message):
             if not isinstance(comp, Image):
                 continue
+            if comp.is_animated_sticker():
+                continue
             image_record = await self._build_image_record(
                 comp,
                 source="current",
@@ -528,6 +530,8 @@ class InputCollector(ContextCollectorInterface):
                         build_reply_chain_annotation_key(message_index, chain_index),
                     )
                     if isinstance(reply_item, Image):
+                        if reply_item.is_animated_sticker():
+                            continue
                         has_embedded_image = True
                         image_record = await self._build_image_record(
                             reply_item,

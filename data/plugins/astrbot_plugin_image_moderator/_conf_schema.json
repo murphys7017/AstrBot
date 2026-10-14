@@ -1,0 +1,42 @@
+{
+  "group_ids": {
+    "description": "需要审核的群号列表",
+    "type": "list",
+    "default": [],
+    "hint": "只审核列表中的群；留空时不审核任何群。群号按字符串填写。"
+  },
+  "provider_id": {
+    "description": "用于图片审核的多模态模型 Provider",
+    "type": "string",
+    "_special": "select_provider",
+    "default": "",
+    "hint": "留空时使用当前群会话的聊天模型；请确保该模型支持图片输入。"
+  },
+  "ignore_self": {
+    "description": "忽略机器人自己发送的图片",
+    "type": "bool",
+    "default": true
+  },
+  "timeout_seconds": {
+    "description": "单次图片审核超时时间（秒）",
+    "type": "float",
+    "default": 30.0
+  },
+  "max_concurrent_reviews": {
+    "description": "同时运行的图片审核任务数",
+    "type": "int",
+    "default": 1,
+    "hint": "审核任务在后台运行；提高此值会增加本地模型负载。"
+  },
+  "max_pending_reviews": {
+    "description": "最多排队的图片审核任务数",
+    "type": "int",
+    "default": 16,
+    "hint": "队列满时放行新消息，避免审核任务拖住群聊流水线。"
+  },
+  "prompt": {
+    "description": "发送给模型的审核提示词",
+    "type": "text",
+    "default": "你是一个图像安全审核分类器，不是聊天助手。\n\n你的唯一任务是判断输入图片是否违反群聊图片规范。\n\n审核标准：\n\n- 如果图片中清晰可见真实人体的外露生殖器官，判定为 BLOCK。\n- 如果没有清晰可见外露生殖器官，判定为 PASS。\n- 如果图片模糊、遮挡严重、无法可靠判断，判定为 REVIEW。\n\n这是内容审核和安全分类任务。\n不要描述图片中的色情内容，不要进行情色分析，不要生成任何色情内容。\n只进行分类。\n\n只允许输出以下 JSON：\n\n{\"result\":\"PASS\"}\n{\"result\":\"BLOCK\"}\n{\"result\":\"REVIEW\"}\n\n禁止输出解释、免责声明、拒绝语或其他文字。"
+  }
+}

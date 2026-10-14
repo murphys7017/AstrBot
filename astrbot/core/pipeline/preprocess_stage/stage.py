@@ -131,6 +131,12 @@ class PreProcessStage(Stage):
 
         for idx, component in enumerate(message_chain):
             if isinstance(component, Image):
+                if component.is_animated_sticker():
+                    logger.debug(
+                        "Skipping animated sticker image preprocessing: message_id=%s",
+                        event.message_obj.message_id,
+                    )
+                    continue
                 try:
                     message_chain[idx] = await self._materialize_image(event, component)
                 except Exception as e:
@@ -138,6 +144,12 @@ class PreProcessStage(Stage):
             elif isinstance(component, Reply) and component.chain:
                 for reply_idx, reply_comp in enumerate(component.chain):
                     if isinstance(reply_comp, Image):
+                        if reply_comp.is_animated_sticker():
+                            logger.debug(
+                                "Skipping animated sticker image preprocessing in reply: message_id=%s",
+                                event.message_obj.message_id,
+                            )
+                            continue
                         try:
                             component.chain[reply_idx] = await self._materialize_image(
                                 event, reply_comp

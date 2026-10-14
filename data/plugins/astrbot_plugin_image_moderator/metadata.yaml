@@ -1,0 +1,12 @@
+name: astrbot_plugin_image_moderator
+display_name: Image Moderator
+desc: 使用多模态模型审核群聊图片，发现暴露性器官内容后撤回消息。
+version: v0.1.0
+author: AstrBot
+repo: https://github.com/AstrBotDevs/AstrBot
+astrbot_version: ">=4.5.7"
+tags:
+  - moderation
+  - image
+  - safety
+

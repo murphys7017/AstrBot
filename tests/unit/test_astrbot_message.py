@@ -266,3 +266,22 @@ class TestAstrBotMessageChain:
         message.message = []
 
         assert len(message.message) == 0
+
+    def test_image_identifies_onebot_animated_sticker(self):
+        sticker = Image(
+            file="https://example.com/sticker.jpg",
+            delivery_metadata={
+                "onebot_sub_type": 1,
+                "onebot_summary": "[动画表情]",
+            },
+        )
+        photo = Image(
+            file="https://example.com/photo.jpg",
+            delivery_metadata={
+                "onebot_sub_type": 0,
+                "onebot_summary": "[图片]",
+            },
+        )
+
+        assert sticker.is_animated_sticker() is True
+        assert photo.is_animated_sticker() is False

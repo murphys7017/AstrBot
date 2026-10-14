@@ -355,6 +355,8 @@ class ThirdPartyAgentSubStage(Stage):
                 req.prompt = event.message_str[len(provider_wake_prefix) :]
             for comp in event.message_obj.message:
                 if isinstance(comp, Image):
+                    if comp.is_animated_sticker():
+                        continue
                     try:
                         image_path = await comp.convert_to_base64()
                     except Exception as exc:

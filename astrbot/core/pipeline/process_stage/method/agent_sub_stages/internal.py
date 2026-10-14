@@ -283,7 +283,8 @@ class InternalAgentSubStage(Stage):
                 and get_core_task_spec(event) is not None
             )
             has_media_content = any(
-                isinstance(comp, (Image, File, Record, Video))
+                isinstance(comp, (File, Record, Video))
+                or (isinstance(comp, Image) and not comp.is_animated_sticker())
                 for comp in event.message_obj.message
             )
             has_reply = any(

@@ -5,7 +5,7 @@ import pytest
 from aiocqhttp import Event
 
 import astrbot.api  # noqa: F401
-from astrbot.core.message.components import File
+from astrbot.core.message.components import File, Image
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import (
     AiocqhttpAdapter,
 )
@@ -62,3 +62,42 @@ async def test_each_file_segment_resolves_its_own_id(message_type, leading_text)
         ("first.pdf", "https://example.com/first"),
         ("second.xlsx", "https://example.com/second"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_onebot_image_preserves_sticker_metadata_without_serializing_it():
+    event = Event.from_payload(
+        {
+            "post_type": "message",
+            "message_type": "group",
+            "self_id": 123,
+            "user_id": 456,
+            "group_id": 789,
+            "sender": {"user_id": 456, "nickname": "Tester"},
+            "message_id": 1,
+            "message": [
+                {
+                    "type": "image",
+                    "data": {
+                        "file": "sticker.jpg",
+                        "url": "https://example.com/sticker.jpg",
+                        "sub_type": 1,
+                        "summary": "[动画表情]",
+                    },
+                }
+            ],
+        }
+    )
+    adapter = AiocqhttpAdapter.__new__(AiocqhttpAdapter)
+    adapter._schedule_group_member_refresh = lambda _group_id: None
+
+    result = await adapter._convert_handle_message_event(event)
+
+    image = result.message[0]
+    assert isinstance(image, Image)
+    assert image.is_animated_sticker() is True
+    assert image.toDict()["data"] == {
+        "file": "sticker.jpg",
+        "path": "",
+        "url": "https://example.com/sticker.jpg",
+    }

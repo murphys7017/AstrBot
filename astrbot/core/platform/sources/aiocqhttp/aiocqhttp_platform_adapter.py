@@ -432,7 +432,22 @@ class AiocqhttpAdapter(Platform):
                                 f"不支持的消息段类型，已忽略: {t}, data={m['data']}"
                             )
                             continue
-                        a = ComponentTypes[t](**m["data"])
+                        component_data = dict(m["data"])
+                        if t == "image":
+                            delivery_metadata = dict(
+                                component_data.pop("delivery_metadata", {}) or {}
+                            )
+                            if "sub_type" in component_data:
+                                delivery_metadata["onebot_sub_type"] = component_data.pop(
+                                    "sub_type"
+                                )
+                            if "summary" in component_data:
+                                delivery_metadata["onebot_summary"] = component_data.pop(
+                                    "summary"
+                                )
+                            if delivery_metadata:
+                                component_data["delivery_metadata"] = delivery_metadata
+                        a = ComponentTypes[t](**component_data)
                         abm.message.append(a)
                     except Exception as e:
                         logger.exception(
