@@ -3,6 +3,7 @@ import MarkdownIt from 'markdown-it'
 import { LazyMonacoEditor as VueMonacoEditor } from '@/components/shared/LazyMonacoEditor';
 import { ref, computed } from 'vue'
 import ConfigItemRenderer from './ConfigItemRenderer.vue'
+import AstrBotConfig from './AstrBotConfig.vue'
 import TemplateListEditor from './TemplateListEditor.vue'
 import PersonaQuickPreview from './PersonaQuickPreview.vue'
 import { useI18n, useModuleI18n } from '@/i18n/composables'
@@ -265,7 +266,15 @@ function getSpecialSubtype(value) {
         :key="itemKey"
         class="config-item"
       >
-        <v-row v-if="!itemMeta?.invisible" class="config-row">
+        <AstrBotConfig
+          v-if="!itemMeta?.invisible && itemMeta?.type === 'object'"
+          :metadata="{ [itemKey]: itemMeta }"
+          :iterable="createSelectorModel(itemKey).value || {}"
+          :metadata-key="itemKey"
+          :path-prefix="itemKey"
+          :condition-config="iterable"
+        />
+        <v-row v-else-if="!itemMeta?.invisible" class="config-row">
           <v-col cols="12" sm="6" class="property-info">
             <v-list-item density="compact">
               <v-list-item-title class="property-name">
@@ -346,7 +355,15 @@ function getSpecialSubtype(value) {
               :key="itemKey"
               class="config-item"
             >
-              <v-row v-if="!itemMeta?.invisible" class="config-row">
+              <AstrBotConfig
+                v-if="!itemMeta?.invisible && itemMeta?.type === 'object'"
+                :metadata="{ [itemKey]: itemMeta }"
+                :iterable="createSelectorModel(itemKey).value || {}"
+                :metadata-key="itemKey"
+                :path-prefix="itemKey"
+                :condition-config="iterable"
+              />
+              <v-row v-else-if="!itemMeta?.invisible" class="config-row">
                 <v-col cols="12" sm="6" class="property-info">
                   <v-list-item density="compact">
                     <v-list-item-title class="property-name">

@@ -34,6 +34,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  conditionConfig: {
+    type: Object,
+    default: null
+  },
   isEditing: {
     type: Boolean,
     default: false
@@ -150,7 +154,10 @@ function shouldShowItem(itemMeta, itemKey) {
     return true
   }
   for (const [conditionKey, expectedValue] of Object.entries(itemMeta.condition)) {
-    const actualValue = getValueBySelector(props.iterable, conditionKey)
+    const actualValue = getValueBySelector(
+      props.conditionConfig || props.iterable,
+      conditionKey
+    )
     if (actualValue !== expectedValue) {
       return false
     }
@@ -216,6 +223,7 @@ function hasVisibleItemsAfter(items, currentIndex) {
                 :pluginName="pluginName"
                 :pluginI18n="pluginI18n"
                 :pathPrefix="getItemPath(key)"
+                :conditionConfig="conditionConfig || iterable"
                 :enable-default-reset="enableDefaultReset"
               >
               </AstrBotConfig>
