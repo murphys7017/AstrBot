@@ -478,6 +478,7 @@ class InteractionOutputController:
             "delivered_segment_parts": {},
             "segments": [],
             "raw_segments_by_index": {},
+            "delivered_motion_segment_count": 0,
             "tts": [],
             "tts_attempted": False,
             "tts_failures": [],
@@ -596,7 +597,10 @@ class InteractionOutputController:
                 platform_extras["persona_stream"]["segment_count"] = len(
                     state["segments"]
                 )
-                if is_olv_segment_stream and str(segment.get("speech") or "").strip():
+                if is_olv_segment_stream and (
+                    str(segment.get("speech") or "").strip()
+                    or segment.get("actions")
+                ):
                     await queue.put(
                         {
                             "type": "persona_segment",
@@ -695,6 +699,32 @@ class InteractionOutputController:
                     state["delivered_segment_parts"].setdefault(
                         item["segment_index"], []
                     ).append(item["text"])
+                    continue
+
+                if (
+                    is_olv_segment_stream
+                    and item["type"] == "persona_segment"
+                    and not str(item["text"] or "").strip()
+                ):
+                    segment_message_id = self._next_output_segment_id(
+                        event,
+                        "persona_motion",
+                    )
+                    yield MessageChain(
+                        [
+                            Plain(
+                                "",
+                                delivery_metadata={
+                                    "message_id": segment_message_id,
+                                    "persona_result_id": state["persona_result_id"],
+                                    "persona_segment_index": item["segment_index"],
+                                    "semantic_text": "",
+                                    "audio_attachment": "absent",
+                                },
+                            )
+                        ],
+                        type="persona_stream_motion",
+                    )
                     continue
 
                 if item["type"] == "persona_segment" and not use_tts:
@@ -876,6 +906,7 @@ class InteractionOutputController:
                         )
                     semantic_text = str(metadata.get("semantic_text") or "")
                     part_extras = {
+                        "message_id": segment_message_id,
                         "persona_result_id": state["persona_result_id"],
                         "persona_segment_index": segment_index,
                         "persona_raw_speech": state[
@@ -886,6 +917,9 @@ class InteractionOutputController:
                         "persona_delivery_parent_message_id": message_id,
                         "semantic_text": semantic_text,
                     }
+                    if message.type == "persona_stream_motion":
+                        part_extras["audio_attachment"] = "absent"
+                        part_extras["persona_motion_only"] = True
                     yield message, part_extras, segment_message_id
                     if semantic_text:
                         state["delivered_text_parts"].append(semantic_text)
@@ -893,6 +927,8 @@ class InteractionOutputController:
                             segment_index,
                             [],
                         ).append(semantic_text)
+                    elif message.type == "persona_stream_motion":
+                        state["delivered_motion_segment_count"] += 1
 
             await self._deliver_visible_message(
                 event,
@@ -981,7 +1017,9 @@ class InteractionOutputController:
 
             return PersonaSegmentStreamOutcome(
                 expression=expression,
-                emitted=bool(emitted_text),
+                emitted=bool(
+                    emitted_text or state["delivered_motion_segment_count"]
+                ),
                 status=status,
                 failure_reason=(
                     self._persona_stream_error_reason(state["error"])
@@ -1165,7 +1203,17 @@ class InteractionOutputController:
             "list_interaction_result_contributors",
             None,
         )
-        if callable(list_contributors) and list_contributors(event=event):
+        contributors = (
+            list_contributors(event=event) if callable(list_contributors) else []
+        )
+        if contributors and (
+            not is_olv_segment_stream
+            or any(
+                getattr(contributor, "persona_segment_stream_safe", False)
+                is not True
+                for contributor in contributors
+            )
+        ):
             raise InteractionExpressionError(
                 "persona_stream_output_contributors_unsupported"
             )
@@ -4413,13 +4461,21 @@ class InteractionOutputController:
                     async for part, part_extras, part_message_id in message_parts:
                         base_extras = self._strip_message_identity_extras(part_extras)
                         active_semantic_text = str(part_extras.get("semantic_text") or "")
-                        outcome = await deliver_message_chain(
-                            event, part, send_message=_send,
-                            platform_settings=delivery_platform_settings,
-                            result_is_model_result=result_is_model_result,
-                            allow_segmented_reply=False,
-                            preserve_record_delivery_groups=True,
-                        )
+                        if part_extras.get("persona_motion_only") is True:
+                            await _send(part, part_extras)
+                            outcome = MessageChainDeliveryResult(
+                                sent_any=True,
+                                all_succeeded=True,
+                                attempted_count=1,
+                            )
+                        else:
+                            outcome = await deliver_message_chain(
+                                event, part, send_message=_send,
+                                platform_settings=delivery_platform_settings,
+                                result_is_model_result=result_is_model_result,
+                                allow_segmented_reply=False,
+                                preserve_record_delivery_groups=True,
+                            )
                         outcomes.append(outcome)
                         if not outcome.sent_any or not outcome.all_succeeded:
                             raise RuntimeError("Persona segment physical delivery failed")

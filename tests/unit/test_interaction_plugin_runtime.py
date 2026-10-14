@@ -1526,7 +1526,7 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
             else default
         ),
     )
-    interaction_config = SimpleNamespace(persona_segment_stream_enabled=False)
+    interaction_config = SimpleNamespace(persona_segment_stream_enabled=True)
 
     result = await middleware._generate_and_emit_persona(
         event,
@@ -1538,6 +1538,34 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
         event,
         interaction_config,
     )
+
+
+@pytest.mark.asyncio
+async def test_olv_persona_segment_stream_request_respects_core_config(monkeypatch):
+    middleware = object.__new__(InteractionMiddleware)
+    middleware.plugin_context = None
+    middleware._generate_and_stream_persona = AsyncMock()
+    middleware._set_speculative_persona_status = lambda *_args: None
+    event = SimpleNamespace(
+        get_platform_name=lambda: "olv_pet_adapter",
+        get_extra=lambda key, default=None: (
+            True
+            if key == "_interaction_persona_segment_stream_requested"
+            else default
+        ),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.middleware.record_interaction_turn_expression_failure",
+        lambda *_args: None,
+    )
+
+    result = await middleware._generate_and_emit_persona(
+        event,
+        SimpleNamespace(persona_segment_stream_enabled=False),
+    )
+
+    assert result is None
+    middleware._generate_and_stream_persona.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -504,6 +504,137 @@ async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
 
 
 @pytest.mark.asyncio
+async def test_olv_stream_delivers_action_only_segment_in_order(monkeypatch):
+    controller = InteractionOutputController()
+    controller._ensure_persona_segment_stream_compatible = lambda _event: None
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        tts_enabled=False,
+        reply_prefix="",
+        show_reasoning=False,
+        t2i_enabled=False,
+    )
+    controller._next_output_segment_id = lambda _event, _kind: "motion-1"
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+    controller._get_runtime_config = lambda _event: {}
+
+    async def prepare_segment(_event, message, **_kwargs):
+        return message
+
+    controller._prepare_model_expression = prepare_segment
+    delivered = []
+
+    class OLVStreamEvent(StreamEvent):
+        def __init__(self):
+            super().__init__()
+            self._extras["_interaction_persona_segment_stream_requested"] = True
+
+        def get_platform_name(self):
+            return "olv_pet_adapter"
+
+    event = OLVStreamEvent()
+
+    async def deliver_visible(_event, _message, *, message_parts, **_kwargs):
+        async for message, extras, message_id in message_parts:
+            delivered.append((message, extras, message_id))
+        return [item[2] for item in delivered]
+
+    controller._deliver_visible_message = deliver_visible
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        lambda *_args, **_kwargs: [],
+    )
+
+    async def producer(emit_record, _message_id):
+        await emit_record(
+            {
+                "type": "header",
+                "turn_action": "reply",
+                "persona_result_id": "result-1",
+            }
+        )
+        await emit_record({"type": "segment_start", "segment_index": 0})
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 0,
+                "segment": {
+                    "speech": "",
+                    "actions": ["nod"],
+                    "thought": "",
+                    "tendency": {},
+                },
+            }
+        )
+        result = PersonaExpressionResult(
+            speech="",
+            turn_action=PersonalResponseAction.REPLY,
+        )
+        await emit_record({"type": "finish", "result": result})
+        return result
+
+    outcome = await controller.emit_persona_segment_stream(
+        event,
+        producer=producer,
+        on_header=AsyncMock(return_value=True),
+    )
+
+    assert outcome.status == "completed"
+    assert outcome.emitted is True
+    assert len(delivered) == 1
+    message, extras, message_id = delivered[0]
+    assert message.type == "persona_stream_motion"
+    assert message.get_plain_text() == ""
+    assert extras["persona_motion_only"] is True
+    assert extras["persona_segment_index"] == 0
+    assert "persona_segment_count" not in extras
+    assert message_id == "motion-1"
+
+
+def test_olv_stream_accepts_only_declared_safe_result_contributors(monkeypatch):
+    controller = InteractionOutputController()
+    contributors = [SimpleNamespace(persona_segment_stream_safe=True)]
+    controller.plugin_context = SimpleNamespace(
+        list_interaction_result_contributors=lambda **_kwargs: contributors
+    )
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        reply_prefix="",
+        show_reasoning=False,
+        t2i_enabled=False,
+    )
+    controller._get_runtime_config = lambda _event: {}
+
+    class OLVStreamEvent(StreamEvent):
+        def get_platform_name(self):
+            return "olv_pet_adapter"
+
+        async def send_message_with_extras(self, *_args, **_kwargs):
+            return None
+
+        async def flush_visible_segment(self, **_kwargs):
+            return None
+
+        async def complete_visible_message(self, **_kwargs):
+            return None
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        lambda *_args, **_kwargs: [],
+    )
+    event = OLVStreamEvent()
+    event.set_extra("_interaction_persona_segment_stream_requested", True)
+
+    controller._ensure_persona_segment_stream_compatible(event)
+
+    contributors[0].persona_segment_stream_safe = False
+    with pytest.raises(
+        InteractionExpressionError,
+        match="persona_stream_output_contributors_unsupported",
+    ):
+        controller._ensure_persona_segment_stream_compatible(event)
+
+
+@pytest.mark.asyncio
 async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
     controller = InteractionOutputController()
     controller._ensure_persona_segment_stream_compatible = lambda _event: None

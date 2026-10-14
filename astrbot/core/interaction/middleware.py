@@ -1046,6 +1046,11 @@ class InteractionMiddleware:
         )
         olv_stream_requested = (
             platform_name == "olv_pet_adapter"
+            and getattr(
+                interaction_config,
+                "persona_segment_stream_enabled",
+                False,
+            )
             and bool(
                 event.get_extra(
                     "_interaction_persona_segment_stream_requested",
