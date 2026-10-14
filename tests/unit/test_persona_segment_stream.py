@@ -15,7 +15,10 @@ from astrbot.core.interaction.turn_state import (
     get_interaction_turn_visible_outputs,
 )
 from astrbot.core.interaction.types import PersonalResponseAction
-from astrbot.core.star.star_handler import EventType
+from astrbot.core.star.star_handler import (
+    PERSONA_SEGMENT_STREAM_SAFE_KEY,
+    EventType,
+)
 from astrbot.core.voice import TTSState
 
 
@@ -336,6 +339,14 @@ async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
     }[kind]
     controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
     controller._notify_lifecycle = AsyncMock()
+    controller._get_runtime_config = lambda _event: {}
+    prepared_segments = []
+
+    async def prepare_segment(_event, message, **_kwargs):
+        prepared_segments.append(message.get_plain_text())
+        return message
+
+    controller._prepare_model_expression = prepare_segment
 
     class OLVStreamEvent(StreamEvent):
         def __init__(self):
@@ -355,6 +366,18 @@ async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
             return None
 
     event = OLVStreamEvent()
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.star_handlers_registry.get_handlers_by_event_type",
+        lambda event_type, **_kwargs: (
+            [
+                SimpleNamespace(
+                    extras_configs={PERSONA_SEGMENT_STREAM_SAFE_KEY: True}
+                )
+            ]
+            if event_type is EventType.OnDecoratingResultEvent
+            else []
+        ),
+    )
     controller._get_runtime_config = lambda _event: {}
     segment_delivered = asyncio.Event()
     provider_finished = asyncio.Event()
@@ -463,6 +486,7 @@ async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
 
     assert outcome.status == "completed"
     assert outcome.emitted is True
+    assert prepared_segments == ["hello"]
     assert event.sender_started.is_set() is False
     assert len(deliveries) == 1
     message, extras, message_id, finished_before_delivery = deliveries[0]

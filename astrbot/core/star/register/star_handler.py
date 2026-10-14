@@ -828,7 +828,11 @@ def register_agent(
 
 
 def register_on_decorating_result(**kwargs):
-    """在发送消息前的事件"""
+    """在发送消息前的事件。
+
+    OLV Persona segment stream 会对每个完整 segment 调用标记
+    ``persona_segment_stream_safe=True`` 的处理器。
+    """
 
     def decorator(awaitable):
         _ = get_handler_or_create(

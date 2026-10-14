@@ -30,7 +30,11 @@ from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import supports_personal_runtime
 from astrbot.core.plugin_runtime import PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
 from astrbot.core.star.session_llm_manager import SessionServiceManager
-from astrbot.core.star.star_handler import EventType, star_handlers_registry
+from astrbot.core.star.star_handler import (
+    PERSONA_SEGMENT_STREAM_SAFE_KEY,
+    EventType,
+    star_handlers_registry,
+)
 from astrbot.core.voice import (
     TTSState,
     VoiceServiceError,
@@ -473,6 +477,7 @@ class InteractionOutputController:
             "delivered_text_parts": [],
             "delivered_segment_parts": {},
             "segments": [],
+            "raw_segments_by_index": {},
             "tts": [],
             "tts_attempted": False,
             "tts_failures": [],
@@ -562,7 +567,30 @@ class InteractionOutputController:
                     or "".join(state["current_text"]) != raw_speech
                 ):
                     raise InteractionExpressionError("persona_stream_segment_mismatch")
+                if is_olv_segment_stream:
+                    prepared_segment = await self._prepare_model_expression(
+                        event,
+                        MessageChain(
+                            [Plain(str(segment.get("speech") or ""))],
+                            type="persona_stream_segment",
+                        ),
+                        message_kind="immediate_reply",
+                    )
+                    if prepared_segment is None:
+                        raise InteractionExpressionError(
+                            "persona_stream_segment_preoutput_suppressed"
+                        )
+                    if (
+                        len(prepared_segment.chain) != 1
+                        or not isinstance(prepared_segment.chain[0], Plain)
+                    ):
+                        raise InteractionExpressionError(
+                            "persona_stream_segment_output_transform_unsupported"
+                        )
+                    segment = dict(segment)
+                    segment["speech"] = prepared_segment.chain[0].text
                 state["segments"].append(segment)
+                state["raw_segments_by_index"][segment_index] = raw_speech
                 state["current_index"] = None
                 state["current_text"] = []
                 platform_extras["persona_stream"]["segment_count"] = len(
@@ -850,6 +878,9 @@ class InteractionOutputController:
                     part_extras = {
                         "persona_result_id": state["persona_result_id"],
                         "persona_segment_index": segment_index,
+                        "persona_raw_speech": state[
+                            "raw_segments_by_index"
+                        ].get(segment_index, semantic_text),
                         "persona_streaming": True,
                         "persona_incremental_delivery": True,
                         "persona_delivery_parent_message_id": message_id,
@@ -1064,6 +1095,15 @@ class InteractionOutputController:
         event: AstrMessageEvent,
     ) -> None:
         platform_name = str(event.get_platform_name() or "").lower()
+        is_olv_segment_stream = (
+            platform_name == "olv_pet_adapter"
+            and bool(
+                event.get_extra(
+                    "_interaction_persona_segment_stream_requested",
+                    False,
+                )
+            )
+        )
         if platform_name == "webchat":
             if not callable(getattr(event, "send_interaction_streaming", None)):
                 raise InteractionExpressionError("persona_stream_output_unsupported")
@@ -1098,12 +1138,26 @@ class InteractionOutputController:
             raise InteractionExpressionError(
                 "persona_stream_safety_config_invalid"
             )
-        if isinstance(safety, Mapping) and safety.get("also_use_in_response"):
+        if (
+            isinstance(safety, Mapping)
+            and safety.get("also_use_in_response")
+            and not is_olv_segment_stream
+        ):
             raise InteractionExpressionError("persona_stream_safety_filter_unsupported")
-        if star_handlers_registry.get_handlers_by_event_type(
+        decorating_handlers = star_handlers_registry.get_handlers_by_event_type(
             EventType.OnDecoratingResultEvent,
             only_activated=False,
             plugins_name=None,
+        )
+        if decorating_handlers and (
+            not is_olv_segment_stream
+            or any(
+                getattr(handler, "extras_configs", {}).get(
+                    PERSONA_SEGMENT_STREAM_SAFE_KEY
+                )
+                is not True
+                for handler in decorating_handlers
+            )
         ):
             raise InteractionExpressionError("persona_stream_output_hooks_unsupported")
         list_contributors = getattr(
