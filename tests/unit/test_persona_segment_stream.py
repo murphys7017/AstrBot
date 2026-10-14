@@ -7,6 +7,7 @@ import pytest
 from astrbot.core.interaction.expression_agent import PersonaExpressionResult
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
+    get_interaction_turn_immediate_persona_state,
     get_interaction_turn_immediate_reply,
     get_interaction_turn_visible_outputs,
 )
@@ -132,6 +133,67 @@ async def test_silent_persona_stream_does_not_start_webchat_delivery():
     assert outcome.emitted is False
     assert event.sender_started.is_set() is False
     controller._notify_lifecycle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_completed_stream_preserves_empty_segment_persona_state():
+    controller = InteractionOutputController()
+    controller._ensure_persona_segment_stream_compatible = lambda _event: None
+    controller._resolve_outbound_options = lambda _event: SimpleNamespace(
+        tts_enabled=False
+    )
+    controller._next_output_segment_id = lambda _event, _kind: "stream-1"
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+    event = StreamEvent()
+
+    async def producer(emit_record):
+        await emit_record({"type": "header", "turn_action": "reply"})
+        await emit_record({"type": "segment_start", "segment_index": 0})
+        await emit_record(
+            {
+                "type": "speech_delta",
+                "segment_index": 0,
+                "delta_index": 0,
+                "text": "hello",
+            }
+        )
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 0,
+                "segment": {
+                    "speech": "hello",
+                    "actions": [],
+                    "thought": "",
+                    "tendency": {},
+                },
+            }
+        )
+        await emit_record({"type": "segment_start", "segment_index": 1})
+        await emit_record(
+            {
+                "type": "segment_end",
+                "segment_index": 1,
+                "segment": {
+                    "speech": "",
+                    "actions": ["blink"],
+                    "thought": "",
+                    "tendency": {},
+                },
+            }
+        )
+        result = PersonaExpressionResult(speech="hello")
+        await emit_record({"type": "finish", "result": result})
+        return result
+
+    await controller.emit_persona_segment_stream(
+        event,
+        producer=producer,
+        on_header=AsyncMock(),
+    )
+
+    assert get_interaction_turn_immediate_persona_state(event)[0] == ("blink",)
 
 
 @pytest.mark.asyncio

@@ -717,8 +717,8 @@ class InteractionOutputController:
                 mappings = [
                     segment
                     for segment_index, segment in enumerate(state["segments"])
-                    if segment.get("speech")
-                    and "".join(
+                    if not segment.get("speech")
+                    or "".join(
                         state["delivered_segment_parts"].get(segment_index, [])
                     )
                     == segment["speech"]
