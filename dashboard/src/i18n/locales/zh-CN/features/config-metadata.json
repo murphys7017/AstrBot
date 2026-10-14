@@ -352,7 +352,39 @@
           ]
         },
         "computer_use_local_permissions": {
-          "description": "本地权限策略"
+          "description": "本地权限策略",
+          "member": {
+            "allow_execution": {
+              "description": "允许执行代码"
+            },
+            "allow_network": {
+              "description": "允许网络访问"
+            },
+            "filesystem_scope": {
+              "description": "文件系统范围",
+              "labels": [
+                "禁止",
+                "工作区",
+                "主机"
+              ]
+            }
+          },
+          "admin": {
+            "allow_execution": {
+              "description": "允许执行代码"
+            },
+            "allow_network": {
+              "description": "允许网络访问"
+            },
+            "filesystem_scope": {
+              "description": "文件系统范围",
+              "labels": [
+                "禁止",
+                "工作区",
+                "主机"
+              ]
+            }
+          }
         },
         "computer_use_require_admin": {
           "description": "要求 AstrBot 管理员权限",
@@ -1576,11 +1608,26 @@
         },
         "expression_output_format": {
           "description": "表达输出格式",
+          "labels": [
+            "JSON",
+            "XML",
+            "Markdown",
+            "工具调用"
+          ],
           "hint": "默认使用 JSON + Prompt-only。提供商页面的 10 次稳定性测试仅供判断，不会修改生产设置；测试后需在此处显式选择格式。"
         },
         "expression_output_mode": {
           "description": "表达输出约束模式",
+          "labels": [
+            "仅 Prompt 约束",
+            "Provider 原生 JSON",
+            "Provider 原生 JSON Schema"
+          ],
           "hint": "原生模式仅适用于支持对应 Provider 参数的 JSON 输出；XML/Markdown 使用 Prompt-only。"
+        },
+        "persona_segment_stream_enabled": {
+          "description": "启用 WebChat Persona 分段流式输出（实验）",
+          "hint": "默认关闭。启用后使用独立的 segment_stream_v1 协议；遇到不兼容的输出钩子、安全过滤、工具或 effect 时会在发送前拒绝本次流式请求。"
         },
         "expression_temperature": {
           "description": "表达温度"

@@ -355,6 +355,10 @@ function getTranslatedLabels(itemMeta) {
     if (Array.isArray(translatedLabels)) {
       return translatedLabels
     }
+    const fallbackLabels = itemMeta?._i18n_fallback?.labels
+    if (Array.isArray(fallbackLabels)) {
+      return fallbackLabels
+    }
   }
   if (Array.isArray(itemMeta.labels)) {
     return itemMeta.labels

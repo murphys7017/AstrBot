@@ -31,15 +31,15 @@
             <template v-for="(itemMeta, itemKey, metaIndex) in activeTemplate.items" :key="itemKey">
               <div v-if="itemMeta?.type === 'object' && !itemMeta?.invisible && shouldShowItem(itemMeta, draftEntry)" class="nested-container">
                 <div class="config-section">
-                  <div class="config-title">{{ templateItemText(activeTemplateKey, itemKey, 'description', itemMeta?.description) || itemKey }}</div>
-                  <div v-if="itemMeta?.hint" class="config-hint">{{ templateItemText(activeTemplateKey, itemKey, 'hint', itemMeta.hint) }}</div>
+                  <div class="config-title">{{ templateItemText(activeTemplateKey, itemKey, 'description', itemMeta) || itemKey }}</div>
+                  <div v-if="itemMeta?.hint" class="config-hint">{{ templateItemText(activeTemplateKey, itemKey, 'hint', itemMeta) }}</div>
                 </div>
                 <template v-for="(childMeta, childKey, childIndex) in itemMeta.items" :key="childKey">
                   <template v-if="!childMeta?.invisible && shouldShowItem(childMeta, draftEntry)">
                     <v-row class="config-row">
                       <v-col cols="12" md="5" class="property-info">
-                        <div class="property-name">{{ templateItemText(activeTemplateKey, `${itemKey}.${childKey}`, 'description', childMeta?.description) || childKey }}</div>
-                        <div v-if="childMeta?.hint" class="property-hint">{{ templateItemText(activeTemplateKey, `${itemKey}.${childKey}`, 'hint', childMeta.hint) }}</div>
+                        <div class="property-name">{{ templateItemText(activeTemplateKey, `${itemKey}.${childKey}`, 'description', childMeta) || childKey }}</div>
+                        <div v-if="childMeta?.hint" class="property-hint">{{ templateItemText(activeTemplateKey, `${itemKey}.${childKey}`, 'hint', childMeta) }}</div>
                       </v-col>
                       <v-col cols="12" md="7" class="config-input">
                         <ConfigItemRenderer v-model="draftEntry[itemKey][childKey]" :item-meta="childMeta" :plugin-name="pluginName" :plugin-i18n="pluginI18n" :config-key="templateItemPath(activeTemplateKey, `${itemKey}.${childKey}`)" />
@@ -53,8 +53,8 @@
               <template v-else-if="!itemMeta?.invisible && shouldShowItem(itemMeta, draftEntry)">
                 <v-row class="config-row">
                   <v-col cols="12" md="5" class="property-info">
-                    <div class="property-name">{{ templateItemText(activeTemplateKey, itemKey, 'description', itemMeta?.description) || itemKey }} <span v-if="itemMeta?.description" class="property-key">({{ itemKey }})</span></div>
-                    <div v-if="itemMeta?.hint" class="property-hint">{{ templateItemText(activeTemplateKey, itemKey, 'hint', itemMeta.hint) }}</div>
+                    <div class="property-name">{{ templateItemText(activeTemplateKey, itemKey, 'description', itemMeta) || itemKey }} <span v-if="itemMeta?.description" class="property-key">({{ itemKey }})</span></div>
+                    <div v-if="itemMeta?.hint" class="property-hint">{{ templateItemText(activeTemplateKey, itemKey, 'hint', itemMeta) }}</div>
                   </v-col>
                   <v-col cols="12" md="7" class="config-input">
                     <ConfigItemRenderer v-model="draftEntry[itemKey]" :item-meta="itemMeta" :plugin-name="pluginName" :plugin-i18n="pluginI18n" :config-key="templateItemPath(activeTemplateKey, itemKey)" />
@@ -84,7 +84,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
-const { resolveConfigText } = useConfigTextResolver(props)
+const { resolveConfigMetaText } = useConfigTextResolver(props)
 const selectedEntryIndex = ref(null)
 const editorOpen = ref(false)
 const editingIndex = ref(null)
@@ -102,7 +102,7 @@ const cancelButtonText = computed(() => translatedText('cancel'))
 const missingTemplateText = computed(() => translatedText('missingTemplate'))
 const dialogTitle = computed(() => editingIndex.value === null ? translatedText('createEntry') : translatedText('editEntry'))
 const defaultValueMap = { int: 0, float: 0, bool: false, string: '', text: '', list: [], file: [], object: {}, dict: {}, template_list: [] }
-const templateOptions = computed(() => Object.entries(props.templates || {}).map(([value, meta]) => ({ label: templateText(value, 'name', meta?.name || value), value, hint: templateText(value, 'hint', meta?.hint || meta?.description || '') })))
+const templateOptions = computed(() => Object.entries(props.templates || {}).map(([value, meta]) => ({ label: templateText(value, 'name', meta, meta?.name || value), value, hint: templateText(value, 'hint', meta, meta?.description || '') })))
 const entryOptions = computed(() => (props.modelValue || []).map((entry, index) => ({ value: index, title: entrySummary(entry, index) })))
 const activeTemplateKey = computed(() => draftEntry.value?.__template_key || '')
 const activeTemplate = computed(() => props.templates?.[activeTemplateKey.value] || null)
@@ -114,9 +114,9 @@ watch(entryOptions, (options) => {
 
 function templatePath(templateKey) { return props.configPath ? `${props.configPath}.templates.${templateKey}` : `templates.${templateKey}` }
 function templateItemPath(templateKey, itemPath) { return `${templatePath(templateKey)}.${itemPath}` }
-function templateText(templateKey, attr, fallback) { return resolveConfigText(templatePath(templateKey), attr, fallback) }
-function templateItemText(templateKey, itemPath, attr, fallback) { return resolveConfigText(templateItemPath(templateKey, itemPath), attr, fallback) }
-function templateLabel(key) { return key ? templateText(key, 'name', props.templates?.[key]?.name || key) : translatedText('unknownTemplate') }
+function templateText(templateKey, attr, metadata, fallback) { return resolveConfigMetaText(templatePath(templateKey), attr, metadata, fallback) }
+function templateItemText(templateKey, itemPath, attr, metadata, fallback) { return resolveConfigMetaText(templateItemPath(templateKey, itemPath), attr, metadata, fallback) }
+function templateLabel(key) { return key ? templateText(key, 'name', props.templates?.[key]) || key : translatedText('unknownTemplate') }
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)) }
 function resolveTemplateKey(entry) {
   if (entry?.__template_key && props.templates?.[entry.__template_key]) return entry.__template_key

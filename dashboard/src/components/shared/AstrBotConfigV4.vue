@@ -34,13 +34,16 @@ const { getRaw } = useModuleI18n('features/config-metadata')
 const { tm: tmConfig } = useModuleI18n('features/config')
 const { translateIfKey } = useConfigTextResolver()
 
+const metadataText = (metadata, attr) =>
+  translateIfKey(metadata?.[attr], metadata?._i18n_fallback?.[attr])
+
 const hintMarkdown = new MarkdownIt({
   linkify: true,
   breaks: true
 })
 
-const renderHint = (value) => {
-  const text = translateIfKey(value)
+const renderHint = (value, fallback) => {
+  const text = translateIfKey(value, fallback)
   if (!text) return ''
   return hintMarkdown.renderInline(text)
 }
@@ -55,6 +58,10 @@ const getTranslatedLabels = (itemMeta) => {
     // 如果翻译成功且是数组，返回翻译结果
     if (Array.isArray(translatedLabels)) {
       return translatedLabels
+    }
+    const fallbackLabels = itemMeta?._i18n_fallback?.labels
+    if (Array.isArray(fallbackLabels)) {
+      return fallbackLabels
     }
   }
   
@@ -148,8 +155,8 @@ function shouldShowItem(itemMeta, itemKey) {
 
   const searchableText = [
     itemKey,
-    translateIfKey(itemMeta?.description || ''),
-    translateIfKey(itemMeta?.hint || '')
+    metadataText(itemMeta, 'description'),
+    metadataText(itemMeta, 'hint')
   ].join(' ').toLowerCase()
 
   return searchableText.includes(keyword)
@@ -251,11 +258,11 @@ function getSpecialSubtype(value) {
     rounded="md" variant="outlined">
     <v-card-text class="config-section" v-if="metadata[metadataKey]?.type === 'object'" style="padding-bottom: 8px;">
       <v-list-item-title class="config-title">
-        {{ translateIfKey(metadata[metadataKey]?.description) }}
+        {{ metadataText(metadata[metadataKey], 'description') }}
       </v-list-item-title>
       <v-list-item-subtitle class="config-hint">
         <span v-if="metadata[metadataKey]?.obvious_hint && metadata[metadataKey]?.hint" class="important-hint">‼️</span>
-        <span v-html="renderHint(metadata[metadataKey]?.hint)"></span>
+        <span v-html="renderHint(metadata[metadataKey]?.hint, metadata[metadataKey]?._i18n_fallback?.hint)"></span>
       </v-list-item-subtitle>
     </v-card-text>
 
@@ -278,13 +285,13 @@ function getSpecialSubtype(value) {
           <v-col cols="12" sm="6" class="property-info">
             <v-list-item density="compact">
               <v-list-item-title class="property-name">
-                {{ translateIfKey(itemMeta?.description) || itemKey }}
+                {{ metadataText(itemMeta, 'description') || itemKey }}
                 <span class="property-key">({{ itemKey }})</span>
               </v-list-item-title>
 
               <v-list-item-subtitle class="property-hint">
                 <span v-if="itemMeta?.obvious_hint && itemMeta?.hint" class="important-hint">‼️</span>
-                <span v-html="renderHint(itemMeta?.hint)"></span>
+                <span v-html="renderHint(itemMeta?.hint, itemMeta?._i18n_fallback?.hint)"></span>
               </v-list-item-subtitle>
             </v-list-item>
           </v-col>
@@ -367,13 +374,13 @@ function getSpecialSubtype(value) {
                 <v-col cols="12" sm="6" class="property-info">
                   <v-list-item density="compact">
                     <v-list-item-title class="property-name">
-                      {{ translateIfKey(itemMeta?.description) || itemKey }}
+                      {{ metadataText(itemMeta, 'description') || itemKey }}
                       <span class="property-key">({{ itemKey }})</span>
                     </v-list-item-title>
 
                     <v-list-item-subtitle class="property-hint">
                       <span v-if="itemMeta?.obvious_hint && itemMeta?.hint" class="important-hint">‼️</span>
-                      <span v-html="renderHint(itemMeta?.hint)"></span>
+                      <span v-html="renderHint(itemMeta?.hint, itemMeta?._i18n_fallback?.hint)"></span>
                     </v-list-item-subtitle>
                   </v-list-item>
                 </v-col>

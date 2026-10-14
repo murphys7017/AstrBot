@@ -16,7 +16,7 @@
             color="deep-purple-accent-4" class="config-tabs">
             <v-tab v-for="section in visibleSections" :key="section.key" :value="section.key"
                 style="font-weight: 1000; font-size: 15px">
-                {{ tm(section.value['name']) }}
+                {{ tm(section.value['name'], section.value._i18n_fallback?.name) }}
             </v-tab>
         </v-tabs>
         <v-tabs-window v-model="tab" class="config-tabs-window" :style="readonly ? 'pointer-events: none; opacity: 0.6;' : ''">
@@ -87,12 +87,16 @@ export default {
     const { tm: tmConfig } = useModuleI18n('features/config');
     const { tm: tmMetadata } = useModuleI18n('features/config-metadata');
     
-    const tm = (key) => {
+    const tm = (key, fallback) => {
       const metadataResult = tmMetadata(key);
       if (!metadataResult.startsWith('[MISSING:') && !metadataResult.startsWith('[INVALID:')) {
         return metadataResult;
       }
-      return tmConfig(key);
+      const configResult = tmConfig(key);
+      if (!configResult.startsWith('[MISSING:') && !configResult.startsWith('[INVALID:')) {
+        return configResult;
+      }
+      return fallback || key;
     };
     
     return {
@@ -122,7 +126,7 @@ export default {
     mobileSectionItems() {
       return this.visibleSections.map((section) => ({
         key: section.key,
-        title: this.tm(section.value['name'])
+        title: this.tm(section.value['name'], section.value._i18n_fallback?.name)
       }));
     }
   },

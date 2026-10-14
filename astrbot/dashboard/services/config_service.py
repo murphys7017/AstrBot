@@ -1595,6 +1595,8 @@ class ConfigService(DashboardService):
             for field_key, field_value in platform_items_to_inject.items():
                 for key in ("description", "hint", "labels"):
                     if key in field_value:
+                        fallback = field_value.setdefault("_i18n_fallback", {})
+                        fallback.setdefault(key, field_value[key])
                         field_value[key] = f"{i18n_prefix}.{field_key}.{key}"
 
         metadata["platform_group"]["metadata"]["platform"]["items"].update(

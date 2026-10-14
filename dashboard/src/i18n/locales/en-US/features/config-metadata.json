@@ -179,6 +179,41 @@
             "Sandbox"
           ]
         },
+        "computer_use_local_permissions": {
+          "description": "Local Permission Policy",
+          "member": {
+            "allow_execution": {
+              "description": "Allow Code Execution"
+            },
+            "allow_network": {
+              "description": "Allow Network Access"
+            },
+            "filesystem_scope": {
+              "description": "Filesystem Scope",
+              "labels": [
+                "None",
+                "Workspace",
+                "Host"
+              ]
+            }
+          },
+          "admin": {
+            "allow_execution": {
+              "description": "Allow Code Execution"
+            },
+            "allow_network": {
+              "description": "Allow Network Access"
+            },
+            "filesystem_scope": {
+              "description": "Filesystem Scope",
+              "labels": [
+                "None",
+                "Workspace",
+                "Host"
+              ]
+            }
+          }
+        },
         "computer_use_require_admin": {
           "description": "Require AstrBot Admin Permission",
           "hint": "When enabled, only AstrBot admins can use computer capabilities. Manage admin IDs under Config -> Channels -> Platform Config -> General -> Administrator IDs. Use /sid to view a user's ID."
@@ -1162,11 +1197,26 @@
         },
         "expression_output_format": {
           "description": "Expression Output Format",
+          "labels": [
+            "JSON",
+            "XML",
+            "Markdown",
+            "Tool call"
+          ],
           "hint": "JSON + Prompt-only is the default. The provider's 10-run stability test is diagnostic only and does not change production settings; select the format here after testing."
         },
         "expression_output_mode": {
           "description": "Expression Output Constraint Mode",
+          "labels": [
+            "Prompt-only",
+            "Provider-native JSON",
+            "Provider-native JSON Schema"
+          ],
           "hint": "Native modes apply only to providers that advertise the corresponding JSON capability; XML and Markdown use prompt-only output."
+        },
+        "persona_segment_stream_enabled": {
+          "description": "Enable WebChat Persona Segmented Streaming (Experimental)",
+          "hint": "Disabled by default. When enabled, this uses the separate segment_stream_v1 protocol. The request is rejected before sending if an incompatible output hook, safety filter, tool, or effect is present."
         },
         "expression_temperature": {
           "description": "Expression Temperature"

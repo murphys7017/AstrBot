@@ -187,6 +187,11 @@ function splitGroupIntoWorkspaceSections(
       value: {
         ...baseValue,
         name: sectionName,
+        _i18n_fallback: {
+          ...baseValue._i18n_fallback,
+          name: sectionValue?._i18n_fallback?.description
+            ?? baseValue._i18n_fallback?.name,
+        },
         metadata: { [sectionKey]: sectionValue },
       },
       registry,

@@ -50,7 +50,7 @@ const props = defineProps({
 
 const { t } = useI18n()
 const { getRaw } = useModuleI18n('features/config-metadata')
-const { translateIfKey, resolveConfigText } = useConfigTextResolver(props)
+const { translateIfKey, resolveConfigMetaText } = useConfigTextResolver(props)
 const currentConfigPath = computed(() => props.pathPrefix || props.metadataKey)
 
 const filteredIterable = computed(() => {
@@ -188,11 +188,11 @@ function hasVisibleItemsAfter(items, currentIndex) {
 <template>
   <div class="config-section" v-if="iterable && metadata[metadataKey]?.type === 'object'">
     <v-list-item-title class="config-title">
-      {{ resolveConfigText(currentConfigPath, 'description', metadata[metadataKey]?.description) }} <span class="metadata-key">({{ metadataKey }})</span>
+      {{ resolveConfigMetaText(currentConfigPath, 'description', metadata[metadataKey]) }} <span class="metadata-key">({{ metadataKey }})</span>
     </v-list-item-title>
     <v-list-item-subtitle class="config-hint">
       <span v-if="metadata[metadataKey]?.obvious_hint && metadata[metadataKey]?.hint" class="important-hint">‼️</span>
-      {{ resolveConfigText(currentConfigPath, 'hint', metadata[metadataKey]?.hint) }}
+      {{ resolveConfigMetaText(currentConfigPath, 'hint', metadata[metadataKey]) }}
     </v-list-item-subtitle>
   </div>
 
@@ -237,14 +237,14 @@ function hasVisibleItemsAfter(items, currentIndex) {
             <div class="config-section mb-2">
               <v-list-item-title class="config-title">
                 <span v-if="metadata[metadataKey].items[key]?.description">
-                  {{ resolveConfigText(getItemPath(key), 'description', metadata[metadataKey].items[key]?.description) }}
+                  {{ resolveConfigMetaText(getItemPath(key), 'description', metadata[metadataKey].items[key]) }}
                   <span class="property-key">({{ key }})</span>
                 </span>
                 <span v-else>{{ key }}</span>
               </v-list-item-title>
               <v-list-item-subtitle class="config-hint">
                 <span v-if="metadata[metadataKey].items[key]?.obvious_hint && metadata[metadataKey].items[key]?.hint" class="important-hint">‼️</span>
-                {{ resolveConfigText(getItemPath(key), 'hint', metadata[metadataKey].items[key]?.hint) }}
+                {{ resolveConfigMetaText(getItemPath(key), 'hint', metadata[metadataKey].items[key]) }}
               </v-list-item-subtitle>
             </div>
             <ConfigDefaultReset
@@ -272,7 +272,7 @@ function hasVisibleItemsAfter(items, currentIndex) {
               <v-list-item density="compact">
                 <v-list-item-title class="property-name">
                   <span v-if="metadata[metadataKey].items[key]?.description">
-                    {{ resolveConfigText(getItemPath(key), 'description', metadata[metadataKey].items[key]?.description) }}
+                    {{ resolveConfigMetaText(getItemPath(key), 'description', metadata[metadataKey].items[key]) }}
                     <span class="property-key">({{ key }})</span>
                   </span>
                   <span v-else>{{ key }}</span>
@@ -281,7 +281,7 @@ function hasVisibleItemsAfter(items, currentIndex) {
                 <v-list-item-subtitle class="property-hint">
                   <span v-if="metadata[metadataKey].items[key]?.obvious_hint && getItemHint(key, metadata[metadataKey].items[key])"
                         class="important-hint">‼️</span>
-                  {{ resolveConfigText(getItemPath(key), 'hint', getItemHint(key, metadata[metadataKey].items[key])) }}
+                  {{ resolveConfigMetaText(getItemPath(key), 'hint', metadata[metadataKey].items[key], getItemHint(key, metadata[metadataKey].items[key])) }}
                 </v-list-item-subtitle>
               </v-list-item>
             </v-col>
@@ -322,13 +322,13 @@ function hasVisibleItemsAfter(items, currentIndex) {
         <v-col cols="12" sm="7" class="property-info">
           <v-list-item density="compact">
             <v-list-item-title class="property-name">
-              {{ resolveConfigText(getItemPath(metadataKey), 'description', metadata[metadataKey]?.description) }}
+              {{ resolveConfigMetaText(getItemPath(metadataKey), 'description', metadata[metadataKey]) }}
               <span class="property-key">({{ metadataKey }})</span>
             </v-list-item-title>
 
             <v-list-item-subtitle class="property-hint">
               <span v-if="metadata[metadataKey]?.obvious_hint && metadata[metadataKey]?.hint" class="important-hint">‼️</span>
-              {{ resolveConfigText(getItemPath(metadataKey), 'hint', metadata[metadataKey]?.hint) }}
+              {{ resolveConfigMetaText(getItemPath(metadataKey), 'hint', metadata[metadataKey]) }}
             </v-list-item-subtitle>
           </v-list-item>
         </v-col>

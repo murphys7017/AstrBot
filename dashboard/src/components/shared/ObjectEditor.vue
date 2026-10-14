@@ -116,7 +116,7 @@
               <v-col cols="4">
                 <div class="d-flex flex-column">
                   <span class="text-caption font-weight-medium">{{ getTemplateTitle(template, templateKey) }}</span>
-                  <span v-if="template.hint" class="text-caption text-grey" style="font-size: 0.7rem;">{{ resolveTemplateText(templateKey, 'hint', template.hint) }}</span>
+                  <span v-if="template.hint" class="text-caption text-grey" style="font-size: 0.7rem;">{{ resolveTemplateText(templateKey, 'hint', template) }}</span>
                 </div>
               </v-col>
               <v-col cols="7" class="pl-2 d-flex align-center justify-end">
@@ -265,7 +265,7 @@ const props = defineProps({
   }
 })
 
-const { translateIfKey, resolveConfigText } = useConfigTextResolver(props)
+const { translateIfKey, resolveConfigMetaText } = useConfigTextResolver(props)
 
 const emit = defineEmits(['update:modelValue'])
 
@@ -563,14 +563,14 @@ function cancelDialog() {
 }
 
 function getTemplateTitle(template, templateKey) {
-  return resolveTemplateText(templateKey, 'name', template?.name || template?.description || templateKey)
+  return resolveTemplateText(templateKey, 'name', template, template?.description || templateKey)
 }
 
-function resolveTemplateText(templateKey, attr, fallback) {
+function resolveTemplateText(templateKey, attr, metadata, fallback) {
   if (!props.configKey) {
-    return translateIfKey(fallback) || ''
+    return translateIfKey(metadata?.[attr], metadata?._i18n_fallback?.[attr] ?? fallback) || ''
   }
-  return resolveConfigText(`${props.configKey}.template_schema.${templateKey}`, attr, fallback)
+  return resolveConfigMetaText(`${props.configKey}.template_schema.${templateKey}`, attr, metadata, fallback)
 }
 </script>
 

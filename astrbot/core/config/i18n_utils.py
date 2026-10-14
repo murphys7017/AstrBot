@@ -11,6 +11,11 @@ class ConfigMetadataI18n:
     """配置元数据国际化转换器"""
 
     @staticmethod
+    def _fallback_label(value: str) -> str:
+        value = value.removesuffix("_group")
+        return " ".join(part.capitalize() for part in value.split("_") if part)
+
+    @staticmethod
     def _get_i18n_key(group: str, section: str, field: str, attr: str) -> str:
         """
         生成国际化键
@@ -60,6 +65,11 @@ class ConfigMetadataI18n:
                     for key, value in field_data.items()
                     if key not in {"description", "hint", "labels", "name"}
                 }
+                fallback = {
+                    attr: field_data[attr]
+                    for attr in ("description", "hint", "labels", "name")
+                    if attr in field_data
+                }
 
                 if "description" in field_data:
                     field_result["description"] = (
@@ -71,6 +81,9 @@ class ConfigMetadataI18n:
                     field_result["labels"] = f"{group}.{section}.{field_path}.labels"
                 if "name" in field_data:
                     field_result["name"] = f"{group}.{section}.{field_path}.name"
+
+                if fallback:
+                    field_result["_i18n_fallback"] = fallback
 
                 if "items" in field_data and isinstance(field_data["items"], dict):
                     field_result["items"] = convert_items(
@@ -95,6 +108,10 @@ class ConfigMetadataI18n:
             group_result = {
                 "name": f"{group_key}.name",
                 "metadata": {},
+                "_i18n_fallback": {
+                    "name": group_data.get("name")
+                    or ConfigMetadataI18n._fallback_label(group_key),
+                },
             }
 
             for section_key, section_data in group_data.get("metadata", {}).items():
@@ -104,9 +121,16 @@ class ConfigMetadataI18n:
                     if key not in {"description", "hint", "labels", "name"}
                 }
                 section_result["description"] = f"{group_key}.{section_key}.description"
+                section_fallback = {
+                    "description": section_data.get("description")
+                    or ConfigMetadataI18n._fallback_label(section_key),
+                }
 
                 if "hint" in section_data:
                     section_result["hint"] = f"{group_key}.{section_key}.hint"
+                    section_fallback["hint"] = section_data["hint"]
+
+                section_result["_i18n_fallback"] = section_fallback
 
                 if "items" in section_data and isinstance(section_data["items"], dict):
                     section_result["items"] = convert_items(
