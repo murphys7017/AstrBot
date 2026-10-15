@@ -864,7 +864,11 @@ def register_on_tts_state_changed(**kwargs):
 
 
 def register_after_message_sent(**kwargs):
-    """在消息发送后的事件"""
+    """在消息发送后的事件。
+
+    OLV 流式对话结束时，仅调用声明 ``persona_segment_stream_safe=True``
+    的 handler；未适配的 handler 会跳过，避免阻止桌面结束通知。
+    """
 
     def decorator(awaitable):
         _ = get_handler_or_create(

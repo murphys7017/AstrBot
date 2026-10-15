@@ -9,19 +9,31 @@ from astrbot.core import logger
 SKIPPED_CAPABILITIES_EXTRA_KEY = "_interaction_persona_stream_skipped_capabilities"
 
 
-def is_olv_persona_stream(event: Any) -> bool:
+def is_olv_persona_stream(event: Any, *, include_finished: bool = False) -> bool:
     get_platform_name = getattr(event, "get_platform_name", None)
     return (
         callable(get_platform_name)
         and str(get_platform_name() or "").lower() == "olv_pet_adapter"
-        and event.get_extra("_interaction_persona_segment_stream_active", False) is True
+        and (
+            event.get_extra("_interaction_persona_segment_stream_active", False) is True
+            or (
+                include_finished
+                and event.get_extra("_interaction_persona_segment_stream_status")
+                in {"completed", "incomplete", "failed", "cancelled"}
+            )
+        )
     )
 
 
 def skip_incompatible_stream_capability(
-    event: Any, *, kind: str, name: str, compatible: bool = False
+    event: Any,
+    *,
+    kind: str,
+    name: str,
+    compatible: bool = False,
+    include_finished: bool = False,
 ) -> bool:
-    if not is_olv_persona_stream(event) or compatible:
+    if not is_olv_persona_stream(event, include_finished=include_finished) or compatible:
         return False
     skipped = event.get_extra(SKIPPED_CAPABILITIES_EXTRA_KEY)
     if skipped is None:
@@ -41,14 +53,17 @@ def skip_incompatible_stream_capability(
 
 
 def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
-    if not is_olv_persona_stream(event):
-        return True
     # Import at dispatch time: Star Context also consumes this policy.
     from astrbot.core.star.star_handler import (
         PERSONA_SEGMENT_STREAM_SAFE_KEY,
         EventType,
     )
 
+    # Completion runs after middleware clears active. Only this terminal Hook
+    # uses the stream outcome; ordinary generation Hooks keep invocation scope.
+    include_finished = handler.event_type is EventType.OnAfterMessageSentEvent
+    if not is_olv_persona_stream(event, include_finished=include_finished):
+        return True
     if handler.event_type not in (
         EventType.OnWaitingLLMRequestEvent,
         EventType.OnLLMRequestEvent,
@@ -57,6 +72,7 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
         EventType.OnAgentDoneEvent,
         EventType.OnPersonaExpressionResultEvent,
         EventType.OnDecoratingResultEvent,
+        EventType.OnAfterMessageSentEvent,
     ):
         return True
     return not skip_incompatible_stream_capability(
@@ -64,4 +80,5 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
         kind=handler.event_type.name,
         name=handler.handler_full_name,
         compatible=handler.extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is True,
+        include_finished=include_finished,
     )

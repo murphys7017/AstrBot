@@ -4581,7 +4581,7 @@ CONFIG_METADATA_3 = {
                     "interaction_middleware.persona_segment_stream_enabled": {
                         "description": "启用受支持平台的 Persona 分段流式输出（实验）",
                         "type": "bool",
-                        "hint": "默认关闭。WebChat 和 OLV 使用 segment_stream_v1；OLV 还要求适配器启用独立动作逐 speech 段模式。遇到不兼容的输出钩子、安全过滤、工具或 effect 时会在发送前拒绝本次流式请求。",
+                        "hint": "默认关闭。WebChat 和 OLV 使用 segment_stream_v1；OLV 还需开启桌面流式设置及独立动作逐 speech 段模式。OLV 会跳过未适配的插件 Hook、完整结果贡献者和 effect，继续核心对话；WebChat 仍受原有插件兼容限制。Core 输出格式、Provider 能力、内容安全和交付校验继续生效。",
                     },
                     "interaction_middleware.expression_temperature": {
                         "description": "表达温度",

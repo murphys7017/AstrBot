@@ -1215,8 +1215,8 @@
           "hint": "Native modes apply only to providers that advertise the corresponding JSON capability; XML and Markdown use prompt-only output."
         },
         "persona_segment_stream_enabled": {
-          "description": "Enable WebChat Persona Segmented Streaming (Experimental)",
-          "hint": "Disabled by default. When enabled, this uses the separate segment_stream_v1 protocol. The request is rejected before sending if an incompatible output hook, safety filter, tool, or effect is present."
+          "description": "Enable Persona Segmented Streaming on Supported Platforms (Experimental)",
+          "hint": "Disabled by default. WebChat and OLV use segment_stream_v1. OLV also requires desktop streaming and independent motion per speech segment. OLV skips incompatible plugin hooks, full-result contributors and effects while continuing core dialogue; WebChat retains its existing plugin restrictions. Core output format, provider capability, content safety and delivery checks still apply."
         },
         "expression_temperature": {
           "description": "Expression Temperature"

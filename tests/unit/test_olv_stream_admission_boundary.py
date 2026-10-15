@@ -32,6 +32,9 @@ class AdmissionEvent(AstrMessageEvent):
     async def flush_visible_segment(self, *, message_id: str) -> None:
         raise AssertionError("A silent admission probe must not publish output")
 
+    async def complete_visible_turn(self) -> None:
+        self.set_extra("completion_sent", True)
+
 
 def make_event() -> AdmissionEvent:
     message = AstrBotMessage()
@@ -159,3 +162,37 @@ async def test_terminal_observer_and_legacy_extensions_have_stream_scoped_admiss
     finally:
         for handler in handlers:
             star_handlers_registry.remove(handler)
+
+
+@pytest.mark.asyncio
+async def test_unsafe_after_send_hook_cannot_block_finished_stream_completion(monkeypatch):
+    module = "data.plugins.stream_completion_probe.main"
+    monkeypatch.setitem(star_map, module, StarMetadata(name="probe", module_path=module))
+
+    async def stop(event):
+        event.stop_event()
+
+    handler = StarHandlerMetadata(
+        event_type=EventType.OnAfterMessageSentEvent,
+        handler_full_name=f"{module}_stop",
+        handler_name="stop",
+        handler_module_path=module,
+        handler=stop,
+        event_filters=[],
+    )
+    star_handlers_registry.append(handler)
+    try:
+        event = make_event()
+        # Middleware has returned from generation and cleared active at this point.
+        event.set_extra("_interaction_persona_segment_stream_active", False)
+        event.set_extra("_interaction_persona_segment_stream_status", "completed")
+        controller = InteractionOutputController()
+        assert await controller.complete_visible_delivery(event) is True
+        assert event.get_extra("completion_sent") is True
+        assert not event.is_stopped()
+
+        ordinary = make_event()
+        assert await controller.complete_visible_delivery(ordinary) is False
+        assert ordinary.get_extra("completion_sent") is None
+    finally:
+        star_handlers_registry.remove(handler)
