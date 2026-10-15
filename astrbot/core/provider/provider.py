@@ -305,6 +305,17 @@ class Provider(AbstractProvider):
         )
 
 
+def supports_text_chat_stream(provider: object) -> bool:
+    """Whether the chat adapter implements streaming beyond the base stub.
+
+    ``support_stream`` belongs to TTSProvider and is not a chat capability.
+    """
+    stream = getattr(provider, "text_chat_stream", None)
+    return callable(stream) and getattr(stream, "__func__", None) is not (
+        Provider.text_chat_stream
+    )
+
+
 def supports_strict_tool_call_output_contract(
     provider: object,
     output_contract: OutputContract | None,

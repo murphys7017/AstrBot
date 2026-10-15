@@ -583,6 +583,9 @@ def register_on_persona_expression_stream_finished(**kwargs):
     status, and failure_reason keyword arguments. segment_count is the number of
     validated segments accepted before termination. status is completed,
     incomplete, failed, or cancelled.
+
+    A failure before a header establishes persona_result_id does not dispatch
+    this callback. Core closes that unpublished Turn with the original reason.
     """
 
     def decorator(awaitable):

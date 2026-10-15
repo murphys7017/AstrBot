@@ -73,6 +73,7 @@ from astrbot.core.provider import (
     Provider,
     resolve_fallback_chat_providers,
     supports_strict_tool_call_output_contract,
+    supports_text_chat_stream,
 )
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 from astrbot.core.provider.output_contract_tools import (
@@ -1810,9 +1811,7 @@ class InteractionExpressionAgent:
                         "provider_unavailable",
                         f"provider unavailable: provider_id={provider_id}",
                     )
-                if not callable(
-                    getattr(provider, "support_stream", None)
-                ) or not provider.support_stream():
+                if not supports_text_chat_stream(provider):
                     raise InteractionExpressionError("provider_stream_unsupported")
                 effects = self._list_persona_effects(plugin_context, event)
                 if _enabled_persona_effects(effects):

@@ -1029,6 +1029,10 @@ class InteractionOutputController:
         async def notify_stream_finished(
             outcome: PersonaSegmentStreamOutcome,
         ) -> None:
+            # Before a header announces a result ID there is no published stream
+            # for Adapter listeners to finalize. Middleware owns the Turn abort.
+            if not state["persona_result_id"]:
+                return
             hook_type = EventType.OnPersonaExpressionStreamFinishedEvent
             if not star_handlers_registry.get_handlers_by_event_type(
                 hook_type,

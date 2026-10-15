@@ -196,3 +196,41 @@ async def test_unsafe_after_send_hook_cannot_block_finished_stream_completion(mo
         assert ordinary.get_extra("completion_sent") is None
     finally:
         star_handlers_registry.remove(handler)
+
+
+@pytest.mark.asyncio
+async def test_failure_before_header_does_not_publish_an_identityless_stream_terminal(monkeypatch):
+    module = "data.plugins.unpublished_stream_probe.main"
+    monkeypatch.setitem(star_map, module, StarMetadata(name="probe", module_path=module))
+
+    async def on_finished(event, **kwargs):
+        event.set_result(event.plain_result("Unexpected terminal for unpublished stream"))
+
+    handler = StarHandlerMetadata(
+        event_type=EventType.OnPersonaExpressionStreamFinishedEvent,
+        handler_full_name=f"{module}_on_finished",
+        handler_name="on_finished",
+        handler_module_path=module,
+        handler=on_finished,
+        event_filters=[],
+    )
+    star_handlers_registry.append(handler)
+    event = make_event()
+    event.set_extra("_interaction_persona_segment_stream_active", True)
+
+    async def producer(emit_record, message_id):
+        raise InteractionExpressionError("provider_stream_unsupported")
+
+    async def on_header(record):
+        return True
+
+    try:
+        with pytest.raises(InteractionExpressionError, match="provider_stream_unsupported"):
+            await InteractionOutputController().emit_persona_segment_stream(
+                event, producer=producer, on_header=on_header
+            )
+        assert event.get_result() is None
+        assert event.get_extra("_interaction_persona_segment_stream_status") == "failed"
+        assert event.get_extra("_interaction_persona_segment_stream_failure_reason") == "provider_stream_unsupported"
+    finally:
+        star_handlers_registry.remove(handler)
