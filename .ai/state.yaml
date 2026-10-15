@@ -2021,3 +2021,11 @@ neurobrain_plugin_publication_20261013:
   non_goals: >-
     Do not commit AstrBot host dependency or other concurrent changes as part of
     the plugin repository publication.
+
+olv_stream_invocation_scope_20261016:
+  class: bugfix
+  risk: medium
+  status: source_validated_pending_live_acceptance
+  scope: "Clear the OLV stream active flag in finally after each streamed Persona invocation so delegated Core-final rendering uses normal Hooks and contributors."
+  validation: "Source trace confirms the flag remains true through segment and terminal Hooks, then clears on return, exception, or cancellation; Python AST and Ruff checks passed."
+  evidence_gap: "No live delegated Provider/OLV playback run. Preserve unrelated output_controller.py and test_persona_segment_stream.py edits."

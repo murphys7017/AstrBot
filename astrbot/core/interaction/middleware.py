@@ -1066,10 +1066,16 @@ class InteractionMiddleware:
                     olv_stream_requested,
                 )
         if webchat_stream_enabled or olv_stream_requested:
-            return await self._generate_and_stream_persona(
-                event,
-                interaction_config,
-            )
+            try:
+                return await self._generate_and_stream_persona(
+                    event,
+                    interaction_config,
+                )
+            finally:
+                # This flag selects contributors for this Persona invocation.
+                # A delegated Core-final reply uses the ordinary result path.
+                if olv_stream_requested:
+                    event.set_extra("_interaction_persona_segment_stream_active", False)
         if self.plugin_context is None:
             record_interaction_turn_expression_failure(
                 event,
