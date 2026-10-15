@@ -250,6 +250,41 @@ class NeuroBrainPlugin(Star):
             self._device,
             self.state_scope,
         )
+        try:
+            await self._initialize_default_state()
+        except Exception:
+            logger.exception("NeuroBrain default state initialization failed")
+
+    async def _initialize_default_state(self) -> None:
+        if self._store is None:
+            return
+        if self.state_scope == "global":
+            state_key = "global"
+        elif self.state_scope == "persona":
+            state_key = f"persona:{self.default_persona_id}"
+        else:
+            return
+        if self._store.read(state_key) is not None:
+            return
+
+        from neurobrain import ASTRBOT_TENDENCY_DIMENSIONS
+
+        tendency = dict.fromkeys(
+            (source_name for source_name, _ in ASTRBOT_TENDENCY_DIMENSIONS),
+            0,
+        )
+        result = await self._store.update(
+            state_key,
+            event_id=f"bootstrap:{state_key}",
+            segments=[{"tendency": tendency}],
+        )
+        snapshot = result.get("snapshot")
+        step = snapshot.get("step") if isinstance(snapshot, Mapping) else "unknown"
+        logger.info(
+            "NeuroBrain initialized default state from zero stimulus: state_key=%s step=%s",
+            state_key,
+            step,
+        )
 
     @_optional_persona_hook()
     async def on_persona_expression_result(
