@@ -21,6 +21,7 @@ from astrbot.core.message.message_event_result import (
     MessageEventResult,
     ResultContentType,
 )
+from astrbot.core.persona_stream_policy import persona_stream_hook_allowed
 from astrbot.core.pipeline.content_safety_check.strategies.strategy import (
     StrategySelector,
 )
@@ -120,6 +121,8 @@ class PreOutputProcessor:
                 owner_module_path=handler.handler_module_path,
                 item_name=handler.handler_name,
             ):
+                continue
+            if not persona_stream_hook_allowed(event, handler):
                 continue
             owner_module_path = (
                 plugin_owner_module_path(handler.handler_module_path)

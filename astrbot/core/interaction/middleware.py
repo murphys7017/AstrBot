@@ -1058,6 +1058,8 @@ class InteractionMiddleware:
                     "_interaction_persona_segment_stream_active",
                     olv_stream_requested,
                 )
+                if olv_stream_requested:
+                    set_extra("_interaction_persona_stream_skipped_capabilities", set())
         if webchat_stream_enabled or olv_stream_requested:
             try:
                 return await self._generate_and_stream_persona(

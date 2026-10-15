@@ -23,6 +23,7 @@ from astrbot.core.db import BaseDatabase
 from astrbot.core.knowledge_base.kb_mgr import KnowledgeBaseManager
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.persona_mgr import PersonaManager
+from astrbot.core.persona_stream_policy import skip_incompatible_stream_capability
 from astrbot.core.platform import Platform
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.message_session import MessageSession
@@ -1461,6 +1462,11 @@ class Context:
                 live_active=self._is_persona_effect_active(registration),
                 item_name=registration.effect.name,
             )
+            and not skip_incompatible_stream_capability(
+                event,
+                kind="persona_effect",
+                name=f"{registration.effect.plugin_id}:{registration.effect.name}",
+            )
             and self._persona_effect_matches_event(registration, event)
         ]
         registrations.sort(
@@ -1671,6 +1677,15 @@ class Context:
                         registration
                     ),
                     item_name=registration.plugin_id,
+                )
+            )
+            and (
+                kind is not CapabilityKind.INTERACTION_RESULT
+                # Full-result rewriting has no per-segment delivery contract.
+                or not skip_incompatible_stream_capability(
+                    event,
+                    kind="result_contributor",
+                    name=registration.plugin_id,
                 )
             )
             and self._interaction_contributor_matches_event(registration, event)

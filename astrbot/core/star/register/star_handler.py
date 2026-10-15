@@ -441,6 +441,7 @@ def register_on_llm_request(**kwargs):
 
     Persona segment stream 的无损 handler 可设置
     ``persona_segment_stream_safe=True``；此时仍会按正常生命周期调用。
+    OLV 流式调用会跳过未声明的 handler，让核心对话继续。
 
     """
 
@@ -467,6 +468,7 @@ def register_on_llm_response(**kwargs):
 
     Persona segment stream 的无损 handler 可设置
     ``persona_segment_stream_safe=True``；此时仍会按正常生命周期调用。
+    OLV 流式调用会跳过未声明的 handler，让核心对话继续。
 
     """
 
@@ -540,6 +542,7 @@ def register_on_persona_expression_result(**kwargs):
 
     OLV Persona segment stream 可由只处理终态的 handler 声明
     ``persona_segment_stream_safe=True``；该 handler 仍会在流结束时调用。
+    未声明的 handler 在 OLV 流式调用中跳过，不阻止核心对话。
     """
 
     def decorator(awaitable):
@@ -832,6 +835,7 @@ def register_on_decorating_result(**kwargs):
 
     OLV Persona segment stream 会对每个完整 segment 调用标记
     ``persona_segment_stream_safe=True`` 的处理器。
+    未声明的处理器在该次 OLV 流式调用中跳过并记录原因。
     """
 
     def decorator(awaitable):

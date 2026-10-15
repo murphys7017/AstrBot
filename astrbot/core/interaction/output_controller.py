@@ -25,6 +25,7 @@ from astrbot.core.message.message_chain_transforms import (
 )
 from astrbot.core.message.message_event_result import MessageChain, ResultContentType
 from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordinator
+from astrbot.core.persona_stream_policy import is_olv_persona_stream
 from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import supports_personal_runtime
@@ -1179,6 +1180,10 @@ class InteractionOutputController:
             and not is_olv_segment_stream
         ):
             raise InteractionExpressionError("persona_stream_safety_filter_unsupported")
+        # OLV dispatch skips incompatible plugin capabilities for this invocation.
+        # Other stream transports retain their existing admission contract.
+        if is_olv_persona_stream(event):
+            return
         decorating_handlers = star_handlers_registry.get_handlers_by_event_type(
             EventType.OnDecoratingResultEvent,
             only_activated=False,
