@@ -25,7 +25,8 @@ from .client import NeuroBrainReadOnlyAPI
 def _optional_persona_hook():
     hook = getattr(filter, "on_persona_expression_result", None)
     if callable(hook):
-        return hook()
+        # Observe the complete terminal result without changing published segments.
+        return hook(persona_segment_stream_safe=True)
 
     def _identity(handler):
         return handler
