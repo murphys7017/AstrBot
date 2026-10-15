@@ -3170,6 +3170,24 @@ class InteractionExpressionAgent:
                         stream_turn_action = PersonalResponseAction(
                             record["turn_action"]
                         )
+                    if record.get("type") == "segment_start":
+                        with prepared.lifecycle.expose_request():
+                            await call_event_hook(
+                                event,
+                                EventType.OnPersonaExpressionSegmentIntentReadyEvent,
+                                turn_id=str(
+                                    event.get_extra("_turn_id", "") or ""
+                                ),
+                                persona_result_id=prepared.lifecycle.lifecycle_id,
+                                segment_index=record["segment_index"],
+                                message_id=segment_message_id,
+                                actions=list(record.get("actions") or []),
+                                tendency=dict(record.get("tendency") or {}),
+                                turn_action=stream_turn_action,
+                                execution_surface=(
+                                    PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
+                                ),
+                            )
                     if record.get("type") == "segment_end":
                         raw_segment = record["segment"]
                         raw_speech = raw_segment["speech"]
@@ -3320,7 +3338,7 @@ class InteractionExpressionAgent:
             interaction_config=interaction_config,
             build_config=build_config,
         )
-        context_view = _resolve_persona_expression_context_view(req)
+        context_view = _resolve_persona_expression_context_view(req, event=event)
         start_interaction_persona_context_prefetch(
             event=event,
             plugin_context=plugin_context,
@@ -3707,7 +3725,15 @@ def _describe_expression_request(req: PersonaExpressionRequest) -> str:
 
 def _resolve_persona_expression_context_view(
     req: PersonaExpressionRequest,
+    *,
+    event: Any | None = None,
 ) -> PromptContextView:
+    if (
+        event is not None
+        and str(event.get_platform_name() or "").lower() == "olv_pet_adapter"
+        and bool(event.get_extra("_interaction_persona_segment_stream_active", False))
+    ):
+        return PromptContextView.OLV_STREAM
     if req.intent.kind == "interjection":
         return PromptContextView.PROGRESS
     if req.intent.kind == "proactive":

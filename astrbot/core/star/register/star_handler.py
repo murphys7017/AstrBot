@@ -576,6 +576,20 @@ def register_on_persona_expression_segment_ready(**kwargs):
     return decorator
 
 
+def register_on_persona_expression_segment_intent_ready(**kwargs):
+    """在 Persona 流式段的 actions/tendency 通过校验后通知处理器。"""
+
+    def decorator(awaitable):
+        _ = get_handler_or_create(
+            awaitable,
+            EventType.OnPersonaExpressionSegmentIntentReadyEvent,
+            **kwargs,
+        )
+        return awaitable
+
+    return decorator
+
+
 def register_on_persona_expression_stream_finished(**kwargs):
     """Register a callback for a Persona segment stream's terminal state.
 

@@ -29,6 +29,9 @@ from astrbot.core.star.register import (
     register_on_persona_expression_result as on_persona_expression_result,
 )
 from astrbot.core.star.register import (
+    register_on_persona_expression_segment_intent_ready as on_persona_expression_segment_intent_ready,
+)
+from astrbot.core.star.register import (
     register_on_persona_expression_segment_ready as on_persona_expression_segment_ready,
 )
 from astrbot.core.star.register import (
@@ -76,6 +79,7 @@ __all__ = [
     "on_plugin_loaded",
     "on_plugin_unloaded",
     "on_persona_expression_result",
+    "on_persona_expression_segment_intent_ready",
     "on_persona_expression_segment_ready",
     "on_persona_expression_stream_finished",
     "on_platform_loaded",

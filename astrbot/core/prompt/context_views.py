@@ -21,6 +21,7 @@ class PromptContextView(str, Enum):
     """A bounded fact surface for one model invocation within a PromptTarget."""
 
     TURN_PLAN = "turn_plan"
+    OLV_STREAM = "olv_stream"
     PROGRESS = "progress"
     FINAL_RESULT = "final_result"
     PROACTIVE = "proactive"
@@ -85,6 +86,43 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         history_turns=6,
         history_limit_reason="context_view_history_limit",
         history_max_estimated_tokens=3000,
+    ),
+    PromptContextView.OLV_STREAM: PromptContextViewSpec(
+        name=PromptContextView.OLV_STREAM,
+        target=PromptTarget.PERSONA,
+        source_requirement=PromptContextSourceRequirement.BASE_ONLY,
+        allowed_slot_names=frozenset(
+            {
+                "system.global",
+                "system.base",
+                "extension.system",
+                "persona.prompt",
+                "persona.segments",
+                "persona.summary",
+                "persona.begin_dialogs",
+                "input.text",
+                "input.images",
+                "input.image_captions",
+                "input.quoted_text",
+                "input.quoted_images",
+                "input.quoted_image_captions",
+                "input.media_content_parts",
+                "input.explicit_content_parts",
+                "input.attachment_summary",
+                "input.visible_reply_material",
+                "conversation.history",
+                "conversation.group_recent",
+                "conversation.pending_execution_continuity",
+                "memory.topic_state",
+                "memory.short_term",
+                "memory.persona_state",
+                "session.datetime",
+                "session.user_info",
+            }
+        ),
+        history_turns=3,
+        history_limit_reason="olv_stream_history_limit",
+        history_max_estimated_tokens=1800,
     ),
     PromptContextView.FINAL_RESULT: PromptContextViewSpec(
         name=PromptContextView.FINAL_RESULT,
