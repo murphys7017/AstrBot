@@ -2037,3 +2037,12 @@ olv_stream_physical_segment_boundary_20261016:
   scope: "Deliver state-only OLV segments without gaps, use each physical part ID for output identity, and reserve audio_attachment metadata for actual TTS materialization."
   validation: "Actual parser -> Core output delivery -> OLV event -> Adapter output.segment smoke delivered a state-only segment followed by speech in sequence 0,1. No Provider, audio device, or Live2D was used. Optional MotionLab diagnostics lacked a synchronized model in this isolated fixture."
   evidence_gap: "Live TTS, playback-before-stream-end, interruption and disconnect remain unverified. Keep the user's contributor compatibility hunk and existing test changes out of this commit."
+
+olv_stream_admission_hang_20261016:
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  evidence: "Live 00:59:20 and 01:00:33 OLV attempts finished ASR then failed before model publication with persona_stream_output_hooks_unsupported, followed by Parallel Interaction control resolved without route. AngelHeart was globally disabled but its registered decorator was still counted. Desktop latency log contains capture end without playback start for both frontend Turns."
+  scope: "Filter OLV compatibility checks using the same capability/runtime-target admission as Hook dispatch; preserve rejection of admitted unsafe Hooks. Close pre-publication stream failures explicitly in coordinated and ordinary paths instead of awaiting playback."
+  validation: "Public stream boundary passes with a registered disabled Hook and still rejects the active unsafe Hook. Actual middleware -> OLV -> Adapter abort smoke sends control.interrupt plus control.turn_finished(false) with the original rejection reason. Changed-file Ruff passed."
+  evidence_gap: "No application restart or Provider invocation. NeuroBrain remains enabled with an undeclared-safe result Hook in the current OLV profile; user can temporarily disable it for acceptance rather than requiring integration work."

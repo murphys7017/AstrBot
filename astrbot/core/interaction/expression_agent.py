@@ -49,6 +49,7 @@ from astrbot.core.plugin_admission import (
 )
 from astrbot.core.plugin_runtime import (
     PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+    plugin_supports_runtime_target,
 )
 from astrbot.core.prompt.builder import PromptContextBuilder
 from astrbot.core.prompt.collectors.input_collector import (
@@ -1760,6 +1761,12 @@ class InteractionExpressionAgent:
                 only_activated=False,
                 plugins_name=None,
             )
+            if not olv_segment_stream_requested
+            or plugin_supports_runtime_target(
+                event,
+                handler.handler_module_path,
+                PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+            )
         ]
         if incompatible_handlers and (
             not olv_segment_stream_requested
@@ -1771,6 +1778,15 @@ class InteractionExpressionAgent:
                 for handler in incompatible_handlers
             )
         ):
+            logger.warning(
+                "Persona stream incompatible lifecycle Hooks: %s",
+                [
+                    handler.handler_full_name
+                    for handler in incompatible_handlers
+                    if not olv_segment_stream_requested
+                    or handler.extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is not True
+                ],
+            )
             raise InteractionExpressionError("persona_stream_hooks_unsupported")
         deadline = get_interaction_turn_deadline(event)
         try:

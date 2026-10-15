@@ -28,6 +28,7 @@ from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordi
 from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.platform_metadata import supports_personal_runtime
+from astrbot.core.plugin_admission import CapabilityKind, capability_allowed
 from astrbot.core.plugin_runtime import PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
 from astrbot.core.star.session_llm_manager import SessionServiceManager
 from astrbot.core.star.star_handler import (
@@ -1183,6 +1184,17 @@ class InteractionOutputController:
             only_activated=False,
             plugins_name=None,
         )
+        if is_olv_segment_stream:
+            decorating_handlers = [
+                handler
+                for handler in decorating_handlers
+                if capability_allowed(
+                    event,
+                    kind=CapabilityKind.OUTPUT_HOOK,
+                    owner_module_path=handler.handler_module_path,
+                    item_name=handler.handler_name,
+                )
+            ]
         if decorating_handlers and (
             not is_olv_segment_stream
             or any(
@@ -1193,6 +1205,15 @@ class InteractionOutputController:
                 for handler in decorating_handlers
             )
         ):
+            logger.warning(
+                "Persona stream incompatible output Hooks: %s",
+                [
+                    handler.handler_full_name
+                    for handler in decorating_handlers
+                    if not is_olv_segment_stream
+                    or handler.extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is not True
+                ],
+            )
             raise InteractionExpressionError("persona_stream_output_hooks_unsupported")
         list_contributors = getattr(
             self.plugin_context,

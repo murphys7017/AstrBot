@@ -866,14 +866,7 @@ class InteractionMiddleware:
         turn_state = ensure_interaction_turn_state(event)
         route = turn_state.route_decision
         if not isinstance(route, InteractionRouteDecision):
-            stream_status = event.get_extra(
-                "_interaction_persona_segment_stream_status"
-            )
-            if stream_status in {"failed", "incomplete", "cancelled"}:
-                await self._complete_incomplete_persona_stream_turn(
-                    event,
-                    str(stream_status),
-                )
+            if await self.complete_unrouted_persona_stream(event):
                 return
             raise RuntimeError("Personal response plan did not publish a route")
         await self.complete_routed_turn(
@@ -1447,14 +1440,31 @@ class InteractionMiddleware:
             await self._finalize_turn(event)
         event.stop_event()
 
+    async def complete_unrouted_persona_stream(self, event: AstrMessageEvent) -> bool:
+        """Close a failed stream whose header never published a route."""
+        status = event.get_extra("_interaction_persona_segment_stream_status")
+        if status not in {"failed", "incomplete", "cancelled"}:
+            return False
+        await self._complete_incomplete_persona_stream_turn(event, str(status))
+        return True
+
     async def _complete_incomplete_persona_stream_turn(
         self,
         event: AstrMessageEvent,
         status: str,
     ) -> None:
-        completed = await self._complete_visible_turn_or_record_failure(event)
-        if not completed:
-            return
+        if status == "failed":
+            # No output was published, so a playback acknowledgement cannot arrive.
+            await event.abort_visible_turn(
+                reason=str(
+                    event.get_extra("_interaction_persona_segment_stream_failure_reason")
+                    or "persona_segment_stream_failed"
+                )
+            )
+        else:
+            completed = await self._complete_visible_turn_or_record_failure(event)
+            if not completed:
+                return
         if status == "cancelled":
             mark_interaction_turn_cancelled(event)
             await dispatch_interaction_lifecycle(

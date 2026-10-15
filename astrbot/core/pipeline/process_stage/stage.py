@@ -458,6 +458,8 @@ class ProcessStage(Stage):
                 return
 
             if control.route is None:
+                if await middleware.complete_unrouted_persona_stream(event):
+                    return
                 raise RuntimeError(
                     "Parallel Interaction control resolved without route"
                 )
