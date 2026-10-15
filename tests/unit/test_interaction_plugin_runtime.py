@@ -1518,6 +1518,7 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
         turn_action=PersonalResponseAction.REPLY,
     )
     middleware._generate_and_stream_persona = AsyncMock(return_value=streamed_result)
+    event_extras = {}
     event = SimpleNamespace(
         get_platform_name=lambda: "olv_pet_adapter",
         get_extra=lambda key, default=None: (
@@ -1525,6 +1526,7 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
             if key == "_interaction_persona_segment_stream_requested"
             else default
         ),
+        set_extra=lambda key, value: event_extras.__setitem__(key, value),
     )
     interaction_config = SimpleNamespace(persona_segment_stream_enabled=True)
 
@@ -1538,6 +1540,7 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
         event,
         interaction_config,
     )
+    assert event_extras["_interaction_persona_segment_stream_active"] is True
 
 
 @pytest.mark.asyncio
@@ -1546,6 +1549,7 @@ async def test_olv_persona_segment_stream_request_respects_core_config(monkeypat
     middleware.plugin_context = None
     middleware._generate_and_stream_persona = AsyncMock()
     middleware._set_speculative_persona_status = lambda *_args: None
+    event_extras = {}
     event = SimpleNamespace(
         get_platform_name=lambda: "olv_pet_adapter",
         get_extra=lambda key, default=None: (
@@ -1553,6 +1557,7 @@ async def test_olv_persona_segment_stream_request_respects_core_config(monkeypat
             if key == "_interaction_persona_segment_stream_requested"
             else default
         ),
+        set_extra=lambda key, value: event_extras.__setitem__(key, value),
     )
     monkeypatch.setattr(
         "astrbot.core.interaction.middleware.record_interaction_turn_expression_failure",
@@ -1566,6 +1571,7 @@ async def test_olv_persona_segment_stream_request_respects_core_config(monkeypat
 
     assert result is None
     middleware._generate_and_stream_persona.assert_not_awaited()
+    assert event_extras["_interaction_persona_segment_stream_active"] is False
 
 
 @pytest.mark.asyncio

@@ -1058,6 +1058,13 @@ class InteractionMiddleware:
                 )
             )
         )
+        if platform_name == "olv_pet_adapter":
+            set_extra = getattr(event, "set_extra", None)
+            if callable(set_extra):
+                set_extra(
+                    "_interaction_persona_segment_stream_active",
+                    olv_stream_requested,
+                )
         if webchat_stream_enabled or olv_stream_requested:
             return await self._generate_and_stream_persona(
                 event,
