@@ -5,6 +5,7 @@ import copy
 import json
 import logging
 import math
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -3175,6 +3176,16 @@ class InteractionExpressionAgent:
                             )
                         segment = _validated_persona_segment(record["segment"])
                         record["segment"] = segment.to_mapping()
+                        logger.info(
+                            "DIAG latency.persona_segment_ready turn_id=%s "
+                            "persona_result_id=%s segment_index=%s message_id=%s "
+                            "timestamp_epoch_ms=%s",
+                            str(event.get_extra("_turn_id", "") or "") or "<missing>",
+                            prepared.lifecycle.lifecycle_id,
+                            record["segment_index"],
+                            segment_message_id,
+                            time.time_ns() // 1_000_000,
+                        )
                         await segment_stream_callback(record)
                         if hook_stopped:
                             raise InteractionExpressionError(
