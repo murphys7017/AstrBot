@@ -597,10 +597,9 @@ class InteractionOutputController:
                 platform_extras["persona_stream"]["segment_count"] = len(
                     state["segments"]
                 )
-                if is_olv_segment_stream and (
-                    str(segment.get("speech") or "").strip()
-                    or segment.get("actions")
-                ):
+                # State-only segments still occupy a validated Persona index.
+                # Deliver an audio-free placeholder rather than leaving a gap.
+                if is_olv_segment_stream:
                     await queue.put(
                         {
                             "type": "persona_segment",
@@ -719,7 +718,6 @@ class InteractionOutputController:
                                     "persona_result_id": state["persona_result_id"],
                                     "persona_segment_index": item["segment_index"],
                                     "semantic_text": "",
-                                    "audio_attachment": "absent",
                                 },
                             )
                         ],
@@ -741,7 +739,6 @@ class InteractionOutputController:
                                     "persona_result_id": state["persona_result_id"],
                                     "persona_segment_index": item["segment_index"],
                                     "semantic_text": item["text"],
-                                    "audio_attachment": "absent",
                                 },
                             )
                         ],
@@ -918,7 +915,6 @@ class InteractionOutputController:
                         "semantic_text": semantic_text,
                     }
                     if message.type == "persona_stream_motion":
-                        part_extras["audio_attachment"] = "absent"
                         part_extras["persona_motion_only"] = True
                     yield message, part_extras, segment_message_id
                     if semantic_text:
@@ -4374,6 +4370,7 @@ class InteractionOutputController:
         )
 
         active_semantic_text = semantic_text
+        active_output_segment_id = output_segment_id
         committed_segment_texts: list[str] = []
 
         def record_partial_delivery():
@@ -4400,7 +4397,7 @@ class InteractionOutputController:
                 **self.build_platform_output_extras(
                     event,
                     message_kind=message_kind,
-                    output_segment_id=output_segment_id,
+                    output_segment_id=active_output_segment_id,
                 ),
                 "semantic_text": active_semantic_text,
             }
@@ -4459,6 +4456,7 @@ class InteractionOutputController:
                 outcomes = []
                 try:
                     async for part, part_extras, part_message_id in message_parts:
+                        active_output_segment_id = part_message_id
                         base_extras = self._strip_message_identity_extras(part_extras)
                         active_semantic_text = str(part_extras.get("semantic_text") or "")
                         if part_extras.get("persona_motion_only") is True:

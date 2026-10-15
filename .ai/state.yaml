@@ -2029,3 +2029,11 @@ olv_stream_invocation_scope_20261016:
   scope: "Clear the OLV stream active flag in finally after each streamed Persona invocation so delegated Core-final rendering uses normal Hooks and contributors."
   validation: "Source trace confirms the flag remains true through segment and terminal Hooks, then clears on return, exception, or cancellation; Python AST and Ruff checks passed."
   evidence_gap: "No live delegated Provider/OLV playback run. Preserve unrelated output_controller.py and test_persona_segment_stream.py edits."
+
+olv_stream_physical_segment_boundary_20261016:
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  scope: "Deliver state-only OLV segments without gaps, use each physical part ID for output identity, and reserve audio_attachment metadata for actual TTS materialization."
+  validation: "Actual parser -> Core output delivery -> OLV event -> Adapter output.segment smoke delivered a state-only segment followed by speech in sequence 0,1. No Provider, audio device, or Live2D was used. Optional MotionLab diagnostics lacked a synchronized model in this isolated fixture."
+  evidence_gap: "Live TTS, playback-before-stream-end, interruption and disconnect remain unverified. Keep the user's contributor compatibility hunk and existing test changes out of this commit."
