@@ -220,6 +220,7 @@ class _InteractionContributorRegistration:
     """Internal registration record for interaction contributors."""
 
     contributor: Any
+    event_filter: Callable[[AstrMessageEvent], bool] | None
     plugin_id: str
     definition_module_path: str
     owner_module_path: str | None
@@ -1310,12 +1311,20 @@ class Context:
             )
         return removed
 
-    def register_interaction_result_contributor(self, contributor: Any) -> None:
+    def register_interaction_result_contributor(
+        self,
+        contributor: Any,
+        *,
+        event_filter: Callable[[AstrMessageEvent], bool] | None = None,
+    ) -> None:
+        if event_filter is not None and not callable(event_filter):
+            raise TypeError("Interaction result contributor event_filter must be callable")
         self._register_interaction_contributor(
             contributor,
             registry_attr="_interaction_result_contributors",
             seq_attr="_interaction_result_contributor_seq",
             contributor_type="result contributor",
+            event_filter=event_filter,
         )
 
     def list_interaction_result_contributors(self, event: Any = None) -> list[Any]:
@@ -1593,6 +1602,7 @@ class Context:
         registry_attr: str,
         seq_attr: str,
         contributor_type: str,
+        event_filter: Callable[[AstrMessageEvent], bool] | None = None,
     ) -> None:
         plugin_id = getattr(contributor, "plugin_id", None)
         if not isinstance(plugin_id, str) or not plugin_id.strip():
@@ -1624,6 +1634,7 @@ class Context:
         registry.append(
             _InteractionContributorRegistration(
                 contributor=contributor,
+                event_filter=event_filter,
                 plugin_id=plugin_id.strip(),
                 definition_module_path=str(definition_module_path),
                 owner_module_path=owner_module_path,
@@ -1662,6 +1673,7 @@ class Context:
                     item_name=registration.plugin_id,
                 )
             )
+            and self._interaction_contributor_matches_event(registration, event)
         ]
         active_registrations.sort(
             key=lambda registration: (
@@ -1670,6 +1682,25 @@ class Context:
             )
         )
         return [registration.contributor for registration in active_registrations]
+
+    @staticmethod
+    def _interaction_contributor_matches_event(
+        registration: _InteractionContributorRegistration,
+        event: AstrMessageEvent | None,
+    ) -> bool:
+        if event is None or registration.event_filter is None:
+            return True
+        try:
+            return bool(registration.event_filter(event))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Interaction result contributor event filter failed: "
+                "plugin_id=%s error=%s",
+                registration.plugin_id,
+                exc,
+                exc_info=True,
+            )
+            return False
 
     def _ensure_persona_effect_name_available(
         self,

@@ -51,6 +51,40 @@ class Event:
         return False
 
 
+def test_result_contributor_event_filter_is_applied_at_public_listing_boundary(
+    monkeypatch,
+):
+    context = Context.__new__(Context)
+    context._interaction_result_contributors = []
+    context._interaction_result_contributor_seq = 0
+
+    module = "data.plugins.astrbot_plugin_olv_motion.main"
+    monkeypatch.setitem(
+        star_map, module, StarMetadata(name="olv_motion", module_path=module)
+    )
+    contributor = SimpleNamespace(plugin_id="olv_motion")
+    with plugin_owner_scope(module_path=module, plugin_name="olv_motion"):
+        context.register_interaction_result_contributor(
+            contributor,
+            event_filter=lambda event: event.get_extra("_olv_stream", False),
+        )
+    legacy_contributor = SimpleNamespace(plugin_id="legacy")
+    with plugin_owner_scope(module_path=module, plugin_name="olv_motion"):
+        context.register_interaction_result_contributor(legacy_contributor)
+
+    olv_event = Event()
+    olv_event.set_extra("_olv_stream", True)
+    ordinary_event = Event()
+
+    assert context.list_interaction_result_contributors(event=olv_event) == [
+        contributor,
+        legacy_contributor,
+    ]
+    assert context.list_interaction_result_contributors(event=ordinary_event) == [
+        legacy_contributor
+    ]
+
+
 @pytest.mark.asyncio
 async def test_prompt_collectors_merge_and_new_owner_cannot_enter_frozen_turn(
     monkeypatch,
