@@ -1766,7 +1766,7 @@ class InteractionExpressionAgent:
             if not olv_segment_stream_requested
             or plugin_supports_runtime_target(
                 event,
-                handler.handler_module_path,
+                getattr(handler, "handler_module_path", ""),
                 PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
             )
         ]
@@ -1783,7 +1783,7 @@ class InteractionExpressionAgent:
             logger.warning(
                 "Persona stream incompatible lifecycle Hooks: %s",
                 [
-                    handler.handler_full_name
+                    getattr(handler, "handler_full_name", repr(handler))
                     for handler in incompatible_handlers
                     if not olv_segment_stream_requested
                     or handler.extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is not True
@@ -3728,10 +3728,13 @@ def _resolve_persona_expression_context_view(
     *,
     event: Any | None = None,
 ) -> PromptContextView:
+    get_platform_name = getattr(event, "get_platform_name", None)
+    get_extra = getattr(event, "get_extra", None)
     if (
-        event is not None
-        and str(event.get_platform_name() or "").lower() == "olv_pet_adapter"
-        and bool(event.get_extra("_interaction_persona_segment_stream_active", False))
+        callable(get_platform_name)
+        and str(get_platform_name() or "").lower() == "olv_pet_adapter"
+        and callable(get_extra)
+        and bool(get_extra("_interaction_persona_segment_stream_active", False))
     ):
         return PromptContextView.OLV_STREAM
     if req.intent.kind == "interjection":

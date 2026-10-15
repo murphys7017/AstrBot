@@ -217,6 +217,11 @@ async def test_olv_segment_stream_requires_explicitly_safe_hooks(
         def support_stream():
             return True
 
+        @staticmethod
+        async def text_chat_stream(**_kwargs):
+            if False:
+                yield None
+
     event = SimpleNamespace(
         get_platform_name=lambda: "olv_pet_adapter",
         get_extra=lambda key, default=None: (
@@ -231,12 +236,17 @@ async def test_olv_segment_stream_requires_explicitly_safe_hooks(
         lambda event_type, **_kwargs: (
             [
                 SimpleNamespace(
-                    extras_configs={PERSONA_SEGMENT_STREAM_SAFE_KEY: stream_safe}
+                        handler_module_path="test.plugin",
+                        extras_configs={PERSONA_SEGMENT_STREAM_SAFE_KEY: stream_safe},
                 )
             ]
             if event_type is EventType.OnLLMRequestEvent
             else []
         ),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.interaction.expression_agent.plugin_supports_runtime_target",
+        lambda *_args: True,
     )
     resolve_provider = AsyncMock(return_value=(provider, "provider-1"))
     monkeypatch.setattr(
@@ -372,6 +382,9 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
     observed = []
 
     async def observe_hook(_event, hook_type, **kwargs):
+        if hook_type is EventType.OnPersonaExpressionSegmentIntentReadyEvent:
+            observed.append(("intent_hook", kwargs))
+            return False
         assert hook_type is EventType.OnPersonaExpressionSegmentReadyEvent
         kwargs["segment"]["speech"] = "sanitized"
         observed.append(("hook", kwargs))
@@ -406,6 +419,17 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
         "speech_delta",
         "segment_end",
     ]
+    intent_hook = next(item[1] for item in observed if item[0] == "intent_hook")
+    assert intent_hook == {
+        "turn_id": "turn-1",
+        "persona_result_id": "persona-result-1",
+        "segment_index": 0,
+        "message_id": "message-1",
+        "actions": ["look_left"],
+        "tendency": tendency,
+        "turn_action": PersonalResponseAction.REPLY,
+        "execution_surface": "personal_expression",
+    }
     assert observed[-2][0] == "hook"
     assert observed[-1][1] == "segment_end"
     assert observed[-1][2]["speech"] == "sanitized"
