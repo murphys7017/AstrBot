@@ -1,3 +1,17 @@
+minimax_pcm_input_cleanup_review_20261016:
+  class: bugfix
+  risk: medium
+  status: live_provider_boundary_validated
+  scope: >-
+    Explicitly close the input iterator when the PCM stream closes while its
+    sender is waiting for a segment flush acknowledgement. Always close the
+    WebSocket even if input cleanup fails.
+  validation: >-
+    A real current-account boundary request reproduced input finally not running
+    before the fix. After the fix, early close ran input finally immediately and
+    left no bidi tasks. Scoped Ruff and diff checks passed.
+  evidence_gap: "Provider boundary only; OLV and desktop stream integration pending."
+
 minimax_incremental_pcm_provider_20261016:
   class: feature
   risk: high

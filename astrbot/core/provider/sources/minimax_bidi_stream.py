@@ -149,6 +149,12 @@ async def stream_minimax_pcm(
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*owned_tasks, return_exceptions=True)
-                with suppress(TimeoutError):
-                    async with asyncio.timeout(0.5):
-                        await ws.close()
+                try:
+                    close_input = getattr(text_source, "aclose", None)
+                    if callable(close_input):
+                        async with asyncio.timeout(0.5):
+                            await close_input()
+                finally:
+                    with suppress(TimeoutError):
+                        async with asyncio.timeout(0.5):
+                            await ws.close()
