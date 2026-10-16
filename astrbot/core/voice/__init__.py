@@ -1,3 +1,4 @@
+from .pcm_stream import PCMStreamFrame, PCMTextPart, synthesize_pcm_stream
 from .service import (
     SpeechToTextResult,
     TextToSpeechResult,
@@ -12,6 +13,8 @@ from .service import (
 )
 
 __all__ = [
+    "PCMStreamFrame",
+    "PCMTextPart",
     "SpeechToTextResult",
     "TTSState",
     "TextToSpeechResult",
@@ -21,5 +24,6 @@ __all__ = [
     "resolve_stt_provider",
     "resolve_tts_provider",
     "synthesize_text",
+    "synthesize_pcm_stream",
     "transcribe_record",
 ]

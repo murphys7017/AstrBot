@@ -1,3 +1,23 @@
+turn_scoped_pcm_voice_service_20261016:
+  class: feature
+  risk: high
+  status: live_service_boundary_validated_pending_olv_producer
+  scope: >-
+    Expose PCMTextPart, PCMStreamFrame and synthesize_pcm_stream. One selected
+    TTS Provider session consumes prepared ordered Persona deltas and explicit
+    segment boundaries; frames carry segment index and continuous sample offset
+    without complete audio files or a known total duration.
+  validation: >-
+    The public service used the actual configured MiniMax model/voice: first
+    audio preceded second-segment input, start/end indexes were [0,1], 89 audio
+    chunks carried 41982 and 44583 samples, and the input iterator closed.
+    Scoped Ruff, AST, YAML and diff validation passed.
+  evidence_gap: >-
+    OLV producer delta preparation and callback wiring, desktop PCM sink, TTS
+    lifecycle integration and motion stream fusion are still pending. The
+    service accepts prepared text only and does not replace output validation.
+    No default-path activation, host restart or user worktree changes staged.
+
 minimax_pcm_input_cleanup_review_20261016:
   class: bugfix
   risk: medium
