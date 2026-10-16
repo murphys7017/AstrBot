@@ -810,7 +810,7 @@ class InteractionOutputController:
                             "segment_index": segment_index,
                         }
                     )
-                elif use_tts and str(segment.get("speech") or "").strip():
+                elif incremental_writer is None and use_tts and str(segment.get("speech") or "").strip():
                     await queue.put(
                         {
                             "type": "tts_segment",
@@ -870,7 +870,10 @@ class InteractionOutputController:
                                 "persona_stream_header_required"
                             )
                         )
-                if state["header"] and not state["delivery_failed"]:
+                if (
+                    state["header"] and state.get("publish_stream")
+                    and not state["delivery_failed"] and incremental_writer is None
+                ):
                     await queue.put(None)
 
         async def stream_messages() -> AsyncGenerator[MessageChain, None]:

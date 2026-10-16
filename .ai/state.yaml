@@ -2228,3 +2228,11 @@ olv_nonstream_file_tts_pool_20261017:
   scope: "N7: MiniMax ordinary file-TTS retains one lazy aiohttp session/connection pool, honors configured proxy and closes it at provider termination; no speculative synthesis or paid warmup request."
   validation: "Real local HTTP boundary through get_audio twice reused the same transport and returned matching WAV bytes; terminated provider rejected new work. Scoped Ruff passed."
   evidence_gap: "No external MiniMax request or production gain measurement. PCM/bidi path unchanged. Actual reuse depends on provider/server keepalive and selected file-TTS provider."
+
+olv_stream_legacy_queue_ownership_20261017:
+  class: bugfix
+  risk: high
+  status: public_output_boundary_validated_pending_live_acceptance
+  scope: "T1/R4: an admitted M2 writer never enqueues legacy file-TTS segments or the legacy queue sentinel; only active legacy consumers receive that queue. Preserve user contributor-guard hunk outside this commit."
+  validation: "Actual public Core output controller with real text preparer, PCM service and Adapter incremental writer completed 140 valid speech segments (beyond legacy queue capacity 128), one PCM Provider session, 1120 output frames and explicit resource ends; isolated Provider stub only, no network call. Ruff passed."
+  evidence_gap: "No actual model/Electron playback. Existing dirty output-controller contributor guard and Persona test edits retained and excluded from staging."
