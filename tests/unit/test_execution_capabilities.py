@@ -35,6 +35,26 @@ def _tool(
     )
 
 
+def test_admission_only_snapshot_preserves_selection_and_rejects_inventory():
+    from astrbot.core.agent.tool import TOOL_TARGET_CORE, ToolSet
+    from astrbot.core.capabilities import CapabilityResolver
+
+    event = SimpleNamespace(plugins_name=None, get_extra=lambda key, default=None: default)
+    active = _tool("web_search_tavily")
+    inactive = _tool("disabled")
+    inactive.active = False
+    resolver = CapabilityResolver()
+    arguments = {"event": event, "target": TOOL_TARGET_CORE, "toolset": ToolSet([active, inactive])}
+    full = resolver.resolve_explicit_toolset(**arguments)
+    admission = resolver.resolve_explicit_toolset(**arguments, include_tool_schema=False)
+    assert admission.names() == full.names() == ["web_search_tavily"]
+    assert admission.decisions == full.decisions
+    assert admission.semantic_capability_bindings() == full.semantic_capability_bindings()
+    assert full.serialized_inventory()["tool_count"] == 1
+    with pytest.raises(ValueError, match="admission_only"):
+        admission.serialized_inventory()
+
+
 def test_web_research_capability_supports_action_level_declarations():
     bindings = collect_semantic_capability_bindings(
         [

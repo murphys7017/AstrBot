@@ -2212,3 +2212,11 @@ olv_stream_segment_hook_admission_20261016:
   scope: "Allow the three Persona segment-stream lifecycle Hook types through the OLV stream policy so the AG99live Adapter can receive intent-ready, segment-ready, and stream-finished events under the existing persona_segment_stream_safe contract."
   validation: "The Persona segment stream boundary test passed (9); persona_stream_policy Ruff and AST checks passed."
   evidence_gap: "No restarted AstrBot/AG99live run has verified that the installed filter registry invokes all three Hooks in order with a live Provider, TTS, and desktop output. Preserve unrelated output_controller.py, test_persona_segment_stream.py, and history edits."
+
+olv_nonstream_capability_summary_20261017:
+  class: feature
+  risk: medium
+  status: source_validated_pending_live_acceptance
+  scope: "N6: capability summary requests admission-only snapshots through the existing resolver, skipping unused tool schema materialization. Full executable snapshots keep eager detached schemas; metadata-only inventory serialization rejects explicitly."
+  validation: "Two scoped public capability checks passed for config isolation and matching admission/exclusion/bindings; scoped Ruff passed after a test literal style correction."
+  evidence_gap: "No live latency gain measured; preserves Prompt collector structure and does not cache admission across turns. User requested all documented optimizations and one commit per item."

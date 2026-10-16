@@ -57,6 +57,8 @@ class CapabilitySnapshot:
 
     Tool objects remain live execution handles. The surrounding tuple and
     serialized records are detached from mutable manager inventories.
+    Admission-only readers may omit schemas; such a snapshot explicitly rejects
+    inventory serialization rather than pretending to contain an empty inventory.
     """
 
     target: str
@@ -64,6 +66,7 @@ class CapabilitySnapshot:
     selection_mode: str
     tools: tuple[FunctionTool, ...] = ()
     decisions: tuple[CapabilityDecision, ...] = ()
+    include_tool_schema: bool = field(default=True, repr=False, compare=False)
     _serialized_tools: tuple[dict[str, Any], ...] = field(
         default=(),
         init=False,
@@ -79,7 +82,7 @@ class CapabilitySnapshot:
         object.__setattr__(
             self,
             "_serialized_tools",
-            tuple(_serialize_tool(tool) for tool in tools),
+            tuple(_serialize_tool(tool) for tool in tools) if self.include_tool_schema else (),
         )
 
     @classmethod
@@ -109,6 +112,8 @@ class CapabilitySnapshot:
         return ToolSet(list(self.tools))
 
     def serialized_tools(self) -> list[dict[str, Any]]:
+        if not self.include_tool_schema:
+            raise ValueError("capability_snapshot_admission_only")
         return deepcopy(list(self._serialized_tools))
 
     def serialized_inventory(self) -> dict[str, Any]:
@@ -161,6 +166,7 @@ class CapabilityResolver:
         include_registered_tools: bool = False,
         excluded_tool_names: frozenset[str] = frozenset(),
         exclude_handoff_tools: bool = False,
+        include_tool_schema: bool = True,
     ) -> CapabilitySnapshot:
         request_toolset = (
             provider_request.func_tool if provider_request is not None else None
@@ -173,6 +179,7 @@ class CapabilityResolver:
                 persona_id=self._request_persona_id(provider_request),
                 excluded_tool_names=excluded_tool_names,
                 exclude_handoff_tools=exclude_handoff_tools,
+                include_tool_schema=include_tool_schema,
             )
 
         with measure_runtime_stage(event, "capability.persona", target=target):
@@ -222,6 +229,7 @@ class CapabilityResolver:
             pre_decisions=pre_decisions,
             excluded_tool_names=excluded_tool_names,
             exclude_handoff_tools=exclude_handoff_tools,
+            include_tool_schema=include_tool_schema,
         )
 
     def resolve_explicit_toolset(
@@ -234,6 +242,7 @@ class CapabilityResolver:
         selection_mode: str = "provider_request",
         excluded_tool_names: frozenset[str] = frozenset(),
         exclude_handoff_tools: bool = False,
+        include_tool_schema: bool = True,
     ) -> CapabilitySnapshot:
         """Resolve a request-owned candidate set without consulting globals."""
         return self._resolve_candidates(
@@ -245,6 +254,7 @@ class CapabilityResolver:
             pre_decisions=[],
             excluded_tool_names=excluded_tool_names,
             exclude_handoff_tools=exclude_handoff_tools,
+            include_tool_schema=include_tool_schema,
         )
 
     @staticmethod
@@ -313,6 +323,7 @@ class CapabilityResolver:
         pre_decisions: list[CapabilityDecision],
         excluded_tool_names: frozenset[str],
         exclude_handoff_tools: bool,
+        include_tool_schema: bool,
     ) -> CapabilitySnapshot:
         selected = ToolSet()
         decisions = list(pre_decisions)
@@ -343,6 +354,7 @@ class CapabilityResolver:
                 selection_mode=selection_mode,
                 tools=list(selected),
                 decisions=decisions,
+                include_tool_schema=include_tool_schema,
             )
 
     def _build_snapshot(
@@ -353,6 +365,7 @@ class CapabilityResolver:
         selection_mode: str,
         tools: list[FunctionTool],
         decisions: list[CapabilityDecision],
+        include_tool_schema: bool,
     ) -> CapabilitySnapshot:
         snapshot = CapabilitySnapshot(
             target=target,
@@ -360,6 +373,7 @@ class CapabilityResolver:
             selection_mode=selection_mode,
             tools=tuple(tools),
             decisions=tuple(decisions),
+            include_tool_schema=include_tool_schema,
         )
         logger.debug(
             "Capability snapshot resolved: target=%s persona_id=%s "

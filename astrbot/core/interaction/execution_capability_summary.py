@@ -133,6 +133,7 @@ async def resolve_core_execution_capability_summary(
             target=TOOL_TARGET_CORE,
             provider_request=None,
             persona_selection=persona_selection,
+            include_tool_schema=False,
         )
         bindings = snapshot.semantic_capability_bindings().get(
             WEB_RESEARCH_CAPABILITY,
