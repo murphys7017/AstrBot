@@ -580,11 +580,18 @@ class InteractionOutputController:
                 incremental_writer = None
                 return
 
-            incremental_pcm_queue = asyncio.Queue(maxsize=128)
             event.set_extra("_interaction_incremental_output_writer", incremental_writer)
             event.set_extra("_interaction_incremental_motion_started", {})
             event.set_extra("_interaction_incremental_motion_futures", {})
             event.set_extra("_interaction_incremental_motion_pending", {})
+            logger.debug(
+                "OLV incremental output selected: turn_id=%s tts_admitted=%s",
+                event.get_extra("_turn_id"), use_tts,
+            )
+            if not use_tts:
+                platform_extras["persona_stream"]["tts_status"] = "not_attempted"
+                return
+            incremental_pcm_queue = asyncio.Queue(maxsize=128)
 
             async def text_source():
                 while True:
@@ -693,7 +700,9 @@ class InteractionOutputController:
                             segment_index=state["current_index"],
                             message_id=segment_message_id,
                         )
-                    if incremental_pcm_error is not None:
+                    if not use_tts:
+                        await close_incremental_audio(state["current_index"])
+                    elif incremental_pcm_error is not None:
                         await close_incremental_audio(
                             state["current_index"], status="failed",
                             reason=(getattr(incremental_pcm_error, "reason", None) or "pcm_stream_failed"),

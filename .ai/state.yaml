@@ -2244,3 +2244,11 @@ olv_stream_pcm_lifecycle_20261017:
   scope: "T1/R3: race bounded PCM queue puts against consumer exit; let visible text continue after audio failure; cancel stalled audio on malformed Persona output and caller cancellation without enqueueing a blocking sentinel. Track audio terminals once, including segments created after audio failure."
   validation: "Public Core output with real preparer, PCM service and Adapter writer passed 140-segment success, immediate audio failure with 400 visible deltas, cancellation with the 128-slot PCM queue full, and malformed segment closure with stalled audio. All resources terminal where completion is expected; no pending tasks remained. Ruff passed. Provider stub only; no network or hardware."
   evidence_gap: "Live Provider interruption and Electron playback remain unverified. Preserve unrelated contributor guard, test and history changes."
+
+olv_stream_tts_admission_20261017:
+  class: bugfix
+  risk: high
+  status: public_output_boundary_validated_pending_live_acceptance
+  scope: "T1/R8: incremental PCM obeys the existing once-per-turn TTS admission decision. When not admitted, do not allocate a PCM queue/task or resolve the TTS Provider; close each audio resource normally at zero samples while retaining text/motion. Log incremental mode selection and admission."
+  validation: "Public Core output through real Adapter writer completed two text segments with no Provider resolution/request both for globally disabled TTS and session-level rejection. All resource streams ended. Existing desktop Store explicitly maps completed zero-sample audio to absent; source traced through incremental runtime. Ruff passed."
+  evidence_gap: "No live Electron/Provider acceptance or latency measurement. No mode/settings changes or restart."
