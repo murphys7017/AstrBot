@@ -29,6 +29,27 @@ incremental_text_preparation_boundary_20261017:
     No capability activation, host restart, actual desktop playback or Live2D
     acceptance. Preserve original output_controller, test and history edits.
 
+olv_core_incremental_producer_20261017:
+  class: feature
+  risk: high
+  status: producer_wired_not_enabled
+  scope: >-
+    Connect the OLV Persona speech_delta boundary to the connection-bound
+    Adapter writer. Each decoded Persona segment creates a Core incremental
+    text preparer, publishes accepted visible deltas immediately, feeds the
+    same deltas into the turn-scoped PCM stream, and explicitly closes text,
+    audio and optional motion resources. Keep the old OLV segment path as a
+    fallback when the writer is unavailable; motion updates remain deferred.
+  validation: >-
+    Nine focused Persona stream tests passed. A pinned-Core public boundary
+    smoke drove split system_reminder deltas through a fake writer and PCM
+    source: only visible text was appended, audio was emitted, and text/audio/
+    motion end states were explicit. Scoped Ruff and compile checks passed.
+  evidence_gap: >-
+    No real Provider, Adapter socket, Electron playback or Live2D acceptance
+    in this Core batch. The runtime capability remains gated by the existing
+    desktop OLV stream setting; no host restart or user changes were staged.
+
 pcm_service_completion_review_20261016:
   class: bugfix
   risk: medium
