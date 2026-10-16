@@ -71,6 +71,9 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
         EventType.OnAgentBeginEvent,
         EventType.OnAgentDoneEvent,
         EventType.OnPersonaExpressionResultEvent,
+        EventType.OnPersonaExpressionSegmentIntentReadyEvent,
+        EventType.OnPersonaExpressionSegmentReadyEvent,
+        EventType.OnPersonaExpressionStreamFinishedEvent,
         EventType.OnDecoratingResultEvent,
         EventType.OnAfterMessageSentEvent,
     ):

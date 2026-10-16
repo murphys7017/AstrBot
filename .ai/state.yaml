@@ -2065,3 +2065,11 @@ olv_stream_chat_provider_admission_20261016:
   scope: "Inspect implemented chat text_chat_stream rather than the TTS-only support_stream method. Do not notify stream-finished observers until a header establishes a Persona result ID; Middleware still aborts unpublished failed Turns with the original cause. Preserve the user's unrelated contributor hunk and test/history changes."
   validation: "Two focused public capability/output boundary checks passed; concrete OpenAI/DeepSeek/MiniMax chat adapters are recognized, a base streaming stub is rejected, and pre-header failure retains its reason without an identityless callback. Real standalone API calls with the existing DeepSeek flash and MiniMax M3.1 Flash Preview configurations both returned incremental chunks plus final responses. Ruff, AST and state YAML checks passed."
   evidence_gap: "The running AstrBot was not restarted. Standalone Provider API validation does not establish the complete Persona parser, TTS, motion and desktop playback chain. No conversation history or provider settings were changed."
+
+olv_stream_segment_hook_admission_20261016:
+  class: bugfix
+  risk: medium
+  status: source_validated_pending_live_acceptance
+  scope: "Allow the three Persona segment-stream lifecycle Hook types through the OLV stream policy so the AG99live Adapter can receive intent-ready, segment-ready, and stream-finished events under the existing persona_segment_stream_safe contract."
+  validation: "The Persona segment stream boundary test passed (9); persona_stream_policy Ruff and AST checks passed."
+  evidence_gap: "No restarted AstrBot/AG99live run has verified that the installed filter registry invokes all three Hooks in order with a live Provider, TTS, and desktop output. Preserve unrelated output_controller.py, test_persona_segment_stream.py, and history edits."
