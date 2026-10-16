@@ -2252,3 +2252,11 @@ olv_stream_tts_admission_20261017:
   scope: "T1/R8: incremental PCM obeys the existing once-per-turn TTS admission decision. When not admitted, do not allocate a PCM queue/task or resolve the TTS Provider; close each audio resource normally at zero samples while retaining text/motion. Log incremental mode selection and admission."
   validation: "Public Core output through real Adapter writer completed two text segments with no Provider resolution/request both for globally disabled TTS and session-level rejection. All resource streams ended. Existing desktop Store explicitly maps completed zero-sample audio to absent; source traced through incremental runtime. Ruff passed."
   evidence_gap: "No live Electron/Provider acceptance or latency measurement. No mode/settings changes or restart."
+
+olv_stream_preready_cancel_20261017:
+  class: bugfix
+  risk: high
+  status: public_boundary_validated_pending_live_acceptance
+  scope: "Review correction to R3: cancel and join incremental tasks when cancellation occurs after writer/PCM creation but before the public output ready future resolves. Preserve unrelated user changes."
+  validation: "Public emit_persona_segment_stream with a blocked lifecycle callback, real PCM service and Adapter writer propagated caller cancellation, closed Provider input and left no pending tasks. Ruff passed."
+  evidence_gap: "Isolated Provider, no live restart or playback. User authorized continued implementation and per-item commits."

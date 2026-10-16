@@ -1313,11 +1313,29 @@ class InteractionOutputController:
         try:
             publish_stream = await ready
         except BaseException as exc:
+            state["delivery_failed"] = True
             if not producer_task.done():
                 producer_task.cancel()
-            await asyncio.gather(producer_task, return_exceptions=True)
+            if incremental_pcm_task is not None and not incremental_pcm_task.done():
+                incremental_pcm_task.cancel()
+            for task in incremental_motion_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                producer_task,
+                *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *incremental_motion_tasks,
+                return_exceptions=True,
+            )
             if isinstance(exc, asyncio.CancelledError):
                 state["status"] = "cancelled"
+                platform_extras["persona_stream"]["tts_status"] = (
+                    "cancelled" if state["tts_attempted"] else "not_attempted"
+                )
+            await close_incremental_resources(
+                status="cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
+                reason="persona_stream_cancelled" if isinstance(exc, asyncio.CancelledError) else "persona_stream_failed",
+            )
             outcome = finalize_outcome()
             await notify_stream_finished(outcome)
             if isinstance(exc, asyncio.CancelledError):
