@@ -499,6 +499,8 @@ class InteractionOutputController:
         incremental_started_segments: dict[int, str] = {}
         incremental_preparers: dict[int, IncrementalTextPreparer] = {}
         incremental_closed_resources: dict[int, set[str]] = {}
+        incremental_motion_futures: dict[int, asyncio.Future[bool]] = {}
+        incremental_motion_tasks: list[asyncio.Task] = []
 
         async def close_incremental_resources(
             *, status: str, reason: str
@@ -543,6 +545,10 @@ class InteractionOutputController:
                 return
 
             incremental_pcm_queue = asyncio.Queue(maxsize=128)
+            event.set_extra("_interaction_incremental_output_writer", incremental_writer)
+            event.set_extra("_interaction_incremental_motion_started", {})
+            event.set_extra("_interaction_incremental_motion_futures", {})
+            event.set_extra("_interaction_incremental_motion_pending", {})
 
             async def text_source():
                 while True:
@@ -652,6 +658,21 @@ class InteractionOutputController:
                             segment_index=state["current_index"],
                             message_id=segment_message_id,
                         )
+                    motion_future = asyncio.get_running_loop().create_future()
+                    incremental_motion_futures[state["current_index"]] = motion_future
+                    event.get_extra("_interaction_incremental_motion_started")[
+                        state["current_index"]
+                    ] = True
+                    event.get_extra("_interaction_incremental_motion_futures")[
+                        state["current_index"]
+                    ] = motion_future
+                    flush_motion = getattr(
+                        event,
+                        "flush_interaction_incremental_motion",
+                        None,
+                    )
+                    if callable(flush_motion):
+                        await flush_motion(segment_index=state["current_index"])
                 return
 
             if record_type == "speech_delta":
@@ -714,13 +735,31 @@ class InteractionOutputController:
                         incremental_closed_resources[segment_index].add("text")
                         if incremental_pcm_queue is not None:
                             await incremental_pcm_queue.put(PCMTextPart(segment_index, None))
-                        await incremental_writer.end_stream(
-                            "motion",
-                            segment_index,
-                            status="failed",
-                            reason="motion_updates_not_implemented",
+                        async def finish_motion() -> None:
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.shield(incremental_motion_futures[segment_index]),
+                                    timeout=1.0,
+                                )
+                                incremental_closed_resources[segment_index].add("motion")
+                            except asyncio.TimeoutError:
+                                if "motion" not in incremental_closed_resources[segment_index]:
+                                    await incremental_writer.end_stream(
+                                        "motion",
+                                        segment_index,
+                                        status="failed",
+                                        reason="motion_result_timeout",
+                                    )
+                                    incremental_closed_resources[segment_index].add("motion")
+                            except asyncio.CancelledError:
+                                raise
+
+                        incremental_motion_tasks.append(
+                            asyncio.create_task(
+                                finish_motion(),
+                                name=f"persona-incremental-motion:{segment_index}",
+                            )
                         )
-                        incremental_closed_resources[segment_index].add("motion")
                         if incremental_pcm_error and incremental_pcm_task is not None and incremental_pcm_task.done():
                             try:
                                 await incremental_writer.end_stream(
@@ -1271,6 +1310,8 @@ class InteractionOutputController:
             await asyncio.shield(children)
             if incremental_pcm_task is not None:
                 await asyncio.shield(incremental_pcm_task)
+            if incremental_motion_tasks:
+                await asyncio.gather(*incremental_motion_tasks)
         except asyncio.CancelledError:
             state["status"] = "cancelled"
             platform_extras["persona_stream"]["status"] = "cancelled"
@@ -1284,10 +1325,14 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
+            for task in incremental_motion_tasks:
+                if not task.done():
+                    task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([delivery_task] if delivery_task is not None else []),
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *incremental_motion_tasks,
                 return_exceptions=True,
             )
             await close_incremental_resources(
@@ -1305,9 +1350,13 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
+            for task in incremental_motion_tasks:
+                if not task.done():
+                    task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *incremental_motion_tasks,
                 return_exceptions=True,
             )
             state["status"] = "incomplete"

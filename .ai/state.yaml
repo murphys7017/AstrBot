@@ -50,6 +50,24 @@ olv_core_incremental_producer_20261017:
     in this Core batch. The runtime capability remains gated by the existing
     desktop OLV stream setting; no host restart or user changes were staged.
 
+olv_core_incremental_motion_wait_20261017:
+  class: feature
+  risk: high
+  status: motion_update_handoff_wired_not_enabled
+  scope: >-
+    Keep one asynchronous motion Future per incremental Persona segment. Core
+    no longer fails motion at segment_end immediately; Adapter may publish a
+    validated motion result and close the motion stream, while a bounded timeout
+    closes it as optional failure without delaying text or PCM production.
+  validation: >-
+    Persona stream focused tests passed after the lifecycle change. Compile and
+    Ruff checks passed; the paired Adapter/desktop protocol smoke accepted a
+    motion update followed by motion completion.
+  evidence_gap: >-
+    No real motion provider or Live2D acceptance. The old contributor guard and
+    test/history edits remain user-owned and unstaged. No capability activation
+    or host restart.
+
 pcm_service_completion_review_20261016:
   class: bugfix
   risk: medium
