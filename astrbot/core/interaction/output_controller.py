@@ -496,11 +496,47 @@ class InteractionOutputController:
         incremental_pcm_queue: asyncio.Queue[Any] | None = None
         incremental_pcm_task: asyncio.Task | None = None
         incremental_pcm_error: BaseException | None = None
+        incremental_pcm_aborted = False
         incremental_started_segments: dict[int, str] = {}
         incremental_preparers: dict[int, IncrementalTextPreparer] = {}
         incremental_closed_resources: dict[int, set[str]] = {}
         incremental_motion_futures: dict[int, asyncio.Future[bool]] = {}
         incremental_motion_tasks: list[asyncio.Task] = []
+
+        async def enqueue_pcm(item: PCMTextPart | None) -> bool:
+            """A dead audio consumer must never hold the text producer's queue."""
+            consumer = incremental_pcm_task
+            if (
+                incremental_pcm_queue is None or consumer is None
+                or consumer.done() or incremental_pcm_error is not None
+            ):
+                return False
+            pending = asyncio.create_task(incremental_pcm_queue.put(item))
+            try:
+                done, _ = await asyncio.wait(
+                    (pending, consumer), return_when=asyncio.FIRST_COMPLETED,
+                )
+                return pending in done and not consumer.done()
+            finally:
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+
+        async def close_incremental_audio(
+            segment_index: int, *, status: str = "completed", reason: str = "",
+        ) -> None:
+            closed = incremental_closed_resources.setdefault(segment_index, set())
+            if incremental_writer is None or "audio" in closed:
+                return
+            try:
+                await incremental_writer.end_stream(
+                    "audio", segment_index, status=status, reason=reason,
+                )
+            except (RuntimeError, ValueError):
+                if status == "completed":
+                    raise
+                return
+            closed.add("audio")
 
         async def close_incremental_resources(
             *, status: str, reason: str
@@ -559,6 +595,7 @@ class InteractionOutputController:
 
             async def consume_pcm() -> None:
                 nonlocal incremental_pcm_error
+                state["tts_attempted"] = True
                 try:
                     async for frame in synthesize_pcm_stream(
                         self.plugin_context,
@@ -572,29 +609,27 @@ class InteractionOutputController:
                                 frame.audio,
                             )
                         elif frame.kind == "end":
-                            await incremental_writer.end_stream(
-                                "audio",
-                                frame.segment_index,
-                            )
+                            await close_incremental_audio(frame.segment_index)
+                    platform_extras["persona_stream"]["tts_status"] = "succeeded"
                 except asyncio.CancelledError:
-                    raise
+                    # Producer errors abort audio without turning an incomplete
+                    # Persona result into a user cancellation.
+                    if not incremental_pcm_aborted:
+                        raise
                 except BaseException as exc:  # noqa: BLE001 - text remains primary output.
                     incremental_pcm_error = exc
+                    platform_extras["persona_stream"]["tts_status"] = "failed"
+                    state["tts_failures"].append(getattr(exc, "reason", None) or "pcm_stream_failed")
                     logger.warning(
                         "OLV incremental PCM failed; text continues: turn_id=%s reason=%s",
                         event.get_extra("_turn_id"),
                         exc,
                     )
                     for segment_index in tuple(incremental_started_segments):
-                        try:
-                            await incremental_writer.end_stream(
-                                "audio",
-                                segment_index,
-                                status="failed",
-                                reason=(getattr(exc, "reason", None) or "pcm_stream_failed"),
-                            )
-                        except (RuntimeError, ValueError):
-                            pass
+                        await close_incremental_audio(
+                            segment_index, status="failed",
+                            reason=(getattr(exc, "reason", None) or "pcm_stream_failed"),
+                        )
 
             incremental_pcm_task = asyncio.create_task(
                 consume_pcm(),
@@ -658,6 +693,11 @@ class InteractionOutputController:
                             segment_index=state["current_index"],
                             message_id=segment_message_id,
                         )
+                    if incremental_pcm_error is not None:
+                        await close_incremental_audio(
+                            state["current_index"], status="failed",
+                            reason=(getattr(incremental_pcm_error, "reason", None) or "pcm_stream_failed"),
+                        )
                     motion_future = asyncio.get_running_loop().create_future()
                     incremental_motion_futures[state["current_index"]] = motion_future
                     event.get_extra("_interaction_incremental_motion_started")[
@@ -698,10 +738,7 @@ class InteractionOutputController:
                             segment_index,
                             [],
                         ).append(visible_delta)
-                        if incremental_pcm_queue is not None:
-                            await incremental_pcm_queue.put(
-                                PCMTextPart(segment_index, visible_delta)
-                            )
+                        await enqueue_pcm(PCMTextPart(segment_index, visible_delta))
                 if not is_olv_segment_stream:
                     await queue.put(
                         {
@@ -733,8 +770,7 @@ class InteractionOutputController:
                         preparer.finish()
                         await incremental_writer.end_stream("text", segment_index)
                         incremental_closed_resources[segment_index].add("text")
-                        if incremental_pcm_queue is not None:
-                            await incremental_pcm_queue.put(PCMTextPart(segment_index, None))
+                        await enqueue_pcm(PCMTextPart(segment_index, None))
                         async def finish_motion() -> None:
                             try:
                                 await asyncio.wait_for(
@@ -760,17 +796,6 @@ class InteractionOutputController:
                                 name=f"persona-incremental-motion:{segment_index}",
                             )
                         )
-                        if incremental_pcm_error and incremental_pcm_task is not None and incremental_pcm_task.done():
-                            try:
-                                await incremental_writer.end_stream(
-                                    "audio",
-                                    segment_index,
-                                    status="failed",
-                                    reason=(getattr(incremental_pcm_error, "reason", None) or "pcm_stream_failed"),
-                                )
-                                incremental_closed_resources[segment_index].add("audio")
-                            except (RuntimeError, ValueError):
-                                pass
                     else:
                         prepared_segment = await self._prepare_model_expression(
                             event,
@@ -835,6 +860,7 @@ class InteractionOutputController:
             raise InteractionExpressionError("persona_stream_unknown_event")
 
         async def produce() -> None:
+            nonlocal incremental_pcm_aborted
             try:
                 result = await producer(emit_record, message_id)
                 if not state["header"]:
@@ -843,19 +869,18 @@ class InteractionOutputController:
                     raise InteractionExpressionError("persona_stream_finish_required")
                 state["result"] = result
                 state["status"] = "completed"
-                if incremental_pcm_queue is not None:
-                    await incremental_pcm_queue.put(None)
+                await enqueue_pcm(None)
             except asyncio.CancelledError as exc:
                 state["error"] = state["error"] or exc
                 state["status"] = "cancelled" if state["header"] else "failed"
-                if incremental_pcm_queue is not None:
-                    await incremental_pcm_queue.put(None)
                 raise
             except Exception as exc:  # noqa: BLE001
                 state["error"] = exc
                 state["status"] = "incomplete" if state["header"] else "failed"
-                if incremental_pcm_queue is not None:
-                    await incremental_pcm_queue.put(None)
+                if incremental_pcm_task is not None and not incremental_pcm_task.done():
+                    incremental_pcm_aborted = True
+                    incremental_pcm_task.cancel()
+                    platform_extras["persona_stream"]["tts_status"] = "failed"
                 await close_incremental_resources(
                     status="failed",
                     reason=(getattr(exc, "reason", None) or "persona_stream_failed"),

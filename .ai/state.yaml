@@ -2236,3 +2236,11 @@ olv_stream_legacy_queue_ownership_20261017:
   scope: "T1/R4: an admitted M2 writer never enqueues legacy file-TTS segments or the legacy queue sentinel; only active legacy consumers receive that queue. Preserve user contributor-guard hunk outside this commit."
   validation: "Actual public Core output controller with real text preparer, PCM service and Adapter incremental writer completed 140 valid speech segments (beyond legacy queue capacity 128), one PCM Provider session, 1120 output frames and explicit resource ends; isolated Provider stub only, no network call. Ruff passed."
   evidence_gap: "No actual model/Electron playback. Existing dirty output-controller contributor guard and Persona test edits retained and excluded from staging."
+
+olv_stream_pcm_lifecycle_20261017:
+  class: bugfix
+  risk: high
+  status: public_output_boundary_validated_pending_live_acceptance
+  scope: "T1/R3: race bounded PCM queue puts against consumer exit; let visible text continue after audio failure; cancel stalled audio on malformed Persona output and caller cancellation without enqueueing a blocking sentinel. Track audio terminals once, including segments created after audio failure."
+  validation: "Public Core output with real preparer, PCM service and Adapter writer passed 140-segment success, immediate audio failure with 400 visible deltas, cancellation with the 128-slot PCM queue full, and malformed segment closure with stalled audio. All resources terminal where completion is expected; no pending tasks remained. Ruff passed. Provider stub only; no network or hardware."
+  evidence_gap: "Live Provider interruption and Electron playback remain unverified. Preserve unrelated contributor guard, test and history changes."
