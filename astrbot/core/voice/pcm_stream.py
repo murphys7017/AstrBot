@@ -45,20 +45,14 @@ async def synthesize_pcm_stream(
     sample offsets count frames per channel and do not require a final duration.
     """
     stage = "interaction.outbound_tts_stream"
-    tts = provider or resolve_tts_provider(plugin_context, event, stage=stage)
-    supports = getattr(tts, "support_pcm_stream", None)
-    if not callable(supports) or supports() is not True:
-        raise VoiceServiceError(
-            "incremental_pcm_stream_unsupported",
-            "The selected TTS Provider does not accept incremental PCM streaming",
-            stage=stage,
-        )
     current_index: int | None = None
     next_index = 0
     segment_open = False
+    flush_pending = False
+    input_finished = False
 
     async def inputs() -> AsyncIterator[str | None]:
-        nonlocal current_index, next_index, segment_open
+        nonlocal current_index, next_index, segment_open, flush_pending, input_finished
         async for part in text_source:
             if (
                 not isinstance(part, PCMTextPart)
@@ -80,11 +74,13 @@ async def synthesize_pcm_stream(
                 )
             current_index = part.segment_index
             segment_open = True
+            flush_pending = part.text is None
             yield part.text
             if part.text is None:
                 # The Provider resumes this generator only after its flush marker
                 # has been accepted by our output consumer.
                 segment_open = False
+                flush_pending = False
                 next_index += 1
         if segment_open:
             raise VoiceServiceError(
@@ -92,11 +88,20 @@ async def synthesize_pcm_stream(
                 "PCM input ended without closing its final segment",
                 stage=stage,
             )
+        input_finished = True
 
     output_index: int | None = None
     next_output_index = 0
     offset = 0
     try:
+        tts = provider or resolve_tts_provider(plugin_context, event, stage=stage)
+        supports = getattr(tts, "support_pcm_stream", None)
+        if not callable(supports) or supports() is not True:
+            raise VoiceServiceError(
+                "incremental_pcm_stream_unsupported",
+                "The selected TTS Provider does not accept incremental PCM streaming",
+                stage=stage,
+            )
         async with aclosing(tts.get_pcm_stream(inputs())) as frames:
             async for audio in frames:
                 if current_index is None:
@@ -110,6 +115,8 @@ async def synthesize_pcm_stream(
                 if output_index != current_index:
                     raise RuntimeError("pcm_stream_audio_crossed_segment_boundary")
                 if audio is None:
+                    if not flush_pending:
+                        raise RuntimeError("pcm_stream_unsolicited_flush_ack")
                     yield PCMStreamFrame("end", output_index, offset)
                     output_index = None
                     next_output_index += 1
@@ -120,6 +127,8 @@ async def synthesize_pcm_stream(
                     offset += len(audio) // 2
         if output_index is not None:
             raise RuntimeError("pcm_stream_missing_flush_ack")
+        if not input_finished or next_output_index != next_index:
+            raise RuntimeError("pcm_stream_provider_ended_before_input")
     except VoiceServiceError:
         raise
     except Exception as exc:

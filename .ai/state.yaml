@@ -1,3 +1,17 @@
+pcm_service_completion_review_20261016:
+  class: bugfix
+  risk: medium
+  status: live_service_boundary_validated
+  scope: >-
+    Require exhausted text input and matching flush acknowledgements before PCM
+    success. Reject unsolicited flush acknowledgements and close input even
+    when provider resolution or capability admission fails.
+  validation: >-
+    Real configured MiniMax service returned start/audio/end and 62416 samples.
+    A truncated-provider boundary was rejected instead of succeeding silently.
+    Scoped Ruff and diff checks passed.
+  evidence_gap: "Service boundary only; OLV producer and desktop playback wiring pending."
+
 turn_scoped_pcm_voice_service_20261016:
   class: feature
   risk: high
