@@ -1,6 +1,7 @@
 import json
 import os
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 
 import aiohttp
 
@@ -11,6 +12,7 @@ from astrbot.core.utils.datetime_utils import generate_timestamp_id
 from ..entities import ProviderType
 from ..provider import TTSProvider
 from ..register import register_provider_adapter
+from .minimax_bidi_stream import stream_minimax_pcm
 
 
 @register_provider_adapter(
@@ -19,6 +21,28 @@ from ..register import register_provider_adapter
     provider_type=ProviderType.TEXT_TO_SPEECH,
 )
 class ProviderMiniMaxTTSAPI(TTSProvider):
+    def support_pcm_stream(self) -> bool:
+        return True
+
+    async def get_pcm_stream(
+        self, text_source: AsyncIterator[str | None]
+    ) -> AsyncIterator[bytes | None]:
+        async with aclosing(
+            stream_minimax_pcm(
+                text_source,
+                api_base=self.api_base,
+                api_key=self.chosen_api_key,
+                model=self.get_model(),
+                voice_setting=self.voice_setting,
+                language_boost=self.lang_boost,
+                timber_weights=self.timber_weight if self.is_timber_weight else None,
+                proxy=self.provider_config.get("proxy") or None,
+                timeout_seconds=float(self.provider_config.get("timeout", 60) or 60),
+            )
+        ) as stream:
+            async for frame in stream:
+                yield frame
+
     def __init__(
         self,
         provider_config: dict,

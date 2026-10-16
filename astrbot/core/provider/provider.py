@@ -1,7 +1,7 @@
 import abc
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Literal, TypeAlias, Union
 
 import aiofiles
@@ -384,6 +384,21 @@ class TTSProvider(AbstractProvider):
     async def get_audio(self, text: str) -> str:
         """获取文本的音频，返回音频文件路径"""
         raise NotImplementedError
+
+    def support_pcm_stream(self) -> bool:
+        """Whether incremental text can produce PCM16LE/32000Hz/mono frames."""
+        return False
+
+    async def get_pcm_stream(
+        self, text_source: AsyncIterator[str | None]
+    ) -> AsyncIterator[bytes | None]:
+        """Stream PCM; input/output None marks an acknowledged segment flush.
+
+        Exhausting text_source ends the session. Consumers must close the output
+        iterator on interruption. This is separate from file/WAV get_audio_stream.
+        """
+        raise NotImplementedError("incremental_pcm_stream_unsupported")
+        yield  # Mark the unsupported base implementation as an async generator.
 
     async def get_audio_stream(
         self,

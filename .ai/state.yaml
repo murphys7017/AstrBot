@@ -1,3 +1,24 @@
+minimax_incremental_pcm_provider_20261016:
+  class: feature
+  risk: high
+  status: provider_boundary_validated_not_connected_to_olv
+  scope: >-
+    Add an explicit incremental PCM Provider capability and a MiniMax bidirectional
+    implementation. Input None flushes one segment with an acknowledged output
+    boundary; input exhaustion finishes synthesis. Keep the existing file/WAV
+    interfaces intact and do not enable this path before Core/Adapter/desktop
+    consumers are implemented.
+  validation: >-
+    The new stream implementation passed an actual configured-account two-segment
+    request: first PCM arrived before second text, two flush boundaries and 80
+    chunks (153810 bytes) completed. Invalid endpoint rejection passed before any
+    connection. The public MiniMax Provider entry returned PCM and closed early
+    in about 47 ms with no remaining bidi tasks. Scoped Ruff and diff checks passed.
+  evidence_gap: >-
+    No OLV chunk delivery, Electron playback, lip sync or Live2D fusion acceptance.
+    Preserve existing output_controller.py, test and history worktree changes.
+    No host restart or default-path activation.
+
 task:
   date: '2026-10-06'
   class: maintenance
