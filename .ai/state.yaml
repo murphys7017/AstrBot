@@ -1,3 +1,34 @@
+incremental_text_preparation_boundary_20261017:
+  class: feature
+  risk: high
+  status: core_safety_and_real_pcm_boundaries_validated_not_enabled
+  scope: >-
+    Expose PreOutputProcessor.create_incremental_text_preparer for decoded
+    Persona speech deltas. Buffer ambiguous private-tag prefixes, strip nested
+    case-insensitive system_reminder blocks across deltas, preserve whitespace
+    with at most two newlines, and check each whole visible prefix with existing
+    Core response safety. Keep the accepted prefix on rejection. Complete-message
+    decorators are outside this entry and are never replayed per delta.
+  validation: >-
+    Actual Core event and configured keyword strategy passed split/nested private
+    tags, early visible output, Unicode/newlines and cross-delta rejection with
+    accepted prefix preservation. Prepared deltas fed the actual configured
+    MiniMax PCM service: first audio preceded second input, 234802 samples drained
+    and input closed. First frame was 1797 ms after service start, including
+    connection/task preparation; no end-to-end speedup is established.
+    Scoped Ruff and diff checks passed; imports pinned to current Core with an
+    isolated ASTRBOT_ROOT, without changing runtime configuration.
+  constraints: >-
+    One preparer per decoded segment. Private markup must close within that
+    segment; unfinished markup fails without exposing the pending suffix.
+    Input is bounded to 1 MiB UTF-8 and visible output to 65536 UTF-16 units.
+    finish returns full text for validation, not another TTS delta.
+  evidence_gap: >-
+    Boundary implementation only. OLV producer and Adapter sending are not wired
+    to this entry; motion updates/fusion and server flow control remain pending.
+    No capability activation, host restart, actual desktop playback or Live2D
+    acceptance. Preserve original output_controller, test and history edits.
+
 pcm_service_completion_review_20261016:
   class: bugfix
   risk: medium

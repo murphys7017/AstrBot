@@ -16,6 +16,7 @@ from astrbot.core.agent_lifecycle_scope import (
     create_agent_lifecycle_overlay,
 )
 from astrbot.core.message.components import Plain
+from astrbot.core.message.incremental_text import IncrementalTextPreparer
 from astrbot.core.message.message_event_result import (
     MessageChain,
     MessageEventResult,
@@ -53,6 +54,30 @@ class PreOutputProcessor:
 
     def __init__(self) -> None:
         self._safety_selectors: dict[str, tuple[str, StrategySelector]] = {}
+
+    def create_incremental_text_preparer(
+        self, event: AstrMessageEvent
+    ) -> IncrementalTextPreparer:
+        """Use Core cleaning/safety; never replay whole-message decorators per delta.
+
+        This prepares a single decoded segment, not raw Provider JSON. The caller
+        publishes each returned delta once to both display and TTS, validates
+        finish, and preserves the accepted prefix if a later delta fails.
+        """
+        logger.debug(
+            "Incremental text preparation: turn_id=%s legacy_decorators=skipped",
+            event.get_extra("_turn_id"),
+        )
+
+        def check_response(text: str) -> bool:
+            return self.response_is_safe(
+                event,
+                MessageEventResult(
+                    chain=[Plain(text)], result_content_type=ResultContentType.LLM_RESULT
+                ),
+            )
+
+        return IncrementalTextPreparer(check_response)
 
     async def prepare_interaction_message(
         self,
