@@ -2260,3 +2260,11 @@ olv_stream_preready_cancel_20261017:
   scope: "Review correction to R3: cancel and join incremental tasks when cancellation occurs after writer/PCM creation but before the public output ready future resolves. Preserve unrelated user changes."
   validation: "Public emit_persona_segment_stream with a blocked lifecycle callback, real PCM service and Adapter writer propagated caller cancellation, closed Provider input and left no pending tasks. Ruff passed."
   evidence_gap: "Isolated Provider, no live restart or playback. User authorized continued implementation and per-item commits."
+
+olv_stream_motion_budget_20261017:
+  class: bugfix
+  risk: high
+  status: cross_repo_boundary_validated_pending_live_acceptance
+  scope: "T2/R5 companion: incremental motion closure uses the Adapter's existing absolute producer deadline; no extra 1 s cap or fresh wait budget. Without an admitted motion producer, close the optional resource as empty immediately. Honor an already published result and handle a writer-lock race at deadline."
+  validation: "Public output through actual OLV event, motion registry and writer completed two results delayed 1.15 s within configured 2 s, preserving resource terminality and zero pending tasks. Changed-file Ruff passed."
+  evidence_gap: "Requires companion Adapter budget change; no process reload or real Provider/body acceptance. Preserve user contributor guard and test/history changes."

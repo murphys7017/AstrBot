@@ -781,20 +781,38 @@ class InteractionOutputController:
                         incremental_closed_resources[segment_index].add("text")
                         await enqueue_pcm(PCMTextPart(segment_index, None))
                         async def finish_motion() -> None:
+                            motion_future = incremental_motion_futures[segment_index]
                             try:
-                                await asyncio.wait_for(
-                                    asyncio.shield(incremental_motion_futures[segment_index]),
-                                    timeout=1.0,
-                                )
+                                get_deadline = getattr(event, "get_interaction_incremental_motion_deadline", None)
+                                deadline = get_deadline(segment_index=segment_index) if callable(get_deadline) else None
+                                if motion_future.done():
+                                    await asyncio.shield(motion_future)
+                                elif deadline is None:
+                                    # No admitted producer owns this optional resource.
+                                    await incremental_writer.end_stream("motion", segment_index)
+                                    motion_future.set_result(False)
+                                else:
+                                    await asyncio.wait_for(
+                                        asyncio.shield(motion_future),
+                                        timeout=max(0.0, deadline - loop.time()),
+                                    )
                                 incremental_closed_resources[segment_index].add("motion")
                             except asyncio.TimeoutError:
                                 if "motion" not in incremental_closed_resources[segment_index]:
-                                    await incremental_writer.end_stream(
-                                        "motion",
-                                        segment_index,
-                                        status="failed",
-                                        reason="motion_result_timeout",
-                                    )
+                                    try:
+                                        await incremental_writer.end_stream(
+                                            "motion",
+                                            segment_index,
+                                            status="failed",
+                                            reason="motion_result_timeout",
+                                        )
+                                    except RuntimeError:
+                                        # A producer may have closed the stream while
+                                        # the timeout was waiting for the writer lock.
+                                        if not motion_future.done():
+                                            raise
+                                    if not motion_future.done():
+                                        motion_future.set_result(False)
                                     incremental_closed_resources[segment_index].add("motion")
                             except asyncio.CancelledError:
                                 raise
