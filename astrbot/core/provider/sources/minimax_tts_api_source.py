@@ -107,6 +107,25 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
             "accept": "application/json, text/plain, */*",
             "content-type": "application/json",
         }
+        self._http_session: aiohttp.ClientSession | None = None
+        self._terminated = False
+
+    def _get_http_session(self) -> aiohttp.ClientSession:
+        if self._terminated:
+            raise RuntimeError("minimax_tts_provider_terminated")
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession(
+                headers=self.request_headers,
+                connector=aiohttp.TCPConnector(keepalive_timeout=60),
+            )
+        return self._http_session
+
+    async def terminate(self) -> None:
+        self._terminated = True
+        session = self._http_session
+        self._http_session = None
+        if session is not None:
+            await session.close()
 
     def _build_tts_stream_body(self, text: str):
         """构建流式请求体"""
@@ -126,15 +145,13 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
     async def _call_tts_stream(self, text: str) -> AsyncIterator[str]:
         """进行流式请求"""
         try:
-            async with (
-                aiohttp.ClientSession(headers=self.request_headers) as session,
-                session.post(
+            async with self._get_http_session().post(
                     self.concat_base_url,
                     headers=self.headers,
                     data=self._build_tts_stream_body(text),
                     timeout=aiohttp.ClientTimeout(total=60),
-                ) as response,
-            ):
+                    proxy=self.provider_config.get("proxy") or None,
+                ) as response:
                 response.raise_for_status()
 
                 buffer = b""

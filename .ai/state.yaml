@@ -2220,3 +2220,11 @@ olv_nonstream_capability_summary_20261017:
   scope: "N6: capability summary requests admission-only snapshots through the existing resolver, skipping unused tool schema materialization. Full executable snapshots keep eager detached schemas; metadata-only inventory serialization rejects explicitly."
   validation: "Two scoped public capability checks passed for config isolation and matching admission/exclusion/bindings; scoped Ruff passed after a test literal style correction."
   evidence_gap: "No live latency gain measured; preserves Prompt collector structure and does not cache admission across turns. User requested all documented optimizations and one commit per item."
+
+olv_nonstream_file_tts_pool_20261017:
+  class: feature
+  risk: medium
+  status: loopback_validated_pending_live_acceptance
+  scope: "N7: MiniMax ordinary file-TTS retains one lazy aiohttp session/connection pool, honors configured proxy and closes it at provider termination; no speculative synthesis or paid warmup request."
+  validation: "Real local HTTP boundary through get_audio twice reused the same transport and returned matching WAV bytes; terminated provider rejected new work. Scoped Ruff passed."
+  evidence_gap: "No external MiniMax request or production gain measurement. PCM/bidi path unchanged. Actual reuse depends on provider/server keepalive and selected file-TTS provider."
