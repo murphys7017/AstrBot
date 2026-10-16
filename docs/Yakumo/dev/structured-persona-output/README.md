@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+- 2026-10-17 非流式 N0–N7 已按限定范围实施并逐项提交：Memory 缓存/输出设备提前准备、松手截图重叠、v6 后到动作、段间动作交接、轻量能力摘要与文件 TTS 连接复用。完整 Electron 构建通过，真实对话性能与 Live2D 观感待验收；范围、提交和验证缺口见 [11 文档第 16 节](11-olv-nonstreaming-optimization-plan.md#16-2026-10-17-本会话实施记录)。
+
+- 2026-10-17 新增 [OLV 全链路流式与低延迟架构执行任务书](08-olv-full-streaming-execution-plan.md)，汇总当前增量文本/PCM/动作接线的审阅项、分批修复、架构优化及现场验收要求，供 6.1 SOL 执行。该任务书尚未实施，不代表端到端验收完成；下述 07 文档保留较早的分段投递阶段背景。
+
 - 低延迟音频投递新增有界 TTS 并行与逐段汇合、按序 flush，首批覆盖声明支持的 OLV
   独立分段动作链路；源码和定向边界检查完成，仍待重载与现场验收。实现范围及后续
   Persona 流式契约见 [07-low-latency-segment-delivery.md](07-low-latency-segment-delivery.md)。
@@ -15,6 +19,12 @@
 - Provider JSON/语义 XML/语义 Markdown Prompt 稳定性诊断及原生 JSON/JSON Schema 探测已接入；结果不持久化。Persona Response 的格式选项只控制表达通道；适用 effect 仍通过同一响应中的独立 terminal tool call 返回。TTS 标签注入与清理、外部插件的独立迁移和真实 Provider 组合验收仍未完成。
 
 ## 文档索引
+
+- [OLV 非流式模式优化任务书：麦克风提前准备、首响与段间连续性](./11-olv-nonstreaming-optimization-plan.md)
+
+- [OLV 全链路流式与低延迟架构执行任务书（6.1 SOL）](./08-olv-full-streaming-execution-plan.md)
+- [OLV 实施细则：状态机、修改顺序和验收反例](./09-olv-implementation-playbook.md)
+- [OLV 现场样本与计划复核依据（2026-10-17）](./10-olv-runtime-evidence-2026-10-17.md)
 
 - [总计划与代码现状](./00-overall-plan.md)
 - [Canonical Schema 与字段规则](./01-contract-and-schema.md)
