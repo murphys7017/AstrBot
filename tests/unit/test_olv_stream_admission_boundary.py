@@ -51,7 +51,7 @@ def make_event() -> AdmissionEvent:
 
 
 @pytest.mark.asyncio
-async def test_active_unsafe_decorator_is_skipped_only_for_olv_stream(monkeypatch):
+async def test_requested_olv_stream_skips_unsafe_decorator_after_persona_phase(monkeypatch):
     module = "data.plugins.stream_admission_probe.main"
     owner = StarMetadata(name="stream_admission_probe", module_path=module, activated=True)
     monkeypatch.setitem(star_map, module, owner)
@@ -93,16 +93,18 @@ async def test_active_unsafe_decorator_is_skipped_only_for_olv_stream(monkeypatc
             event, producer=producer, on_header=on_header
         )
         assert outcome.status == "completed"
-        # The ordinary (including gate-off/delegated-final) path still runs it.
+        # The request remains an OLV stream after the Persona phase, even though
+        # the active generation flag has been cleared for delegated Core-final work.
         event.set_extra("_interaction_persona_segment_stream_active", False)
         prepared = await PreOutputProcessor().prepare_interaction_message(
             event, MessageChain([Plain("hello")]), ResultContentType.LLM_RESULT
         )
-        assert prepared.message is None and prepared.stop_requested
-        with pytest.raises(InteractionExpressionError, match="persona_stream_output_hooks_unsupported"):
-            await controller.emit_persona_segment_stream(
-                make_event(), producer=producer, on_header=on_header
-            )
+        assert prepared.message is not None
+        assert not prepared.stop_requested
+        outcome = await controller.emit_persona_segment_stream(
+            make_event(), producer=producer, on_header=on_header
+        )
+        assert outcome.status == "completed"
     finally:
         star_handlers_registry.remove(handler)
 
@@ -192,6 +194,7 @@ async def test_unsafe_after_send_hook_cannot_block_finished_stream_completion(mo
         assert not event.is_stopped()
 
         ordinary = make_event()
+        ordinary.set_extra("_interaction_persona_segment_stream_requested", False)
         assert await controller.complete_visible_delivery(ordinary) is False
         assert ordinary.get_extra("completion_sent") is None
     finally:

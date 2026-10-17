@@ -225,7 +225,7 @@ def test_persona_segment_ready_hook_is_registered_as_public_event(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream_safe", [False, True])
-async def test_olv_segment_stream_requires_explicitly_safe_hooks(
+async def test_olv_segment_stream_skips_incompatible_hooks(
     monkeypatch,
     stream_safe,
 ):
@@ -281,31 +281,17 @@ async def test_olv_segment_stream_requires_explicitly_safe_hooks(
         expression_output_mode="prompt_only",
     )
 
-    if stream_safe:
-        result = await agent.generate_segment_stream_expression(
-            event,
-            object(),
-            config,
-            PersonaExpressionRequest(),
-            emit_record=AsyncMock(),
-            message_id="message-1",
-        )
-        assert result.speech == "hello"
-        resolve_provider.assert_awaited_once()
-        generate_expression.assert_awaited_once()
-    else:
-        with pytest.raises(InteractionExpressionError) as exc_info:
-            await agent.generate_segment_stream_expression(
-                event,
-                object(),
-                config,
-                PersonaExpressionRequest(),
-                emit_record=AsyncMock(),
-                message_id="message-1",
-            )
-        assert exc_info.value.reason == "persona_stream_hooks_unsupported"
-        resolve_provider.assert_not_awaited()
-        generate_expression.assert_not_awaited()
+    result = await agent.generate_segment_stream_expression(
+        event,
+        object(),
+        config,
+        PersonaExpressionRequest(),
+        emit_record=AsyncMock(),
+        message_id="message-1",
+    )
+    assert result.speech == "hello"
+    resolve_provider.assert_awaited_once()
+    generate_expression.assert_awaited_once()
 
 
 @pytest.mark.asyncio

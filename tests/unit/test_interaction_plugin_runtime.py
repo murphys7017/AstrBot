@@ -1540,7 +1540,9 @@ async def test_olv_persona_segment_stream_request_selects_core_stream_path():
         event,
         interaction_config,
     )
-    assert event_extras["_interaction_persona_segment_stream_active"] is True
+    # Active is invocation-local; the requested OLV scope remains on the turn
+    # for delegated Core-final and interjection hook isolation.
+    assert event_extras["_interaction_persona_segment_stream_active"] is False
 
 
 @pytest.mark.asyncio

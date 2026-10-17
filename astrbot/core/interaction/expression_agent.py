@@ -42,7 +42,7 @@ from astrbot.core.deadline import TurnDeadlineExceeded
 from astrbot.core.memory.history_source import extract_message_text
 from astrbot.core.message.components import Plain
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.persona_stream_policy import is_olv_persona_stream
+from astrbot.core.persona_stream_policy import is_olv_persona_stream_scope
 from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.plugin_admission import (
@@ -1904,7 +1904,7 @@ class InteractionExpressionAgent:
                 PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
             )
         ]
-        if not is_olv_persona_stream(event) and incompatible_handlers and (
+        if not is_olv_persona_stream_scope(event) and incompatible_handlers and (
             not olv_segment_stream_requested
             or any(
                 getattr(handler, "extras_configs", {}).get(
