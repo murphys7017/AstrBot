@@ -437,6 +437,7 @@ class InteractionMiddleware:
                 event,
                 interaction_config,
                 request=PersonaExpressionRequest(
+                    short_reply=True,
                     source_text=material,
                     preserve_facts=True,
                     intent=PersonaExpressionIntent(
@@ -1086,6 +1087,7 @@ class InteractionMiddleware:
             event,
             interaction_config,
             request=PersonaExpressionRequest(
+                short_reply=True,
                 require_turn_action=True,
                 allow_silent=group_conversation_allows_silent(event),
                 intent=PersonaExpressionIntent(
@@ -1191,6 +1193,7 @@ class InteractionMiddleware:
             return None
 
         request = PersonaExpressionRequest(
+            short_reply=True,
             require_turn_action=True,
             allow_action_only=event.get_platform_name() == "olv_pet_adapter",
             allow_silent=group_conversation_allows_silent(event),
