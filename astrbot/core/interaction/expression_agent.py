@@ -60,6 +60,8 @@ from astrbot.core.prompt.collectors.input_collector import (
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.context_views import (
     PromptContextView,
+    exclude_unrequested_ambient_visual_context,
+    explicitly_requests_visual_context,
     resolve_prompt_context_view,
 )
 from astrbot.core.prompt.render import (
@@ -201,6 +203,7 @@ class PersonaExpressionRequest:
             source_text=source_text,
             immediate_reply=immediate_reply or "",
             preserve_facts=True,
+            short_reply=True,
             intent=PersonaExpressionIntent(
                 source="core_result",
                 phase="final",
@@ -685,7 +688,7 @@ def build_persona_runtime_system_prompt(
         "【视觉输入】桌面截图、屏幕画面和其他环境视觉输入默认只是被动背景。除非用户明确询问画面内容，"
         "或当前任务明确需要视觉信息，否则不要描述、分析、猜测画面中的应用、文件、活动或用户意图，也不要主动把画面内容引入话题。"
         "需要视觉信息时只分析完成当前请求所需的部分。\n"
-        "【日常交流】普通问候、闲聊和简单确认优先像真实聊天一样直接回应：一个重点，少量口语化句子，"
+        "【日常交流】普通问候、闲聊和简单确认优先像真实聊天一样直接回应：一个重点，默认一句短句、最多两句。"
         "不要主动扩展背景、复盘对话或追加问题；用户明确要求解释、步骤或深入分析时再展开。\n"
         f"必须按本次输出契约返回只包含 {output_fields} 的结构化结果。\n"
         "【格式与风格】输出契约决定字段和传输格式；人格决定角色表现，不得省略协议字段。"
@@ -1583,9 +1586,6 @@ def _build_expression_prompt(
 ) -> str:
     parts = [
         "请按输出契约生成当前人格的用户可见回应，不要输出额外自由文本。",
-        "\n【视觉输入】桌面截图、屏幕画面和其他环境视觉输入默认只是被动背景。除非用户明确询问画面内容，"
-        "或当前任务明确需要视觉信息，否则不要描述、分析、猜测画面中的应用、文件、活动或用户意图，也不要主动把画面内容引入话题。"
-        "需要视觉信息时只分析完成当前请求所需的部分。",
     ]
     if req.avoid_previous_reply:
         parts.append(
@@ -3418,6 +3418,14 @@ class InteractionExpressionAgent:
             persona_context_pack is material.target_context_packs.get("plugin")
         )
         view_spec = resolve_prompt_context_view(context_view)
+        if view_spec is not None and view_spec.name in {
+            PromptContextView.TURN_PLAN,
+            PromptContextView.OLV_STREAM,
+        }:
+            persona_context_pack = exclude_unrequested_ambient_visual_context(
+                persona_context_pack,
+                include=explicitly_requests_visual_context(persona_context_pack),
+            )
         if view_spec is None or view_spec.requires_media_context:
             persona_context_pack = await get_or_build_interaction_media_context_pack(
                 event=event,
@@ -3430,6 +3438,11 @@ class InteractionExpressionAgent:
                     "persona_plugin"
                     if persona_context_uses_plugin_extensions
                     else "persona_base"
+                ) + (
+                    ":ambient_excluded"
+                    if persona_context_pack.meta.get("ambient_visual_context")
+                    == "excluded_unrequested"
+                    else ""
                 ),
             )
         provider_request = build_prompt_render_provider_request(event, provider)

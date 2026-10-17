@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from astrbot.core.prompt import (
     ContextPack,
     ContextSlot,
@@ -15,6 +17,39 @@ from astrbot.core.prompt.targets import project_context_pack
 
 def _slot(name: str, value, category: str) -> ContextSlot:
     return ContextSlot(name=name, value=value, category=category, source="test")
+
+
+@pytest.mark.parametrize("view", [PromptContextView.TURN_PLAN, PromptContextView.OLV_STREAM])
+@pytest.mark.parametrize("text,keep", [
+    ("帮我看看", True), ("你看一下", True), ("帮我看一下", True),
+    ("你好，非流式再试一试", False),
+])
+def test_visual_request_keeps_ambient_snapshot_only_when_requested(view, text, keep):
+    from astrbot.core.prompt.context_views import project_prompt_context_view
+
+    snapshot = {"ref": "desktop.png", "semantic_type": "desktop_snapshot"}
+    explicit_image = {"ref": "upload.png"}
+    pack = ContextPack(slots={
+        "input.text": _slot("input.text", text, "input"),
+        "input.images": _slot("input.images", [snapshot, explicit_image], "input"),
+        "input.explicit_content_parts": _slot("input.explicit_content_parts", [
+            {"type": "image_url", "image_url": {"url": "desktop.png"}},
+            {"type": "image_url", "image_url": {"url": "upload.png"}},
+        ], "input"),
+        "input.media_content_parts": _slot("input.media_content_parts", [
+            {"type": "image_url", "image_url": {"url": "desktop.png"}},
+            {"type": "image_url", "image_url": {"url": "upload.png"}},
+        ], "input"),
+    })
+    projected = project_prompt_context_view(pack, view)
+    assert projected.get_slot("input.images").value == (
+        [snapshot, explicit_image] if keep else [explicit_image]
+    )
+    assert pack.get_slot("input.images").value == [snapshot, explicit_image]
+    for name in ("input.explicit_content_parts", "input.media_content_parts"):
+        assert projected.get_slot(name).value == (
+            pack.get_slot(name).value if keep else [pack.get_slot(name).value[1]]
+        )
 
 
 def _persona_identity_extension_slot() -> ContextSlot:
