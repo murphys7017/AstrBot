@@ -1849,7 +1849,7 @@ def append_interaction_turn_visible_output(
     memory_relevant: bool = True,
 ) -> None:
     clean_text = (text or "").strip()
-    if not clean_text:
+    if not clean_text and not has_delivered_motion_output([{"metadata": metadata}]):
         return
     state = ensure_interaction_turn_state(event)
     utterance = materialize_utterance(
@@ -1869,6 +1869,8 @@ def append_interaction_turn_visible_output(
         "text": clean_text,
         "memory_relevant": memory_relevant,
     }
+    if metadata:
+        item["metadata"] = deepcopy(metadata)
     state.visible_outputs.append(item)
 
 
@@ -2346,3 +2348,19 @@ def next_interaction_turn_visible_message_id(event, message_kind: str) -> str:
     if not safe_kind:
         safe_kind = "message"
     return f"{turn_id}::delivery::{safe_kind}::{state.visible_message_counter:04d}"
+
+
+def has_delivered_motion_output(outputs: object) -> bool:
+    """Recognize recorded successful stream downlinks, not producer completion."""
+    if not isinstance(outputs, list):
+        return False
+    for output in outputs:
+        if not isinstance(output, dict):
+            continue
+        metadata = output.get("metadata")
+        if not isinstance(metadata, dict) or metadata.get("delivered_as") != "stream":
+            continue
+        count = metadata.get("delivered_motion_segment_count")
+        if type(count) is int and count > 0:
+            return True
+    return False

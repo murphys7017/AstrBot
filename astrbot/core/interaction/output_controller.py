@@ -1224,12 +1224,22 @@ class InteractionOutputController:
                 )
             event.set_extra("_interaction_persona_segment_stream_status", status)
             emitted_text = "".join(state["delivered_text_parts"])
+            delivered_motion_indexes = (
+                incremental_writer.delivered_motion_segment_indexes
+                if incremental_writer is not None
+                else frozenset()
+            )
+            motion_count = state["delivered_motion_segment_count"] + len(
+                delivered_motion_indexes
+            )
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
+            if emitted_text or motion_count:
                 mappings = [
                     segment
                     for segment_index, segment in enumerate(state["segments"])
                     if status == "completed"
+                    or segment_index in delivered_motion_indexes
                     or (
                         bool(segment.get("speech"))
                         and "".join(
@@ -1267,6 +1277,7 @@ class InteractionOutputController:
                     ),
                     metadata={
                         "delivered_as": "stream",
+                        "delivered_motion_segment_count": motion_count,
                         "persona_result_id": state["persona_result_id"],
                         "persona_stream_status": status,
                         "tts_status": tts_status,
@@ -1287,7 +1298,7 @@ class InteractionOutputController:
                     effect_calls=deepcopy(expression.effect_calls),
                     metadata=deepcopy(expression.metadata),
                 )
-            if status != "completed" and emitted_text:
+            if status != "completed" and (emitted_text or motion_count):
                 expression = PersonaExpressionResult(
                     speech=emitted_text,
                     turn_action=state["turn_action"],
@@ -1301,9 +1312,7 @@ class InteractionOutputController:
 
             return PersonaSegmentStreamOutcome(
                 expression=expression,
-                emitted=bool(
-                    emitted_text or state["delivered_motion_segment_count"]
-                ),
+                emitted=bool(emitted_text or motion_count),
                 status=status,
                 failure_reason=(
                     self._persona_stream_error_reason(state["error"])

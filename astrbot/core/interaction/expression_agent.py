@@ -182,6 +182,7 @@ class PersonaExpressionRequest:
     preserve_facts: bool = False
     short_reply: bool = False
     allow_empty: bool = False
+    allow_action_only: bool = False
     intent: PersonaExpressionIntent = field(default_factory=PersonaExpressionIntent)
     avoid_previous_reply: bool = False
     # Ordinary user turns use this one response plan for both visible wording
@@ -532,7 +533,10 @@ def validate_persona_expression_result(
         ):
             raise InteractionExpressionError("invalid_silent_personal_response")
         return
-    if not result.speech.strip() and not req.allow_empty:
+    if not result.speech.strip() and not (
+        req.allow_empty
+        or (req.allow_action_only and any(segment.actions for segment in result.segments))
+    ):
         raise InteractionExpressionError("empty_output")
     required_effects = [
         effect
@@ -1409,8 +1413,12 @@ def _build_persona_segment_stream_prompt(req: PersonaExpressionRequest) -> str:
         f"{dimensions}，取值 0 到 10。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
         "动作或状态变化应拆成独立 segment；同一 segment 内的 speech_delta 按原文顺序拼接。"
-        "reply 或 delegate 时输出 Persona 语音 segment；silent 时不得输出 segment。"
+        "reply 或 delegate 时输出 Persona segment；silent 时不得输出 segment。"
         "effect_calls 必须为空；不要调用工具。"
+        + (
+            "本轮允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
+            if req.allow_action_only else "本轮回复必须包含非空语音文本。"
+        )
     )
 
 

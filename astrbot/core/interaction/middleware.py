@@ -76,6 +76,7 @@ from .turn_state import (
     get_interaction_turn_runtime_config,
     get_interaction_turn_state,
     get_interaction_turn_visible_outputs,
+    has_delivered_motion_output,
     is_interaction_turn_completed,
     is_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_cancelled,
@@ -1191,6 +1192,7 @@ class InteractionMiddleware:
 
         request = PersonaExpressionRequest(
             require_turn_action=True,
+            allow_action_only=event.get_platform_name() == "olv_pet_adapter",
             allow_silent=group_conversation_allows_silent(event),
             intent=PersonaExpressionIntent(
                 source="user_message",
@@ -1335,7 +1337,9 @@ class InteractionMiddleware:
                     speech=reply,
                     turn_action=PersonalResponseAction.REPLY,
                 )
-                if reply
+                if reply or has_delivered_motion_output(
+                    get_interaction_turn_visible_outputs(event)
+                )
                 else None
             )
         if status in {
@@ -1416,7 +1420,10 @@ class InteractionMiddleware:
                 str(stream_status),
             )
             return
-        if expression is None or not expression.speech.strip():
+        motion_delivered = has_delivered_motion_output(
+            get_interaction_turn_visible_outputs(event)
+        )
+        if expression is None or (not expression.speech.strip() and not motion_delivered):
             record_interaction_turn_failure(
                 event,
                 stage="persona_expression",
@@ -1425,7 +1432,7 @@ class InteractionMiddleware:
             )
             raise RuntimeError("Interaction persona expression missing reply")
         reply = get_interaction_turn_immediate_reply(event)
-        if not reply:
+        if not reply and not motion_delivered:
             record_interaction_turn_failure(
                 event,
                 stage="immediate_reply",
@@ -2001,7 +2008,11 @@ class InteractionMiddleware:
             )
         canonical_reply = (canonical_reply or "").strip()
         assistant_artifacts = get_interaction_turn_assistant_artifacts(event)
-        if not canonical_reply and not assistant_artifacts:
+        if (
+            not canonical_reply
+            and not assistant_artifacts
+            and not has_delivered_motion_output(outputs)
+        ):
             return None
         is_observation = isinstance(event, RuntimeObservationEvent)
         material = {
@@ -2130,7 +2141,11 @@ class InteractionMiddleware:
 
         canonical_reply = str(material.get("assistant_text", "") or "").strip()
         assistant_artifacts = material.get("assistant_artifacts", [])
-        if not canonical_reply and not assistant_artifacts:
+        if (
+            not canonical_reply
+            and not assistant_artifacts
+            and not has_delivered_motion_output(material.get("visible_outputs"))
+        ):
             self._record_turn_finalization_failure(
                 event,
                 "missing_canonical_reply",

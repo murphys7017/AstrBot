@@ -8,6 +8,7 @@ from astrbot import logger
 from .turn_state import (
     get_interaction_turn_committed_turn_id,
     get_interaction_turn_fixed_conversation_id,
+    has_delivered_motion_output,
     is_interaction_turn_fixed_conversation_required,
     mark_interaction_turn_conversation_committed,
     record_interaction_turn_conversation_history_failure,
@@ -46,7 +47,8 @@ async def commit_interaction_conversation_turn(
         assistant_artifacts = []
     source = str(turn_material.get("source", "platform") or "platform")
     is_observation = source == "observation"
-    if not assistant_text and not assistant_artifacts:
+    motion_delivered = has_delivered_motion_output(turn_material.get("visible_outputs"))
+    if not assistant_text and not assistant_artifacts and not motion_delivered:
         return False
     if not is_observation and not isinstance(user_message, dict):
         return False
@@ -96,6 +98,12 @@ async def commit_interaction_conversation_turn(
             assistant_metadata = turn_material.get("assistant_metadata")
             if isinstance(assistant_metadata, Mapping):
                 assistant_message["_astrbot_metadata"] = dict(assistant_metadata)
+            if motion_delivered:
+                # Preserve the delivery fact without inventing spoken text.
+                assistant_message.setdefault("_astrbot_metadata", {})["motion_outputs"] = [
+                    dict(output) for output in turn_material["visible_outputs"]
+                    if has_delivered_motion_output([output])
+                ]
             if is_observation:
                 await conversation_manager.append_assistant_turn(
                     conversation_id,

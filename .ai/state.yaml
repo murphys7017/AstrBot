@@ -2298,3 +2298,10 @@ olv_incremental_delivered_result_20261017:
   scope: "Keep decoded raw speech for protocol checks. Store prepared segment speech and construct a detached successful Persona result from delivered segment mappings, preserving action/thought/tendency, effect calls and metadata."
   validation: "Focused public Core parser/preparer/controller output checks match emitted text, returned speech/speech_segments and turn Persona segment state after removing hidden content and flushing a literal suffix. Changed-file Ruff passed."
   evidence_gap: "No live dialogue/history persistence or paid model/audio run. User-owned contributor guard and original test/history modifications remain excluded."
+olv_action_only_stream_delivery_20261017:
+  class: bugfix
+  risk: high
+  status: public_boundary_validated_pending_live_acceptance
+  scope: "Companion Core/Adapter fix: admit OLV action-only stream replies with actual actions; count only writer-accepted motion updates, retain visible delivery state and allow text-free completion/history with motion evidence. Empty replies still reject; no invented spoken text."
+  validation: "Five focused public Core checks passed, including action-only delivery versus completion-without-update and blank reply rejection. Actual Adapter writer counted repeated updates once and excluded an empty failed motion. Scoped Ruff/diff checks passed. Middleware/material/history guards source-traced through ConversationManager atomic append; no live history/Provider/device acceptance."
+  evidence_gap: "Requires paired Core/Adapter deployment. Downlink acceptance is not Live2D execution. Preserve user contributor guard, original stream test and history edits."

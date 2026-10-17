@@ -6,12 +6,15 @@ import pytest
 
 from astrbot.core.interaction.expression_agent import (
     PERSONA_TENDENCY_DIMENSIONS,
+    InteractionExpressionError,
     PersonaExpressionRequest,
     PersonaSegmentStreamParser,
 )
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
     get_interaction_turn_immediate_persona_segments,
+    get_interaction_turn_visible_outputs,
+    has_delivered_motion_output,
     set_interaction_turn_runtime_config,
 )
 from astrbot.core.message.incremental_text import (
@@ -25,7 +28,9 @@ from astrbot.core.platform.platform_metadata import PlatformMetadata
 
 
 class OutputSink:
-    def __init__(self):
+    def __init__(self, *, deliver_motion=False):
+        self.deliver_motion = deliver_motion
+        self.delivered_motion_segment_indexes = frozenset()
         self.text = []
         self.ends = []
 
@@ -50,7 +55,8 @@ class IncrementalEvent(AstrMessageEvent):
         message.message_str = "test"
         message.raw_message = {}
         super().__init__(
-            "test", message,
+            "test",
+            message,
             PlatformMetadata("olv_pet_adapter", "isolated output", "test"),
             "isolated-output",
         )
@@ -58,13 +64,23 @@ class IncrementalEvent(AstrMessageEvent):
         self.set_extra("_turn_id", "turn-test")
         self.set_extra("_interaction_persona_segment_stream_requested", True)
         self.set_extra("_interaction_persona_segment_stream_active", True)
-        set_interaction_turn_runtime_config(self, {"provider_tts_settings": {"enable": False}})
+        set_interaction_turn_runtime_config(
+            self, {"provider_tts_settings": {"enable": False}}
+        )
 
     async def open_interaction_incremental_output(self, *, persona_result_id):
         return self.sink
 
     async def send_message_with_extras(self, **kwargs):
         raise AssertionError("Incremental output must not replay legacy output")
+
+    async def flush_interaction_incremental_motion(self, *, segment_index):
+        if self.sink.deliver_motion:
+            self.sink.delivered_motion_segment_indexes |= {segment_index}
+        # The actual Adapter resolves this completion future even for no payload.
+        self.get_extra("_interaction_incremental_motion_futures")[
+            segment_index
+        ].set_result(True)
 
     async def flush_visible_segment(self, **kwargs):
         pass
@@ -75,11 +91,17 @@ class IncrementalEvent(AstrMessageEvent):
 
 def stream_producer(speech, *, request=None, actions=None):
     async def produce(emit_record, message_id):
-        parser = PersonaSegmentStreamParser(request or PersonaExpressionRequest(require_turn_action=True))
+        parser = PersonaSegmentStreamParser(
+            request or PersonaExpressionRequest(require_turn_action=True)
+        )
         records = [
             {"v": 1, "record": "header", "turn_action": "reply"},
-            {"v": 1, "record": "segment_start", "actions": actions or [],
-             "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)},
+            {
+                "v": 1,
+                "record": "segment_start",
+                "actions": actions or [],
+                "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
+            },
             *([{"v": 1, "record": "speech_delta", "text": speech}] if speech else []),
             {"v": 1, "record": "segment_end", "thought": ""},
             {"v": 1, "record": "finish", "effect_calls": []},
@@ -105,7 +127,8 @@ async def test_incremental_output_flushes_literal_suffix_once():
     sink = OutputSink()
     event = IncrementalEvent(sink)
     outcome = await InteractionOutputController().emit_persona_segment_stream(
-        event, producer=stream_producer("开始<system_reminder>隐藏</system_reminder>结束 <"),
+        event,
+        producer=stream_producer("开始<system_reminder>隐藏</system_reminder>结束 <"),
         on_header=publish,
     )
     assert outcome.status == "completed"
@@ -113,7 +136,10 @@ async def test_incremental_output_flushes_literal_suffix_once():
     assert ("text", 0, "completed") in sink.ends
     assert outcome.expression.speech == "开始结束 <"
     assert outcome.expression.speech_segments == ("开始结束 <",)
-    assert get_interaction_turn_immediate_persona_segments(event)[0]["speech"] == "开始结束 <"
+    assert (
+        get_interaction_turn_immediate_persona_segments(event)[0]["speech"]
+        == "开始结束 <"
+    )
 
 
 def test_finish_still_rejects_open_hidden_block_and_unsafe_suffix():
@@ -128,3 +154,46 @@ def test_finish_still_rejects_open_hidden_block_and_unsafe_suffix():
     with pytest.raises(IncrementalTextError, match="unsafe_response"):
         checked.finish()
     assert checked.text == "可见 "
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivered", [True, False])
+async def test_action_only_stream_counts_delivered_motion_not_completion(delivered):
+    sink = OutputSink(deliver_motion=delivered)
+    event = IncrementalEvent(sink)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer(
+            "",
+            actions=["nod"],
+            request=PersonaExpressionRequest(
+                require_turn_action=True,
+                allow_action_only=True,
+            ),
+        ),
+        on_header=publish,
+    )
+    assert outcome.status == "completed"
+    assert outcome.emitted is delivered
+    assert outcome.expression.speech == ""
+    assert (
+        has_delivered_motion_output(get_interaction_turn_visible_outputs(event))
+        is delivered
+    )
+    if delivered:
+        assert get_interaction_turn_immediate_persona_segments(event)[0]["actions"] == [
+            "nod"
+        ]
+
+
+@pytest.mark.asyncio
+async def test_action_only_admission_still_rejects_empty_reply():
+    producer = stream_producer(
+        "",
+        request=PersonaExpressionRequest(
+            require_turn_action=True,
+            allow_action_only=True,
+        ),
+    )
+    with pytest.raises(InteractionExpressionError, match="empty_output"):
+        await producer(publish, "empty-test")
