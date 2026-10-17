@@ -1,3 +1,36 @@
+ptt_screenshot_asr_overlap_companion_20261018:
+  class: feature
+  risk: high
+  status: companion_implemented_pending_paired_reload
+  scope: >-
+    Companion AG99live change starts PTT ASR on audio_stream_seal while the
+    frontend captures the screenshot. audio_stream_end commits the same-turn
+    transcript and image once. Add input-owned preaction: compact 100-char text,
+    current core-personality projection and existing behavior/emotion state;
+    no history/current-pose Prompt. Frontend owns standalone admission into
+    ModelEngine and formal parameter-plan handoff. Core conversation and VAD
+    production logic are unchanged by this task.
+  validation: >-
+    Four focused speech ingress boundary checks, changed Python Ruff,
+    frontend renderer/Node type checks and manifest consistency passed in Live.
+    The prior five ASR overlap files and eight changed/new preaction code/schema
+    files were copied from the source repository after checking deployment
+    baselines and matching SHA256 hashes after copy.
+  evidence_gap: >-
+    Adapter and frontend must load the audio_input and pre_action manifests together and
+    reconnect. No process restart, live Provider/device run or measured speedup.
+    User approved the preaction implementation; Live document 14 now describes
+    its code and remaining device acceptance. Two request/cancellation boundary
+    checks and the actual TS ModelEngine/compiler handoff smoke passed; no real
+    Provider or device acceptance. User requested scoped review/commits; preserve .jspace/history.json and
+    concurrent, user-owned expression_agent.py and NeuroBrain config/client/main
+    modifications observed in this turn. No packaged desktop build in this task.
+    Review fixed superseded-ASR/preaction ownership and absent-turn interrupt
+    notifications in Live; three focused boundary checks and scoped Ruff passed.
+    Live source commit is blocked by Windows ACL denying .git/objects writes;
+    its changes remain in that worktree. This commit records the tracked Core
+    companion only. Selective deployment preserves other source changes.
+
 persona_stream_contract_selection_20261018:
   class: bugfix
   risk: high
