@@ -6,6 +6,7 @@ import random
 import time
 import traceback
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
+from contextlib import aclosing
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -604,19 +605,18 @@ class InteractionOutputController:
                 nonlocal incremental_pcm_error
                 state["tts_attempted"] = True
                 try:
-                    async for frame in synthesize_pcm_stream(
-                        self.plugin_context,
-                        event,
-                        text_source(),
-                    ):
-                        if frame.kind == "audio":
-                            await incremental_writer.append_audio(
-                                frame.segment_index,
-                                frame.sample_offset,
-                                frame.audio,
-                            )
-                        elif frame.kind == "end":
-                            await close_incremental_audio(frame.segment_index)
+                    async with aclosing(synthesize_pcm_stream(
+                        self.plugin_context, event, text_source(),
+                    )) as frames:
+                        async for frame in frames:
+                            if frame.kind == "audio":
+                                await incremental_writer.append_audio(
+                                    frame.segment_index,
+                                    frame.sample_offset,
+                                    frame.audio,
+                                )
+                            elif frame.kind == "end":
+                                await close_incremental_audio(frame.segment_index)
                     platform_extras["persona_stream"]["tts_status"] = "succeeded"
                 except asyncio.CancelledError:
                     # Producer errors abort audio without turning an incomplete
