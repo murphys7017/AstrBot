@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from astrbot.core import logger
@@ -61,10 +62,13 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
 
     # Completion runs after middleware clears active. Only this terminal Hook
     # uses the stream outcome; ordinary generation Hooks keep invocation scope.
-    include_finished = handler.event_type is EventType.OnAfterMessageSentEvent
+    event_type = getattr(handler, "event_type", None)
+    if event_type is None:
+        return True
+    include_finished = event_type is EventType.OnAfterMessageSentEvent
     if not is_olv_persona_stream(event, include_finished=include_finished):
         return True
-    if handler.event_type not in (
+    if event_type not in (
         EventType.OnWaitingLLMRequestEvent,
         EventType.OnLLMRequestEvent,
         EventType.OnLLMResponseEvent,
@@ -78,10 +82,13 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
         EventType.OnAfterMessageSentEvent,
     ):
         return True
+    extras_configs = getattr(handler, "extras_configs", {})
+    if not isinstance(extras_configs, Mapping):
+        extras_configs = {}
     return not skip_incompatible_stream_capability(
         event,
-        kind=handler.event_type.name,
-        name=handler.handler_full_name,
-        compatible=handler.extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is True,
+        kind=getattr(event_type, "name", str(event_type)),
+        name=getattr(handler, "handler_full_name", getattr(handler, "handler_name", "<unknown>")),
+        compatible=extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is True,
         include_finished=include_finished,
     )

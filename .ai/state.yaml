@@ -2447,3 +2447,28 @@ olv_stream_output_lifecycle_fix_20261017:
     tradeoff: a motion provider slower than that is reported as optional
     failure while visible text remains successful. Preserve user-owned dirty
     changes and contributor admission policy.
+
+olv_stream_optional_failure_continuity_20261018:
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  scope: >-
+    Keep the Core Persona stream alive when an OLV Adapter lacks the incremental
+    writer, falling back to the existing visible-segment delivery. Preserve
+    compatibility with older Adapter hooks that omit persona_result_id, and do
+    not let an inactive stream request bypass ordinary incompatible-plugin
+    admission. Progress and interjection writers remain non-fatal so optional
+    media failures cannot terminate the core conversational Turn.
+  validation: >-
+    Core Persona/OLV focused tests passed: 27 passed. AG99live runtime tests
+    passed: 116 passed after excluding the two existing fixture groups whose
+    simplified fake runtime objects lack current Core attributes. Current
+    AstrBot changed-file compile/Ruff/diff checks passed. AG99live changed-file
+    Ruff and AST parsing passed. AG99live frontend renderer, WebSDK and Node
+    type checks passed.
+  evidence_gap: >-
+    No AstrBot restart, real Provider/TTS request, Electron playback or Live2D
+    acceptance was performed. The two excluded AG99live fixture groups still
+    report eight baseline failures around fake logger/input-preparation and
+    terminal-waiter attributes; their stacks do not enter this streaming change.
+    Preserve .jspace/history.json and other user-owned worktree changes.

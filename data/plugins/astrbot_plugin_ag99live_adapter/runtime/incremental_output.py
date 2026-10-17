@@ -64,6 +64,8 @@ class IncrementalOutputSession:
         require_current: Callable[[], None],
         on_text_complete: Callable[[str], None],
         on_audio_sent: Callable[[], None] | None = None,
+        turn_audio_credit: AudioCredit | None = None,
+        segment_offset: int = 0,
     ) -> None:
         self.turn_id = _identity(turn_id)
         self.core_turn_id = _identity(core_turn_id)
@@ -78,9 +80,14 @@ class IncrementalOutputSession:
         self._text_units = 0
         self.has_output = False
         self.failure_reason: str | None = None
+        # Progress/interjection streams are supplementary. The Core marks
+        # those writers non-fatal so an optional media failure cannot fail the
+        # owning conversational Turn.
+        self.failure_fatal = True
         self._broken = False
         self._audio_lock = asyncio.Lock()
-        self._audio_credit = AudioCredit()
+        self._audio_credit = AudioCredit(turn_audio_credit)
+        self._segment_offset = segment_offset
         self._created_at = perf_counter()
         self._observed_resources: set[str] = set()
 
@@ -104,6 +111,10 @@ class IncrementalOutputSession:
             index for index, segment in self._segments.items()
             if segment.motion_delivered
         )
+
+    @property
+    def segment_count(self) -> int:
+        return len(self._segments)
 
     def invalidate(self) -> None:
         self._audio_credit.close()
@@ -206,7 +217,7 @@ class IncrementalOutputSession:
             if resource not in {"text", "audio", "motion"}:
                 raise ValueError("incremental_output_resource_invalid")
             _identity(message_id)
-            if type(segment_index) is not int or not 0 <= segment_index < 256:
+            if type(segment_index) is not int or not 0 <= segment_index < 256 - self._segment_offset:
                 raise ValueError("incremental_output_segment_order_invalid")
             segment = self._segments.get(segment_index)
             if segment is None:

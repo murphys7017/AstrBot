@@ -10,6 +10,7 @@ from contextlib import aclosing
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from astrbot import logger
 from astrbot.core import file_token_service, html_renderer
@@ -61,6 +62,7 @@ from .contributors import (
 from .core_bridge import get_interaction_route_decision
 from .expression_agent import (
     PERSONA_RESULT_ID_METADATA_KEY,
+    InteractionExpressionAgent,
     InteractionExpressionError,
     PersonaExpressionIntent,
     PersonaExpressionRequest,
@@ -121,6 +123,7 @@ from .turn_state import (
     is_interaction_turn_pipeline_output_suppressed,
     mark_interaction_turn_cancelled,
     mark_interaction_turn_core_streaming_result_consumed,
+    mark_interaction_turn_failed,
     mark_interaction_turn_finalization_pending,
     mark_interaction_turn_personal_emitted,
     mark_interaction_turn_stream_interjection_emitted,
@@ -381,13 +384,17 @@ class InteractionOutputController:
             )
             return False
         try:
-            delivered = await self.emit_immediate_spoken_reply(
-                PersonaExpressionResult(
-                    speech=reply,
-                    turn_action=PersonalResponseAction.REPLY,
-                ),
-                event,
-            )
+            if self._uses_task_stream(event):
+                await self._stream_task_reply(event, message_kind="failure_reply", text=reply)
+                delivered = True
+            else:
+                delivered = await self.emit_immediate_spoken_reply(
+                    PersonaExpressionResult(
+                        speech=reply,
+                        turn_action=PersonalResponseAction.REPLY,
+                    ),
+                    event,
+                )
             if not delivered:
                 await finish_interaction_turn_final_output(
                     event,
@@ -401,6 +408,8 @@ class InteractionOutputController:
                 event,
                 InteractionFinalOutputStatus.FAILED,
             )
+            if self._uses_task_stream(event):
+                await self._abort_task_stream(event, "task_stream_final_delivery_failed")
             raise
         await finish_interaction_turn_final_output(
             event,
@@ -433,6 +442,101 @@ class InteractionOutputController:
             set_interaction_turn_emitting_immediate_reply(event, False)
 
     async def emit_persona_segment_stream(
+        self, event: AstrMessageEvent, *,
+        producer: Callable[
+            [Callable[[dict[str, Any]], Awaitable[None]], str],
+            Awaitable[PersonaExpressionResult],
+        ],
+        on_header: Callable[[dict[str, Any]], Awaitable[bool | None]],
+        message_kind: str = "immediate_reply",
+    ) -> PersonaSegmentStreamOutcome:
+        lock = event.get_extra("_interaction_expression_output_lock")
+        if lock is None:
+            lock = asyncio.Lock()
+            event.set_extra("_interaction_expression_output_lock", lock)
+        async with lock:
+            active = event.get_extra("_interaction_persona_segment_stream_active", False)
+            try:
+                return await self._emit_persona_segment_stream(
+                    event, producer=producer, on_header=on_header, message_kind=message_kind,
+                )
+            finally:
+                event.set_extra("_interaction_persona_segment_stream_active", active)
+
+    @staticmethod
+    def _uses_task_stream(event: AstrMessageEvent) -> bool:
+        get_platform_name = getattr(event, "get_platform_name", None)
+        return (
+            callable(get_platform_name)
+            and str(get_platform_name() or "").lower() == "olv_pet_adapter"
+            and event.get_extra(
+                "_interaction_persona_segment_stream_requested", False
+            )
+            is True
+        )
+
+    async def _abort_task_stream(
+        self, event: AstrMessageEvent, reason: str, *, cancelled: bool = False,
+    ) -> None:
+        if event.get_extra("_interaction_task_stream_aborted", False):
+            return
+        event.set_extra("_interaction_task_stream_aborted", True)
+        if cancelled:
+            mark_interaction_turn_cancelled(event)
+        else:
+            record_interaction_turn_completion_failure(event, reason)
+            mark_interaction_turn_failed(event)
+        try:
+            await event.abort_visible_turn(reason=reason)
+        finally:
+            await self._notify_lifecycle(event, "cancelled" if cancelled else "failed", {"reason": reason})
+
+    async def _stream_task_reply(
+        self, event: AstrMessageEvent, *, message_kind: str,
+        request: PersonaExpressionRequest | None = None, text: str = "",
+    ) -> None:
+        async def on_header(record: dict[str, Any]) -> bool:
+            return True
+
+        async def produce(
+            emit_record: Callable[[dict[str, Any]], Awaitable[None]], message_id: str,
+        ) -> PersonaExpressionResult:
+            if request is not None:
+                return await InteractionExpressionAgent().generate_segment_stream_expression(
+                    event, self.plugin_context, self._get_interaction_config(event), request,
+                    emit_record=emit_record, message_id=message_id,
+                )
+            result_id = uuid4().hex
+            result = PersonaExpressionResult(
+                speech=text, turn_action=PersonalResponseAction.REPLY,
+                metadata={PERSONA_RESULT_ID_METADATA_KEY: result_id},
+            )
+            await emit_record({"type": "header", "turn_action": "reply", "persona_result_id": result_id})
+            for index, segment in enumerate(result.segment_mappings):
+                await emit_record({"type": "segment_start", "segment_index": index})
+                if segment["speech"]:
+                    await emit_record({"type": "speech_delta", "segment_index": index,
+                                       "delta_index": 0, "text": segment["speech"]})
+                await emit_record({"type": "segment_end", "segment_index": index, "segment": segment})
+            await emit_record({"type": "finish", "result": result})
+            return result
+
+        try:
+            outcome = await self.emit_persona_segment_stream(
+                event, producer=produce, on_header=on_header, message_kind=message_kind,
+            )
+            if outcome.status != "completed" or not outcome.emitted:
+                raise InteractionExpressionError(outcome.failure_reason or "task_stream_delivery_failed")
+        except BaseException as exc:
+            if message_kind not in {"stream_interjection", "core_progress"}:
+                cancelled = isinstance(exc, asyncio.CancelledError)
+                await self._abort_task_stream(
+                    event, "task_stream_cancelled" if cancelled else "task_stream_final_delivery_failed",
+                    cancelled=cancelled,
+                )
+            raise
+
+    async def _emit_persona_segment_stream(
         self,
         event: AstrMessageEvent,
         *,
@@ -441,6 +545,7 @@ class InteractionOutputController:
             Awaitable[PersonaExpressionResult],
         ],
         on_header: Callable[[dict[str, Any]], Awaitable[bool | None]],
+        message_kind: str = "immediate_reply",
     ) -> PersonaSegmentStreamOutcome:
         self._ensure_persona_segment_stream_compatible(event)
         is_olv_segment_stream = (
@@ -461,7 +566,7 @@ class InteractionOutputController:
         message_id = self._next_output_segment_id(event, "persona_stream")
         platform_extras = self.build_platform_output_extras(
             event,
-            message_kind="immediate_reply",
+            message_kind=message_kind,
             output_segment_id=message_id,
         )
         platform_extras["persona_stream"] = {
@@ -660,25 +765,69 @@ class InteractionOutputController:
                 return
             open_output = getattr(event, "open_interaction_incremental_output", None)
             if not callable(open_output):
+                logger.warning(
+                    "OLV incremental output unavailable; keeping visible stream fallback: "
+                    "turn_id=%s reason=writer_unsupported",
+                    event.get_extra("_turn_id"),
+                )
                 return
             try:
-                incremental_writer = await open_output(
-                    persona_result_id=persona_result_id,
-                )
-            except Exception as exc:  # noqa: BLE001 - keep the legacy OLV path available.
+                incremental_writer = await open_output(persona_result_id=persona_result_id)
+            except TypeError as exc:
+                if "unexpected keyword argument" not in str(exc):
+                    logger.warning(
+                        "OLV incremental output unavailable; keeping visible stream fallback: "
+                        "turn_id=%s reason=%s",
+                        event.get_extra("_turn_id"),
+                        exc,
+                    )
+                    return
+                try:
+                    incremental_writer = await open_output()
+                except Exception as exc:  # noqa: BLE001 - optional Adapter output.
+                    logger.warning(
+                        "OLV incremental output unavailable; keeping visible stream fallback: "
+                        "turn_id=%s reason=%s",
+                        event.get_extra("_turn_id"),
+                        exc,
+                    )
+                    return
+            except Exception as exc:  # noqa: BLE001 - optional Adapter output.
                 logger.warning(
-                    "OLV incremental output unavailable; keeping segment fallback: "
+                    "OLV incremental output unavailable; keeping visible stream fallback: "
                     "turn_id=%s reason=%s",
                     event.get_extra("_turn_id"),
                     exc,
                 )
-                incremental_writer = None
                 return
+            try:
+                incremental_writer.failure_fatal = message_kind not in {
+                    "core_progress",
+                    "stream_interjection",
+                }
+            except (AttributeError, TypeError):
+                # Third-party writers may be immutable; their transport-level
+                # failures remain fatal by default.
+                pass
 
             event.set_extra("_interaction_incremental_output_writer", incremental_writer)
-            event.set_extra("_interaction_incremental_motion_started", {})
-            event.set_extra("_interaction_incremental_motion_futures", {})
-            event.set_extra("_interaction_incremental_motion_pending", {})
+            motion_state = {
+                "writer": incremental_writer,
+                "started": {},
+                "futures": {},
+                "pending": {},
+                "delivered": {},
+            }
+            motion_states = event.get_extra("_interaction_incremental_motion_states", {})
+            if not isinstance(motion_states, dict):
+                motion_states = {}
+            motion_states[persona_result_id] = motion_state
+            event.set_extra("_interaction_incremental_motion_states", motion_states)
+            # Keep legacy aliases for hooks that still read the current result.
+            event.set_extra("_interaction_incremental_motion_started", motion_state["started"])
+            event.set_extra("_interaction_incremental_motion_futures", motion_state["futures"])
+            event.set_extra("_interaction_incremental_motion_pending", motion_state["pending"])
+            event.set_extra("_interaction_incremental_motion_delivered", motion_state["delivered"])
             logger.debug(
                 "OLV incremental output selected: turn_id=%s tts_admitted=%s",
                 event.get_extra("_turn_id"), use_tts,
@@ -747,7 +896,8 @@ class InteractionOutputController:
             if not text:
                 return
             await incremental_writer.append_text(segment_index, text)
-            mark_interaction_turn_personal_emitted(event)
+            if message_kind == "immediate_reply":
+                mark_interaction_turn_personal_emitted(event)
             state["delivered_text_parts"].append(text)
             state["delivered_segment_parts"].setdefault(segment_index, []).append(text)
             await enqueue_pcm(PCMTextPart(segment_index, text))
@@ -780,7 +930,7 @@ class InteractionOutputController:
                         event,
                         "speaking",
                         {
-                            "message_kind": "immediate_reply",
+                            "message_kind": message_kind,
                             "protocol": "segment_stream_v1",
                         },
                     )
@@ -834,7 +984,15 @@ class InteractionOutputController:
                         None,
                     )
                     if callable(flush_motion):
-                        await flush_motion(segment_index=state["current_index"])
+                        try:
+                            await flush_motion(
+                                segment_index=state["current_index"],
+                                persona_result_id=state["persona_result_id"],
+                            )
+                        except TypeError as exc:
+                            if "unexpected keyword argument" not in str(exc):
+                                raise
+                            await flush_motion(segment_index=state["current_index"])
                 return
 
             if record_type == "speech_delta":
@@ -896,7 +1054,18 @@ class InteractionOutputController:
                             motion_future = incremental_motion_futures[segment_index]
                             try:
                                 get_deadline = getattr(event, "get_interaction_incremental_motion_deadline", None)
-                                deadline = get_deadline(segment_index=segment_index) if callable(get_deadline) else None
+                                if callable(get_deadline):
+                                    try:
+                                        deadline = get_deadline(
+                                            segment_index=segment_index,
+                                            persona_result_id=state["persona_result_id"],
+                                        )
+                                    except TypeError as exc:
+                                        if "unexpected keyword argument" not in str(exc):
+                                            raise
+                                        deadline = get_deadline(segment_index=segment_index)
+                                else:
+                                    deadline = None
                                 if motion_future.done():
                                     await asyncio.shield(motion_future)
                                 elif deadline is None:
@@ -918,16 +1087,42 @@ class InteractionOutputController:
                                             status="failed",
                                             reason="motion_result_timeout",
                                         )
-                                    except RuntimeError:
+                                    except (RuntimeError, ValueError):
                                         # A producer may have closed the stream while
                                         # the timeout was waiting for the writer lock.
                                         if not motion_future.done():
-                                            raise
+                                            motion_future.set_result(False)
                                     if not motion_future.done():
                                         motion_future.set_result(False)
                                     incremental_closed_resources[segment_index].add("motion")
                             except asyncio.CancelledError:
-                                raise
+                                if "motion" not in incremental_closed_resources[segment_index]:
+                                    try:
+                                        await incremental_writer.end_stream(
+                                            "motion",
+                                            segment_index,
+                                            status="cancelled",
+                                            reason="motion_result_cancelled",
+                                        )
+                                    except (RuntimeError, ValueError):
+                                        pass
+                                    incremental_closed_resources[segment_index].add("motion")
+                                if not motion_future.done():
+                                    motion_future.set_result(False)
+                            except Exception:
+                                if "motion" not in incremental_closed_resources[segment_index]:
+                                    try:
+                                        await incremental_writer.end_stream(
+                                            "motion",
+                                            segment_index,
+                                            status="failed",
+                                            reason="motion_result_failed",
+                                        )
+                                    except (RuntimeError, ValueError):
+                                        pass
+                                    incremental_closed_resources[segment_index].add("motion")
+                                if not motion_future.done():
+                                    motion_future.set_result(False)
 
                         incremental_motion_tasks.append(
                             asyncio.create_task(
@@ -942,7 +1137,7 @@ class InteractionOutputController:
                                 [Plain(str(segment.get("speech") or ""))],
                                 type="persona_stream_segment",
                             ),
-                            message_kind="immediate_reply",
+                            message_kind=message_kind,
                         )
                         if prepared_segment is None:
                             raise InteractionExpressionError(
@@ -1325,7 +1520,7 @@ class InteractionOutputController:
             await self._deliver_visible_message(
                 event,
                 MessageChain([Plain("")], type="persona_stream_olv"),
-                message_kind="immediate_reply",
+                message_kind=message_kind,
                 platform_extras=olv_platform_extras,
                 output_segment_id=message_id,
                 record_send_operation=False,
@@ -1356,7 +1551,7 @@ class InteractionOutputController:
             first_motion_output_at = event.get_extra(
                 "_interaction_personal_stream_first_output_monotonic"
             )
-            if isinstance(first_motion_output_at, int | float) and not isinstance(
+            if message_kind == "immediate_reply" and isinstance(first_motion_output_at, int | float) and not isinstance(
                 first_motion_output_at, bool
             ):
                 mark_interaction_turn_personal_emitted(
@@ -1373,7 +1568,7 @@ class InteractionOutputController:
                 for segment_index in sorted(delivered_motion_indexes)
                 if segment_index < len(state["segments"])
             ]
-            if emitted_text:
+            if emitted_text and message_kind == "immediate_reply":
                 set_interaction_turn_immediate_reply(event, emitted_text)
             # For WebChat, Persona actions are part of the accepted result even
             # when no separate motion downlink exists.  OLV keeps the stricter
@@ -1408,33 +1603,35 @@ class InteractionOutputController:
                     if not motion_delivered and not preserve_unmaterialized_persona_state:
                         delivered_segment["actions"] = []
                     mappings.append(delivered_segment)
-                set_interaction_turn_immediate_persona_state(
-                    event,
-                    segments=mappings,
-                    actions=[
-                        action
-                        for segment in mappings
-                        for action in segment.get("actions", [])
-                    ],
-                    thought="\n".join(
-                        str(segment.get("thought") or "")
-                        for segment in mappings
-                        if str(segment.get("thought") or "")
-                    ),
-                    tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
-                )
+                if message_kind == "immediate_reply":
+                    set_interaction_turn_immediate_persona_state(
+                        event,
+                        segments=mappings,
+                        actions=[
+                            action
+                            for segment in mappings
+                            for action in segment.get("actions", [])
+                        ],
+                        thought="\n".join(
+                            str(segment.get("thought") or "")
+                            for segment in mappings
+                            if str(segment.get("thought") or "")
+                        ),
+                        tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
+                    )
                 tts_status = platform_extras["persona_stream"].get(
                     "tts_status",
                     "cancelled" if status == "cancelled" else "not_attempted",
                 )
                 self._record_visible_output(
                     event,
-                    message_kind="immediate_reply",
+                    message_kind=message_kind,
                     text=emitted_text,
                     message_id=message_id,
                     delivered_message_ids=_visible_message_ids_from_extras(
                         platform_extras
                     ),
+                    memory_relevant=message_kind != "stream_interjection",
                     metadata={
                         "delivered_as": "stream",
                         "delivered_motion_segment_count": motion_count,
@@ -1689,7 +1886,7 @@ class InteractionOutputController:
             only_activated=False,
             plugins_name=None,
         )
-        if is_olv_segment_stream:
+        if is_olv_segment_stream and is_olv_persona_stream(event):
             decorating_handlers = [
                 handler
                 for handler in decorating_handlers
@@ -1932,6 +2129,31 @@ class InteractionOutputController:
 
         if outbound_kind in {"core_progress", "passthrough"}:
             is_progress = outbound_kind == "core_progress"
+            if self._uses_task_stream(event):
+                try:
+                    await self._stream_task_reply(event, message_kind=outbound_kind, text=message.get_plain_text())
+                    if not is_progress:
+                        self._materialize_finalized_turn(event)
+                        await self._persist_interaction_turn(event)
+                except Exception as exc:
+                    if is_progress:
+                        record_interaction_turn_failure(
+                            event,
+                            stage="core_progress_delivery",
+                            reason="task_stream_delivery_failed",
+                            exception=exc,
+                            user_visible_action="continue_core_stream",
+                        )
+                        logger.warning(
+                            "Task progress stream failed; continuing core turn: turn_id=%s error=%s",
+                            event.get_extra("_turn_id"),
+                            exc,
+                            exc_info=True,
+                        )
+                        return True
+                    await self._abort_task_stream(event, "task_stream_delivery_failed")
+                    raise
+                return True
             semantic_text = message.get_plain_text()
             message_id = self._next_output_segment_id(event, outbound_kind)
             (
@@ -1980,6 +2202,8 @@ class InteractionOutputController:
                 event,
                 InteractionFinalOutputStatus.FAILED,
             )
+            if self._uses_task_stream(event):
+                await self._abort_task_stream(event, "task_stream_final_delivery_failed")
             raise
         final_status = (
             InteractionFinalOutputStatus.SUPPRESSED
@@ -3289,6 +3513,32 @@ class InteractionOutputController:
         ):
             return False
         message = MessageChain([Plain(text)])
+        if self._uses_task_stream(event):
+            try:
+                await self._stream_task_reply(
+                    event, message_kind="stream_interjection", text=reply
+                )
+            except asyncio.CancelledError:
+                logger.debug(
+                    "Task stream interjection cancelled; continuing core turn: turn_id=%s",
+                    event.get_extra("_turn_id"),
+                )
+                return False
+            except Exception as exc:  # noqa: BLE001 - interjection is optional.
+                self._record_stream_interjection_failure(
+                    event,
+                    reason="task_stream_delivery_failed",
+                    exception=exc,
+                    user_visible_action="continue_core_stream",
+                )
+                logger.warning(
+                    "Task stream interjection failed; continuing core turn: turn_id=%s error=%s",
+                    event.get_extra("_turn_id"),
+                    exc,
+                    exc_info=True,
+                )
+                return False
+            return True
         message.type = "interaction_stream_reply"
         message = await self._prepare_model_expression(
             event,
@@ -3372,6 +3622,16 @@ class InteractionOutputController:
             return
 
         core_result_text = message.get_plain_text()
+        if self._uses_task_stream(event):
+            await self._stream_task_reply(
+                event, message_kind="core_reply",
+                request=PersonaExpressionRequest.core_final(
+                    core_result_text, immediate_reply=get_interaction_turn_immediate_reply(event),
+                ),
+            )
+            self._materialize_finalized_turn(event)
+            await self._persist_interaction_turn(event)
+            return
         try:
             result = await self._render_visible_reply(
                 event,
@@ -3512,6 +3772,11 @@ class InteractionOutputController:
         event: AstrMessageEvent,
     ) -> None:
         """Deliver an existing Core result without Persona rewriting it."""
+        if self._uses_task_stream(event):
+            await self._stream_task_reply(event, message_kind="core_reply", text=source_message.get_plain_text())
+            self._materialize_finalized_turn(event)
+            await self._persist_interaction_turn(event)
+            return
         await self._deliver_core_final_message(
             source_message,
             source_message,
