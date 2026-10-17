@@ -591,6 +591,81 @@ class InteractionOutputController:
                         continue
                     closed.add(resource)
 
+        async def settle_incremental_background_tasks() -> None:
+            """Bound optional PCM/motion cleanup so text can finish promptly."""
+            nonlocal incremental_pcm_aborted, incremental_pcm_error
+            resource_failure = False
+
+            pending_puts = tuple(incremental_pcm_pending_put_tasks)
+            if pending_puts:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending_puts, return_exceptions=True),
+                        timeout=0.1,
+                    )
+                except asyncio.TimeoutError:
+                    resource_failure = True
+                    for task in pending_puts:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*pending_puts, return_exceptions=True)
+
+            if incremental_pcm_task is not None and not incremental_pcm_task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(incremental_pcm_task),
+                        timeout=1.0,
+                    )
+                except asyncio.TimeoutError:
+                    resource_failure = True
+                    incremental_pcm_aborted = True
+                    incremental_pcm_task.cancel()
+                    await asyncio.gather(incremental_pcm_task, return_exceptions=True)
+                except BaseException as exc:  # noqa: BLE001 - text remains primary.
+                    resource_failure = True
+                    incremental_pcm_error = incremental_pcm_error or exc
+            elif incremental_pcm_task is not None:
+                try:
+                    await incremental_pcm_task
+                except BaseException as exc:  # noqa: BLE001 - text remains primary.
+                    resource_failure = True
+                    incremental_pcm_error = incremental_pcm_error or exc
+
+            pending_motion = tuple(
+                task for task in incremental_motion_tasks if not task.done()
+            )
+            if pending_motion:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*pending_motion, return_exceptions=True),
+                        timeout=1.0,
+                    )
+                except asyncio.TimeoutError:
+                    resource_failure = True
+                    for task in pending_motion:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*pending_motion, return_exceptions=True)
+            motion_results = await asyncio.gather(
+                *incremental_motion_tasks,
+                return_exceptions=True,
+            )
+            if any(
+                isinstance(result, BaseException)
+                and not isinstance(result, asyncio.CancelledError)
+                for result in motion_results
+            ):
+                resource_failure = True
+            if resource_failure:
+                platform_extras["persona_stream"]["tts_status"] = "failed" if (
+                    incremental_pcm_error is not None
+                    or incremental_pcm_aborted
+                ) else platform_extras["persona_stream"].get("tts_status", "not_attempted")
+                await close_incremental_resources(
+                    status="failed",
+                    reason="incremental_optional_resource_timeout",
+                )
+
         async def start_incremental_output(persona_result_id: str) -> None:
             nonlocal incremental_writer, incremental_pcm_queue, incremental_pcm_task
             if not is_olv_segment_stream:
@@ -1239,9 +1314,15 @@ class InteractionOutputController:
                             "_interaction_persona_stream_motion_downlink_indexes",
                             set(),
                         )
+                        legacy_delivery_ack_unavailable = not callable(
+                            getattr(event, "send_message_with_extras", None)
+                        )
                         if (
-                            isinstance(accepted_motion_indexes, set)
-                            and segment_index in accepted_motion_indexes
+                            (
+                                isinstance(accepted_motion_indexes, set)
+                                and segment_index in accepted_motion_indexes
+                            )
+                            or legacy_delivery_ack_unavailable
                         ):
                             state["legacy_delivered_motion_segment_indexes"].add(
                                 segment_index
@@ -1300,19 +1381,37 @@ class InteractionOutputController:
             ]
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
-            if emitted_text or motion_count:
+            # For WebChat, Persona actions are part of the accepted result even
+            # when no separate motion downlink exists.  OLV keeps the stricter
+            # rule: an action is materialized only after the adapter accepts it.
+            preserve_unmaterialized_persona_state = (
+                status == "completed" and not is_olv_segment_stream
+            )
+            if emitted_text or motion_count or state["segments"]:
                 mappings = []
                 for segment_index, segment in enumerate(state["segments"]):
                     text_delivered = bool(segment.get("speech")) and "".join(
                         state["delivered_segment_parts"].get(segment_index, [])
                     ) == segment["speech"]
                     motion_delivered = segment_index in delivered_motion_indexes
-                    if not text_delivered and not motion_delivered:
+                    has_persona_state = bool(
+                        segment.get("actions")
+                        or segment.get("thought")
+                        or segment.get("tendency")
+                    )
+                    if (
+                        not text_delivered
+                        and not motion_delivered
+                        and not (
+                            preserve_unmaterialized_persona_state
+                            and has_persona_state
+                        )
+                    ):
                         continue
                     delivered_segment = deepcopy(segment)
                     if not text_delivered:
                         delivered_segment["speech"] = ""
-                    if not motion_delivered:
+                    if not motion_delivered and not preserve_unmaterialized_persona_state:
                         delivered_segment["actions"] = []
                     mappings.append(delivered_segment)
                 set_interaction_turn_immediate_persona_state(
@@ -1482,15 +1581,7 @@ class InteractionOutputController:
                 *([delivery_task] if delivery_task is not None else []),
             )
             await asyncio.shield(children)
-            if incremental_pcm_pending_put_tasks:
-                await asyncio.gather(
-                    *tuple(incremental_pcm_pending_put_tasks),
-                    return_exceptions=True,
-                )
-            if incremental_pcm_task is not None:
-                await asyncio.shield(incremental_pcm_task)
-            if incremental_motion_tasks:
-                await asyncio.gather(*incremental_motion_tasks)
+            await settle_incremental_background_tasks()
         except asyncio.CancelledError:
             state["status"] = "cancelled"
             platform_extras["persona_stream"]["status"] = "cancelled"
@@ -5040,7 +5131,11 @@ class InteractionOutputController:
         receipt: Mapping[str, Any],
     ) -> None:
         try:
-            event.trace.record("interaction_output_delivery_receipt", **receipt)
+            trace = getattr(event, "trace", None)
+            record = getattr(trace, "record", None)
+            if not callable(record):
+                return
+            record("interaction_output_delivery_receipt", **receipt)
         except Exception:
             logger.debug(
                 "Failed to record output delivery receipt trace: turn_id=%s",
@@ -5102,7 +5197,11 @@ class InteractionOutputController:
         if turn_state is None:
             return
         try:
-            event.trace.record(
+            trace = getattr(event, "trace", None)
+            record = getattr(trace, "record", None)
+            if not callable(record):
+                return
+            record(
                 "interaction_output_segment",
                 turn_id=turn_state.turn_id,
                 origin=str(event.get_extra(OUTPUT_ORIGIN_EXTRA_KEY, "") or ""),

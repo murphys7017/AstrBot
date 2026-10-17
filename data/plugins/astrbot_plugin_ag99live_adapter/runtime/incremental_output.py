@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
 from time import perf_counter, time_ns
+from typing import Any, Literal
 from uuid import uuid4
 
 from astrbot.api import logger
@@ -118,7 +118,12 @@ class IncrementalOutputSession:
             raise RuntimeError("incremental_output_failed_no_retry")
         self._guard_open()
 
-    async def _send_once(self, payload: dict[str, Any] | bytes) -> None:
+    async def _send_once(
+        self,
+        payload: dict[str, Any] | bytes,
+        *,
+        counts_as_output: bool = True,
+    ) -> None:
         try:
             self._require_open()
             if not await self._send_payload(payload):
@@ -129,7 +134,8 @@ class IncrementalOutputSession:
             # Never retry the same sequence or replay its accepted samples.
             self._broken = True
             raise
-        self.has_output = True
+        if counts_as_output:
+            self.has_output = True
 
     def require_complete(self) -> None:
         self._require_open()
@@ -186,7 +192,8 @@ class IncrementalOutputSession:
                 source=SOURCE_ADAPTER,
                 turn_id=self.turn_id,
                 payload=payload,
-            )
+            ),
+            counts_as_output=kind in {"delta", "update"},
         )
 
     async def start_stream(

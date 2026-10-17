@@ -2344,3 +2344,31 @@ olv_action_only_playback_ack_20261017:
   scope: "Action-only OLV turns await the existing desktop playback_finished -> turn_finished result after synth_finished before Core marks the turn successful. Playback failure is propagated; a 30 s missing-ack timeout interrupts and fails the turn. A published stream with no delivered modality is closed and marked failed rather than finalized as a silent success. Text-bearing turns keep optional motion semantics and do not await animation playback."
   validation: "Adapter public coordinator wait observes successful and failed terminal results. PlatformEvent waits after synth_finished and propagates playback failure/timeout; Core closes a published stream that produced no modality and marks it failed instead of silent success. Seven focused Core and seven Adapter boundary checks passed; scoped Ruff/diff checks passed."
   evidence_gap: "No live Electron/Live2D acceptance, playback failure, or timeout run. Existing frontend timeline determines success after local execution settles. Preserve user contributor guard, original stream test and history edits."
+
+olv_stream_output_lifecycle_fix_20261017:
+  class: bugfix
+  risk: high
+  status: implemented_pending_live_acceptance
+  scope: >-
+    Keep incremental output accounting based on real text/audio/motion data,
+    preserve completed WebChat Persona state including empty action segments,
+    make trace recording optional for lightweight StreamEvent objects, and
+    settle optional PCM/motion tasks within bounded cleanup windows so they do
+    not hold the text result or Turn terminal state. Replace the Adapter
+    WebSocket priority queue with a bounded FIFO writer so terminal control
+    frames cannot overtake data frames. Non-stream deferred motion gets a
+    short readiness window and is sent inline when ready; otherwise the
+    existing pending side-channel remains available.
+  validation: >-
+    tests/unit/test_olv_incremental_output.py: 7 passed. Tests/unit/
+    test_persona_segment_stream.py: 9 passed. Scoped Ruff, compileall and
+    git diff checks passed. A fake WebSocket client verified text, PCM and
+    synth_finished preserve enqueue order. The broader interaction plugin
+    suite retained two unrelated failures in existing hook/stream-policy
+    fixtures.
+  evidence_gap: >-
+    No live Provider, Electron PCM playback, or Live2D acceptance after host
+    reload. The bounded one-second optional-resource grace period is a design
+    tradeoff: a motion provider slower than that is reported as optional
+    failure while visible text remains successful. Preserve user-owned dirty
+    changes and contributor admission policy.

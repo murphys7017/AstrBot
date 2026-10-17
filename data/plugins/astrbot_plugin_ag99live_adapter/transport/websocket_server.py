@@ -7,8 +7,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from astrbot.api import logger
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+
+from astrbot.api import logger
 
 from ..protocol.builder import (
     build_control_error,
@@ -19,7 +20,6 @@ from ..protocol.builder import (
 
 @dataclass(order=True, slots=True)
 class _OutboundItem:
-    priority: int
     sequence: int
     payload: dict[str, Any] | bytes = field(compare=False)
     result: asyncio.Future[bool] = field(compare=False)
@@ -65,7 +65,7 @@ class WebSocketTransport:
 
         self._ws_server = None
         self._ws_client = None
-        self._outbound_queue: asyncio.PriorityQueue[_OutboundItem] | None = None
+        self._outbound_queue: asyncio.Queue[_OutboundItem] | None = None
         self._outbound_writer_task: asyncio.Task | None = None
         self._outbound_sequence = 0
 
@@ -177,7 +177,12 @@ class WebSocketTransport:
         return send_bound
 
     def _start_outbound_writer(self, client) -> None:
-        self._outbound_queue = asyncio.PriorityQueue()
+        # A single FIFO writer is the ordering boundary for the protocol.  A
+        # priority queue lets terminal control frames jump over already queued
+        # text, motion, or PCM frames, which leaves the desktop observing an
+        # impossible stream state.  Keep the queue bounded so a slow socket
+        # applies backpressure instead of retaining an unbounded audio burst.
+        self._outbound_queue = asyncio.Queue(maxsize=256)
         self._outbound_sequence = 0
         self._outbound_writer_task = asyncio.create_task(
             self._run_outbound_writer(client),
@@ -202,19 +207,28 @@ class WebSocketTransport:
                     item.result.set_result(False)
 
     async def _enqueue_payload(self, client, payload: dict[str, Any] | bytes) -> bool:
-        if self._ws_client is not client or self._outbound_queue is None:
+        queue = self._outbound_queue
+        if self._ws_client is not client or queue is None:
             return False
         loop = asyncio.get_running_loop()
         result = loop.create_future()
         self._outbound_sequence += 1
         item = _OutboundItem(
-            self._payload_priority(payload),
             self._outbound_sequence,
             payload,
             result,
         )
         try:
-            await self._outbound_queue.put(item)
+            while True:
+                if self._ws_client is not client or self._outbound_queue is not queue:
+                    if not result.done():
+                        result.set_result(False)
+                    return False
+                try:
+                    await asyncio.wait_for(queue.put(item), timeout=0.25)
+                    break
+                except asyncio.TimeoutError:
+                    continue
             return await result
         except asyncio.CancelledError:
             if not result.done():
@@ -246,15 +260,6 @@ class WebSocketTransport:
                 item = queue.get_nowait()
                 if not item.result.done():
                     item.result.set_result(False)
-
-    @staticmethod
-    def _payload_priority(payload: dict[str, Any] | bytes) -> int:
-        if isinstance(payload, bytes):
-            return 2
-        message_type = str(payload.get("type") or "")
-        if message_type.startswith("control."):
-            return 0
-        return 1
 
     async def _send_payload_to_client(self, client, payload: dict[str, Any] | bytes) -> bool:
         payload_type = payload.get("type", "<unknown>") if isinstance(payload, dict) else "binary"

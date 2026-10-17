@@ -1481,6 +1481,20 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         status: str,
     ) -> None:
+        # A provider/task can be cancelled after the stream has already
+        # delivered visible text or an accepted motion-only segment.  In that
+        # case the user-visible Turn is complete; treating the late producer
+        # cancellation as the Turn result loses the output that was delivered.
+        delivered_reply = bool(get_interaction_turn_immediate_reply(event))
+        delivered_motion = has_delivered_motion_output(
+            get_interaction_turn_visible_outputs(event)
+        )
+        if delivered_reply or delivered_motion:
+            completed = await self._complete_visible_turn_or_record_failure(event)
+            if completed:
+                await self._finalize_turn(event)
+            event.stop_event()
+            return
         if status == "failed":
             # No output was published, so a playback acknowledgement cannot arrive.
             await event.abort_visible_turn(
