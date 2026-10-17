@@ -159,8 +159,8 @@ async def test_terminal_observer_and_legacy_extensions_have_stream_scoped_admiss
         assert context.list_persona_effects(event=event) == []
         assert context.list_interaction_result_contributors(event=event) == []
         event.set_extra("_interaction_persona_segment_stream_active", False)
-        assert len(context.list_persona_effects(event=event)) == 1
-        assert len(context.list_interaction_result_contributors(event=event)) == 1
+        assert context.list_persona_effects(event=event) == []
+        assert context.list_interaction_result_contributors(event=event) == []
     finally:
         for handler in handlers:
             star_handlers_registry.remove(handler)

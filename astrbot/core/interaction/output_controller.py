@@ -31,6 +31,7 @@ from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordi
 from astrbot.core.persona_stream_policy import (
     is_olv_persona_stream,
     is_olv_persona_stream_scope,
+    skip_incompatible_stream_capability,
 )
 from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -1884,13 +1885,30 @@ class InteractionOutputController:
             and not is_olv_segment_stream
         ):
             raise InteractionExpressionError("persona_stream_safety_filter_unsupported")
-        if not is_olv_persona_stream(event):
-            list_contributors = getattr(
-                self.plugin_context,
-                "list_interaction_result_contributors",
-                None,
-            )
-            if callable(list_contributors) and list_contributors(event=event):
+        list_contributors = getattr(
+            self.plugin_context,
+            "list_interaction_result_contributors",
+            None,
+        )
+        contributors = (
+            list_contributors(event=event)
+            if callable(list_contributors)
+            else []
+        )
+        if contributors:
+            if is_olv_persona_stream_scope(event):
+                for contributor in contributors:
+                    skip_incompatible_stream_capability(
+                        event,
+                        kind="result_contributor",
+                        name=str(
+                            getattr(contributor, "plugin_id", None)
+                            or getattr(contributor, "name", None)
+                            or type(contributor).__name__
+                        ),
+                        include_requested=True,
+                    )
+            elif not is_olv_persona_stream(event):
                 raise InteractionExpressionError(
                     "persona_stream_output_contributors_unsupported"
                 )

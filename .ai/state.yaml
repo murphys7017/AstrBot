@@ -2484,17 +2484,14 @@ olv_stream_requested_lifecycle_continuity_20261018:
     Treat a requested OLV Persona stream as the capability-isolation scope for
     the whole interaction turn, while retaining the active flag for the
     invocation-local Persona context and motion scheduling. Skip incompatible
-    lifecycle/decorating Hooks after active is cleared, keep result contributors
-    rejected at the existing boundary, and record task-stream aborts as
-    structured failures.
+    lifecycle/decorating Hooks, Persona effects and result contributors after
+    active is cleared, and record task-stream aborts as structured failures.
   validation: >-
     Updated OLV admission and expression-agent boundary checks so an unsafe
-    decorator/lifecycle Hook is skipped after the Persona phase and both safe
-    and unsafe requested OLV lifecycle fixtures continue to the Provider.
-    OLV admission and Persona stream suites passed (13 tests), targeted
-    expression-agent checks passed (2 tests), interaction plugin runtime
-    regression passed (60 tests), and changed-file Ruff, compileall and diff
-    checks passed.
+    decorator/lifecycle Hook, Persona effect and result contributor is skipped
+    after the Persona phase. OLV admission, Persona stream, contributor-boundary
+    and interaction plugin runtime suites pass; changed-file Ruff, compileall
+    and diff checks pass.
   evidence_gap: >-
     No AstrBot restart or live Hybrid/desktop playback acceptance after this
     change. Existing .jspace/history.json remains user-owned worktree state.

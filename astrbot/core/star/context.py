@@ -1466,6 +1466,7 @@ class Context:
                 event,
                 kind="persona_effect",
                 name=f"{registration.effect.plugin_id}:{registration.effect.name}",
+                include_requested=True,
             )
             and self._persona_effect_matches_event(registration, event)
         ]
@@ -1686,6 +1687,7 @@ class Context:
                     event,
                     kind="result_contributor",
                     name=registration.plugin_id,
+                    include_requested=True,
                 )
             )
             and self._interaction_contributor_matches_event(registration, event)
