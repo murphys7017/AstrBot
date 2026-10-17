@@ -208,11 +208,11 @@ class CapabilityResolver:
                     persona=persona,
                 )
 
-        candidate_toolset = ToolSet()
+        candidate_groups: list[list[FunctionTool]] = []
         if not isinstance(request_toolset, ToolSet) or include_registered_tools:
-            candidate_toolset.merge(ToolSet(registered_candidates))
+            candidate_groups.append(registered_candidates)
         if isinstance(request_toolset, ToolSet):
-            candidate_toolset.merge(request_toolset)
+            candidate_groups.append(list(request_toolset))
         if isinstance(request_toolset, ToolSet):
             selection_mode = (
                 f"provider_request+{selection_mode}"
@@ -220,17 +220,47 @@ class CapabilityResolver:
                 else "provider_request"
             )
 
+        with measure_runtime_stage(
+            event,
+            "capability.candidates",
+            target=target,
+            registered_count=len(registered_candidates),
+            request_count=len(request_toolset) if isinstance(request_toolset, ToolSet) else 0,
+        ):
+            candidates = self._merge_candidate_groups(*candidate_groups)
+
         return self._resolve_candidates(
             event=event,
             target=target,
             persona_id=persona_id,
             selection_mode=selection_mode,
-            candidates=list(candidate_toolset),
+            candidates=candidates,
             pre_decisions=pre_decisions,
             excluded_tool_names=excluded_tool_names,
             exclude_handoff_tools=exclude_handoff_tools,
             include_tool_schema=include_tool_schema,
         )
+
+    @staticmethod
+    def _merge_candidate_groups(
+        *groups: list[FunctionTool],
+    ) -> list[FunctionTool]:
+        """Merge tools in order while preserving ToolSet.add_tool conflict rules."""
+        candidates: list[FunctionTool] = []
+        positions: dict[str, int] = {}
+        for group in groups:
+            for tool in group:
+                position = positions.get(tool.name)
+                if position is None:
+                    positions[tool.name] = len(candidates)
+                    candidates.append(tool)
+                    continue
+                existing = candidates[position]
+                existing_active = bool(getattr(existing, "active", True))
+                new_active = bool(getattr(tool, "active", True))
+                if new_active or not existing_active:
+                    candidates[position] = tool
+        return candidates
 
     def resolve_explicit_toolset(
         self,
