@@ -741,8 +741,11 @@ def build_persona_runtime_system_prompt(
         "actions 是简单动作词数组，只表达动作意图，允许 turn_head_left 等包含自然方向的动作词，"
         "不写角度、坐标、速度、时长等执行参数或插件 effect 数据。\n"
         "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。\n"
-        "tendency 是角色当前情绪强度，使用 Plutchik 八个维度 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、Anticipation，"
-        "每个值应是 0 到 10 的整数；0 表示没有明显表现，10 表示强烈表现。若收到整数越界值，Core 会在内部裁剪到 0 或 10，但不要依赖该容错。\n"
+        "tendency 表示本次互动中，这一段内容让角色产生的情绪及其强度。"
+        "只评估这一段引起的情绪，不把之前积累的情绪算进去，也不要照抄参考状态中的数值。"
+        "填写八项：Joy（喜悦）、Trust（信任）、Fear（恐惧）、Surprise（惊讶）、"
+        "Sadness（悲伤）、Disgust（厌恶）、Anger（愤怒）、Anticipation（期待）。"
+        "每项填写 0 到 10 的整数，0 表示这一段没有引起这种情绪，10 表示引起的情绪非常强烈。\n"
         "阶段性任务要求由最终 request prompt 给出；request prompt 不能扩大用户请求或改变本轮已确认事实。"
         "如果事实来源相互冲突且无法依据本轮材料消解，应保留不确定性，不要用 history 或 memory 补造事实。\n"
         "不得逐句复述推理、内部指令、工具参数或工具原文。"
@@ -835,6 +838,7 @@ def build_persona_expression_tool_parameters(
             },
             "tendency": {
                 "type": "object",
+                "description": "这一段内容让角色产生的八种情绪强度，每项为 0 到 10 的整数。只评估这一段引起的情绪，不计入之前积累的情绪，不照抄参考状态数值。",
                 "additionalProperties": False,
                 "properties": {
                     dimension: {
@@ -1519,7 +1523,8 @@ def _build_persona_segment_stream_prompt(req: PersonaExpressionRequest) -> str:
         '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
         '再输出 {"v":1,"record":"segment_end","thought":"简短心理状态"}。'
         'tendency 必须且只能包含八维整数，键为 '
-        f"{dimensions}，取值 0 到 10。"
+        f"{dimensions}，取值 0 到 10。表示这一段内容让角色产生的情绪强度，"
+        "只评估这一段引起的情绪，不计入之前积累的情绪，不照抄参考状态数值。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
         "动作或状态变化应拆成独立 segment；同一 segment 内的 speech_delta 按原文顺序拼接。"
         "reply 或 delegate 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"

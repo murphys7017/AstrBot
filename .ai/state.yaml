@@ -2495,3 +2495,28 @@ olv_stream_requested_lifecycle_continuity_20261018:
   evidence_gap: >-
     No AstrBot restart or live Hybrid/desktop playback acceptance after this
     change. Existing .jspace/history.json remains user-owned worktree state.
+
+neurobrain_application_simplification_20261018:
+  class: refactor
+  risk: high
+  scope: >-
+    User-authorized single in-process NeuroBrain model thread; eight-emotion input
+    and parameterless current-state read. Remove scope/key/result-wait APIs and
+    configuration. AstrBot submits terminal Persona segments without inference
+    waits; AG99live segment, passive and pre-action callers read published state.
+    Preserve other worktree changes and disabled passive feature; no model or
+    training changes, service restart, external publication or commit.
+  validation: >-
+    Real configured checkpoint loaded on CUDA in an isolated worker. Idle stepping,
+    queued input, clamping, detached snapshots and invalid input rejection passed.
+    2000 reads: median 0.0065 ms, p99 0.0317 ms. Two existing AG99live current-state
+    boundary checks passed. Scoped Ruff and plugin structure check passed.
+  evidence_gap: >-
+    No live AstrBot reload, chat Provider request or Electron/Live2D acceptance.
+    Runtime worker and updated callers must be reloaded together. Existing
+    .jspace/history.json and preceding state entries belong to other work.
+  review_validation: >-
+    Fixed independent tick scheduling and worker liveness reporting. Real CUDA
+    checkpoint recheck passed ordered inputs on separate ticks, subsequent idle
+    advancement, nonblocking reads, clamp/rejection and clean worker shutdown.
+    No live application reload or desktop acceptance.

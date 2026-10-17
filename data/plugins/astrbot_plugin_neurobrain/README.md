@@ -1,6 +1,6 @@
 # NeuroBrain for AstrBot
 
-AstrBot owns Persona's eight-dimensional `tendency` input. This plugin updates an in-process NeuroBrain session after each Persona result, reads the latest state into every eligible model prompt, and exposes a read-only API to other AstrBot plugins. No NeuroBrain service or WebSocket connection is required.
+AstrBot owns Persona's eight-dimensional `tendency` input. This plugin runs one NeuroBrain model on a dedicated thread, submits Persona emotions without waiting for inference, and reads its current state into eligible prompts. Other plugins have read-only access. No NeuroBrain service or WebSocket connection is required.
 
 This plugin targets the customized AstrBot 4.29.0-beta.1 environment used by this project. It is not a compatibility claim for unmodified upstream AstrBot.
 
@@ -21,31 +21,34 @@ NeuroBrain is installed from a local repository and is not pinned as an AstrBot 
 
 In the plugin settings, set `checkpoint_path` to a trained checkpoint for the Persona being used. The repository's current `kurisu-two-volumes-baseline-cfc512.pt` checkpoint was trained from Kurisu material; do not use it as an Alice pro checkpoint. Leave the path empty until a suitable checkpoint is available. `device=auto` selects CUDA when PyTorch reports it available and otherwise uses CPU.
 
-The model loads when AstrBot loads or hot-reloads the plugin, so saving the plugin configuration applies a new `checkpoint_path`, device, or delta interval on the next reload. Runtime state is in memory and starts fresh after a plugin reload. For the configured default Persona, NeuroBrain creates a readable baseline by processing one all-zero tendency input after loading; subsequent Persona results advance that same state. Persona updates run through NeuroBrain's asynchronous state store, with inference dispatched to a worker thread. Prompt collection is dynamic and reads the latest snapshot on every prompt build; reads never advance model state. If no checkpoint is configured or loading fails, the plugin logs the reason and omits NeuroBrain state from prompts.
+The model loads on its dedicated thread when the plugin initializes. It publishes an initial snapshot before becoming ready and keeps evolving without new inputs. `delta_seconds` is the positive internal update interval in seconds (default `1.0`). Each tick consumes the next queued emotion, or uses zero stimulus if the queue is empty. Input submissions do not reset the tick clock; overdue ticks are skipped instead of triggering a catch-up burst. Model/checkpoint math and the tendency converter are unchanged.
+
+Input and reading are independent. AstrBot submits exactly eight integer emotions from `0` through `10`; the converter clamps out-of-range integers and normalizes to `0..1`. The model thread processes queued inputs in order. Each completed update replaces the published snapshot as a whole. Reads copy the last complete snapshot immediately, never wait for inference, and never advance the model. Runtime state is in memory and starts fresh after reload. A missing or invalid checkpoint leaves the plugin unready; startup errors are logged.
 
 Prompt extensions follow AstrBot's plugin admission policy. The default `plugin_set=["*"]` allows this plugin; if using a plugin whitelist, include `astrbot_plugin_neurobrain` and ensure the current session has not disabled it.
 
-## State Scope
+## Application API
 
-`state_scope` determines which continuous state is updated and read:
+There is one model and one current state. No session ID, Persona ID, state key, result ID, or result-wait API is needed.
 
-- `persona`: one state per active Persona; this is the default.
-- `conversation`: one state per AstrBot conversation.
-- `global`: one state shared by all conversations.
+AstrBot owns emotion input; the Persona result hook submits each segment once:
 
-Each Persona speech segment advances the selected state once. AstrBot's tendency converter clamps integer values below `0` to `0` and above `10` to `10`, then normalizes them to NeuroBrain's `0..1` inputs.
+```python
+plugin.submit_emotion({
+    "Joy": 3, "Trust": 4, "Fear": 0, "Surprise": 1,
+    "Sadness": 0, "Disgust": 0, "Anger": 0, "Anticipation": 2,
+})
+```
 
-## Read-Only API
-
-Other plugins can read current snapshots without advancing NeuroBrain:
+Other plugins only read:
 
 ```python
 metadata = context.get_registered_star("astrbot_plugin_neurobrain")
 plugin = metadata.star_cls if metadata is not None else None
-state = plugin.readonly_api.get_state("persona:Alice pro") if plugin else None
+state = plugin.readonly_api.get_state() if plugin else None
 ```
 
-`get_state()`, `list_states()`, and `fetch_state()` read the in-process state. `wait_for_persona_result()` waits for the update associated with one AstrBot Persona result and returns that result's snapshot; AG99live uses this on its third motion chain. State writes remain owned by the NeuroBrain plugin.
+The detached snapshot contains `emotion`, `behavior`, `step`, `protocol_version`, `updated_at`, and `last_tendency`. `None` means the model has not initialized (or the plugin has stopped), not that an update is in progress. Both AstrBot prompts and AG99live read current state independently of the current Persona result. No separate server is used.
 
 ## License
 

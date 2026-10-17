@@ -5,7 +5,7 @@
     "default": true
   },
   "checkpoint_path": {
-    "description": "NeuroBrain 模型 checkpoint 文件路径；请使用适用于当前 Persona 的模型",
+    "description": "当前单一人格使用的 NeuroBrain checkpoint 文件路径",
     "type": "string",
     "default": ""
   },
@@ -13,24 +13,18 @@
     "description": "推理设备；auto 会在 CUDA 可用时使用 GPU",
     "type": "string",
     "default": "auto",
-    "options": ["auto", "cuda", "cuda:0", "cpu"]
+    "options": [
+      "auto",
+      "cuda",
+      "cuda:0",
+      "cpu"
+    ]
   },
   "delta_seconds": {
-    "description": "每个 Persona 分段推进 NeuroBrain 的模拟时间间隔（秒）",
+    "description": "内部更新间隔（秒）；没有新情绪输入时也持续推进状态",
     "type": "float",
     "default": 1.0,
-    "minimum": 0.0,
+    "minimum": 0.01,
     "maximum": 60.0
-  },
-  "state_scope": {
-    "description": "NeuroBrain 连续状态隔离方式",
-    "type": "string",
-    "default": "persona",
-    "options": ["global", "persona", "conversation"]
-  },
-  "default_persona_id": {
-    "description": "无法从当前轮次读取角色 ID 时使用的角色名",
-    "type": "string",
-    "default": "Alice pro"
   }
 }
