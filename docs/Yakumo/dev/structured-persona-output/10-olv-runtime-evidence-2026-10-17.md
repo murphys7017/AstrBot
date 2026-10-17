@@ -82,3 +82,22 @@ writer 用事件 `_turn_id` 与映射值比较；若输入 message ID 和实际 
 在 Core 根目录用 `rg -n` 搜索两个 Core Turn ID、两个 frontend Turn ID、`incremental_output_turn_binding_invalid` 和 `desktop_runtime_settings_synced`。只输出需要的诊断行，不输出整份 trace 或包含截图/base64 的请求正文。
 
 桌面 jsonl 按 turnId 取 capture 及第一条 playback 事件，逐条保留行号；后续 playback 是第二段，不应重复计作首响。跨 renderer 重启或采集事件缺失的样本标记 unusable，不用最近一条其他 Turn 事件代替。
+
+## 8. 03:36 只读复核：后续普通模式样本
+
+本节是随后实施期间对同两份日志的只读补充，不修改前文历史数值。桌面设置诊断仍为 False，所列 Turn 使用完整 `output.segment` 物化；没有本批成功 M2 现场对照。只取最近六个同时有 `capture_stop_requested` 和首个 `audio_started` 的 Turn，要求二者 `timeOriginMs` 相同；不拿未匹配的采集/取消事件补齐样本，也不把隔离探针计入现场。
+
+| frontend Turn 后缀 | 松手→首音频回调 | 松手→发送 end | 播放准备→起播回调 |
+| --- | ---: | ---: | ---: |
+| 39b450370 | 4351.9 ms | 15.6 ms | 50.5 ms |
+| 543a6b54 | 3819.3 ms | 14.8 ms | 32.9 ms |
+| 61a742288 | 5070.4 ms | 13.7 ms | 47.9 ms |
+| 52062ddc | 4772.8 ms | 14.0 ms | 177.3 ms |
+| a2813b21 | 4187.8 ms | 14.5 ms | 49.6 ms |
+| 3bec40b9 | 3259.1 ms | 13.0 ms | 37.8 ms |
+
+表中完整首尾 Turn 分别为 `input:9db327a284714040811533139b450370`、`input:96395113509d4153bec6e0a587bc40b9`；其余可用后缀搜索。六轮同属 renderer `timeOriginMs=1792177571025.2`，没有记录本轮截图阶段。更早两轮有截图事件，发送 end 分别约 512.7/696.9 ms，不能与这六轮混作完全同配置 A/B。
+
+最后一轮在 03:12:19.089 记录首音频回调，3.26 秒与用户“三秒左右”的体验相符。六轮耗时仍有波动，输入/输出长度和上下文不相同；不计算改造收益百分比、不称为稳定 p95，也不将普通音频回调视为硬件测量。此后日志仍有设置/采集事件，但截至复核没有新的 M2 专属增量阶段。
+
+同批 `input:34f88a10fa7a419ea11243f7a2813b21` 的首段在 03:12:04.882 有 audio_started，03:12:05.467 有 motion_ended，却没有本段 motion_started；第二段有明确的动作 started/completed。MotionLab 只读查询能找到首段 `speech_only_motion_not_required` 的准备记录，不能据此推断后来的语义动作拒绝原因。旧埋点把动作失败/打断也写成 ended，因此本会话另外拆分成功、失败和打断阶段；历史 ended 不应计为动作成功。该样本的具体拒绝根因仍待有运行版本和拒绝诊断的新现场证据。

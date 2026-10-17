@@ -2274,7 +2274,7 @@ olv_stream_pcm_http_owner_20261017:
   risk: medium
   status: local_websocket_boundary_validated_pending_live_acceptance
   scope: "T4 bounded slice: MiniMax PCM borrows the existing Provider-owned HTTP session/connector instead of constructing one per synthesis. WebSocket and task remain scoped to one call/Turn; termination closes the shared session and rejects later PCM calls through the existing guard."
-  validation: "Two public get_pcm_stream calls against a real local aiohttp WebSocket server each returned matching PCM and flush boundaries; a subsequent call after terminate raised minimax_tts_provider_terminated without opening a third connection. Scoped Ruff passed."
+  validation: "Two public get_pcm_stream calls against a real local aiohttp WebSocket server each returned matching PCM and flush boundaries; a subsequent call after terminate raised minimax_tts_provider_terminated without opening a third connection. A separate active stream waiting for input/receive was woken by terminate and closed its input. Scoped Ruff passed."
   evidence_gap: "No external Provider request or measured connection/setup improvement. HTTP resource/DNS cache ownership reuse is not cross-Turn WebSocket/task reuse. No speculative or paid warmup."
 
 olv_stream_pcm_iterator_close_20261017:

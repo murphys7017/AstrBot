@@ -10,6 +10,8 @@
 
 **随后首批实施已完成：**切片①的 T0b/T1 已提交四项修复，提交及验证细节见 [08 第 12 节](08-olv-full-streaming-execution-plan.md#12-2026-10-17-首批实施记录t0bt1)。以下步骤 B/C 作为行为契约保留，不再视为原样待办；接续工作从 T2 的剩余动作状态与预算开始。现场 M2、真实音频和身体表现仍待验收。
 
+**继续推进后的状态：**切片② T2 和切片③ T3 也已提交，观测已补充；以 08 第 13 节为准。T3 新增双端 audio_credit.v1 协商，必须配套加载 Adapter/桌面后重连。以下步骤 D 和第 4 节仍用于审阅契约，不再作为未实施清单；R6 小记录没有完成。
+
 ## 1. 开始工作前的十条解释规则
 
 1. “流式”必须写清 M0/M1/M2。动作 Provider stream=True 不代表主 Persona 或音频是 M2。
@@ -314,9 +316,10 @@ M1 若只因 fallback 出现，标记 fallback 样本；不能计入 M2 成功�
 | --- | --- | --- | --- | --- | --- |
 | T0 | partial/source_verified | 历史 M1/M0 样本及共享阶段计时已存在，暂无成功 M2 现场对照 | 10、11 文档与新增事件 | M2 首 PCM/消费和运行版本待确认 | 复用观测，补必要模式证据 |
 | T0b | boundary_verified | Live 8e13eb6，真实本地输入→Core→writer | 实际输入身份自然贯通；错误/终态拒绝 | 运行进程及真实 M2 待确认 | 联合现场验收 |
-| T1 | boundary_verified | Core 17cc61ed6 / ed41631f5 / fcc8232cf | 140 段、失败后文本、满队列取消、格式错误、TTS 关闭 | 隔离 Provider 非真实播放/性能 | 接续 T2，保留现场缺口 |
-| T2 | partial/source_verified | R1 顺序已修；R2 与硬预算仍存在 | scheduler + deadline | M2 特殊状态与动作并行现场未验 | 保留修正，补剩余状态 |
-| T3/T6 | pending | 接收队列被播放等待阻塞；动作文本汇总 EOF | 两端容量契约、合法动作记录 | 背压及身体执行契约 | 分片实现并同步两端 |
+| T1 | boundary_verified | Core 17cc61ed6 / ed41631f5 / fcc8232cf；60eaab256 补 ready 前取消 | 140 段、失败后文本、取消、格式错误、TTS 关闭 | 隔离 Provider 非真实播放/性能 | 保留现场缺口 |
+| T2 | boundary_verified | Live bc6d6ca / 5a26dfa；Core e761b3b1d | 空音频动作/失败拒绝、生产 deadline | 真正身体执行及连续段效果未验 | 联合现场验收 |
+| T3 | boundary_verified | Live b4346d1，独立有界 worker + 双端信用 | 真实 WS，阻塞 PCM 仍接纳文本/生成结束 | Provider/声卡与负载现场未验 | 配套加载两端后验收 |
+| T6 | deferred/pending_evidence | 动作 reader 仍聚合完整响应至 EOF | producer/parser/身体 revision 契约 | 小记录稳定性与替换规则尚缺 | 先过收益与依赖门槛 |
 | T4/T5 | partial/shared_foundation | 设备/Memory 缓存准备、摘要和截图优化已做 | 11 第 16 节 | M2 专属连接成本待量化 | 不重复已做工作，不重写上下文 |
 | T7/T8 | deferred | 后续架构候选 | 原任务入口 | 当前用户约束、依赖与收益 | 暂不启动 |
 
