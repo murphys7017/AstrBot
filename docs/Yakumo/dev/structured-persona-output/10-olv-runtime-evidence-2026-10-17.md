@@ -119,3 +119,18 @@ writer 用事件 `_turn_id` 与映射值比较；若输入 message ID 和实际 
 源码闭环：音频 duration-ready 时动作尚未入队，未生成 prepared plan；动作后到走 `queueInboundPayload` 自动尝试启动，`useModelEngine` 没有补准备，`motionStart` 的音频必须预编译条件拒绝。此前 N4 公共边界以直接成功的 motion sink 替代真实 ModelEngine，未覆盖该条件。修复在 ModelEngine 为有效已知时长窗口补编译，并将计划和播放 reader 的起点统一到接入采样；保留原编译及模型/Profile 检查，不直接删除底层拒绝条件。
 
 同一公开案例现使用真实 ModelEngine 和编译器，旧实现复现失败，新实现可启动、相对时钟归零并拒绝耗尽窗口，完整 Electron 构建通过。硬件接口仍为隔离接纳，尚无修复后的真人对话、方向或视觉交接证据；M2 未知时长准备未由本次修复覆盖，03:12 历史缺失原因也不能倒填。
+
+## 10. 15:54 实际 M2：五段动作因未知音频总长被拒绝
+
+本节是随后新现场证据。15:53:56.333 桌面同步流式设置 True；两轮均有实际增量 writer、incremental_text_first、incremental_pcm_first、软件首采样及 PCM drain，因此确实进入 M2。它们是动作失败的真实 M2 样本，不再表述为从未运行 M2，也不能算完整链路成功验收。
+
+| frontend / Core Turn | 软件首采样回调 / 动作失败 | 后续段动作 |
+| --- | --- | --- |
+| input:da978c68362f44b3bb51139678b2a5b7 / 8edc38cb-5635-4533-8618-401a63b63dc8 | 15:54:15.326 / 15.860 | 第 2 段 28.831 起播，28.832 失败 |
+| input:442d6b3787d44f41ad7b893c32a6a0f7 / af3e602b-66e2-4353-a3c8-e7444501a764 | 15:54:48.966 / 49.681 | 第 2 段 54.686 起播/失败；第 3 段 15:55:04.625 起播/失败 |
+
+五段均无 motion_started，所有音频正常 drain；Core 动作 Provider 成功生成并校验 payload，第一动作通过 writer 发出。两个播放回执均失败，原因为 `late_motion_audio_window_unavailable`。PCM 起播时 durationMs=null，音频总长只在 finish(totalSamples) 后发布；ModelEngine 原修正把 null 当作窗口不可用，因此不论动作先到还是后到都会失败，后续 EOF 不重开本地终态。
+
+用户说明未手动更新项目；错误名称证明相应已知时长准备逻辑进入运行，但不证明完整进程等于当前 HEAD。不猜测热更新/自动加载原因，精确运行版本仍标 unknown；不能承诺仅更新 M0 修正就能解决这些 M2 样本。
+
+随后修正允许有效 PCM reader 在总长未知时准备：沿用动作自身的有界时长和同一音频相对时钟，合法曲线按动作时长保留，仍受 Turn/时间线打断与已知过期窗口约束，不等待完整音频。公开增量事件经过 Store、编排器、时间线及真实 ModelEngine/编译器，修正前复现失败，修正后在 audio 流仍 open、总长仍 null 时启动，曲线/相对时钟/打断验证通过。M0 已有成功与过期案例保留；完整 Electron 构建通过。最终设备接口仍为隔离接纳，尚无修复后的真实身体/成功 M2 对话证据。
