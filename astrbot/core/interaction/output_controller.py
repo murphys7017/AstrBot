@@ -503,6 +503,7 @@ class InteractionOutputController:
         incremental_pcm_task: asyncio.Task | None = None
         incremental_pcm_error: BaseException | None = None
         incremental_pcm_aborted = False
+        incremental_pcm_pending_put_tasks: set[asyncio.Task] = set()
         incremental_started_segments: dict[int, str] = {}
         incremental_preparers: dict[int, IncrementalTextPreparer] = {}
         incremental_closed_resources: dict[int, set[str]] = {}
@@ -510,23 +511,48 @@ class InteractionOutputController:
         incremental_motion_tasks: list[asyncio.Task] = []
 
         async def enqueue_pcm(item: PCMTextPart | None) -> bool:
-            """A dead audio consumer must never hold the text producer's queue."""
+            """Feed audio independently; text production never waits for PCM."""
+            nonlocal incremental_pcm_error, incremental_pcm_aborted
             consumer = incremental_pcm_task
             if (
                 incremental_pcm_queue is None or consumer is None
                 or consumer.done() or incremental_pcm_error is not None
             ):
                 return False
-            pending = asyncio.create_task(incremental_pcm_queue.put(item))
+            if item is not None:
+                try:
+                    incremental_pcm_queue.put_nowait(item)
+                    return True
+                except asyncio.QueueFull:
+                    incremental_pcm_aborted = True
+                    incremental_pcm_error = VoiceServiceError(
+                        "pcm_stream_backpressure",
+                        "Incremental PCM queue capacity was exhausted",
+                        stage="interaction.outbound_tts_stream",
+                    )
+                    platform_extras["persona_stream"]["tts_status"] = "failed"
+                    state["tts_failures"].append("pcm_stream_backpressure")
+                    for segment_index in tuple(incremental_started_segments):
+                        await close_incremental_audio(
+                            segment_index,
+                            status="failed",
+                            reason="pcm_stream_backpressure",
+                        )
+                    if not consumer.done():
+                        consumer.cancel()
+                    return False
             try:
-                done, _ = await asyncio.wait(
-                    (pending, consumer), return_when=asyncio.FIRST_COMPLETED,
+                incremental_pcm_queue.put_nowait(None)
+            except asyncio.QueueFull:
+                # The sentinel is ordered after already accepted text.  Let a
+                # small background put finish while the producer continues.
+                pending = asyncio.create_task(
+                    incremental_pcm_queue.put(None),
+                    name="persona-incremental-pcm-close",
                 )
-                return pending in done and not consumer.done()
-            finally:
-                if not pending.done():
-                    pending.cancel()
-                await asyncio.gather(pending, return_exceptions=True)
+                incremental_pcm_pending_put_tasks.add(pending)
+                pending.add_done_callback(incremental_pcm_pending_put_tasks.discard)
+            return True
 
         async def close_incremental_audio(
             segment_index: int, *, status: str = "completed", reason: str = "",
@@ -1407,12 +1433,16 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
+            for pending in tuple(incremental_pcm_pending_put_tasks):
+                if not pending.done():
+                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
@@ -1452,6 +1482,11 @@ class InteractionOutputController:
                 *([delivery_task] if delivery_task is not None else []),
             )
             await asyncio.shield(children)
+            if incremental_pcm_pending_put_tasks:
+                await asyncio.gather(
+                    *tuple(incremental_pcm_pending_put_tasks),
+                    return_exceptions=True,
+                )
             if incremental_pcm_task is not None:
                 await asyncio.shield(incremental_pcm_task)
             if incremental_motion_tasks:
@@ -1469,6 +1504,9 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
+            for pending in tuple(incremental_pcm_pending_put_tasks):
+                if not pending.done():
+                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
@@ -1476,6 +1514,7 @@ class InteractionOutputController:
                 producer_task,
                 *([delivery_task] if delivery_task is not None else []),
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
@@ -1494,12 +1533,16 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
+            for pending in tuple(incremental_pcm_pending_put_tasks):
+                if not pending.done():
+                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
+                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
