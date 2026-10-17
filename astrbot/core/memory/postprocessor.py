@@ -336,7 +336,10 @@ def _resolve_interaction_turn_material(
     if isinstance(ctx.turn_material, dict):
         material_turn_id = _normalize_text(ctx.turn_material.get("turn_id"))
         assistant_text = _normalize_text(ctx.turn_material.get("assistant_text"))
-        if material_turn_id == turn_id and assistant_text:
+        motion_outputs = _delivered_motion_outputs(
+            ctx.turn_material.get("visible_outputs")
+        )
+        if material_turn_id == turn_id and (assistant_text or motion_outputs):
             is_observation = (
                 _normalize_text(ctx.turn_material.get("source")) == "observation"
             )
@@ -348,13 +351,22 @@ def _resolve_interaction_turn_material(
             visible_outputs = [
                 dict(item)
                 for item in ctx.turn_material.get("visible_outputs", [])
-                if isinstance(item, dict) and _normalize_text(item.get("text"))
+                if isinstance(item, dict)
+                and (
+                    _normalize_text(item.get("text"))
+                    or _delivered_motion_outputs([item])
+                )
             ]
+            assistant_message = {"role": "assistant", "content": assistant_text}
+            if motion_outputs:
+                assistant_message["_astrbot_metadata"] = {
+                    "motion_outputs": motion_outputs
+                }
             conversation_id = _resolve_conversation_id(ctx)
             conversation_history = _materialize_current_turn_history(
                 _resolve_base_conversation_history(ctx),
                 user_message,
-                {"role": "assistant", "content": assistant_text},
+                assistant_message,
             )
             return {
                 "conversation_history": conversation_history,
@@ -367,6 +379,31 @@ def _resolve_interaction_turn_material(
                 "visible_outputs": visible_outputs,
             }
     return None
+
+
+def _delivered_motion_outputs(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    outputs: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata")
+        segments = (
+            metadata.get("delivered_motion_segments", [])
+            if isinstance(metadata, dict)
+            else []
+        )
+        if not isinstance(segments, list):
+            continue
+        outputs.extend(
+            dict(segment)
+            for segment in segments
+            if isinstance(segment, dict)
+            and type(segment.get("segment_index")) is int
+            and isinstance(segment.get("actions", []), list)
+        )
+    return outputs[:256]
 
 
 def _resolve_base_conversation_history(ctx: PostProcessContext) -> list[dict[str, Any]]:

@@ -17,6 +17,9 @@ def normalize_message_payload(message: dict[str, Any] | None) -> dict[str, Any]:
     role = str(message.get("role", "") or "")
     content = extract_message_text(message)
     normalized = {"role": role, "content": content}
+    motion_outputs = _normalize_motion_outputs(message)
+    if motion_outputs:
+        normalized["motion_outputs"] = motion_outputs
 
     if name := message.get("name"):
         normalized["name"] = name
@@ -28,10 +31,10 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
         return ""
 
     content = message.get("content")
+    text = ""
     if isinstance(content, str):
-        return _clean_text(_strip_system_reminder(content))
-
-    if isinstance(content, list):
+        text = _clean_text(_strip_system_reminder(content))
+    elif isinstance(content, list):
         parts: list[str] = []
         for item in content:
             if isinstance(item, str):
@@ -46,14 +49,55 @@ def extract_message_text(message: dict[str, Any] | None) -> str:
                 parts.append("[image]")
             elif isinstance(item_type, str) and item_type.strip():
                 parts.append("[attachment]")
-        return _clean_text(
+        text = _clean_text(
             _strip_system_reminder(" ".join(part for part in parts if part))
         )
+    elif content is None and message.get("tool_calls"):
+        text = "[tool_call]"
 
-    if content is None and message.get("tool_calls"):
-        return "[tool_call]"
+    motion_summary = _format_motion_outputs(_normalize_motion_outputs(message))
+    if motion_summary:
+        text = " ".join(part for part in (text, motion_summary) if part)
+    return text
 
-    return ""
+
+def _normalize_motion_outputs(message: dict[str, Any]) -> list[JsonDict]:
+    metadata = message.get("_astrbot_metadata")
+    raw_outputs = metadata.get("motion_outputs") if isinstance(metadata, dict) else None
+    if not isinstance(raw_outputs, list):
+        return []
+    outputs = []
+    for item in raw_outputs[:256]:
+        if not isinstance(item, dict):
+            continue
+        segment_index = item.get("segment_index")
+        if type(segment_index) is not int or segment_index < 0:
+            continue
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        normalized_actions = list(dict.fromkeys(
+            action.strip()
+            for action in actions
+            if isinstance(action, str) and action.strip()
+        ))[:32]
+        outputs.append(
+            {"segment_index": segment_index, "actions": normalized_actions}
+        )
+    return outputs
+
+
+def _format_motion_outputs(outputs: list[JsonDict]) -> str:
+    if not outputs:
+        return ""
+    actions = list(dict.fromkeys(
+        action
+        for item in outputs
+        for action in item.get("actions", [])
+        if isinstance(action, str) and action
+    ))
+    detail = ", ".join(actions) if actions else f"{len(outputs)} segment(s)"
+    return f"[nonverbal motion output: {detail}]"
 
 
 def extract_turn_payloads(

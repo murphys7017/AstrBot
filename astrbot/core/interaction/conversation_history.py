@@ -100,10 +100,34 @@ async def commit_interaction_conversation_turn(
                 assistant_message["_astrbot_metadata"] = dict(assistant_metadata)
             if motion_delivered:
                 # Preserve the delivery fact without inventing spoken text.
-                assistant_message.setdefault("_astrbot_metadata", {})["motion_outputs"] = [
-                    dict(output) for output in turn_material["visible_outputs"]
-                    if has_delivered_motion_output([output])
-                ]
+                motion_outputs = []
+                seen_motion_segments = set()
+                for output in turn_material["visible_outputs"]:
+                    if not has_delivered_motion_output([output]):
+                        continue
+                    metadata = output.get("metadata")
+                    segments = (
+                        metadata.get("delivered_motion_segments", [])
+                        if isinstance(metadata, dict)
+                        else []
+                    )
+                    if not isinstance(segments, list):
+                        continue
+                    for segment in segments:
+                        if not isinstance(segment, dict):
+                            continue
+                        segment_index = segment.get("segment_index")
+                        if (
+                            type(segment_index) is not int
+                            or segment_index in seen_motion_segments
+                        ):
+                            continue
+                        seen_motion_segments.add(segment_index)
+                        motion_outputs.append(dict(segment))
+                if motion_outputs:
+                    assistant_message.setdefault("_astrbot_metadata", {})[
+                        "motion_outputs"
+                    ] = motion_outputs
             if is_observation:
                 await conversation_manager.append_assistant_turn(
                     conversation_id,

@@ -293,6 +293,30 @@ def test_extract_turn_payloads_handles_tool_use_final_assistant():
     assert payloads[0]["assistant_message"]["content"] == "I found the matching docs."
 
 
+def test_extract_turn_payloads_keeps_nonverbal_motion_only_reply():
+    payloads = extract_turn_payloads(
+        [
+            {"role": "user", "content": "请点头。"},
+            {
+                "role": "assistant",
+                "content": "",
+                "_astrbot_metadata": {
+                    "motion_outputs": [
+                        {"segment_index": 0, "actions": ["nod"]}
+                    ]
+                },
+            },
+        ]
+    )
+
+    assert len(payloads) == 1
+    assistant = payloads[0]["assistant_message"]
+    assert assistant["content"] == "[nonverbal motion output: nod]"
+    assert assistant["motion_outputs"] == [
+        {"segment_index": 0, "actions": ["nod"]}
+    ]
+
+
 def test_extract_turn_payloads_handles_multiple_tool_rounds():
     payloads = extract_turn_payloads(
         [

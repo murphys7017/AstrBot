@@ -2321,3 +2321,11 @@ olv_persona_state_delivery_filter_20261017:
   scope: "Build immediate Persona state from successfully delivered modalities only: keep a segment's speech only when its full prepared text was delivered, and keep its actions only when the motion payload was accepted. This prevents failed action intent from being treated as already delivered during Core-final duplicate checks."
   validation: "Focused public Core stream boundary delivered text while motion update was absent; outcome remained text-emitted and immediate segment retained speech while dropping actions. Scoped Ruff/diff passed."
   evidence_gap: "No delegated Core-final live duplicate scenario or real provider/device run. Preserve user contributor guard, original stream test and history edits."
+
+olv_action_only_memory_history_20261017:
+  class: bugfix
+  risk: high
+  status: public_history_boundary_validated_pending_live_acceptance
+  scope: "Persist compact delivered motion segment indexes/actions and carry them through interaction postprocess into the Memory history source. Memory analyzes a labeled nonverbal motion marker while user-facing assistant text remains empty."
+  validation: "Focused public history extraction kept a pure motion-only assistant turn with its action metadata and internal nonverbal marker; Core output and history changes passed scoped Ruff/diff checks."
+  evidence_gap: "No live Memory analyzer/provider run or database acceptance. Preserve user contributor guard, original stream test and history edits."

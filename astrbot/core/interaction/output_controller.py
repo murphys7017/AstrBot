@@ -1247,6 +1247,16 @@ class InteractionOutputController:
                 else frozenset()
             )
             motion_count = len(delivered_motion_indexes)
+            delivered_motion_segments = [
+                {
+                    "segment_index": segment_index,
+                    "actions": list(
+                        state["segments"][segment_index].get("actions", [])
+                    ),
+                }
+                for segment_index in sorted(delivered_motion_indexes)
+                if segment_index < len(state["segments"])
+            ]
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
             if emitted_text or motion_count:
@@ -1294,6 +1304,7 @@ class InteractionOutputController:
                     metadata={
                         "delivered_as": "stream",
                         "delivered_motion_segment_count": motion_count,
+                        "delivered_motion_segments": delivered_motion_segments,
                         "persona_result_id": state["persona_result_id"],
                         "persona_stream_status": status,
                         "tts_status": tts_status,
