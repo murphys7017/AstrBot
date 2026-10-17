@@ -2291,3 +2291,10 @@ olv_incremental_literal_suffix_20261017:
   scope: "At segment EOF, flush a pending literal tag prefix only outside an opened hidden block. Apply the same whole-prefix safety and size limits; publish only finish's new suffix once through the shared text/PCM path before resource end."
   validation: "Public Core controller + real text preparer/parser with an isolated platform sink delivered a cleaned hidden block plus trailing less-than exactly once. Open hidden content and an unsafe final suffix still reject with accepted prefix preserved. Two focused public checks and changed-file Ruff passed."
   evidence_gap: "No paid Provider, actual TTS/audio device or Live2D acceptance. Preserve the user's contributor guard, stream test and history edits."
+olv_incremental_delivered_result_20261017:
+  class: bugfix
+  risk: high
+  status: public_boundary_validated_pending_live_acceptance
+  scope: "Keep decoded raw speech for protocol checks. Store prepared segment speech and construct a detached successful Persona result from delivered segment mappings, preserving action/thought/tendency, effect calls and metadata."
+  validation: "Focused public Core parser/preparer/controller output checks match emitted text, returned speech/speech_segments and turn Persona segment state after removing hidden content and flushing a literal suffix. Changed-file Ruff passed."
+  evidence_gap: "No live dialogue/history persistence or paid model/audio run. User-owned contributor guard and original test/history modifications remain excluded."

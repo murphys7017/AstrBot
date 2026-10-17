@@ -65,6 +65,7 @@ from .expression_agent import (
     PersonaExpressionIntent,
     PersonaExpressionRequest,
     PersonaExpressionResult,
+    PersonaExpressionSegment,
 )
 from .failure_policy import (
     InteractionFailureKind,
@@ -782,6 +783,8 @@ class InteractionOutputController:
                         await publish_incremental_text(
                             segment_index, finished_text[len(accepted_text):],
                         )
+                        segment = dict(segment)
+                        segment["speech"] = finished_text
                         await incremental_writer.end_stream("text", segment_index)
                         incremental_closed_resources[segment_index].add("text")
                         await enqueue_pcm(PCMTextPart(segment_index, None))
@@ -1272,6 +1275,18 @@ class InteractionOutputController:
                 )
 
             expression = state["result"]
+            if status == "completed" and incremental_writer is not None and expression is not None:
+                # The producer's raw result remains authoritative for protocol
+                # checks. Publish a detached result describing delivered speech.
+                expression = PersonaExpressionResult(
+                    segments=[
+                        PersonaExpressionSegment(**deepcopy(segment))
+                        for segment in state["segments"]
+                    ],
+                    turn_action=expression.turn_action,
+                    effect_calls=deepcopy(expression.effect_calls),
+                    metadata=deepcopy(expression.metadata),
+                )
             if status != "completed" and emitted_text:
                 expression = PersonaExpressionResult(
                     speech=emitted_text,

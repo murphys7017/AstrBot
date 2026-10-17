@@ -10,7 +10,10 @@ from astrbot.core.interaction.expression_agent import (
     PersonaSegmentStreamParser,
 )
 from astrbot.core.interaction.output_controller import InteractionOutputController
-from astrbot.core.interaction.turn_state import set_interaction_turn_runtime_config
+from astrbot.core.interaction.turn_state import (
+    get_interaction_turn_immediate_persona_segments,
+    set_interaction_turn_runtime_config,
+)
 from astrbot.core.message.incremental_text import (
     IncrementalTextError,
     IncrementalTextPreparer,
@@ -108,6 +111,9 @@ async def test_incremental_output_flushes_literal_suffix_once():
     assert outcome.status == "completed"
     assert sink.text == ["开始结束 ", "<"]
     assert ("text", 0, "completed") in sink.ends
+    assert outcome.expression.speech == "开始结束 <"
+    assert outcome.expression.speech_segments == ("开始结束 <",)
+    assert get_interaction_turn_immediate_persona_segments(event)[0]["speech"] == "开始结束 <"
 
 
 def test_finish_still_rejects_open_hidden_block_and_unsafe_suffix():
