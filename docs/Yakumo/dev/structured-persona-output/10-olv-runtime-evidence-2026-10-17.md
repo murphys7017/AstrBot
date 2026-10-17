@@ -101,3 +101,21 @@ writer 用事件 `_turn_id` 与映射值比较；若输入 message ID 和实际 
 最后一轮在 03:12:19.089 记录首音频回调，3.26 秒与用户“三秒左右”的体验相符。六轮耗时仍有波动，输入/输出长度和上下文不相同；不计算改造收益百分比、不称为稳定 p95，也不将普通音频回调视为硬件测量。此后日志仍有设置/采集事件，但截至复核没有新的 M2 专属增量阶段。
 
 同批 `input:34f88a10fa7a419ea11243f7a2813b21` 的首段在 03:12:04.882 有 audio_started，03:12:05.467 有 motion_ended，却没有本段 motion_started；第二段有明确的动作 started/completed。MotionLab 只读查询能找到首段 `speech_only_motion_not_required` 的准备记录，不能据此推断后来的语义动作拒绝原因。旧埋点把动作失败/打断也写成 ended，因此本会话另外拆分成功、失败和打断阶段；历史 ended 不应计为动作成功。该样本的具体拒绝根因仍待有运行版本和拒绝诊断的新现场证据。
+
+## 9. 15:39–15:42 新 M0 样本：首段后到动作准备失败
+
+本节是修复前现场证据，不覆盖第 8 节。来源为 Core 日志、桌面 `olv-latency-2026-10-17.jsonl` 和只读 MotionLab；15:35:54 的桌面同步为 `persona_segment_stream_enabled=False`。五轮均有完整文件段输出，首段动作 Provider 成功返回、桌面报 motion_failed，第二段有 motion_started/completed；后端播放回执均为 `success=False reason=motion_plan_not_prepared_before_audio_start`。实际加载构建的精确提交未知，不以源码 HEAD 补写版本。
+
+| frontend Turn | 首段 audio_started | 首段 motion_failed | 第二段 motion_started |
+| --- | --- | --- | --- |
+| input:a576a49f66014bf4900def8dd4536234 | 15:39:55.115 | 15:39:55.283 | 15:40:01.301 |
+| input:cae39166fbb447519ffb96f119f25dc8 | 15:40:14.910 | 15:40:15.271 | 15:40:17.282 |
+| input:d7547ad5eec84e55927637aa716668d7 | 15:41:53.293 | 15:41:53.850 | 15:42:02.222 |
+| input:9f0cc5546aa3422fa63f4a870a768630 | 15:42:20.203 | 15:42:20.730 | 15:42:22.766 |
+| input:e6196521bc98428fb8dc691608218c1f | 15:42:44.430 | 15:42:45.152 | 15:42:47.183 |
+
+最后一轮 Core Turn 为 `514a2f28-e451-4ac9-9eb3-135c90c5da6c`。首段动作在 15:42:45.148 正常生成，45.150 交付动作槽，45.152 即被桌面拒绝；其语音直到 47.132 才结束，说明拒绝时仍有约两秒语音窗口。MotionLab 五个首段均只留下 `speech_only_motion_not_required` 的起播前准备诊断；不能把该诊断本身当作动作模型失败。
+
+源码闭环：音频 duration-ready 时动作尚未入队，未生成 prepared plan；动作后到走 `queueInboundPayload` 自动尝试启动，`useModelEngine` 没有补准备，`motionStart` 的音频必须预编译条件拒绝。此前 N4 公共边界以直接成功的 motion sink 替代真实 ModelEngine，未覆盖该条件。修复在 ModelEngine 为有效已知时长窗口补编译，并将计划和播放 reader 的起点统一到接入采样；保留原编译及模型/Profile 检查，不直接删除底层拒绝条件。
+
+同一公开案例现使用真实 ModelEngine 和编译器，旧实现复现失败，新实现可启动、相对时钟归零并拒绝耗尽窗口，完整 Electron 构建通过。硬件接口仍为隔离接纳，尚无修复后的真人对话、方向或视觉交接证据；M2 未知时长准备未由本次修复覆盖，03:12 历史缺失原因也不能倒填。

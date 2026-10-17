@@ -74,6 +74,8 @@ PCM 当前每次调用仍有独立 WebSocket/task。HTTP session/connector 复�
 
 下一步将新日志中的 motion 请求、校验/拒绝原因、身体准入和终态串联；不能把 M2 的 speech-only 修正当作历史 M0 根因修复。完成条件是明确的复现/根因/修复证据，或明确记为历史不可复现并保留缺口。
 
+**新增可定位样本及修正：**15:39–15:42 五轮 M0 均复现首段动作生成成功、桌面以 `motion_plan_not_prepared_before_audio_start` 拒绝；第二段成功。根因是后到动作缺少 ModelEngine 准备流程，修正已补已知时长窗口内的编译与接入采样时钟归零，真实 ModelEngine 公共边界和完整构建通过。细节见 [10 第 9 节](10-olv-runtime-evidence-2026-10-17.md#9-15391542-新-m0-样本首段后到动作准备失败)。接下来需要加载新桌面后复测首段左右动作、打断及段间交接；未知时长 M2 准备仍待单独处理，不追认 03:12 旧样本的具体根因。
+
 ## 5. P2：T6 动作小记录实施前必须补齐的契约
 
 当前 `motion/text_stream.py` 仍累计到 EOF，`middleware/interaction_motion/independent.py` 随后解析完整 JSON；当前 prompt 要求单个完整根对象。桌面也不会以新 payload 替换已释放/本地结算的动作。仅打开 Provider 流式或截取第一对花括号不能解决此问题。
