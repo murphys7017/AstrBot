@@ -484,7 +484,7 @@ class InteractionOutputController:
             "delivered_segment_parts": {},
             "segments": [],
             "raw_segments_by_index": {},
-            "delivered_motion_segment_count": 0,
+            "legacy_delivered_motion_segment_indexes": set(),
             "tts": [],
             "tts_attempted": False,
             "tts_failures": [],
@@ -494,6 +494,10 @@ class InteractionOutputController:
             "persona_result_id": None,
             "turn_action": None,
         }
+        event.set_extra(
+            "_interaction_persona_stream_motion_downlink_indexes",
+            state["legacy_delivered_motion_segment_indexes"],
+        )
         incremental_writer: Any | None = None
         incremental_pcm_queue: asyncio.Queue[Any] | None = None
         incremental_pcm_task: asyncio.Task | None = None
@@ -1200,7 +1204,17 @@ class InteractionOutputController:
                             [],
                         ).append(semantic_text)
                     elif message.type == "persona_stream_motion":
-                        state["delivered_motion_segment_count"] += 1
+                        accepted_motion_indexes = event.get_extra(
+                            "_interaction_persona_stream_motion_downlink_indexes",
+                            set(),
+                        )
+                        if (
+                            isinstance(accepted_motion_indexes, set)
+                            and segment_index in accepted_motion_indexes
+                        ):
+                            state["legacy_delivered_motion_segment_indexes"].add(
+                                segment_index
+                            )
 
             await self._deliver_visible_message(
                 event,
@@ -1224,14 +1238,15 @@ class InteractionOutputController:
                 )
             event.set_extra("_interaction_persona_segment_stream_status", status)
             emitted_text = "".join(state["delivered_text_parts"])
-            delivered_motion_indexes = (
+            delivered_motion_indexes = set(
+                state["legacy_delivered_motion_segment_indexes"]
+            )
+            delivered_motion_indexes.update(
                 incremental_writer.delivered_motion_segment_indexes
                 if incremental_writer is not None
                 else frozenset()
             )
-            motion_count = state["delivered_motion_segment_count"] + len(
-                delivered_motion_indexes
-            )
+            motion_count = len(delivered_motion_indexes)
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
             if emitted_text or motion_count:

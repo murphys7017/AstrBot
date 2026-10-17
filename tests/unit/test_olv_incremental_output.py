@@ -72,7 +72,8 @@ class IncrementalEvent(AstrMessageEvent):
         return self.sink
 
     async def send_message_with_extras(self, **kwargs):
-        raise AssertionError("Incremental output must not replay legacy output")
+        if self.sink is not None:
+            raise AssertionError("Incremental output must not replay legacy output")
 
     async def flush_interaction_incremental_motion(self, *, segment_index):
         if self.sink.deliver_motion:
@@ -197,3 +198,23 @@ async def test_action_only_admission_still_rejects_empty_reply():
     )
     with pytest.raises(InteractionExpressionError, match="empty_output"):
         await producer(publish, "empty-test")
+
+
+@pytest.mark.asyncio
+async def test_legacy_motion_placeholder_without_payload_is_not_output():
+    event = IncrementalEvent(None)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer(
+            "",
+            actions=["nod"],
+            request=PersonaExpressionRequest(
+                require_turn_action=True,
+                allow_action_only=True,
+            ),
+        ),
+        on_header=publish,
+    )
+    assert outcome.status == "completed"
+    assert outcome.emitted is False
+    assert get_interaction_turn_visible_outputs(event) == []

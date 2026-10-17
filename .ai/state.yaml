@@ -2305,3 +2305,11 @@ olv_action_only_stream_delivery_20261017:
   scope: "Companion Core/Adapter fix: admit OLV action-only stream replies with actual actions; count only writer-accepted motion updates, retain visible delivery state and allow text-free completion/history with motion evidence. Empty replies still reject; no invented spoken text."
   validation: "Five focused public Core checks passed, including action-only delivery versus completion-without-update and blank reply rejection. Actual Adapter writer counted repeated updates once and excluded an empty failed motion. Scoped Ruff/diff checks passed. Middleware/material/history guards source-traced through ConversationManager atomic append; no live history/Provider/device acceptance."
   evidence_gap: "Requires paired Core/Adapter deployment. Downlink acceptance is not Live2D execution. Preserve user contributor guard, original stream test and history edits."
+
+olv_legacy_motion_delivery_accounting_20261017:
+  class: bugfix
+  risk: high
+  status: public_boundary_validated_pending_live_acceptance
+  scope: "The OLV legacy segment fallback counts a motion segment only when Adapter attached a non-empty persona motion payload and its output queue accepted the segment; an empty placeholder no longer qualifies."
+  validation: "Core public stream boundary with unavailable incremental writer rejected a blank motion placeholder as output. Actual PlatformEvent boundary marked a successful non-empty motion payload and left an empty failed result unmarked. Focused checks and changed-file Ruff passed."
+  evidence_gap: "Requires paired Core/Adapter deployment. Adapter queue acceptance is not proof that the desktop execution timeline completed the action. Preserve user contributor guard, original stream test and history edits."
