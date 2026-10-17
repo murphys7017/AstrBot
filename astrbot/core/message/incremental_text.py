@@ -93,31 +93,40 @@ class IncrementalTextPreparer:
             if self._raw_bytes + raw_bytes > _MAX_RAW_BYTES:
                 raise IncrementalTextError("incremental_text_input_too_large")
             self._raw_bytes += raw_bytes
-            prepared = self._filter(delta)
-            if not prepared:
-                return ""
-            if len(prepared) > _MAX_VISIBLE_UTF16_UNITS - self._visible_units:
-                raise IncrementalTextError("incremental_text_output_too_large")
-            units = len(prepared.encode("utf-16-le")) // 2
-            if self._visible_units + units > _MAX_VISIBLE_UTF16_UNITS:
-                raise IncrementalTextError("incremental_text_output_too_large")
-            candidate = self._text + prepared
-            if not self._check_response(candidate):
-                raise IncrementalTextError("unsafe_response")
-            self._text = candidate
-            self._visible_units += units
-            return prepared
+            return self._accept_visible(self._filter(delta))
         except Exception:
             self._closed = True
             raise
 
+    def _accept_visible(self, prepared: str) -> str:
+        if not prepared:
+            return ""
+        if len(prepared) > _MAX_VISIBLE_UTF16_UNITS - self._visible_units:
+            raise IncrementalTextError("incremental_text_output_too_large")
+        units = len(prepared.encode("utf-16-le")) // 2
+        if self._visible_units + units > _MAX_VISIBLE_UTF16_UNITS:
+            raise IncrementalTextError("incremental_text_output_too_large")
+        candidate = self._text + prepared
+        if not self._check_response(candidate):
+            raise IncrementalTextError("unsafe_response")
+        self._text = candidate
+        self._visible_units += units
+        return prepared
+
     def finish(self) -> str:
-        """Seal and return the full accepted text for validation, never a new delta."""
+        """Seal, accepting a literal tag prefix outside any opened hidden block.
+
+        Returns the full text. Callers publish only the suffix added by finish,
+        never the already delivered prefix a second time.
+        """
         if self._closed:
             raise IncrementalTextError("incremental_text_already_closed")
         self._closed = True
-        if self._pending or self._depth:
+        if self._depth:
             raise IncrementalTextError("incremental_text_hidden_markup_unclosed")
+        if self._pending:
+            self._accept_visible(self._visible(self._pending))
+            self._pending = ""
         if not self._check_response(self._text):
             raise IncrementalTextError("unsafe_response")
         return self._text

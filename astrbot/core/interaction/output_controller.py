@@ -643,6 +643,14 @@ class InteractionOutputController:
                 name=f"persona-incremental-pcm:{event.get_extra('_turn_id')}",
             )
 
+        async def publish_incremental_text(segment_index: int, text: str) -> None:
+            if not text:
+                return
+            await incremental_writer.append_text(segment_index, text)
+            state["delivered_text_parts"].append(text)
+            state["delivered_segment_parts"].setdefault(segment_index, []).append(text)
+            await enqueue_pcm(PCMTextPart(segment_index, text))
+
         async def emit_record(record: dict[str, Any]) -> None:
             record_type = record.get("type")
             if record_type == "header":
@@ -740,14 +748,7 @@ class InteractionOutputController:
                 if incremental_writer is not None:
                     preparer = incremental_preparers[segment_index]
                     visible_delta = preparer.feed(text)
-                    if visible_delta:
-                        await incremental_writer.append_text(segment_index, visible_delta)
-                        state["delivered_text_parts"].append(visible_delta)
-                        state["delivered_segment_parts"].setdefault(
-                            segment_index,
-                            [],
-                        ).append(visible_delta)
-                        await enqueue_pcm(PCMTextPart(segment_index, visible_delta))
+                    await publish_incremental_text(segment_index, visible_delta)
                 if not is_olv_segment_stream:
                     await queue.put(
                         {
@@ -776,7 +777,11 @@ class InteractionOutputController:
                 if is_olv_segment_stream:
                     if incremental_writer is not None:
                         preparer = incremental_preparers[segment_index]
-                        preparer.finish()
+                        accepted_text = preparer.text
+                        finished_text = preparer.finish()
+                        await publish_incremental_text(
+                            segment_index, finished_text[len(accepted_text):],
+                        )
                         await incremental_writer.end_stream("text", segment_index)
                         incremental_closed_resources[segment_index].add("text")
                         await enqueue_pcm(PCMTextPart(segment_index, None))
