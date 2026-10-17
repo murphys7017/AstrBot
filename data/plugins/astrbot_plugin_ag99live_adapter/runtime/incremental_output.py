@@ -268,14 +268,27 @@ class IncrementalOutputSession:
                     stream.samples += len(block) // 2
                     stream.seq += 1
 
-    async def update_motion(self, segment_index: int, motion_payload: dict[str, Any]) -> None:
+    async def update_motion(
+        self,
+        segment_index: int,
+        motion_payload: dict[str, Any],
+        *,
+        revision: int = 1,
+        anchor: str = "segment_start",
+    ) -> None:
         async with self._lock:
             self._require_open()
             segment, stream = self._stream("motion", segment_index)
             if not isinstance(motion_payload, dict) or not motion_payload:
                 raise ValueError("incremental_output_motion_payload_invalid")
+            if type(revision) is not int or not 1 <= revision <= 2**31 - 1:
+                raise ValueError("incremental_output_motion_revision_invalid")
+            if not isinstance(anchor, str) or not anchor.strip() or len(anchor) > 64:
+                raise ValueError("incremental_output_motion_anchor_invalid")
             payload = self._payload(segment_index, segment, stream)
             payload["motion_payload"] = dict(motion_payload)
+            payload["motion_revision"] = revision
+            payload["motion_anchor"] = anchor.strip()
             await self._send_event("motion", "update", payload)
             segment.motion_delivered = True
             self._observe_first("motion", segment_index, segment.message_id)

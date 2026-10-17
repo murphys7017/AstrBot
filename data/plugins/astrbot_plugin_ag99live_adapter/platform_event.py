@@ -179,6 +179,7 @@ class OLVPetPlatformEvent(AstrMessageEvent):
         motion_payload: dict[str, Any] | None,
         reason: str = "",
         final: bool = True,
+        anchor: str = "segment_start",
     ) -> bool:
         """Publish one optional motion result without blocking core text/audio.
 
@@ -221,10 +222,22 @@ class OLVPetPlatformEvent(AstrMessageEvent):
                     )
                     return False
                 else:
-                    await writer.update_motion(segment_index, motion_payload)
+                    revision = (
+                        int(previous.get("revision", 0)) + 1
+                        if isinstance(previous, dict)
+                        else 1
+                    )
+                    await writer.update_motion(
+                        segment_index,
+                        motion_payload,
+                        revision=revision,
+                        anchor=anchor,
+                    )
                     delivered[segment_index] = {
                         "payload": dict(motion_payload),
                         "closed": False,
+                        "revision": revision,
+                        "anchor": anchor,
                     }
                     previous = delivered[segment_index]
                     if final:
