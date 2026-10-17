@@ -1826,10 +1826,15 @@ def get_interaction_turn_immediate_persona_state(
     )
 
 
-def mark_interaction_turn_personal_emitted(event) -> float:
+def mark_interaction_turn_personal_emitted(
+    event,
+    *,
+    emitted_at: float | None = None,
+) -> float:
     state = ensure_interaction_turn_state(event)
-    if state.personal_emitted_monotonic is None:
-        state.personal_emitted_monotonic = time.monotonic()
+    timestamp = emitted_at if isinstance(emitted_at, (int, float)) else time.monotonic()
+    if state.personal_emitted_monotonic is None or timestamp < state.personal_emitted_monotonic:
+        state.personal_emitted_monotonic = float(timestamp)
     return state.personal_emitted_monotonic
 
 

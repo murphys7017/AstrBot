@@ -1,6 +1,7 @@
 """Public Core stream boundary with an isolated platform output sink."""
 
 import json
+import time
 
 import pytest
 
@@ -13,6 +14,7 @@ from astrbot.core.interaction.expression_agent import (
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
     get_interaction_turn_immediate_persona_segments,
+    get_interaction_turn_personal_emitted_monotonic,
     get_interaction_turn_visible_outputs,
     has_delivered_motion_output,
     set_interaction_turn_runtime_config,
@@ -78,6 +80,10 @@ class IncrementalEvent(AstrMessageEvent):
     async def flush_interaction_incremental_motion(self, *, segment_index):
         if self.sink.deliver_motion:
             self.sink.delivered_motion_segment_indexes |= {segment_index}
+            self.set_extra(
+                "_interaction_personal_stream_first_output_monotonic",
+                time.monotonic(),
+            )
         # The actual Adapter resolves this completion future even for no payload.
         self.get_extra("_interaction_incremental_motion_futures")[
             segment_index
@@ -141,6 +147,7 @@ async def test_incremental_output_flushes_literal_suffix_once():
         get_interaction_turn_immediate_persona_segments(event)[0]["speech"]
         == "开始结束 <"
     )
+    assert get_interaction_turn_personal_emitted_monotonic(event) is not None
 
 
 def test_finish_still_rejects_open_hidden_block_and_unsafe_suffix():
@@ -185,6 +192,7 @@ async def test_action_only_stream_counts_delivered_motion_not_completion(deliver
         assert get_interaction_turn_immediate_persona_segments(event)[0]["actions"] == [
             "nod"
         ]
+        assert get_interaction_turn_personal_emitted_monotonic(event) is not None
 
 
 @pytest.mark.asyncio

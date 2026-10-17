@@ -652,6 +652,7 @@ class InteractionOutputController:
             if not text:
                 return
             await incremental_writer.append_text(segment_index, text)
+            mark_interaction_turn_personal_emitted(event)
             state["delivered_text_parts"].append(text)
             state["delivered_segment_parts"].setdefault(segment_index, []).append(text)
             await enqueue_pcm(PCMTextPart(segment_index, text))
@@ -1247,6 +1248,16 @@ class InteractionOutputController:
                 else frozenset()
             )
             motion_count = len(delivered_motion_indexes)
+            first_motion_output_at = event.get_extra(
+                "_interaction_personal_stream_first_output_monotonic"
+            )
+            if isinstance(first_motion_output_at, int | float) and not isinstance(
+                first_motion_output_at, bool
+            ):
+                mark_interaction_turn_personal_emitted(
+                    event,
+                    emitted_at=float(first_motion_output_at),
+                )
             delivered_motion_segments = [
                 {
                     "segment_index": segment_index,

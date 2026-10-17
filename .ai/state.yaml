@@ -2329,3 +2329,10 @@ olv_action_only_memory_history_20261017:
   scope: "Persist compact delivered motion segment indexes/actions and carry them through interaction postprocess into the Memory history source. Memory analyzes a labeled nonverbal motion marker while user-facing assistant text remains empty."
   validation: "Focused public history extraction kept a pure motion-only assistant turn with its action metadata and internal nonverbal marker; Core output and history changes passed scoped Ruff/diff checks."
   evidence_gap: "No live Memory analyzer/provider run or database acceptance. Preserve user contributor guard, original stream test and history edits."
+olv_stream_first_output_timestamp_20261017:
+  class: bugfix
+  risk: medium
+  status: focused_boundary_validated
+  scope: "Record personal_emitted_monotonic at the first successful incremental text append or motion payload send, retaining the earliest timestamp when text and motion race."
+  validation: "Public Core text and action-only stream boundaries assert the first-output timestamp is present; actual Adapter event boundary stamps only a successful motion payload, while an empty placeholder stays unstamped. Scoped Ruff and diff checks passed."
+  evidence_gap: "No live latency log comparison after process reload. Preserve user contributor guard, original stream test and history edits."
