@@ -14,6 +14,7 @@ import aiohttp
 async def stream_minimax_pcm(
     text_source: AsyncIterator[str | None],
     *,
+    session: aiohttp.ClientSession,
     api_base: str,
     api_key: str,
     model: str,
@@ -28,7 +29,9 @@ async def stream_minimax_pcm(
     Each input string is appended once. Input None flushes the current segment
     without ending synthesis; exhausting the input finishes the session. No
     next-segment text is sent until the consumer accepts the flush boundary.
-    Cancellation closes this session and never replays already submitted text.
+    Cancellation closes this synthesis WebSocket and never replays submitted
+    text. The caller owns the HTTP session/pool and closes it at Provider exit;
+    neither the WebSocket nor a synthesis task is reused across Turns.
     """
     endpoint = urlsplit(api_base)
     if endpoint.scheme not in {"http", "https"} or not endpoint.netloc:
@@ -45,7 +48,7 @@ async def stream_minimax_pcm(
     if not api_key or not model or timeout_seconds <= 0:
         raise ValueError("minimax_bidi_configuration_missing")
 
-    async with asyncio.timeout(timeout_seconds), aiohttp.ClientSession() as session:
+    async with asyncio.timeout(timeout_seconds):
         async with session.ws_connect(
             ws_url,
             headers={"Authorization": f"Bearer {api_key}"},

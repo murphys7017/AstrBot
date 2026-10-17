@@ -30,6 +30,7 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
         async with aclosing(
             stream_minimax_pcm(
                 text_source,
+                session=self._get_http_session(),
                 api_base=self.api_base,
                 api_key=self.chosen_api_key,
                 model=self.get_model(),
