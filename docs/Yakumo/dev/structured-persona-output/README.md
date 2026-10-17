@@ -6,11 +6,8 @@
 
 - 2026-10-17 非流式 N0–N7 已按限定范围实施并逐项提交：Memory 缓存/输出设备提前准备、松手截图重叠、v6 后到动作、段间动作交接、轻量能力摘要与文件 TTS 连接复用。完整 Electron 构建通过，真实对话性能与 Live2D 观感待验收；范围、提交和验证缺口见 [11 文档第 16 节](11-olv-nonstreaming-optimization-plan.md#16-2026-10-17-本会话实施记录)。
 
-- 2026-10-17 [OLV 全链路流式与低延迟架构执行任务书](08-olv-full-streaming-execution-plan.md) 已完成非流式提交之后的第三次复核，更新共享优化基线、R1 部分修正状态、v6/v1 协议边界及后续切片顺序；M2 身份、生命周期、容量反馈等剩余项仍待实施和现场验收。下述 07 文档保留较早的分段投递阶段背景。
-
-- 低延迟音频投递新增有界 TTS 并行与逐段汇合、按序 flush，首批覆盖声明支持的 OLV
-  独立分段动作链路；源码和定向边界检查完成，仍待重载与现场验收。实现范围及后续
-  Persona 流式契约见 [07-low-latency-segment-delivery.md](07-low-latency-segment-delivery.md)。
+- OLV T0b/T1/T2/T3 已实现并完成局部验证：输入身份、PCM 生命周期、TTS 准入、动作特殊状态/期限、接收与播放解耦、双端信用；真实 M2、性能及身体表现仍待验收，T6 动作小记录未实施。下一步以 [14 剩余工作与现场验收](14-olv-remaining-work-and-acceptance.md)为准，提交证据见 [08 第 12、13 节](08-olv-full-streaming-execution-plan.md)。
+- [07 低延迟分段投递](07-low-latency-segment-delivery.md)保留早期完整段阶段背景，不用于判断当前 M2 实现状态。
 
 - Canonical Result、表达格式适配和条件性 effect 通道已实施，仍待真实 Provider 组合验收。表达默认是 JSON 文本 + Prompt-only；严格 `persona_expression` tool call 仅在显式配置时使用。
 - Core 分别解析表达和 effect 通道，再聚合并校验为 `PersonaExpressionResult`。表达可由 JSON/XML/Markdown parser 恢复，或由显式选择的 `persona_expression` tool call 承载；当前事件有已注册且适用的 effect 时，同一模型响应还要求独立 `persona_effect_batch` tool call。无适用 effect 时不提供 effect 工具。若首轮漏掉任一通道，Core 会以隔离请求只补缺失通道；若两路都缺失，则依次补表达和 effect。已解析的必发 effect 校验失败时，也会额外请求模型修复 effect batch。
@@ -20,19 +17,24 @@
 
 ## 文档索引
 
-- [OLV 非流式模式优化任务书：麦克风提前准备、首响与段间连续性](./11-olv-nonstreaming-optimization-plan.md)
+| 阅读目的 | 文档 |
+| --- | --- |
+| 从当前状态接续工作、现场验收与完成标准 | [14 剩余工作与现场验收](14-olv-remaining-work-and-acceptance.md) |
+| 全流式架构目标、约束与已提交实现证据 | [08 主任务书](08-olv-full-streaming-execution-plan.md) |
+| 具体操作、状态机和验收反例 | [09 实施细则](09-olv-implementation-playbook.md) |
+| 历史运行样本与测量口径 | [10 现场证据](10-olv-runtime-evidence-2026-10-17.md) |
+| 普通 M0 优化与已完成范围 | [11 非流式任务书](11-olv-nonstreaming-optimization-plan.md) |
+| 较早完整段投递设计 | [07 低延迟分段投递](07-low-latency-segment-delivery.md) |
 
-- [OLV 全链路流式与低延迟架构执行任务书（6.1 SOL）](./08-olv-full-streaming-execution-plan.md)
-- [OLV 实施细则：状态机、修改顺序和验收反例](./09-olv-implementation-playbook.md)
-- [OLV 现场样本与计划复核依据（2026-10-17）](./10-olv-runtime-evidence-2026-10-17.md)
+基础协议与原阶段资料：
 
-- [总计划与代码现状](./00-overall-plan.md)
-- [Canonical Schema 与字段规则](./01-contract-and-schema.md)
-- [第一阶段：Canonical 输出与 effect 通道拆分](./02-tool-call-migration.md)
-- [第二阶段：Provider 输出策略计划](./03-provider-output-strategy.md)
-- [第三阶段：XML、Markdown 适配计划](./04-text-format-adapters.md)
-- [第四阶段：TTS 与 speech 处理计划](./05-tts-speech-pipeline.md)
-- [第五阶段：迁移、验证与发布清单](./06-migration-and-validation.md)
+- [总计划与代码现状](00-overall-plan.md)
+- [Canonical Schema 与字段规则](01-contract-and-schema.md)
+- [结构化输出与 effect 通道拆分](02-tool-call-migration.md)
+- [Provider 输出策略](03-provider-output-strategy.md)
+- [XML、Markdown 适配](04-text-format-adapters.md)
+- [TTS 与 speech 处理](05-tts-speech-pipeline.md)
+- [迁移、验证与发布清单](06-migration-and-validation.md)
 
 ## Canonical Schema
 
