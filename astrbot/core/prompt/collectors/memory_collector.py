@@ -8,6 +8,7 @@ import inspect
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from astrbot.core import logger
 from astrbot.core.memory.config import get_memory_config
 from astrbot.core.memory.scope_context import resolve_memory_scope_context
 from astrbot.core.memory.service import get_memory_service
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 
 
 _MEMORY_SNAPSHOT_CACHE_EXTRA_KEY = "_prompt_memory_snapshot_cache"
+_MEMORY_CONVERSATION_ID_CACHE_EXTRA_KEY = "_prompt_memory_conversation_id_cache"
 
 
 def _snapshot_read_signature(
@@ -79,6 +81,7 @@ async def resolve_prompt_memory_snapshot(
     event: AstrMessageEvent,
     *,
     config,
+    plugin_context: Context | None = None,
     provider_request: ProviderRequest | None = None,
     read_options: MemorySnapshotReadOptions | None = None,
 ) -> MemorySnapshot | None:
@@ -95,7 +98,13 @@ async def resolve_prompt_memory_snapshot(
     if not memory_config.enabled or not memory_config.injection.enabled:
         return None
 
-    conversation_id = MemoryCollector._resolve_conversation_id(provider_request)
+    conversation_id = await _resolve_prompt_conversation_id(
+        event,
+        plugin_context=plugin_context,
+        provider_request=provider_request,
+        config_id=config_id,
+        umo=umo,
+    )
     options = read_options or memory_injection_to_snapshot_read_options(
         memory_config.injection
     )
@@ -165,8 +174,12 @@ def get_cached_prompt_memory_snapshot(
     if not isinstance(cache, dict):
         return None
     umo = getattr(event, "unified_msg_origin", None)
-    conversation_id = MemoryCollector._resolve_conversation_id(provider_request)
     _, config_id = resolve_event_runtime_configuration(event)
+    conversation_id = MemoryCollector._resolve_conversation_id(provider_request)
+    if conversation_id is None:
+        resolved_ids = event.get_extra(_MEMORY_CONVERSATION_ID_CACHE_EXTRA_KEY, {})
+        if isinstance(resolved_ids, dict):
+            conversation_id = resolved_ids.get((config_id, umo))
     entries = cache.get((config_id, umo, conversation_id), [])
     if not isinstance(entries, list):
         return None
@@ -196,8 +209,6 @@ class MemoryCollector(ContextCollectorInterface):
         config: MainAgentBuildConfig,
         provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
-        del plugin_context
-
         event_config, config_id = resolve_event_runtime_configuration(event)
         memory_config = get_memory_config(event_config, cache_key=config_id)
         if not memory_config.enabled or not memory_config.injection.enabled:
@@ -205,6 +216,7 @@ class MemoryCollector(ContextCollectorInterface):
         snapshot = await resolve_prompt_memory_snapshot(
             event,
             config=config,
+            plugin_context=plugin_context,
             provider_request=provider_request,
         )
         if snapshot is None:
@@ -518,3 +530,49 @@ class MemoryCollector(ContextCollectorInterface):
 
     def _enum_value(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
+
+
+async def _resolve_prompt_conversation_id(
+    event: AstrMessageEvent,
+    *,
+    plugin_context: Context | None,
+    provider_request: ProviderRequest | None,
+    config_id: str,
+    umo: str,
+) -> str | None:
+    conversation_id = MemoryCollector._resolve_conversation_id(provider_request)
+    if conversation_id is None:
+        resolved_ids = event.get_extra(_MEMORY_CONVERSATION_ID_CACHE_EXTRA_KEY, {})
+        cache_key = (config_id, umo)
+        if isinstance(resolved_ids, dict) and cache_key in resolved_ids:
+            return resolved_ids[cache_key]
+
+        conversation_manager = getattr(plugin_context, "conversation_manager", None)
+        get_current_id = getattr(
+            conversation_manager,
+            "get_curr_conversation_id",
+            None,
+        )
+        if callable(get_current_id):
+            try:
+                result = get_current_id(umo)
+                conversation_id = (
+                    await result if inspect.isawaitable(result) else result
+                )
+            except Exception as exc:  # noqa: BLE001 - Memory remains optional.
+                logger.warning(
+                    "Failed to resolve current conversation for Memory: umo=%s error=%s",
+                    umo,
+                    exc,
+                    exc_info=True,
+                )
+                conversation_id = None
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            conversation_id = None
+
+    resolved_ids = event.get_extra(_MEMORY_CONVERSATION_ID_CACHE_EXTRA_KEY, {})
+    if not isinstance(resolved_ids, dict):
+        resolved_ids = {}
+    resolved_ids[(config_id, umo)] = conversation_id
+    event.set_extra(_MEMORY_CONVERSATION_ID_CACHE_EXTRA_KEY, resolved_ids)
+    return conversation_id

@@ -2225,6 +2225,43 @@ async def test_collect_context_pack_memory_uses_none_conversation_id_without_req
 
 
 @pytest.mark.asyncio
+async def test_memory_without_request_reads_current_conversation_and_cached_snapshot(
+    _patch_memory_service,
+):
+    from astrbot.core.prompt.collectors.memory_collector import (
+        get_cached_prompt_memory_snapshot,
+    )
+
+    event, _ = _make_event()
+    context = _make_context()
+    context.conversation_manager.get_curr_conversation_id = AsyncMock(
+        return_value="current-conversation"
+    )
+    snapshot = MemorySnapshot(
+        umo=event.unified_msg_origin,
+        conversation_id="current-conversation",
+        short_term_memory=ShortTermMemory(
+            umo=event.unified_msg_origin,
+            conversation_id="current-conversation",
+            short_summary="Previous turn memory",
+            active_focus="Current request",
+        ),
+    )
+    _patch_memory_service.get_prompt_snapshot.return_value = snapshot
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        collectors=[MemoryCollector()],
+    )
+    assert pack.get_slot("memory.short_term").value["short_summary"] == "Previous turn memory"
+    assert _patch_memory_service.get_prompt_snapshot.await_args.kwargs[
+        "conversation_id"
+    ] == "current-conversation"
+    assert get_cached_prompt_memory_snapshot(event) is snapshot
+
+
+@pytest.mark.asyncio
 async def test_collect_context_pack_memory_skips_when_injection_disabled(
     _patch_memory_service,
 ):

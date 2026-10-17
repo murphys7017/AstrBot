@@ -33,8 +33,6 @@ class PersonaRelationshipCollector(ContextCollectorInterface):
         config,
         provider_request: ProviderRequest | None = None,
     ) -> list[ContextSlot]:
-        del plugin_context
-
         event_config, config_id = resolve_event_runtime_configuration(event)
         memory_config = get_memory_config(event_config, cache_key=config_id)
         injection = memory_config.injection
@@ -48,6 +46,7 @@ class PersonaRelationshipCollector(ContextCollectorInterface):
         snapshot = await resolve_prompt_memory_snapshot(
             event,
             config=config,
+            plugin_context=plugin_context,
             provider_request=provider_request,
             read_options=MemorySnapshotReadOptions(
                 enabled=True,
