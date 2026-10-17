@@ -1,3 +1,37 @@
+persona_stream_contract_selection_20261018:
+  class: bugfix
+  risk: high
+  status: reviewed_locally_validated_not_deployed
+  scope: >-
+    Select expression versus segment_stream_v1 before Persona prompt rendering.
+    The stream branch has no full-expression OutputContract, native schema or
+    full-object example; system guidance and final request consistently specify
+    JSONL. Put the complete five-record example in the final request to preserve
+    literal JSON quotes through the structured system renderer. Preserve common
+    context, identity, actions, emotion and routing semantics. No automatic retry.
+    Distinguish nonstream expressions, missing versions, invalid version types
+    and unsupported versions. Ordinary warnings contain shape metadata only;
+    optional existing prompt trace records at most 2048 response-tail characters.
+  validation: >-
+    Expression module: 79 passed, 8 failed. All 8 failures also reproduced with
+    HEAD expression_agent source loaded without changing the working tree.
+    OLV incremental output and Persona segment-stream modules: 18 passed.
+    Protocol cases cover JSON/tool_call/XML configured formats selecting the
+    same stream contract, absence of full-object schemas and examples, and
+    parseable JSONL examples; normal JSON retains its existing contract.
+    Scoped Ruff and git diff whitespace checks passed.
+  evidence_gap: >-
+    No new live Provider request, host restart, desktop playback or Live2D
+    acceptance. The failing 00:24 turn has a traced contradictory request but
+    no retained raw response, so its exact rejected version field is unknown.
+    Preserve existing .jspace/history.json changes outside the submission.
+  review: >-
+    Replace remaining stream-specific segments[].speech guidance and motion
+    examples with speech_delta.text and record-based instructions. Restrict the
+    nonempty-speech rule to reply/delegate so silent remains consistent with
+    header/finish only. All 18 affected stream/parser/prompt checks passed after
+    review corrections; scoped Ruff passed. No automatic retry or replay added.
+
 response_chain_followup_20261017:
   class: bugfix
   risk: high

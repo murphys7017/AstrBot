@@ -77,6 +77,23 @@ def _persona_payload(speech: str = "", **overrides):
     return payload
 
 
+@pytest.mark.parametrize("record,reason", [
+    ({"turn_action": "reply", "segments": []}, "persona_stream_nonstream_expression"),
+    ({"record": "header", "turn_action": "reply"}, "persona_stream_missing_version"),
+    ({"v": "1", "record": "header", "turn_action": "reply"}, "persona_stream_invalid_version_type"),
+    ({"v": True, "record": "header", "turn_action": "reply"}, "persona_stream_invalid_version_type"),
+    ({"v": 2, "record": "header", "turn_action": "reply"}, "persona_stream_unsupported_version"),
+])
+def test_segment_stream_reports_wrong_wire_format(record, reason):
+    parser = PersonaSegmentStreamParser(PersonaExpressionRequest(require_turn_action=True))
+    parser.feed(json.dumps(record))
+    with pytest.raises(InteractionExpressionError) as failure:
+        parser.finish()
+    assert failure.value.reason == reason
+    assert parser.diagnostics["header_seen"] is False
+    assert "response_tail" not in parser.diagnostics
+
+
 def test_persona_segment_stream_parser_handles_fragmented_records():
     tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
     records = [
@@ -1432,8 +1449,16 @@ def test_direct_reply_keeps_media_slots():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("output_protocol,configured_format", [
+    ("expression", "json"),
+    ("segment_stream_v1", "json"),
+    ("segment_stream_v1", "tool_call"),
+    ("segment_stream_v1", "xml"),
+])
 async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     monkeypatch,
+    output_protocol,
+    configured_format,
 ):
     """Persona planning keeps bounded recent facts and defers plugin context.
 
@@ -1573,10 +1598,41 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     result = await agent._prepare_render_result(
         Event(),
         PluginContext(),
-        InteractionAgentConfig(),
+        InteractionAgentConfig(expression_output_format=configured_format),
         Provider(),
         req=PersonaExpressionRequest(),
+        output_protocol=output_protocol,
     )
+
+    if output_protocol == "segment_stream_v1":
+        assert result.output_contract is None
+        assert result.compiled_output_contract is None
+        assert "只输出一个完整 JSON 对象" not in result.system_prompt
+        assert "完整 JSON 表达" not in result.request_prompt
+        assert "&quot;segments&quot;" not in result.system_prompt
+        assert "segments[].speech" not in result.system_prompt
+        assert "只有 segments 中的 speech 会展示" not in result.system_prompt
+        assert '"required"' not in result.system_prompt
+        assert "segment_stream_v1 JSONL" in result.request_prompt
+        records = [
+            json.loads(line) for line in result.request_prompt.splitlines()
+            if line.strip().startswith('{"v":')
+        ]
+        assert [record["record"] for record in records] == [
+            "header", "segment_start", "speech_delta", "segment_end", "finish",
+        ]
+        parser = PersonaSegmentStreamParser(PersonaExpressionRequest())
+        events = []
+        for record in records:
+            events.extend(parser.feed(json.dumps(record) + "\n"))
+        assert events[0]["type"] == "header"
+        assert any(event["type"] == "speech_delta" for event in events)
+        assert parser.finish().speech == "本段要说的话。"
+    else:
+        assert result.output_contract is not None
+        assert "只输出一个完整 JSON 对象" in result.system_prompt
+        assert "完整 JSON 表达" in result.request_prompt
+        assert "segment_stream_v1" not in result.system_prompt
 
     selected_slots = set(result.metadata["selected_slot_names"])
     assert {
@@ -1597,9 +1653,10 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     ready_result = await agent._prepare_render_result(
         Event(),
         PluginContext(),
-        InteractionAgentConfig(),
+        InteractionAgentConfig(expression_output_format=configured_format),
         Provider(),
         req=PersonaExpressionRequest(),
+        output_protocol=output_protocol,
     )
 
     ready_slots = set(ready_result.metadata["selected_slot_names"])

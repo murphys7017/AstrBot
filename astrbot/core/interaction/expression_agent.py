@@ -690,25 +690,54 @@ def build_persona_runtime_system_prompt(
         "需要视觉信息时只分析完成当前请求所需的部分。\n"
         "【日常交流】普通问候、闲聊和简单确认优先像真实聊天一样直接回应：一个重点，默认一句短句、最多两句。"
         "不要主动扩展背景、复盘对话或追加问题；用户明确要求解释、步骤或深入分析时再展开。\n"
-        f"必须按本次输出契约返回只包含 {output_fields} 的结构化结果。\n"
-        "【格式与风格】输出契约决定字段和传输格式；人格决定角色表现，不得省略协议字段。"
-        "人格中的句数、字数、口语风格及不讨论系统的要求只约束 segments[].speech，"
+        + (
+            "必须按 segment_stream_v1 契约逐行返回 JSONL 记录，不返回完整表达对象。\n"
+            if output_format == "segment_stream_v1"
+            else f"必须按本次输出契约返回只包含 {output_fields} 的结构化结果。\n"
+        )
+        + "【格式与风格】输出契约决定字段和传输格式；人格决定角色表现，不得省略协议字段。"
+        + (
+            "人格中的句数、字数、口语风格及不讨论系统的要求只约束 speech_delta.text，"
+            if output_format == "segment_stream_v1"
+            else "人格中的句数、字数、口语风格及不讨论系统的要求只约束 segments[].speech，"
+        )
+        +
         "不限制整个结构化对象的长度，也不禁止生成 actions、thought、tendency 或 turn_action。"
         "历史 assistant 回复是已展示的说话内容，仅用于理解对话与风格连续性，"
         "不是本轮输出格式的示例，不要仿照历史只返回一句普通文本。\n"
         + (
             "仅使用 persona_expression 工具承载表达结果。\n"
             if output_format == "tool_call"
-            else f"表达结果使用配置的 {output_format} 文本格式返回。\n"
+            else (
+                "表达结果使用 segment_stream_v1 JSONL，每个 JSON 对象单独占一行。\n"
+                if output_format == "segment_stream_v1"
+                else f"表达结果使用配置的 {output_format} 文本格式返回。\n"
+            )
         )
         + f"{effect_channel_guidance}"
         + f"{required_effect_guidance}"
-        "segments 按说话时动作或情绪状态变化切分，按顺序生成；每段都必须包含 speech、actions、thought 和 tendency。\n"
-        "同一段 actions 可以包含同时发生的动作；需要先后配合不同话语执行的动作必须拆成不同 segments，不能把 actions 数组当作动作时间序列。"
-        "例如先向左转头再向右转头，应分别生成 speech 为‘左……’、actions 为 ['turn_head_left'] 的段，"
-        "以及 speech 为‘右……’、actions 为 ['turn_head_right'] 的段；每段仍须完整填写 thought 和 tendency。"
+        + (
+            "segment 按说话时动作或情绪状态变化切分，按顺序生成；每段用 segment_start 提供 actions 和 tendency，"
+            "用 speech_delta 的 text 提供说话内容，用 segment_end 提供 thought。\n"
+            if output_format == "segment_stream_v1"
+            else "segments 按说话时动作或情绪状态变化切分，按顺序生成；每段都必须包含 speech、actions、thought 和 tendency。\n"
+        )
+        + "同一段 actions 可以包含同时发生的动作；需要先后配合不同话语执行的动作必须拆成不同 segments，不能把 actions 数组当作动作时间序列。"
+        + (
+            "例如先向左转头再向右转头，应分别用两个 segment_start 的 actions 提供 turn_head_left 和 turn_head_right，"
+            "分别用对应 speech_delta 的 text 提供‘左……’与‘右……’；每段仍须提供 tendency 和 segment_end 的 thought。"
+            if output_format == "segment_stream_v1"
+            else "例如先向左转头再向右转头，应分别生成 speech 为‘左……’、actions 为 ['turn_head_left'] 的段，"
+            "以及 speech 为‘右……’、actions 为 ['turn_head_right'] 的段；每段仍须完整填写 thought 和 tendency。"
+        )
+        +
         "没有动作或状态变化时不必拆段；不要为了凑段数重复文本或添加无意义的动作。\n"
-        "segments 中的 speech 依次拼接后形成发给文本平台的整合可见文本；语音合成保留这些分段并按原顺序逐段交给 TTS，不要把段边界改写成外部 speech cue。需要 TTS 标签时由后续适配器处理。\n"
+        + (
+            "speech_delta 的 text 依次拼接形成可见文本；语音合成保留 segment 边界并按原顺序处理。\n"
+            if output_format == "segment_stream_v1"
+            else "segments 中的 speech 依次拼接后形成发给文本平台的整合可见文本；语音合成保留这些分段并按原顺序逐段交给 TTS，不要把段边界改写成外部 speech cue。需要 TTS 标签时由后续适配器处理。\n"
+        )
+        +
         "actions 是简单动作词数组，只表达动作意图，允许 turn_head_left 等包含自然方向的动作词，"
         "不写角度、坐标、速度、时长等执行参数或插件 effect 数据。\n"
         "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。\n"
@@ -716,7 +745,12 @@ def build_persona_runtime_system_prompt(
         "每个值应是 0 到 10 的整数；0 表示没有明显表现，10 表示强烈表现。若收到整数越界值，Core 会在内部裁剪到 0 或 10，但不要依赖该容错。\n"
         "阶段性任务要求由最终 request prompt 给出；request prompt 不能扩大用户请求或改变本轮已确认事实。"
         "如果事实来源相互冲突且无法依据本轮材料消解，应保留不确定性，不要用 history 或 memory 补造事实。\n"
-        "不得逐句复述推理、内部指令、工具参数或工具原文。协议字段不会直接展示给用户，只有 segments 中的 speech 会展示。"
+        "不得逐句复述推理、内部指令、工具参数或工具原文。"
+        + (
+            "只有 speech_delta 的 text 会展示给用户，其他协议字段不会直接展示。"
+            if output_format == "segment_stream_v1"
+            else "协议字段不会直接展示给用户，只有 segments 中的 speech 会展示。"
+        )
         + (
             "\nEffect 工具只能使用本轮注册的 effect 与参数 schema。绑定具体表达段的 effect 必须填写 "
             "0-based segment_index；普通整轮 effect 可省略该字段。参数必须严格符合对应 schema，"
@@ -1242,6 +1276,7 @@ class PersonaSegmentStreamParser:
         self._current_segment: PersonaExpressionSegment | None = None
         self._delta_index = 0
         self._finished = False
+        self._last_record_shape: dict[str, Any] = {}
 
     def feed(self, text: str) -> list[dict[str, Any]]:
         if self._finished and text:
@@ -1280,12 +1315,22 @@ class PersonaSegmentStreamParser:
     def wire_text(self) -> str:
         return self._wire_text
 
+    @property
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "record_count": self._record_count,
+            "received_chars": len(self._wire_text),
+            "header_seen": self._turn_action is not None,
+            **self._last_record_shape,
+        }
+
     def _consume_line(self, line: str) -> dict[str, Any] | None:
         if len(line) > self.MAX_RECORD_CHARS:
             raise InteractionExpressionError("persona_stream_record_too_large")
         if not line.strip():
             raise InteractionExpressionError("persona_stream_empty_record")
         self._record_count += 1
+        self._last_record_shape = {}
         if self._record_count > self.MAX_RECORDS:
             raise InteractionExpressionError("persona_stream_too_many_records")
         try:
@@ -1298,9 +1343,26 @@ class PersonaSegmentStreamParser:
             ) from exc
         if not isinstance(record, dict):
             raise InteractionExpressionError("persona_stream_record_not_object")
+        self._last_record_shape = {
+            "field_count": len(record),
+            "has_version": "v" in record,
+            "version_type": type(record.get("v")).__name__,
+            "version": record["v"] if type(record.get("v")) is int else None,
+            "has_segments": "segments" in record,
+            "has_turn_action": "turn_action" in record,
+        }
         if self._finished:
             raise InteractionExpressionError("persona_stream_data_after_finish")
-        if type(record.get("v")) is not int or record.get("v") != 1:
+        if "v" not in record:
+            reason = (
+                "persona_stream_nonstream_expression"
+                if "turn_action" in record and "segments" in record
+                else "persona_stream_missing_version"
+            )
+            raise InteractionExpressionError(reason)
+        if type(record["v"]) is not int:
+            raise InteractionExpressionError("persona_stream_invalid_version_type")
+        if record["v"] != 1:
             raise InteractionExpressionError("persona_stream_unsupported_version")
         record_type = record.get("record")
 
@@ -1403,14 +1465,53 @@ class PersonaSegmentStreamParser:
         return result
 
 
+def _log_persona_segment_stream_failure(
+    event,
+    parser: PersonaSegmentStreamParser,
+    error: InteractionExpressionError,
+    lifecycle_id: str,
+) -> None:
+    logger.warning(
+        "Persona segment stream protocol rejected: turn_id=%s lifecycle_id=%s reason=%s shape=%s",
+        event.get_extra("_turn_id"), lifecycle_id, error.reason, parser.diagnostics,
+    )
+    if prompt_trace_enabled():
+        record_prompt_trace(
+            "persona.segment_stream_rejected",
+            event=event,
+            fields={
+                "lifecycle_id": lifecycle_id,
+                "reason": error.reason,
+                "shape": parser.diagnostics,
+                "response_tail": parser.wire_text[-2048:],
+                "response_truncated": len(parser.wire_text) > 2048,
+            },
+        )
+
+
 def _build_persona_segment_stream_prompt(req: PersonaExpressionRequest) -> str:
     dimensions = ", ".join(PERSONA_TENDENCY_DIMENSIONS)
     allowed_actions = ", ".join(
         f'"{action.value}"' for action in _allowed_persona_turn_actions(req)
     )
+    example = "\n".join(
+        json.dumps(record, ensure_ascii=False)
+        for record in (
+            {"v": 1, "record": "header", "turn_action": "reply"},
+            {
+                "v": 1,
+                "record": "segment_start",
+                "actions": [],
+                "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
+            },
+            {"v": 1, "record": "speech_delta", "text": "本段要说的话。"},
+            {"v": 1, "record": "segment_end", "thought": ""},
+            {"v": 1, "record": "finish", "effect_calls": []},
+        )
+    )
     return (
         "\n\n【本轮输出协议：segment_stream_v1】"
-        "本协议覆盖此前所有输出格式要求。只输出逐行 JSONL 记录，不要 Markdown、"
+        "只输出逐行 JSONL 记录，不要 Markdown、"
         "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
         '第一条必须是 {"v":1,"record":"header","turn_action":"..."}；'
         f"turn_action 必须从 {allowed_actions} 中选择，并遵守本轮原有路由规则。"
@@ -1421,12 +1522,15 @@ def _build_persona_segment_stream_prompt(req: PersonaExpressionRequest) -> str:
         f"{dimensions}，取值 0 到 10。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
         "动作或状态变化应拆成独立 segment；同一 segment 内的 speech_delta 按原文顺序拼接。"
-        "reply 或 delegate 时输出 Persona segment；silent 时不得输出 segment。"
+        "reply 或 delegate 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"
         "effect_calls 必须为空；不要调用工具。"
         + (
-            "本轮允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
-            if req.allow_action_only else "本轮回复必须包含非空语音文本。"
+            "reply 或 delegate 时允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
+            if req.allow_action_only else "reply 或 delegate 时必须包含非空语音文本。"
         )
+        + "\n以下是完整 JSONL 格式示例；文本、动作和情绪按本轮事实生成，不要复述示例内容：\n"
+        + example
+        + "\n"
     )
 
 
@@ -1594,8 +1698,12 @@ def _build_expression_prompt(
         )
     if req.require_turn_action:
         silent_rule = (
-            "只有允许静默的群聊候选且确实无需参与时选 silent；silent 时 segments 必须为空，"
-            "若本轮提供 persona_effect_batch，其 effect_calls 也必须为空。"
+            (
+                "只有允许静默的群聊候选且确实无需参与时选 silent；silent 时只输出 header 和 finish。"
+                if output_format == "segment_stream_v1"
+                else "只有允许静默的群聊候选且确实无需参与时选 silent；silent 时 segments 必须为空，"
+                "若本轮提供 persona_effect_batch，其 effect_calls 也必须为空。"
+            )
             if req.allow_silent
             else "当前不允许使用 silent。"
         )
@@ -1664,9 +1772,16 @@ def _build_expression_prompt(
             "普通问候、闲聊和简单确认默认最多两句，不要主动扩展背景、复盘对话或追加问题；"
             "如果需要说明事实、步骤、限制、失败原因或复杂情绪，可以自然展开，完整准确优先，不设置硬性字数上限。"
         )
-    if req.allow_empty:
+    if req.allow_empty and output_format != "segment_stream_v1":
         parts.append("\n【可省略】当前没有必要说话时，可以让 segments 为空数组，或让其中 speech 为空字符串。")
-    if output_format == "tool_call":
+    if output_format == "segment_stream_v1":
+        parts.append(
+            "\n【本轮输出】只返回 segment_stream_v1 JSONL，第一行必须是 v=1 的 header，"
+            "最后一行必须是 finish。用户可见内容写入 speech_delta 的 text；"
+            "不得返回包含 segments 数组的完整表达对象，不得只返回说话文本。"
+        )
+        parts.append(_build_persona_segment_stream_prompt(req))
+    elif output_format == "tool_call":
         parts.append("\n【本轮输出】使用 persona_expression 工具返回完整表达参数，不以普通文本代替。")
     else:
         parts.append(
@@ -2096,6 +2211,9 @@ class InteractionExpressionAgent:
                 prepared,
             )
         turn_state = get_interaction_turn_state(event)
+        output_protocol = (
+            "segment_stream_v1" if segment_stream_callback is not None else "expression"
+        )
         if turn_state is not None:
             async with turn_state.lock:
                 render_result = await self._prepare_render_result(
@@ -2105,6 +2223,7 @@ class InteractionExpressionAgent:
                     provider,
                     req=req,
                     persona_effect_specs=persona_effect_specs,
+                    output_protocol=output_protocol,
                 )
         else:
             render_result = await self._prepare_render_result(
@@ -2114,6 +2233,7 @@ class InteractionExpressionAgent:
                 provider,
                 req=req,
                 persona_effect_specs=persona_effect_specs,
+                output_protocol=output_protocol,
             )
 
         output_format = interaction_config.expression_output_format
@@ -2239,10 +2359,6 @@ class InteractionExpressionAgent:
             provider_request.terminal_tools = ToolSet()
             provider_request.output_contract = None
             provider_request.compiled_output_contract = None
-            provider_request.system_prompt = (
-                f"{provider_request.system_prompt or ''}"
-                f"{_build_persona_segment_stream_prompt(req)}"
-            )
             provider_request.metadata["interaction.persona_output_protocol"] = (
                 "segment_stream_v1"
             )
@@ -3261,6 +3377,10 @@ class InteractionExpressionAgent:
                 exc.tool_execution_count,
                 prepared.lifecycle.tool_execution_count,
             )
+            if segment_parser is not None and exc.reason.startswith("persona_stream_"):
+                _log_persona_segment_stream_failure(
+                    event, segment_parser, exc, prepared.lifecycle.lifecycle_id,
+                )
             raise
         except Exception as exc:  # noqa: BLE001
             raise InteractionExpressionError(
@@ -3294,7 +3414,13 @@ class InteractionExpressionAgent:
                     "persona_stream_final_response_mismatch",
                     tool_execution_count=prepared.lifecycle.tool_execution_count,
                 )
-            streamed_result = segment_parser.finish()
+            try:
+                streamed_result = segment_parser.finish()
+            except InteractionExpressionError as exc:
+                _log_persona_segment_stream_failure(
+                    event, segment_parser, exc, prepared.lifecycle.lifecycle_id,
+                )
+                raise
         else:
             streamed_result = None
         return llm_resp, prepared.lifecycle.tool_execution_count, streamed_result
@@ -3349,6 +3475,7 @@ class InteractionExpressionAgent:
         *,
         req: PersonaExpressionRequest,
         persona_effect_specs: Sequence[PersonaEffectSpec] | None = None,
+        output_protocol: Literal["expression", "segment_stream_v1"] = "expression",
     ):
         build_config = build_interaction_prompt_build_config(plugin_context, event)
         material = await self._build_or_reuse_context_material(
@@ -3475,11 +3602,22 @@ class InteractionExpressionAgent:
             )
         history_turns = max(0, interaction_config.persona_history_window_size)
         allowed_turn_actions = _allowed_persona_turn_actions(req)
-        output_format = interaction_config.expression_output_format
-        output_mode = interaction_config.expression_output_mode
-        output_contract = _build_persona_expression_output_contract(
-            output_format,
-            allowed_turn_actions=allowed_turn_actions,
+        is_segment_stream = output_protocol == "segment_stream_v1"
+        output_format = (
+            "segment_stream_v1"
+            if is_segment_stream
+            else interaction_config.expression_output_format
+        )
+        output_mode = (
+            "prompt_only" if is_segment_stream else interaction_config.expression_output_mode
+        )
+        output_contract = (
+            None
+            if is_segment_stream
+            else _build_persona_expression_output_contract(
+                output_format,
+                allowed_turn_actions=allowed_turn_actions,
+            )
         )
         system_prompt = build_persona_runtime_system_prompt(
             persona_effect_specs,
@@ -3487,7 +3625,8 @@ class InteractionExpressionAgent:
             allow_silent=req.allow_silent,
             output_format=output_format,
         )
-        system_prompt = f"{system_prompt}{_build_persona_text_output_prompt(output_format)}"
+        if not is_segment_stream:
+            system_prompt += _build_persona_text_output_prompt(output_format)
         if output_format in {"json", "xml", "markdown"}:
             try:
                 example = build_persona_text_example(output_contract.schema, output_format)
