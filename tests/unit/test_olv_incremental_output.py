@@ -225,6 +225,7 @@ async def test_legacy_motion_placeholder_without_payload_is_not_output():
     )
     assert outcome.status == "completed"
     assert outcome.emitted is False
+    assert event.get_extra("_interaction_persona_segment_stream_published") is True
     assert get_interaction_turn_visible_outputs(event) == []
 
 

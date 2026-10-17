@@ -2336,3 +2336,11 @@ olv_stream_first_output_timestamp_20261017:
   scope: "Record personal_emitted_monotonic at the first successful incremental text append or motion payload send, retaining the earliest timestamp when text and motion race."
   validation: "Public Core text and action-only stream boundaries assert the first-output timestamp is present; actual Adapter event boundary stamps only a successful motion payload, while an empty placeholder stays unstamped. Scoped Ruff and diff checks passed."
   evidence_gap: "No live latency log comparison after process reload. Preserve user contributor guard, original stream test and history edits."
+
+olv_action_only_playback_ack_20261017:
+  class: bugfix
+  risk: high
+  status: public_completion_boundary_validated_pending_live_acceptance
+  scope: "Action-only OLV turns await the existing desktop playback_finished -> turn_finished result after synth_finished before Core marks the turn successful. Playback failure is propagated; a 30 s missing-ack timeout interrupts and fails the turn. A published stream with no delivered modality is closed and marked failed rather than finalized as a silent success. Text-bearing turns keep optional motion semantics and do not await animation playback."
+  validation: "Adapter public coordinator wait observes successful and failed terminal results. PlatformEvent waits after synth_finished and propagates playback failure/timeout; Core closes a published stream that produced no modality and marks it failed instead of silent success. Seven focused Core and seven Adapter boundary checks passed; scoped Ruff/diff checks passed."
+  evidence_gap: "No live Electron/Live2D acceptance, playback failure, or timeout run. Existing frontend timeline determines success after local execution settles. Preserve user contributor guard, original stream test and history edits."

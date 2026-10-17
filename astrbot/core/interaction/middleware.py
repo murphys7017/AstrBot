@@ -1394,6 +1394,20 @@ class InteractionMiddleware:
         ):
             await self._complete_persona_only_turn(event, expression)
             return
+        if event.get_extra("_interaction_persona_segment_stream_published") is True:
+            await self._complete_visible_turn_or_record_failure(event)
+            if not event.get_extra("_interaction_immediate_output_suppressed_reason"):
+                reason = "persona_stream_no_output_delivered"
+                record_interaction_turn_completion_failure(event, reason)
+                mark_interaction_turn_failed(event)
+                await dispatch_interaction_lifecycle(
+                    event,
+                    self.plugin_context,
+                    InteractionLifecycleStage.FAILED,
+                    metadata={"reason": reason},
+                )
+                event.stop_event()
+                return
         if event.get_extra("_interaction_immediate_output_suppressed_reason"):
             if await reserve_interaction_turn_final_output(event):
                 await finish_interaction_turn_final_output(
@@ -1440,6 +1454,8 @@ class InteractionMiddleware:
                 user_visible_action="none",
             )
             raise RuntimeError("Interaction persona reply was not delivered")
+        if not reply and motion_delivered:
+            event.set_extra("_interaction_wait_for_motion_execution_ack", True)
         self._materialize_persona_reply_turn(
             event,
             reply=reply,

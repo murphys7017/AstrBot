@@ -1832,9 +1832,13 @@ def mark_interaction_turn_personal_emitted(
     emitted_at: float | None = None,
 ) -> float:
     state = ensure_interaction_turn_state(event)
-    timestamp = emitted_at if isinstance(emitted_at, (int, float)) else time.monotonic()
+    timestamp = (
+        float(emitted_at)
+        if isinstance(emitted_at, (int, float)) and not isinstance(emitted_at, bool)
+        else time.monotonic()
+    )
     if state.personal_emitted_monotonic is None or timestamp < state.personal_emitted_monotonic:
-        state.personal_emitted_monotonic = float(timestamp)
+        state.personal_emitted_monotonic = timestamp
     return state.personal_emitted_monotonic
 
 

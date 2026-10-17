@@ -665,6 +665,10 @@ class InteractionOutputController:
                 publish_stream = await on_header(record)
                 state["header"] = True
                 state["publish_stream"] = publish_stream is not False
+                event.set_extra(
+                    "_interaction_persona_segment_stream_published",
+                    state["publish_stream"],
+                )
                 state["turn_action"] = PersonalResponseAction(
                     record["turn_action"]
                 )
