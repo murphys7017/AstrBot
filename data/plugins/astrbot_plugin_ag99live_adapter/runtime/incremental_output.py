@@ -63,6 +63,7 @@ class IncrementalOutputSession:
         require_open: Callable[[], None],
         require_current: Callable[[], None],
         on_text_complete: Callable[[str], None],
+        on_audio_sent: Callable[[], None] | None = None,
     ) -> None:
         self.turn_id = _identity(turn_id)
         self.core_turn_id = _identity(core_turn_id)
@@ -72,6 +73,7 @@ class IncrementalOutputSession:
         self._guard_open = require_open
         self._require_current = require_current
         self._on_text_complete = on_text_complete
+        self._on_audio_sent = on_audio_sent
         self._segments: dict[int, _Segment] = {}
         self._text_units = 0
         self.has_output = False
@@ -271,7 +273,10 @@ class IncrementalOutputSession:
                         encoding="pcm16le", sample_rate=32000, channels=1,
                     )
                     await self._send_once(build_output_audio_frame(payload, block))
+                    first_pcm_frame = "pcm" not in self._observed_resources
                     self._observe_first("pcm", segment_index, segment.message_id)
+                    if first_pcm_frame and self._on_audio_sent is not None:
+                        self._on_audio_sent()
                     stream.samples += len(block) // 2
                     stream.seq += 1
 

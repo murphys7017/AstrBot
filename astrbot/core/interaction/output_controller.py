@@ -503,7 +503,7 @@ class InteractionOutputController:
         incremental_pcm_task: asyncio.Task | None = None
         incremental_pcm_error: BaseException | None = None
         incremental_pcm_aborted = False
-        incremental_pcm_pending_put_tasks: set[asyncio.Task] = set()
+        incremental_pcm_progress_at = time.monotonic()
         incremental_started_segments: dict[int, str] = {}
         incremental_preparers: dict[int, IncrementalTextPreparer] = {}
         incremental_closed_resources: dict[int, set[str]] = {}
@@ -519,40 +519,27 @@ class InteractionOutputController:
                 or consumer.done() or incremental_pcm_error is not None
             ):
                 return False
-            if item is not None:
-                try:
-                    incremental_pcm_queue.put_nowait(item)
-                    return True
-                except asyncio.QueueFull:
-                    incremental_pcm_aborted = True
-                    incremental_pcm_error = VoiceServiceError(
-                        "pcm_stream_backpressure",
-                        "Incremental PCM queue capacity was exhausted",
-                        stage="interaction.outbound_tts_stream",
-                    )
-                    platform_extras["persona_stream"]["tts_status"] = "failed"
-                    state["tts_failures"].append("pcm_stream_backpressure")
-                    for segment_index in tuple(incremental_started_segments):
-                        await close_incremental_audio(
-                            segment_index,
-                            status="failed",
-                            reason="pcm_stream_backpressure",
-                        )
-                    if not consumer.done():
-                        consumer.cancel()
-                    return False
             try:
-                incremental_pcm_queue.put_nowait(None)
+                incremental_pcm_queue.put_nowait(item)
+                return True
             except asyncio.QueueFull:
-                # The sentinel is ordered after already accepted text.  Let a
-                # small background put finish while the producer continues.
-                pending = asyncio.create_task(
-                    incremental_pcm_queue.put(None),
-                    name="persona-incremental-pcm-close",
+                incremental_pcm_aborted = True
+                incremental_pcm_error = VoiceServiceError(
+                    "pcm_stream_backpressure",
+                    "Incremental PCM text budget was exhausted",
+                    stage="interaction.outbound_tts_stream",
                 )
-                incremental_pcm_pending_put_tasks.add(pending)
-                pending.add_done_callback(incremental_pcm_pending_put_tasks.discard)
-            return True
+                platform_extras["persona_stream"]["tts_status"] = "failed"
+                state["tts_failures"].append("pcm_stream_backpressure")
+                for segment_index in tuple(incremental_started_segments):
+                    await close_incremental_audio(
+                        segment_index,
+                        status="failed",
+                        reason="pcm_stream_backpressure",
+                    )
+                if not consumer.done():
+                    consumer.cancel()
+                return False
 
         async def close_incremental_audio(
             segment_index: int, *, status: str = "completed", reason: str = "",
@@ -592,42 +579,43 @@ class InteractionOutputController:
                     closed.add(resource)
 
         async def settle_incremental_background_tasks() -> None:
-            """Bound optional PCM/motion cleanup so text can finish promptly."""
+            """Drain admitted audio while it progresses; bound stalled production."""
             nonlocal incremental_pcm_aborted, incremental_pcm_error
             resource_failure = False
 
-            pending_puts = tuple(incremental_pcm_pending_put_tasks)
-            if pending_puts:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(*pending_puts, return_exceptions=True),
-                        timeout=0.1,
-                    )
-                except asyncio.TimeoutError:
-                    resource_failure = True
-                    for task in pending_puts:
-                        if not task.done():
-                            task.cancel()
-                    await asyncio.gather(*pending_puts, return_exceptions=True)
-
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 try:
-                    await asyncio.wait_for(
-                        asyncio.shield(incremental_pcm_task),
-                        timeout=1.0,
-                    )
+                    # Text completion is not an audio deadline. Allow TTS and
+                    # desktop credit to keep draining accepted text. Only a
+                    # stalled producer is timed out, slightly after the Adapter's
+                    # 30-second audio-credit timeout, without awaiting playback ACK.
+                    while not incremental_pcm_task.done():
+                        remaining = 35.0 - (
+                            time.monotonic() - incremental_pcm_progress_at
+                        )
+                        if remaining <= 0:
+                            raise TimeoutError
+                        done, _ = await asyncio.wait(
+                            {incremental_pcm_task}, timeout=remaining,
+                        )
+                        if done:
+                            await incremental_pcm_task
                 except asyncio.TimeoutError:
                     resource_failure = True
                     incremental_pcm_aborted = True
                     incremental_pcm_task.cancel()
                     await asyncio.gather(incremental_pcm_task, return_exceptions=True)
-                except BaseException as exc:  # noqa: BLE001 - text remains primary.
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - text remains primary.
                     resource_failure = True
                     incremental_pcm_error = incremental_pcm_error or exc
             elif incremental_pcm_task is not None:
                 try:
                     await incremental_pcm_task
-                except BaseException as exc:  # noqa: BLE001 - text remains primary.
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - text remains primary.
                     resource_failure = True
                     incremental_pcm_error = incremental_pcm_error or exc
 
@@ -698,7 +686,12 @@ class InteractionOutputController:
             if not use_tts:
                 platform_extras["persona_stream"]["tts_status"] = "not_attempted"
                 return
-            incremental_pcm_queue = asyncio.Queue(maxsize=128)
+            # The writer admits at most 262144 UTF-16 text units across 256
+            # segments. Every nonempty delta consumes at least one unit; reserve
+            # another 256 entries for segment ends and one for the final sentinel.
+            # Buffer the entire admitted text budget rather than failing audio
+            # merely because an LLM emits more than 128 small deltas during TTS.
+            incremental_pcm_queue = asyncio.Queue(maxsize=262144 + 256 + 1)
 
             async def text_source():
                 while True:
@@ -708,7 +701,7 @@ class InteractionOutputController:
                     yield item
 
             async def consume_pcm() -> None:
-                nonlocal incremental_pcm_error
+                nonlocal incremental_pcm_error, incremental_pcm_progress_at
                 state["tts_attempted"] = True
                 try:
                     async with aclosing(synthesize_pcm_stream(
@@ -723,6 +716,7 @@ class InteractionOutputController:
                                 )
                             elif frame.kind == "end":
                                 await close_incremental_audio(frame.segment_index)
+                            incremental_pcm_progress_at = time.monotonic()
                     platform_extras["persona_stream"]["tts_status"] = "succeeded"
                 except asyncio.CancelledError:
                     # Producer errors abort audio without turning an incomplete
@@ -1532,16 +1526,12 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
-            for pending in tuple(incremental_pcm_pending_put_tasks):
-                if not pending.done():
-                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
-                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
@@ -1595,9 +1585,6 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
-            for pending in tuple(incremental_pcm_pending_put_tasks):
-                if not pending.done():
-                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
@@ -1605,7 +1592,6 @@ class InteractionOutputController:
                 producer_task,
                 *([delivery_task] if delivery_task is not None else []),
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
-                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
@@ -1624,16 +1610,12 @@ class InteractionOutputController:
                 producer_task.cancel()
             if incremental_pcm_task is not None and not incremental_pcm_task.done():
                 incremental_pcm_task.cancel()
-            for pending in tuple(incremental_pcm_pending_put_tasks):
-                if not pending.done():
-                    pending.cancel()
             for task in incremental_motion_tasks:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(
                 producer_task,
                 *([incremental_pcm_task] if incremental_pcm_task is not None else []),
-                *tuple(incremental_pcm_pending_put_tasks),
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
@@ -1743,17 +1725,7 @@ class InteractionOutputController:
             "list_interaction_result_contributors",
             None,
         )
-        contributors = (
-            list_contributors(event=event) if callable(list_contributors) else []
-        )
-        if contributors and (
-            not is_olv_segment_stream
-            or any(
-                getattr(contributor, "persona_segment_stream_safe", False)
-                is not True
-                for contributor in contributors
-            )
-        ):
+        if callable(list_contributors) and list_contributors(event=event):
             raise InteractionExpressionError(
                 "persona_stream_output_contributors_unsupported"
             )
@@ -3500,6 +3472,10 @@ class InteractionOutputController:
             and same_persona_state
             and not result.effect_calls
             and not result.metadata.get("persona_tool_attachments")
+            and not any(
+                not isinstance(component, Plain)
+                for component in source_message.chain
+            )
         ):
             logger.info(
                 "Suppressing exact duplicate Core-final Persona reply: "
@@ -3513,12 +3489,15 @@ class InteractionOutputController:
             self._materialize_finalized_turn(event)
             await self._persist_interaction_turn(event)
             return
-        final_message = source_message.derive(
-            [
-                Plain(result.speech),
-                *self._persona_tool_attachment_components(result),
-            ]
+        final_message = replace_plain_text_preserving_components(
+            source_message,
+            result.speech,
         )
+        persona_attachments = self._persona_tool_attachment_components(result)
+        if persona_attachments:
+            final_message = final_message.derive(
+                [*final_message.chain, *persona_attachments]
+            )
         await self._deliver_core_final_message(
             source_message,
             final_message,

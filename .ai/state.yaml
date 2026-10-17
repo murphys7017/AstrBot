@@ -1,3 +1,44 @@
+response_chain_followup_20261017:
+  class: bugfix
+  risk: high
+  status: reviewed_locally_validated_not_deployed
+  scope: >-
+    Preserve existing dirty expression/output/context changes. Resolve missing
+    request conversation IDs from ConversationManager for both Memory collectors
+    and reuse the resolved event cache key for synchronous snapshot consumers.
+    Merge capability candidates without constructing/revalidating an intermediate
+    ToolSet; retain active and same-name overwrite precedence and add diagnostics.
+    Size the PCM text queue to the writer's admitted UTF-16/segment budget, remove
+    deferred sentinel puts, and drain until completion or 35 seconds without PCM
+    progress; propagate cancellation. Mark playback timing after first successful
+    incremental PCM send. Recognize common Chinese visual inspection requests.
+  validation: >-
+    48 visual/OLV/Persona stream tests and 10 focused Memory tests passed.
+    Public capability merge smoke preserved order and active-tool precedence for
+    57 registered tools plus request conflicts. Local 100-iteration merge averages
+    were 182.2751 ms old versus 0.0042 ms new; this is not end-to-end latency.
+    Actual Adapter writer smoke confirmed one timing callback after first PCM
+    send. Ten unrelated failures from the broader 209-test run also reproduce
+    under HEAD production sources; no full-suite success is claimed.
+  constraints: >-
+    Memory reads do not await Memory updates or playback completion. Audio
+    production still drains accepted text and desktop credit before Core output
+    closes; only playback_finished ACK belongs to the later playback lifecycle.
+    Existing deferred-motion protocol and model output format remain in scope
+    only for review and were not redesigned. No runtime restart.
+  evidence_gap: >-
+    No live microphone/TTS/Live2D end-to-end acceptance or new deployment logs.
+    First-PCM callback wiring includes the previously Git-ignored file
+    data/plugins/astrbot_plugin_ag99live_adapter/runtime/output_segment_coordinator.py
+    explicitly in the reviewed submission so the callback is not omitted.
+  review: >-
+    Isolate Persona media cache keys after ambient screenshot exclusion and
+    remove matching image references from both explicit and media content parts.
+    Updated visual projection cases pass; all 48 visual/stream tests pass.
+    Four Core-final delivery tests passed. Extended output-lifecycle checks
+    additionally have two failures caused by unchanged persona_stream_policy
+    expecting event_type on simplified test handlers (three cases passed).
+
 incremental_text_preparation_boundary_20261017:
   class: feature
   risk: high

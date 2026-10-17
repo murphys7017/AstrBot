@@ -591,7 +591,7 @@ async def test_olv_stream_delivers_action_only_segment_in_order(monkeypatch):
     assert message_id == "motion-1"
 
 
-def test_olv_stream_accepts_only_declared_safe_result_contributors(monkeypatch):
+def test_olv_stream_rejects_result_contributors_even_when_marked_safe(monkeypatch):
     controller = InteractionOutputController()
     contributors = [SimpleNamespace(persona_segment_stream_safe=True)]
     controller.plugin_context = SimpleNamespace(
@@ -624,9 +624,6 @@ def test_olv_stream_accepts_only_declared_safe_result_contributors(monkeypatch):
     event = OLVStreamEvent()
     event.set_extra("_interaction_persona_segment_stream_requested", True)
 
-    controller._ensure_persona_segment_stream_compatible(event)
-
-    contributors[0].persona_segment_stream_safe = False
     with pytest.raises(
         InteractionExpressionError,
         match="persona_stream_output_contributors_unsupported",

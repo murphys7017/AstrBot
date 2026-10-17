@@ -1,7 +1,10 @@
 """Public Core stream boundary with an isolated platform output sink."""
 
+import asyncio
 import json
 import time
+from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -27,6 +30,7 @@ from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.astrbot_message import AstrBotMessage, MessageMember
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.platform.platform_metadata import PlatformMetadata
+from astrbot.core.voice.pcm_stream import PCMStreamFrame
 
 
 class OutputSink:
@@ -96,7 +100,7 @@ class IncrementalEvent(AstrMessageEvent):
         pass
 
 
-def stream_producer(speech, *, request=None, actions=None):
+def stream_producer(speech, *, request=None, actions=None, deltas=None):
     async def produce(emit_record, message_id):
         parser = PersonaSegmentStreamParser(
             request or PersonaExpressionRequest(require_turn_action=True)
@@ -109,7 +113,10 @@ def stream_producer(speech, *, request=None, actions=None):
                 "actions": actions or [],
                 "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
             },
-            *([{"v": 1, "record": "speech_delta", "text": speech}] if speech else []),
+            *[
+                {"v": 1, "record": "speech_delta", "text": text}
+                for text in (deltas if deltas is not None else ([speech] if speech else []))
+            ],
             {"v": 1, "record": "segment_end", "thought": ""},
             {"v": 1, "record": "finish", "effect_calls": []},
         ]
@@ -127,6 +134,62 @@ def stream_producer(speech, *, request=None, actions=None):
 
 async def publish(_record):
     return True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_during_drain", [False, True])
+async def test_pcm_drains_many_deltas_after_slow_tts_start(monkeypatch, cancel_during_drain):
+    sink = OutputSink()
+    sink.audio = []
+    async def append_audio(segment_index, sample_offset, pcm):
+        sink.audio.append(pcm)
+
+    sink.append_audio = append_audio
+    event = IncrementalEvent(sink)
+    controller = InteractionOutputController()
+    options = replace(
+        controller._resolve_outbound_options(event),
+        tts_enabled=True, tts_trigger_probability=1,
+    )
+    controller._resolve_outbound_options = lambda _event: options
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.SessionServiceManager.should_process_tts_request",
+        AsyncMock(return_value=True),
+    )
+    consuming = asyncio.Event()
+    async def slow_pcm(_context, _event, source):
+        # Model output finishes before TTS starts consuming; its first response
+        # exceeds the former one-second cleanup deadline.
+        consuming.set()
+        await asyncio.sleep(1.1)
+        offset = 0
+        async for part in source:
+            if part.text is None:
+                yield PCMStreamFrame("end", part.segment_index, offset)
+            else:
+                yield PCMStreamFrame("audio", part.segment_index, offset, b"\x00\x00")
+                offset += 1
+
+    monkeypatch.setattr(
+        "astrbot.core.interaction.output_controller.synthesize_pcm_stream", slow_pcm,
+    )
+    task = asyncio.create_task(controller.emit_persona_segment_stream(
+        event, producer=stream_producer("", deltas=["字"] * 160), on_header=publish,
+    ))
+    await asyncio.wait_for(consuming.wait(), timeout=2)
+    if cancel_during_drain:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert ("audio", 0, "cancelled") in sink.ends
+        assert sink.audio == []
+        return
+    outcome = await task
+    assert outcome.status == "completed"
+    assert "".join(sink.text) == "字" * 160
+    assert len(sink.audio) == 160
+    assert ("audio", 0, "completed") in sink.ends
+    assert all(status == "completed" for _, _, status in sink.ends)
 
 
 @pytest.mark.asyncio
