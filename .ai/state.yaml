@@ -2313,3 +2313,11 @@ olv_legacy_motion_delivery_accounting_20261017:
   scope: "The OLV legacy segment fallback counts a motion segment only when Adapter attached a non-empty persona motion payload and its output queue accepted the segment; an empty placeholder no longer qualifies."
   validation: "Core public stream boundary with unavailable incremental writer rejected a blank motion placeholder as output. Actual PlatformEvent boundary marked a successful non-empty motion payload and left an empty failed result unmarked. Focused checks and changed-file Ruff passed."
   evidence_gap: "Requires paired Core/Adapter deployment. Adapter queue acceptance is not proof that the desktop execution timeline completed the action. Preserve user contributor guard, original stream test and history edits."
+
+olv_persona_state_delivery_filter_20261017:
+  class: bugfix
+  risk: high
+  status: public_boundary_validated_pending_live_acceptance
+  scope: "Build immediate Persona state from successfully delivered modalities only: keep a segment's speech only when its full prepared text was delivered, and keep its actions only when the motion payload was accepted. This prevents failed action intent from being treated as already delivered during Core-final duplicate checks."
+  validation: "Focused public Core stream boundary delivered text while motion update was absent; outcome remained text-emitted and immediate segment retained speech while dropping actions. Scoped Ruff/diff passed."
+  evidence_gap: "No delegated Core-final live duplicate scenario or real provider/device run. Preserve user contributor guard, original stream test and history edits."

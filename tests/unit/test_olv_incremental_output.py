@@ -218,3 +218,26 @@ async def test_legacy_motion_placeholder_without_payload_is_not_output():
     assert outcome.status == "completed"
     assert outcome.emitted is False
     assert get_interaction_turn_visible_outputs(event) == []
+
+
+@pytest.mark.asyncio
+async def test_text_delivery_does_not_mark_failed_motion_as_persona_state():
+    sink = OutputSink(deliver_motion=False)
+    event = IncrementalEvent(sink)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer(
+            "可见文本",
+            actions=["nod"],
+            request=PersonaExpressionRequest(
+                require_turn_action=True,
+                allow_action_only=True,
+            ),
+        ),
+        on_header=publish,
+    )
+    assert outcome.status == "completed"
+    assert outcome.emitted is True
+    segment = get_interaction_turn_immediate_persona_segments(event)[0]
+    assert segment["speech"] == "可见文本"
+    assert segment["actions"] == []

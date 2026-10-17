@@ -1250,19 +1250,20 @@ class InteractionOutputController:
             if emitted_text:
                 set_interaction_turn_immediate_reply(event, emitted_text)
             if emitted_text or motion_count:
-                mappings = [
-                    segment
-                    for segment_index, segment in enumerate(state["segments"])
-                    if status == "completed"
-                    or segment_index in delivered_motion_indexes
-                    or (
-                        bool(segment.get("speech"))
-                        and "".join(
-                            state["delivered_segment_parts"].get(segment_index, [])
-                        )
-                        == segment["speech"]
-                    )
-                ]
+                mappings = []
+                for segment_index, segment in enumerate(state["segments"]):
+                    text_delivered = bool(segment.get("speech")) and "".join(
+                        state["delivered_segment_parts"].get(segment_index, [])
+                    ) == segment["speech"]
+                    motion_delivered = segment_index in delivered_motion_indexes
+                    if not text_delivered and not motion_delivered:
+                        continue
+                    delivered_segment = deepcopy(segment)
+                    if not text_delivered:
+                        delivered_segment["speech"] = ""
+                    if not motion_delivered:
+                        delivered_segment["actions"] = []
+                    mappings.append(delivered_segment)
                 set_interaction_turn_immediate_persona_state(
                     event,
                     segments=mappings,
