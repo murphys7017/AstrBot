@@ -2,7 +2,7 @@
 
 日期：2026-10-17。配套 [08 主任务书](08-olv-full-streaming-execution-plan.md) 与 [10 现场证据](10-olv-runtime-evidence-2026-10-17.md)。本文件描述目标行为，出现的伪代码和候选字段不是已经存在的 API；不得照抄后另造平行运行时。
 
-**当前入口：**[14 剩余工作与现场验收](14-olv-remaining-work-and-acceptance.md)规定下一步及完成标准；本文保留状态机和行为契约。T0b/T1/T2/T3 已实现，提交证据见 08 第 12、13 节；下文步骤 B/C/D 和第 4 节用于复核，不能当作未完成清单。真实 M2 与身体表现仍未验收，T6 动作小记录未实施。M0 为 v6，M2 为 incremental_output.v1，并要求双端 audio_credit.v1 配套协商。
+**当前入口：**[14 剩余工作与现场验收](14-olv-remaining-work-and-acceptance.md)规定下一步及完成标准；本文保留状态机和行为契约。T0b/T1/T2/T3 已实现，提交证据见 08 第 12、13 节；下文步骤 B/C/D 和第 4 节用于复核，不能当作未完成清单。真实 M2 与身体表现仍未验收，T6 动作小记录未实施。M0 使用 `output.segment.v6`，M2 使用 `olv.incremental_output.v1`，并要求双端 `olv.audio_credit.v1` 配套协商。
 
 **保留的用户约束：**暂不改 Prompt 上下文结构；Memory 读取已发布快照、后台独立更新，允许同作用域旧版本，不等待本轮记忆更新。现有麦克风触发资源准备继续复用。ASR revision、AudioWorklet、跨段连续 TTS 暂缓；按用户要求完成一项提交一项。
 

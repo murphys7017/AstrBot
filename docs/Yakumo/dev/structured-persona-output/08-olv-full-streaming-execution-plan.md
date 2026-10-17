@@ -93,6 +93,8 @@
 
 ## 3. 当前链路与应保留的能力
 
+本节增量链路覆盖 OLV immediate Persona 调用；`delegate` 后的 Core-final 回复仍使用普通完整结果路径，不因同一 Turn 曾产生 M2 确认语音就变成 M2。`middleware._generate_and_emit_persona` 在该次流式调用的 finally 中清除 active，保留后续普通回复的 Hook/contributor 语义。验收应分别记录确认语音与最终结果的模式，不能将当前实现推广为全部回复均已流式化。
+
 ```text
 麦克风分块 → 完整语音段/VAD 结束 → ASR → Turn 准入
   → 上下文准备 → Persona JSONL
