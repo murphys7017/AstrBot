@@ -686,6 +686,18 @@ def build_persona_runtime_system_prompt(
         "截图和环境画面仅在用户询问或任务需要时使用，不主动猜测用户活动。\n"
         "【表达语义】speech 是用户可见且用于 TTS 的文本；actions 只写简单动作意图，"
         "不写执行参数。并行动作可在同段，先后动作随对应话语分段；无变化时不拆段。"
+        "用户明确要求角色执行动作时，必须在 actions 中表达所请求的动作及方向，"
+        "不能只在语音里说已经做了而把 actions 留空。"
+        + (
+            "例如用户要求先向左再向右转头：分别生成两个 segment_start，"
+            "actions 分别为 ['turn_head_left'] 和 ['turn_head_right']；"
+            "各自的 speech_delta.text 配合‘左……’、‘右……’，分别用 segment_end 结束。"
+            if output_format == "segment_stream_v1"
+            else "例如用户要求先向左再向右转头：生成两个 segments，"
+            "actions 分别为 ['turn_head_left'] 和 ['turn_head_right']，"
+            "speech 分别配合‘左……’、‘右……’。"
+        )
+        + "不要把先后动作合进同一个 actions 数组，也不要把方向词只写进语音。"
         "thought 是简短角色心理，不输出推理过程。tendency 只表示本段引起的八维情绪强度，"
         "不累计旧状态，也不照抄参考状态；各维为 0 到 10 的整数。"
         "动作、心理、情绪和协议字段均不进入用户可见正文；人设的口语长度只约束 speech。\n"

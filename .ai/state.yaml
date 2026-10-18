@@ -1,3 +1,26 @@
+motion_prompt_regression_repair_20261018:
+  class: bugfix
+  risk: medium
+  status: awaiting_live_acceptance
+  scope: >-
+    Restore explicit requested-action and directional segment guidance in
+    Persona. Clarify integer duration_weight and render a legal motion_steps
+    example using current capability levels. Log bounded rejected duration
+    fields, and use projected input on direct Motion requests. Synchronize only
+    independent.py to deployment after verifying its previous source baseline.
+  validation: >-
+    Rendered sequence accepted by actual normalize_motion_steps; fractional
+    weight rejected. JSON and JSONL Persona prompts retain directional action
+    guidance. No Provider call, restart or live Live2D acceptance yet.
+    Review, scoped Ruff, compilation and whitespace checks passed. AG99live
+    source commit c4ce746; only independent.py synchronized with matching bytes.
+    The full-directory post-commit deploy was skipped to preserve concurrent
+    speech/frontend edits; other hooks retained. User authorized scoped commits.
+  rollback: >-
+    User requested one repair attempt; if live behavior still fails, revert the
+    Persona/Motion Prompt optimization while preserving unrelated streaming,
+    ASR and concurrent user edits. Local smoke checks do not establish success.
+
 persona_prompt_unification_20261018:
   class: refactor
   risk: high
