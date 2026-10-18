@@ -85,6 +85,7 @@ from astrbot.core.interaction.types import (
     CorePlanningAction,
     CorePlanningDecision,
     CoreTaskSpec,
+    InteractionRouteDecision,
     InteractionRouteMode,
     PersonalResponseAction,
 )
@@ -1224,6 +1225,59 @@ async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
     assert turn_state.core_delegated is True
     assert turn_state.speculative_persona_status.value == "emitted"
     await turn_state.execution_scope.close()
+
+
+@pytest.mark.asyncio
+async def test_handoff_review_revises_same_turn_before_core_forward():
+    event = _DirectEvent(_metadata(support_personal_runtime=True))
+    event.set_extra("_turn_id", "turn-review")
+    review_audio = AsyncMock(return_value="corrected task request")
+    event.set_extra("_ag99live_handoff_asr_review", review_audio)
+    middleware = InteractionMiddleware(
+        {"interaction_middleware": {"enabled": True}},
+        InteractionOutputController(),
+        SimpleNamespace(),
+    )
+    planner_inputs = []
+    planner_decisions = iter(
+        [
+            CorePlanningDecision(
+                action=CorePlanningAction.EXECUTE,
+                task_spec=CoreTaskSpec(task_summary="fast transcript"),
+            ),
+            CorePlanningDecision(
+                action=CorePlanningAction.EXECUTE,
+                task_spec=CoreTaskSpec(task_summary="reviewed transcript"),
+            ),
+        ]
+    )
+
+    async def plan(event, *_args):
+        planner_inputs.append(event.message_str)
+        return next(planner_decisions)
+
+    middleware.core_planner.plan = AsyncMock(side_effect=plan)
+    middleware._emit_delegated = AsyncMock()
+    middleware._forward_to_core = Mock()
+    persona_task = asyncio.create_task(asyncio.sleep(0, result=None))
+
+    await middleware.complete_routed_turn(
+        event,
+        interaction_config=None,
+        persona_task=persona_task,
+        route=InteractionRouteDecision(route_mode=InteractionRouteMode.HYBRID),
+    )
+
+    review_audio.assert_awaited_once_with()
+    assert middleware.core_planner.plan.await_count == 2
+    assert planner_inputs == ["hello", "corrected task request"]
+    assert event.message_str == "corrected task request"
+    assert event.message_obj.message_str == "corrected task request"
+    assert event.message_obj.message[0].text == "corrected task request"
+    turn_state = get_interaction_turn_state(event)
+    assert turn_state is not None
+    assert turn_state.core_task_spec.task_summary == "reviewed transcript"
+    middleware._forward_to_core.assert_called_once_with(event)
 
 
 @pytest.mark.asyncio

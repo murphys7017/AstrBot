@@ -961,6 +961,21 @@ class InteractionMiddleware:
             planning_decision is not None
             and planning_decision.action is CorePlanningAction.EXECUTE
         ):
+            reviewed_text = await self._review_handoff_audio(event)
+            if reviewed_text:
+                self._apply_reviewed_input_text(event, reviewed_text)
+                await self._invalidate_context_material_for_revised_input(event)
+                set_interaction_turn_core_planning_decision(event, None)
+                set_interaction_turn_core_task_spec(event, None)
+                planning_decision = await self._plan_core_execution(
+                    event,
+                    interaction_config,
+                )
+
+        if (
+            planning_decision is not None
+            and planning_decision.action is CorePlanningAction.EXECUTE
+        ):
             await self._emit_delegated(event, route)
             self._forward_to_core(event)
             return
@@ -978,6 +993,75 @@ class InteractionMiddleware:
             await self._complete_silent_or_committed_persona_turn(event, None)
             return
         await self._complete_persona_only_turn(event, expression)
+
+    async def _review_handoff_audio(self, event: AstrMessageEvent) -> str | None:
+        callback = event.get_extra("_ag99live_handoff_asr_review")
+        if not callable(callback):
+            return None
+        try:
+            async with asyncio.timeout(8.0):
+                text = await callback()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Handoff-triggered audio review failed; retaining streaming transcript: "
+                "turn_id=%s",
+                event.get_extra("_turn_id"),
+            )
+            return None
+        normalized = str(text or "").strip()
+        current = str(event.message_str or "").strip()
+        return normalized if normalized and normalized != current else None
+
+    @staticmethod
+    def _apply_reviewed_input_text(event: AstrMessageEvent, text: str) -> None:
+        event.message_str = text
+        message_obj = getattr(event, "message_obj", None)
+        if message_obj is None:
+            return
+        message_obj.message_str = text
+        message_chain = getattr(message_obj, "message", None)
+        if isinstance(message_chain, list):
+            updated_chain = []
+            inserted_text = False
+            for component in message_chain:
+                if isinstance(component, Plain):
+                    if not inserted_text:
+                        updated_chain.append(Plain(text))
+                        inserted_text = True
+                else:
+                    updated_chain.append(component)
+            if not inserted_text:
+                updated_chain.insert(0, Plain(text))
+            message_obj.message = updated_chain
+        raw_message = getattr(message_obj, "raw_message", None)
+        if isinstance(raw_message, dict):
+            payload = raw_message.get("payload")
+            if isinstance(payload, dict):
+                payload["transcription"] = text
+
+    @staticmethod
+    async def _invalidate_context_material_for_revised_input(
+        event: AstrMessageEvent,
+    ) -> None:
+        turn_state = get_interaction_turn_state(event)
+        if turn_state is None:
+            return
+        material = turn_state.context_material
+        if material is not None:
+            tasks = list(material.target_context_tasks.values())
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        task = turn_state.context_material_task
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        turn_state.context_material = None
+        turn_state.context_material_task = None
 
     async def _complete_delegated_planner_failure(
         self,
