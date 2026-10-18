@@ -1,3 +1,26 @@
+desktop_observation_adapter_sync_20261019:
+  class: feature
+  risk: high
+  status: reviewed_synced_pending_paired_reload
+  source_commit: AG99live/a9a1f19
+  scope: >-
+    Sync the desktop observation adapter settings schema and eight reviewed
+    adapter source files from AG99live, after comparing every existing target
+    against the source HEAD baseline. Preserve deployed builder, coordinator
+    and speech changes. Core observation/policy/queue implementations unchanged.
+  validation: >-
+    Source changed-file Ruff, compilation and wire/cancellation smoke passed;
+    source Electron main/preload/renderer production build passed. Review fixed
+    pre-capture session configuration/disable admission and stale comparisons
+    after client identity changes. Existing public session-disabled capability
+    boundary passed (one case). All selected source/deployment files match.
+  limitations: >-
+    No process restart or live desktop/Policy/TTS/Live2D acceptance. Default
+    remains disabled; model must be explicitly selected. Raw identical synthetic
+    images triggered a small-model false positive; exact equality now bypasses
+    inference. Real desktop comparison accuracy remains unverified. Post-commit
+    whole-directory deployment hook bypassed for source commit to preserve work.
+
 persona_prompt_rule_consolidation_20261018:
   class: refactor
   risk: high
