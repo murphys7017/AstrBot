@@ -67,8 +67,6 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                 getattr(request, "progress_stage", "") or ""
             ).strip(),
             "preserve_facts": bool(getattr(request, "preserve_facts", False)),
-            "short_reply": bool(getattr(request, "short_reply", False)),
-            "allow_empty": bool(getattr(request, "allow_empty", False)),
         }
         if intent_kind == "interjection":
             payload = {
@@ -87,8 +85,6 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                     payload["pending_text"],
                     max_chars=_PERSONA_PROGRESS_TEXT_MAX_CHARS,
                 ),
-                "short_reply": payload["short_reply"],
-                "allow_empty": payload["allow_empty"],
             }
         elif intent_kind == "proactive":
             for field in (

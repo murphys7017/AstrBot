@@ -1,3 +1,40 @@
+persona_prompt_unification_20261018:
+  class: refactor
+  risk: high
+  status: committed_locally_validated
+  scope: >-
+    Reuse canonical PromptContextBuilder, target projection, RenderProfile and
+    provider renderers. Consolidate Persona protocol in the system profile and
+    keep request instructions phase-local. Project diagnostic-only fields out
+    of Persona input without mutating canonical facts or Core execution input.
+    Reduce companion duplication; inspect optional motion prompt entry points.
+  assumptions: >-
+    Preserve persona source configuration, history, task delegation and confirmed
+    result boundaries, streaming wire format and existing VAD/STT/TTS behavior.
+    No process reload, paid model calls or commit authorized in this turn.
+    Existing state/history changes are user-owned and must remain intact.
+  validation: >-
+    Added canonical Motion target/view and target-local projection sanitization,
+    plus compact per-item bounds for the AG99live Motion projection. AstrBot
+    compile, motion projection smoke and diff checks passed. Focused
+    target/render smoke checks passed. The broader focused Persona suite is
+    153 passed, 14 failed; the failures are existing protocol/text-hook
+    assertions plus the renderer assertion that still expects diagnostic user
+    IDs/platform fields which this refactor intentionally removes. AG99live
+    compile and diff checks passed; its focused middleware suite is 18 passed,
+    3 failed because old tests construct only a partial canonical pack and
+    still assert the removed conversation-manager fallback.
+  review: >-
+    Motion now consumes only the canonical interaction pack projection; the
+    removed fallback cannot block Core conversation. Motion projection keeps
+    persona summary, current input, compact memory and safe session identity,
+    while dropping confidence, provider-prefix, transport/ID and collection
+    diagnostics from Persona/Motion views. No restart or live Provider/device
+    acceptance was performed. This turn explicitly authorizes the scoped
+    commits; unrelated user-owned middleware, platform adapter and .jspace
+    changes remain outside them. AstrBot commit is a40428dd1 and the paired
+    AG99live source commit is 86f5737.
+
 ptt_screenshot_asr_overlap_companion_20261018:
   class: feature
   risk: high
@@ -2528,6 +2565,7 @@ olv_stream_requested_lifecycle_continuity_20261018:
   evidence_gap: >-
     No AstrBot restart or live Hybrid/desktop playback acceptance after this
     change. Existing .jspace/history.json remains user-owned worktree state.
+
 
 neurobrain_application_simplification_20261018:
   class: refactor
