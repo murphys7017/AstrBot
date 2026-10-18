@@ -1283,7 +1283,7 @@ class PersonaSegmentStreamParser:
         self._last_record_shape: dict[str, Any] = {}
 
     def feed(self, text: str) -> list[dict[str, Any]]:
-        if self._finished and text:
+        if self._finished and text.strip():
             raise InteractionExpressionError("persona_stream_data_after_finish")
         if len(self._wire_text) + len(text) > self.MAX_STREAM_CHARS:
             raise InteractionExpressionError("persona_stream_too_large")
@@ -1332,7 +1332,8 @@ class PersonaSegmentStreamParser:
         if len(line) > self.MAX_RECORD_CHARS:
             raise InteractionExpressionError("persona_stream_record_too_large")
         if not line.strip():
-            raise InteractionExpressionError("persona_stream_empty_record")
+            # Blank separators carry no record and must not cancel the turn.
+            return None
         self._record_count += 1
         self._last_record_shape = {}
         if self._record_count > self.MAX_RECORDS:

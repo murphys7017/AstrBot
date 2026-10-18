@@ -330,7 +330,11 @@ def _make_anthropic_provider_for_payload_tests() -> anthropic_source.ProviderAnt
 
 def test_anthropic_reasoning_false_disables_thinking():
     provider = anthropic_source.ProviderAnthropic(
-        provider_config={"model": "MiniMax-M3", "reasoning": False},
+        provider_config={
+            "model": "MiniMax-M3",
+            "reasoning": "false",
+            "anth_thinking_config": {"type": "adaptive", "effort": "low"},
+        },
         provider_settings={},
         use_api_key=False,
     )

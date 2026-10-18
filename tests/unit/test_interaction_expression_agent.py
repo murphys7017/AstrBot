@@ -94,7 +94,8 @@ def test_segment_stream_reports_wrong_wire_format(record, reason):
     assert "response_tail" not in parser.diagnostics
 
 
-def test_persona_segment_stream_parser_handles_fragmented_records():
+@pytest.mark.parametrize("separator", ["\n", "\r\n \t\r\n\r\n"])
+def test_persona_segment_stream_parser_handles_fragmented_records(separator):
     tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
     records = [
         {"v": 1, "record": "header", "turn_action": "reply"},
@@ -109,7 +110,8 @@ def test_persona_segment_stream_parser_handles_fragmented_records():
         {"v": 1, "record": "segment_end", "thought": ""},
         {"v": 1, "record": "finish", "effect_calls": []},
     ]
-    wire = "\n".join(json.dumps(record, ensure_ascii=False) for record in records)
+    wire = separator.join(json.dumps(record, ensure_ascii=False) for record in records)
+    wire += separator
     parser = PersonaSegmentStreamParser(
         PersonaExpressionRequest(require_turn_action=True)
     )
@@ -117,6 +119,7 @@ def test_persona_segment_stream_parser_handles_fragmented_records():
     emitted = []
     for chunk in (wire[:37], wire[37:119], wire[119:]):
         emitted.extend(parser.feed(chunk))
+    emitted.extend(parser.feed("\r\n \t\r\n"))
     result = parser.finish()
 
     assert [item["type"] for item in emitted] == [

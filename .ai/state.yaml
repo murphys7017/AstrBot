@@ -1,3 +1,27 @@
+persona_stream_blank_separator_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Ignore blank or whitespace-only separators in Persona segment streams,
+    including trailing whitespace delivered after finish. Preserve JSON,
+    schema, ordering and size validation. User subsequently authorized fixing
+    thinking priority too: explicit model reasoning=false takes precedence
+    over inherited adaptive/budget settings. No Prompt changes.
+  evidence: >-
+    Supplied 16:59 log shows persona_stream_empty_record after four records,
+    followed by motion cancellation. This establishes the rejection trigger,
+    without claiming raw response replay or successful live acceptance.
+  validation: >-
+    Seven targeted parser boundary cases passed, including fragmented records
+    with blank CRLF separators and trailing whitespace, plus malformed-record
+    rejection. Explicit reasoning=false with inherited adaptive thinking also
+    passed its targeted check. Provider Ruff, Python compile and git diff
+    whitespace checks passed.
+  evidence_gap: >-
+    No restart, live Provider conversation or latency measurement. MiniMax
+    M3 accepts disabled thinking; this change does not give other models a
+    capability their upstream API does not support.
+
 persona_stream_trace_audit_20261018:
   class: bugfix
   risk: medium
