@@ -1,3 +1,19 @@
+persona_stream_trace_audit_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    After audited Prompt rollback, correct the existing segment rejection trace
+    call to record_prompt_trace(event, action, **fields). No Prompt or parser
+    contract changes. Prompt rollback commits: Core 603d9ecd0; Live be64850.
+  validation: >-
+    Actual parser rejection plus enabled trace writer preserves original
+    persona_stream_invalid_json and writes one trace without secondary TypeError.
+    Scoped Ruff, compile and whitespace checks passed. All restored Prompt code
+    matches baseline except this separate diagnostic call correction.
+  evidence_gap: >-
+    Model JSONL validity and pre-action expiry still need live acceptance after
+    reload. No restart, Provider call or end-to-end Live2D success claimed.
+
 motion_prompt_regression_repair_20261018:
   class: bugfix
   risk: medium

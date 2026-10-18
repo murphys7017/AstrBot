@@ -1481,15 +1481,13 @@ def _log_persona_segment_stream_failure(
     )
     if prompt_trace_enabled():
         record_prompt_trace(
+            event,
             "persona.segment_stream_rejected",
-            event=event,
-            fields={
-                "lifecycle_id": lifecycle_id,
-                "reason": error.reason,
-                "shape": parser.diagnostics,
-                "response_tail": parser.wire_text[-2048:],
-                "response_truncated": len(parser.wire_text) > 2048,
-            },
+            lifecycle_id=lifecycle_id,
+            reason=error.reason,
+            shape=parser.diagnostics,
+            response_tail=parser.wire_text[-2048:],
+            response_truncated=len(parser.wire_text) > 2048,
         )
 
 
