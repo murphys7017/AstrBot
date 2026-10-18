@@ -33,7 +33,7 @@ persona_prompt_unification_20261018:
     acceptance was performed. This turn explicitly authorizes the scoped
     commits; unrelated user-owned middleware, platform adapter and .jspace
     changes remain outside them. AstrBot commit is 9eabc07ff and the paired
-    AG99live source commit is 99583b7.
+    AG99live source commit is 140e0de.
 
 ptt_screenshot_asr_overlap_companion_20261018:
   class: feature
