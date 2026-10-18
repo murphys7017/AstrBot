@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from math import isfinite
 from time import time
@@ -37,13 +38,17 @@ class RuntimeObservationSensorHandle:
         expires_in_seconds: float = 300.0,
         coalesce_key: str | None = None,
         correlation_id: str | None = None,
+        cancel_event: asyncio.Event | None = None,
     ) -> ObservationAdmissionResult | None:
         """Submit one fact to the existing Personal Runtime Observation Inbox.
 
         ``session=None`` uses the configured proactive-message target. Payloads
         are facts rather than messages: do not include user text, prompts, or
         final reply material. Expiry starts at this call, including admission waits.
+        Set ``cancel_event`` to discard obsolete queued facts and their actions.
         """
+        if cancel_event is not None and not isinstance(cancel_event, asyncio.Event):
+            raise TypeError("cancel_event must be an asyncio.Event")
         return await self._submitter(
             self._registration_id,
             kind,
@@ -52,6 +57,7 @@ class RuntimeObservationSensorHandle:
             time() + _validate_expiry(expires_in_seconds),
             _clean_optional_identifier(coalesce_key, field_name="coalesce_key"),
             _clean_optional_identifier(correlation_id, field_name="correlation_id"),
+            cancel_event,
         )
 
 

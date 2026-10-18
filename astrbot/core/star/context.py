@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from asyncio import Queue
+from asyncio import Event, Queue
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -1045,6 +1045,7 @@ class Context:
         expires_at: float,
         coalesce_key: str | None,
         correlation_id: str | None,
+        cancel_event: Event | None = None,
     ) -> Any:
         from astrbot.core.interaction.observation import (
             RuntimeObservation,
@@ -1095,6 +1096,7 @@ class Context:
             ),
             occurred_at=occurred_at,
             expires_at=expires_at,
+            cancel_event=cancel_event,
             coalesce_key=coalesce_key,
             correlation_id=correlation_id,
             target_session=RuntimeObservationTarget(

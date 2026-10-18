@@ -94,6 +94,10 @@ DEFAULT_OBSERVATION_DEBOUNCE_SECONDS = 1.5
 MAX_COALESCED_MATERIAL_FINGERPRINTS = 512
 
 
+class _ObservationWorkCancelled(Exception):
+    """The source withdrew an observation before its work completed."""
+
+
 class PendingTurnState(str, Enum):
     RESERVED = "reserved"
     BOUND = "bound"
@@ -649,7 +653,7 @@ class PersonalSessionRuntime:
         self.last_completion_feedback: CompletionFeedback | None = None
         self.observation_inbox = ObservationInbox(max_pending=max_pending_observations)
         self._coalesced_material_fingerprints: OrderedDict[
-            tuple[str, str, str], str
+            tuple[str, str, str], tuple[str, asyncio.Event | None]
         ] = OrderedDict()
         self.observation_debounce_seconds = observation_debounce_seconds
         self.observation_gate_settings = (
@@ -931,13 +935,15 @@ class PersonalSessionRuntime:
     ) -> int | None:
         if observation.kind == "heartbeat":
             return None
-        if observation.expires_at is not None and observation.expires_at <= now:
+        if not observation.is_current(now):
             return None
         identity = observation.coalesce_identity
         if identity is None:
             return self.state.record_material_change()
         fingerprint = _stable_observation_payload_fingerprint(observation.payload)
-        if self._coalesced_material_fingerprints.get(identity) == fingerprint:
+        if self._coalesced_material_fingerprints.get(identity) == (
+            fingerprint, observation.cancel_event
+        ):
             return None
         return self.state.record_material_change()
 
@@ -949,7 +955,8 @@ class PersonalSessionRuntime:
         if identity is None or observation.kind == "heartbeat":
             return
         self._coalesced_material_fingerprints[identity] = (
-            _stable_observation_payload_fingerprint(observation.payload)
+            _stable_observation_payload_fingerprint(observation.payload),
+            observation.cancel_event,
         )
         self._coalesced_material_fingerprints.move_to_end(identity)
         while (
@@ -1130,6 +1137,52 @@ class PersonalSessionRuntime:
                 self.idle_since = now
                 self.state.mark_idle(now=now)
 
+    async def _await_observation_work(
+        self,
+        batch: ObservationBatch,
+        work: Callable[[], Awaitable[Any]],
+        *,
+        owns_turn: bool = False,
+    ) -> Any:
+        guarded = tuple(o for o in batch.observations if o.cancel_event is not None)
+        if not guarded:
+            return await work()
+        if not all(o.is_current(time.time()) for o in guarded):
+            raise _ObservationWorkCancelled
+        task = asyncio.create_task(work(), name=f"observation-work:{batch.batch_id}")
+        waiters = [
+            asyncio.create_task(event.wait())
+            for event in {o.cancel_event for o in guarded}
+        ]
+        expires = [o.expires_at for o in guarded if o.expires_at is not None]
+        timeout = max(0.0, min(expires) - time.time()) if expires else None
+        try:
+            await asyncio.wait(
+                [task, *waiters], timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task.done() and all(o.is_current(time.time()) for o in guarded):
+                return await task
+            raise _ObservationWorkCancelled
+        finally:
+            for waiter in waiters:
+                waiter.cancel()
+            await asyncio.gather(*waiters, return_exceptions=True)
+            if not task.done():
+                task.cancel()
+                _, pending = await asyncio.wait({task}, timeout=1.0)
+                if pending:
+                    if owns_turn:
+                        self.track_cleanup_tasks((task,))
+                    else:
+                        # Policy owns no visible turn or output lease. A provider
+                        # slow to cancel must not block new user dialogue.
+                        task.add_done_callback(
+                            lambda done: None if done.cancelled() else done.exception()
+                        )
+            # Retrieve any exception even when invalidation won the race.
+            if task.done() and not task.cancelled():
+                task.exception()
+
     async def _evaluate_personal_policy(
         self,
         batch: ObservationBatch,
@@ -1152,17 +1205,27 @@ class PersonalSessionRuntime:
             await self._persist_state()
 
         try:
-            evaluation = await agent.evaluate(
-                runtime_key=self.key,
-                batch=batch,
-                gate_result=gate_result,
-                state=state_snapshot,
-                gate_settings=self.observation_gate_settings,
-                plugin_context=plugin_context,
-                runtime_config=self._runtime_config,
-                interaction_config=self._interaction_config,
-                on_provider_call_started=record_provider_call,
+            evaluation = await self._await_observation_work(
+                batch,
+                lambda: agent.evaluate(
+                    runtime_key=self.key,
+                    batch=batch,
+                    gate_result=gate_result,
+                    state=state_snapshot,
+                    gate_settings=self.observation_gate_settings,
+                    plugin_context=plugin_context,
+                    runtime_config=self._runtime_config,
+                    interaction_config=self._interaction_config,
+                    on_provider_call_started=record_provider_call,
+                ),
             )
+        except _ObservationWorkCancelled:
+            # Keep unrelated facts, but never restore the withdrawn source's fact.
+            self.observation_inbox.restore(batch, hold_reason="source_cancelled")
+            self._settle_discarded_observation_material()
+            self.state.set_pending_observation_count(self.observation_inbox.pending_count)
+            logger.debug("Personal Policy observation withdrawn: batch_id=%s", batch.batch_id)
+            return time.time() if self.observation_inbox.pending_count else None
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1252,7 +1315,11 @@ class PersonalSessionRuntime:
             )
             return None
         try:
-            await handler(self, intent)
+            await self._await_observation_work(
+                batch, lambda: handler(self, intent), owns_turn=True
+            )
+        except _ObservationWorkCancelled:
+            logger.debug("Personal Policy expression withdrawn: batch_id=%s", batch.batch_id)
         except asyncio.CancelledError:
             raise
         except Exception:

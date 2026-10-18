@@ -1,3 +1,31 @@
+runtime_observation_cancellation_20261019:
+  class: feature
+  risk: high
+  status: reviewed_selectively_synced_pending_paired_restart_and_acceptance
+  scope: >-
+    User authorized conversation-first desktop observation. Add optional process-
+    local asyncio.Event cancellation to Sensor submission and RuntimeObservation.
+    Inbox drops withdrawn facts, preserves unrelated material; Policy and expression
+    tasks stop on source withdrawal/deadline, and Action/Event inherit validity.
+    No desktop-specific Core gate or alternate proactive output pipeline. Preserve
+    noncancellable sources. AG99live adds the conversation quiet window and source
+    signal; selectively sync five related adapter files, including tracked schema.
+  validation: >-
+    Changed Core/adapter modules pass Ruff and compilation. Public window, Sensor/
+    Inbox and Action/Event boundaries passed quiet/busy rejection, cancellation,
+    unrelated task retention and output validity propagation. Source call-chain
+    review traced PTT/VAD, text admission and playback completion. Synced adapter
+    files byte-match source. Review fixed pre-merge cancellation filtering and
+    transient replacement watermark handling. Two affected modules pass Ruff and
+    compilation; public Inbox restore/coalescing boundaries passed. Adapter PTT
+    preparation now always clears temporary input state. No broad or mocked
+    integration suites run.
+  limitations: >-
+    No restart; full paired AstrBot reload required, not plugin-only hot
+    reload. Actual Provider interruption, live audio/dialogue and policy acceptance
+    pending. Client fragments already sent cannot be recalled. No frontend changes
+    or quiet-hours/config-value mutations. Preserve existing unrelated dirty files.
+
 desktop_observation_math_adapter_sync_20261019:
   class: refactor
   risk: medium

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -87,6 +88,7 @@ class RuntimeObservation:
     payload: Mapping[str, Any] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    cancel_event: asyncio.Event | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         kind = str(self.kind or "").strip()
@@ -124,6 +126,12 @@ class RuntimeObservation:
         )
         object.__setattr__(self, "correlation_id", self.correlation_id or None)
         object.__setattr__(self, "payload", _freeze(self.payload))
+
+    def is_current(self, now: float) -> bool:
+        return not (
+            self.cancel_event is not None and self.cancel_event.is_set()
+            or self.expires_at is not None and self.expires_at <= now
+        )
 
     @property
     def coalesce_identity(self) -> tuple[str, str, str] | None:

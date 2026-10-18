@@ -140,6 +140,7 @@ class ObservationInbox:
         self._discarded_material_revision = 0
         self.overflow_drop_count = 0
         self.expired_drop_count = 0
+        self.cancelled_drop_count = 0
 
     @property
     def pending_count(self) -> int:
@@ -157,8 +158,25 @@ class ObservationInbox:
         now: float,
         material_revision: int | None = None,
     ) -> ObservationAdmissionResult:
-        dropped_ids = self._remove_expired(now=now)
-        reason_codes = ["inbox_expired_removed"] if dropped_ids else []
+        cancelled_before = self.cancelled_drop_count
+        expired_before = self.expired_drop_count
+        dropped_ids = self._remove_stale(now=now)
+        reason_codes = []
+        if self.expired_drop_count > expired_before:
+            reason_codes.append("inbox_expired_removed")
+        if self.cancelled_drop_count > cancelled_before:
+            reason_codes.append("inbox_cancelled_removed")
+
+        if observation.cancel_event is not None and observation.cancel_event.is_set():
+            self.cancelled_drop_count += 1
+            return ObservationAdmissionResult(
+                status=ObservationAdmissionStatus.IGNORED,
+                observation_id=observation.observation_id,
+                runtime_key=runtime_key,
+                pending_count=self.pending_count,
+                dropped_observation_ids=(*dropped_ids, observation.observation_id),
+                reason_codes=(*reason_codes, "observation_cancelled"),
+            )
 
         if observation.expires_at is not None and observation.expires_at <= now:
             self.expired_drop_count += 1
@@ -201,13 +219,13 @@ class ObservationInbox:
                 if material is None:
                     material = replaced.material
                 elif material.revision != replaced.material.revision:
-                    self._discard_material(replaced.material)
+                    self._discard_item_material(replaced)
 
         if self.pending_count >= self._max_pending:
             oldest_id = next(iter(self._items))
             dropped = self._remove(oldest_id)
             if dropped is not None:
-                self._discard_material(dropped.material)
+                self._discard_item_material(dropped)
             self.overflow_drop_count += 1
             dropped_ids.append(oldest_id)
             reason_codes.append("inbox_overflow_drop_oldest")
@@ -236,7 +254,7 @@ class ObservationInbox:
         runtime_key: PersonalRuntimeKey,
         closed_at: float,
     ) -> ObservationBatch | None:
-        self._remove_expired(now=closed_at)
+        self._remove_stale(now=closed_at)
         if not self._items:
             self._opened_at = None
             return None
@@ -266,6 +284,7 @@ class ObservationInbox:
 
     def restore(self, batch: ObservationBatch, *, hold_reason: str) -> None:
         """Restore held facts while retaining newer observations admitted meanwhile."""
+        self._remove_stale(now=None)
         restored = OrderedDict(
             (
                 observation.observation_id,
@@ -277,7 +296,11 @@ class ObservationInbox:
                 ),
             )
             for observation in batch.observations
+            if not (
+                observation.cancel_event is not None and observation.cancel_event.is_set()
+            )
         )
+        self.cancelled_drop_count += len(batch.observations) - len(restored)
         for observation_id, item in self._items.items():
             replaced = restored.pop(observation_id, None)
             item = self._merge_replacement_material(replaced, item)
@@ -297,7 +320,7 @@ class ObservationInbox:
         overflow = max(0, len(restored) - self._max_pending)
         for _ in range(overflow):
             _, dropped = restored.popitem(last=False)
-            self._discard_material(dropped.material)
+            self._discard_item_material(dropped)
         self.overflow_drop_count += overflow
         self._items = restored
         self._coalesced_ids = {
@@ -332,18 +355,27 @@ class ObservationInbox:
         self._discarded_material_revision = 0
         return revision
 
-    def _remove_expired(self, *, now: float) -> list[str]:
+    def _remove_stale(self, *, now: float | None) -> list[str]:
         expired_ids = [
             observation_id
             for observation_id, item in self._items.items()
-            if item.observation.expires_at is not None
-            and item.observation.expires_at <= now
+            if (
+                item.observation.cancel_event is not None
+                and item.observation.cancel_event.is_set()
+                or now is not None and not item.observation.is_current(now)
+            )
         ]
         for observation_id in expired_ids:
             removed = self._remove(observation_id)
             if removed is not None:
-                self._discard_material(removed.material)
-        self.expired_drop_count += len(expired_ids)
+                self._discard_item_material(removed)
+                if (
+                    removed.observation.cancel_event is not None
+                    and removed.observation.cancel_event.is_set()
+                ):
+                    self.cancelled_drop_count += 1
+                else:
+                    self.expired_drop_count += 1
         if not self._items:
             self._opened_at = None
             self._held_since = None
@@ -360,8 +392,14 @@ class ObservationInbox:
         if item.material is None:
             return _InboxItem(observation=item.observation, material=replaced.material)
         if item.material.revision != replaced.material.revision:
-            self._discard_material(replaced.material)
+            self._discard_item_material(replaced)
         return item
+
+    def _discard_item_material(self, item: _InboxItem) -> None:
+        # Discarding a transient source must not settle older, unrelated pending
+        # material through the shared revision watermark, including replacement.
+        if item.observation.cancel_event is None:
+            self._discard_material(item.material)
 
     def _discard_material(self, material: ObservationMaterial | None) -> None:
         if material is not None:

@@ -146,6 +146,10 @@ Lifecycle 托管：`platform_settings.personal_runtime_observation_targets` 留�
 仅提交不含原文的 `conversation_activity` fact，并在普通限流、插件、Personal 计划和 Core 前结束原事件。
 插件可通过 `Context.register_runtime_observation_sensor(sensor)` 注册受限的事实 Source；返回的
 handle 只能向同一通用 Intake 提交带目标会话、类别、过期时间和结构化 payload 的 Observation。
+`submit(cancel_event=asyncio.Event())` 可为短暂来源附带进程内撤销信号，不写入payload或模型上下文。
+来源设置该信号后，Inbox准入、取批与恢复会剔除该事实；正在等待的Policy/表达工作取消，
+Action继承信号与原始期限，RuntimeObservationEvent在输出边界复核有效性。
+混合批次中的其他未撤销事实保留，且撤销的瞬时事实不结清它们的材料版本。未使用撤销信号的来源保持既有行为。
 生命周期装配器负责把它交给既有 `PersonalRuntimeManager`，因此插件不会拿到 Runtime、EventBus、
 Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module prefix 自动删除，旧 handle 随即失效。
 `Context.send_message()` 仍是已经决定发送的兼容 API，不是 Sensor 或 Personal Policy

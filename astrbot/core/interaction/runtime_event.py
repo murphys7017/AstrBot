@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from time import time
 from typing import Any
 
 from astrbot.core.message.message_event_result import MessageChain
@@ -56,9 +57,14 @@ class RuntimeObservationEvent(AstrMessageEvent):
         self.set_extra("_runtime_observation_event", True)
         self.set_extra("_runtime_observation", observation)
 
+    def is_stopped(self) -> bool:
+        return super().is_stopped() or not self.observation.is_current(time())
+
     async def send(self, message: MessageChain) -> None:
         if message is None:
             return
+        if not self.observation.is_current(time()):
+            raise RuntimeError("runtime_observation_no_longer_current")
         delivered = await self.context_obj._send_message_direct(self.session, message)
         if not delivered:
             raise RuntimeError(

@@ -31,6 +31,11 @@ class PersonalActionIntent:
             occurred_at=self.created_at,
             target_session=self.target_observation.target_session,
             correlation_id=self.action_id,
+            cancel_event=self.target_observation.cancel_event,
+            expires_at=(
+                self.target_observation.expires_at
+                if self.target_observation.cancel_event is not None else None
+            ),
             payload={
                 "personal_action_id": self.action_id,
                 "personal_action_kind": PersonalPolicyAction.EXPRESS.value,
