@@ -313,3 +313,43 @@ async def test_text_delivery_does_not_mark_failed_motion_as_persona_state():
     segment = get_interaction_turn_immediate_persona_segments(event)[0]
     assert segment["speech"] == "可见文本"
     assert segment["actions"] == []
+
+
+@pytest.mark.asyncio
+async def test_action_only_motion_can_finish_after_one_second_within_its_budget():
+    sink = OutputSink(deliver_motion=True)
+
+    class DelayedMotionEvent(IncrementalEvent):
+        def get_interaction_incremental_motion_deadline(self, **kwargs):
+            return self.deadline
+
+        async def flush_interaction_incremental_motion(self, *, segment_index):
+            async def deliver():
+                await asyncio.sleep(1.1)
+                await super(DelayedMotionEvent, self).flush_interaction_incremental_motion(
+                    segment_index=segment_index
+                )
+
+            self.delivery_task = asyncio.create_task(deliver())
+
+    event = DelayedMotionEvent(sink)
+    event.deadline = asyncio.get_running_loop().time() + 3.0
+    try:
+        outcome = await InteractionOutputController().emit_persona_segment_stream(
+            event,
+            producer=stream_producer(
+                "",
+                actions=["nod"],
+                request=PersonaExpressionRequest(
+                    require_turn_action=True, allow_action_only=True
+                ),
+            ),
+            on_header=publish,
+        )
+        assert outcome.status == "completed"
+        assert outcome.emitted is True
+        assert has_delivered_motion_output(get_interaction_turn_visible_outputs(event))
+    finally:
+        if hasattr(event, "delivery_task"):
+            event.delivery_task.cancel()
+            await asyncio.gather(event.delivery_task, return_exceptions=True)

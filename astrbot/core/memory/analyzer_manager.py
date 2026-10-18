@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from time import perf_counter
 from typing import Any
+
+from httpx import TimeoutException
+from openai import APITimeoutError
 
 from astrbot.core import logger
 from astrbot.core.provider.provider import Provider
@@ -130,24 +134,40 @@ class MemoryAnalyzerManager:
             provider_tier,
             stage,
         )
+        started = perf_counter()
+        timer = asyncio.timeout(max(0.001, float(request.timeout_seconds)))
+        status = "failed"
         try:
-            result = await asyncio.wait_for(
-                implementation.analyze(request),
-                timeout=max(0.001, float(request.timeout_seconds)),
-            )
-        except asyncio.TimeoutError as exc:
+            async with timer:
+                result = await implementation.analyze(request)
+            status = "completed"
+        except (TimeoutError, TimeoutException, APITimeoutError) as exc:
+            reason = "timeout" if timer.expired() else "provider_timeout"
+            elapsed_ms = (perf_counter() - started) * 1000
             raise MemoryAnalyzerExecutionError(
-                f"memory analyzer `{analyzer_name}` timed out after "
-                f"{request.timeout_seconds}s",
-                analyzer_name=analyzer_name,
-                stage=stage,
-                reason="timeout",
+                f"memory analyzer `{analyzer_name}` {reason} after {elapsed_ms:.0f}ms "
+                f"(limit={request.timeout_seconds}s, phase={request.diagnostics.get('phase', 'unknown')}, "
+                f"response_chars={request.diagnostics.get('response_chars', 0)}, "
+                f"reasoning_chars={request.diagnostics.get('reasoning_chars', 0)})",
+                analyzer_name=analyzer_name, stage=stage, reason=reason,
             ) from exc
+        except MemoryAnalyzerExecutionError as exc:
+            exc.analyzer_name = exc.analyzer_name or analyzer_name
+            exc.stage = exc.stage or stage
+            raise
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            logger.info(
+                "DIAG memory.analyzer_execution analyzer=%s stage=%s provider_id=%s "
+                "status=%s elapsed_ms=%.1f timeout_seconds=%s progress=%s",
+                analyzer_name, stage, provider_id, status,
+                (perf_counter() - started) * 1000, request.timeout_seconds, request.diagnostics,
+            )
         logger.info(
             "memory analyzer execution finished: analyzer=%s keys=%s provider_id=%s",
-            analyzer_name,
-            sorted(result.data),
-            result.provider_id,
+            analyzer_name, sorted(result.data), result.provider_id,
         )
         return result
 

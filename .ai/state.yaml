@@ -1,3 +1,126 @@
+memory_request_controls_and_wall_timing_20261018:
+  class: bugfix
+  risk: high
+  scope: >-
+    Repair common OpenAI-compatible request assembly dropping request-local
+    generation settings and analyzer extra_body; preserve protected fields and
+    orchestration-only exclusions. Request settings override model defaults in
+    streaming/nonstreaming HTTP paths. Native Ollama reuses the common assembly.
+    Memory prefers declared streaming capability, preserving nonstream providers;
+    records prompt size, transport, first response/text timing, text/reasoning
+    progress and provider duration without content. Use existing JSON repair
+    for complete results. Distinguish owning analyzer deadline from a Provider
+    TimeoutError and preserve failed durable jobs; do not raise the 20s limit.
+    Record stage start/end offsets, interval-union wall coverage and actual gaps;
+    exclude the turn_execution umbrella. Observe audio/motion drain waits without
+    adding deadlines, changing delivery or extending existing producer budgets.
+  evidence: >-
+    Four logged timeouts used MiniMax standard/advanced memory models. Default
+    analyzer extra_body was empty; the Alice profile has thinking-disable
+    overrides which the common assembler discarded. This bug is confirmed in
+    code, but does not prove one cause for all four historical timeouts. Existing
+    journal keeps failed jobs and recovers them on restart. Reported 68 percent
+    unmeasured time was not established because inclusive timing fields overlap.
+  validation: >-
+    Scoped Ruff, compilation and whitespace checks passed. Two existing memory
+    analyzer boundary cases passed. A local HTTP acceptance server exercised
+    real OpenAI nonstream and Memory stream request serialization plus native
+    Ollama: per-request temperature/thinking survive, model/messages protected,
+    and structured native options survive common assembly. Deterministic clock
+    boundary verified nested stages are counted once and gaps retain offsets.
+    Startup circular import detected and fixed by deferring the shared parser
+    import until analysis, preserving one implementation.
+  limitations: >-
+    No restart, background-job replay or live MiniMax verification.
+    Future timeout progress is required to separate no-response, thinking and
+    stalled/long generation. Preserve prior JSON repair and unrelated dirty work.
+
+json_record_recovery_and_stream_eof_20261018:
+  class: bugfix
+  risk: high
+  scope: >-
+    Add shared complete-record syntax recovery: strict parse, existing repair
+    library, then one configured local model attempt per Turn. Preserve literal
+    values/order/nesting; reject duplicates, invented content and unterminated
+    strings. Retain schema/protocol validation, cancellation and owning deadlines.
+    Persona consumes repaired complete JSONL records incrementally and dispatches
+    the final no-newline record. Verified normal Provider stop may close existing
+    speech with empty thought and finish, marked stream_recovered_at_eof; no EOF
+    recovery after error, cancellation, length/content filtering or tool calls.
+    Independent motion uses the same recovery API. User-requested duration weights
+    clamp finite numeric values to 1..3; in-range fractional, missing, boolean and
+    nonnumeric values remain invalid. Per user clarification, missing/null motion
+    axes are omitted while other valid axes remain; never replace a null axis
+    with zero or default a missing duration_weight to one. Native Ollama forwards request-local JSON
+    schema/thinking/sampling options. Expected plugin skips are DEBUG; runtime
+    diagnostics explicitly say settling and separate session_id from UMO.
+  configuration: >-
+    Added Chinese-labelled JSON repair provider/timeout settings. Library-only
+    default; local default and Alice profile select ollama/qwen3.5:0.8b with a
+    three-second repair cap additionally bounded by the original owning budget.
+  validation: >-
+    Twelve focused Persona parser/protocol cases passed. Changed-file Ruff,
+    compilation and whitespace checks passed. Source/deployment motion files
+    match. Actual native Ollama Provider recovered a complete record that the
+    library could not preserve, without changing keys/values/nesting. Observed
+    3372ms under a ten-second smoke cap; this is not proof of production latency
+    within the configured three-second request cap. Public clamp/rejection smoke
+    passed for 9 -> 3, '-2' -> 1 and boolean rejection. Public null-axis/clamp
+    boundary passed: null axes omitted, other axes retained, all-null map empty.
+    The focused repaired-stream/EOF boundary passed again after fingerprint
+    hardening, including preservation of empty objects versus empty arrays.
+    Final review: both repaired-stream boundaries and the 1.1-second late-motion
+    boundary passed (3 cases); renderer typecheck passed. Long complete memory
+    JSON keeps its 256K bound; huge integer weights clamp without float overflow.
+  limitations: >-
+    No AstrBot restart or frontend deployment. End-to-end TTS/Live2D
+    acceptance pending. Background memory timeouts are separate: failed durable
+    jobs retain their journal and are recovered on restart; no blind timeout
+    increase or automatic retry added. Timing fields overlap and cannot be summed
+    to establish an unmeasured remainder. Existing unrelated dirty work preserved.
+
+motion_deadline_ownership_repair_20261018:
+  class: bugfix
+  risk: high
+  scope: >-
+    Remove the extra one-second incremental-motion drain timeout. Await existing
+    finish_motion tasks, each bounded by the producer's original absolute
+    deadline or immediate closure when no producer is admitted. Keep PCM/text
+    delivery independent. Do not change configured timeout, Prompt or Provider.
+  evidence: >-
+    M3.1 at 18:07 returned a normalized motion record, but later production was
+    cancelled during stream cleanup. Frontend also rejected completed-speech
+    late actions. AG99live now schedules valid late actions in segment order
+    using a fresh motion-only clock while retaining interruption protection.
+  validation: >-
+    Existing action-only delivery/no-delivery checks passed (2 cases). Added
+    one public stream-boundary check: action delivered after 1.1 seconds within
+    its original three-second deadline remains completed and visibly emitted.
+    Frontend renderer typecheck and real store/orchestrator/timeline smoke
+    passed for late motion after audio completion and rejection after interrupt.
+  evidence_gap: >-
+    No restart, frontend deployment or live MiniMax/TTS/Live2D acceptance.
+    M3 returning conversational text remains a separate unresolved issue.
+
+motion_invalid_json_diagnostic_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Add bounded repr-escaped rejected motion response preview (256 chars),
+    request ID, length and JSON error position to existing failure log. Source
+    and deployed independent.py matched before selective sync. No parser,
+    Prompt, Provider, retry or dialogue behavior changes.
+  evidence: >-
+    At 17:10 M3 requests report thinking disabled and dialogue replied, while
+    completed motion streams return 15/21/20 characters and fail JSON parsing.
+    Existing logs do not retain these rejected responses, so underlying output
+    cause is not established.
+  validation: >-
+    Changed file AST parsed; source and deployment synced byte-for-byte.
+  evidence_gap: >-
+    Needs a conversation after plugin reload to capture rejected response.
+    No root-cause fix, live Provider verification or restart claimed.
+
 attached_visual_keyword_gate_removal_20261018:
   class: bugfix
   risk: medium

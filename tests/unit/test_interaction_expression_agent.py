@@ -144,6 +144,61 @@ def test_persona_segment_stream_parser_handles_fragmented_records(separator):
     )
 
 
+def test_repaired_stream_preserves_speech_and_dispatches_eof_tail():
+    import asyncio
+
+    from astrbot.core.prompt.json_recovery import parse_json_record
+
+    assert parse_json_record('{"a":{},"b":[],}') == {"a": {}, "b": []}
+
+    async def run():
+        parser = PersonaSegmentStreamParser(PersonaExpressionRequest(require_turn_action=True))
+        records = [
+            "{'v':1,'record':'header','turn_action':'reply',}",
+            json.dumps({"v": 1, "record": "segment_start", "actions": [],
+                        "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)}),
+            json.dumps({"v": 1, "record": "speech_delta", "text": "已有的回复。"}),
+        ]
+        wire = "\n".join(records)
+        events = [record async for record in parser.feed_async(
+            wire, plugin_context=None, event=None,
+        )]
+        assert not any(record["type"] == "speech_delta" for record in events)
+        events.extend([record async for record in parser.feed_async(
+            "", plugin_context=None, event=None, final=True,
+        )])
+        events.extend(parser.recover_normal_end())
+        result = parser.finish()
+        assert result.speech == "已有的回复。"
+        assert [record["type"] for record in events] == [
+            "header", "segment_start", "speech_delta", "segment_end",
+        ]
+        assert parser.wire_text == wire
+        assert result.segment_mappings[0]["thought"] == ""
+
+    asyncio.run(run())
+
+
+def test_repaired_stream_rejects_duplicate_fields_and_missing_speech_content():
+    import asyncio
+
+    async def run():
+        for wire, reason in (
+            ('{"v":1,"v":2,"record":"header","turn_action":"reply"}\n',
+             "persona_stream_duplicate_field"),
+            ('{"v":1,"record":"speech_delta","text":"未完成',
+             "persona_stream_invalid_json"),
+        ):
+            parser = PersonaSegmentStreamParser(PersonaExpressionRequest(require_turn_action=True))
+            with pytest.raises(InteractionExpressionError) as failure:
+                _ = [record async for record in parser.feed_async(
+                    wire, plugin_context=None, event=None, final=True,
+                )]
+            assert failure.value.reason == reason
+
+    asyncio.run(run())
+
+
 def test_persona_segment_stream_parser_rejects_empty_reply():
     parser = PersonaSegmentStreamParser(
         PersonaExpressionRequest(require_turn_action=True)

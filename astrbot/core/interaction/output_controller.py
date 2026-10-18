@@ -6,7 +6,7 @@ import random
 import time
 import traceback
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
-from contextlib import aclosing
+from contextlib import aclosing, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -102,6 +102,7 @@ from .turn_state import (
     finish_interaction_turn_final_output,
     get_interaction_turn_assistant_artifacts,
     get_interaction_turn_config,
+    get_interaction_turn_deadline,
     get_interaction_turn_delivery_metadata,
     get_interaction_turn_finalized_material,
     get_interaction_turn_immediate_persona_segments,
@@ -696,61 +697,52 @@ class InteractionOutputController:
             nonlocal incremental_pcm_aborted, incremental_pcm_error
             resource_failure = False
 
-            if incremental_pcm_task is not None and not incremental_pcm_task.done():
-                try:
-                    # Text completion is not an audio deadline. Allow TTS and
-                    # desktop credit to keep draining accepted text. Only a
-                    # stalled producer is timed out, slightly after the Adapter's
-                    # 30-second audio-credit timeout, without awaiting playback ACK.
-                    while not incremental_pcm_task.done():
-                        remaining = 35.0 - (
-                            time.monotonic() - incremental_pcm_progress_at
-                        )
-                        if remaining <= 0:
-                            raise TimeoutError
-                        done, _ = await asyncio.wait(
-                            {incremental_pcm_task}, timeout=remaining,
-                        )
-                        if done:
-                            await incremental_pcm_task
-                except asyncio.TimeoutError:
-                    resource_failure = True
-                    incremental_pcm_aborted = True
-                    incremental_pcm_task.cancel()
-                    await asyncio.gather(incremental_pcm_task, return_exceptions=True)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - text remains primary.
-                    resource_failure = True
-                    incremental_pcm_error = incremental_pcm_error or exc
-            elif incremental_pcm_task is not None:
-                try:
-                    await incremental_pcm_task
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - text remains primary.
-                    resource_failure = True
-                    incremental_pcm_error = incremental_pcm_error or exc
+            timing_deadline = get_interaction_turn_deadline(event)
+            with timing_deadline.observe("audio_drain") if timing_deadline else nullcontext():
+                if incremental_pcm_task is not None and not incremental_pcm_task.done():
+                    try:
+                        # Text completion is not an audio deadline. Allow TTS and
+                        # desktop credit to keep draining accepted text. Only a
+                        # stalled producer is timed out, slightly after the Adapter's
+                        # 30-second audio-credit timeout, without awaiting playback ACK.
+                        while not incremental_pcm_task.done():
+                            remaining = 35.0 - (
+                                time.monotonic() - incremental_pcm_progress_at
+                            )
+                            if remaining <= 0:
+                                raise TimeoutError
+                            done, _ = await asyncio.wait(
+                                {incremental_pcm_task}, timeout=remaining,
+                            )
+                            if done:
+                                await incremental_pcm_task
+                    except asyncio.TimeoutError:
+                        resource_failure = True
+                        incremental_pcm_aborted = True
+                        incremental_pcm_task.cancel()
+                        await asyncio.gather(incremental_pcm_task, return_exceptions=True)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - text remains primary.
+                        resource_failure = True
+                        incremental_pcm_error = incremental_pcm_error or exc
+                elif incremental_pcm_task is not None:
+                    try:
+                        await incremental_pcm_task
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - text remains primary.
+                        resource_failure = True
+                        incremental_pcm_error = incremental_pcm_error or exc
 
-            pending_motion = tuple(
-                task for task in incremental_motion_tasks if not task.done()
-            )
-            if pending_motion:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(*pending_motion, return_exceptions=True),
-                        timeout=1.0,
-                    )
-                except asyncio.TimeoutError:
-                    resource_failure = True
-                    for task in pending_motion:
-                        if not task.done():
-                            task.cancel()
-                    await asyncio.gather(*pending_motion, return_exceptions=True)
-            motion_results = await asyncio.gather(
-                *incremental_motion_tasks,
-                return_exceptions=True,
-            )
+            # Each finish_motion task already waits against its producer's
+            # original absolute deadline. A second drain timeout can cancel valid
+            # motion merely because text/audio finished first.
+            with timing_deadline.observe("motion_drain") if timing_deadline else nullcontext():
+                motion_results = await asyncio.gather(
+                    *incremental_motion_tasks,
+                    return_exceptions=True,
+                )
             if any(
                 isinstance(result, BaseException)
                 and not isinstance(result, asyncio.CancelledError)

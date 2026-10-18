@@ -693,7 +693,11 @@ class ProviderOpenAIOfficial(Provider):
         # 读取并合并 custom_extra_body 配置
         custom_extra_body = self.provider_config.get("custom_extra_body", {})
         if isinstance(custom_extra_body, dict):
-            extra_body.update(custom_extra_body)
+            extra_body = {**custom_extra_body, **extra_body}
+        # Explicit SDK options must win over model-level extra-body defaults.
+        for key in tuple(extra_body):
+            if key in payloads and key in self.default_params:
+                extra_body.pop(key)
         self._apply_provider_specific_request_overrides(payloads, extra_body)
         self._drop_provider_only_request_keys(extra_body)
 
@@ -758,6 +762,10 @@ class ProviderOpenAIOfficial(Provider):
                 to_del.append(key)
         for key in to_del:
             del payloads[key]
+        # Explicit SDK options must win over model-level extra-body defaults.
+        for key in tuple(extra_body):
+            if key in payloads and key in self.default_params:
+                extra_body.pop(key)
         self._apply_provider_specific_request_overrides(payloads, extra_body)
         self._drop_provider_only_request_keys(extra_body)
         self._sanitize_assistant_messages(payloads)
@@ -1143,7 +1151,21 @@ class ProviderOpenAIOfficial(Provider):
         model = model or self.get_model()
 
         payloads = {"messages": context_query, "model": model}
-
+        # Forward request-local generation options. Context assembly must not
+        # silently discard analyzer temperature/thinking controls.
+        protected = {"messages", "model", "tools", "tool_choice", "stream",
+                     "extra_headers", "extra_body"}
+        native_options = {"think", "options", "keep_alive", "num_predict"}
+        for key, value in kwargs.items():
+            if key not in protected and (key in self.default_params or key in native_options):
+                payloads[key] = value
+        extra_body = kwargs.get("extra_body")
+        if isinstance(extra_body, dict):
+            payloads.update({
+                key: value for key, value in extra_body.items()
+                if key not in protected and key not in self._PROVIDER_ONLY_REQUEST_KEYS
+            })
+        self._drop_provider_only_request_keys(payloads)
         self._finally_convert_payload(payloads)
 
         return payloads, context_query

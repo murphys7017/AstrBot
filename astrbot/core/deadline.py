@@ -122,6 +122,7 @@ class TurnDeadlineBudget:
             "turn_limited": turn_limited,
             "elapsed_seconds": 0.0,
             "status": "running",
+            "started_seconds": max(0.0, now - self.started_at),
         }
         self._stages.append(record)
         try:
@@ -142,7 +143,9 @@ class TurnDeadlineBudget:
         else:
             record["status"] = "completed"
         finally:
-            record["elapsed_seconds"] = max(0.0, self._clock() - now)
+            ended = self._clock()
+            record["elapsed_seconds"] = max(0.0, ended - now)
+            record["ended_seconds"] = max(0.0, ended - self.started_at)
 
     @asynccontextmanager
     async def enforce(
@@ -162,14 +165,63 @@ class TurnDeadlineBudget:
                     raise TurnDeadlineExceeded(name) from exc
                 raise
 
+    @contextmanager
+    def observe(self, name: str) -> Iterator[None]:
+        """Record an existing wait without changing its owning timeout policy."""
+        started = self._clock()
+        record = {"name": name, "status": "running", "elapsed_seconds": 0.0,
+                  "started_seconds": max(0.0, started - self.started_at),
+                  "timing_only": True}
+        self._stages.append(record)
+        try:
+            yield
+        except BaseException as exc:
+            record["status"] = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+            raise
+        else:
+            record["status"] = "completed"
+        finally:
+            ended = self._clock()
+            record["elapsed_seconds"] = max(0.0, ended - started)
+            record["ended_seconds"] = max(0.0, ended - self.started_at)
+
     def snapshot(self) -> dict[str, Any]:
+        elapsed = self.elapsed()
+        stages = [dict(stage) for stage in self._stages]
+        intervals = []
+        for stage in stages:
+            if "started_seconds" not in stage:
+                continue
+            start = min(elapsed, float(stage["started_seconds"]))
+            end = min(elapsed, float(stage.get("ended_seconds", elapsed)))
+            if stage.get("status") == "running":
+                stage["elapsed_seconds"] = max(0.0, end - start)
+            # This umbrella encloses the entire pipeline and cannot attribute
+            # the time spent between actual measured operations.
+            if stage.get("name") != "turn_execution" and end > start:
+                intervals.append((start, end))
+        covered = 0.0
+        cursor = 0.0
+        gaps = []
+        for start, end in sorted(intervals):
+            if start > cursor:
+                gaps.append({"started_seconds": cursor, "ended_seconds": start})
+            covered += max(0.0, end - max(start, cursor))
+            cursor = max(cursor, end)
+        if cursor < elapsed:
+            gaps.append({"started_seconds": cursor, "ended_seconds": elapsed})
         return {
             "total_seconds": self.total_seconds,
-            "elapsed_seconds": self.elapsed(),
+            "elapsed_seconds": elapsed,
             "remaining_seconds": self.remaining(),
             "expired": self.expired(),
-            "stages": [dict(stage) for stage in self._stages],
+            "stages": stages,
+            "stage_time_semantics": "inclusive_may_overlap",
+            "instrumented_wall_seconds": covered,
+            "unattributed_wall_seconds": max(0.0, elapsed - covered),
+            "unattributed_intervals": gaps,
         }
+
 
 
 __all__ = [

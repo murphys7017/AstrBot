@@ -64,7 +64,7 @@ def skip_incompatible_stream_capability(
     identity = (kind, name)
     if identity not in skipped:
         skipped.add(identity)
-        logger.warning(
+        logger.debug(
             "DIAG persona_stream.plugin_skipped: turn_id=%s kind=%s name=%s "
             "reason=stream_incompatible action=continue_core_dialogue",
             event.get_extra("_turn_id", ""),

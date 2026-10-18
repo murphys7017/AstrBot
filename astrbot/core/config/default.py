@@ -252,6 +252,8 @@ DEFAULT_CONFIG = {
         "plugin_capability_targets": {},
         "memory_window_size": 8,
         "persona_history_window_size": 300,
+        "json_repair_provider_id": "",
+        "json_repair_timeout": 3.0,
         "expression_provider_id": "",
         "expression_output_format": "json",
         "expression_output_mode": "prompt_only",
@@ -4558,6 +4560,17 @@ CONFIG_METADATA_3 = {
                 "type": "object",
                 "hint": "生成统一的拟人回复计划：直接回复、委派 Core 或允许的群聊静默；所有用户可见 Persona 表达都使用这一链路。",
                 "items": {
+                    "interaction_middleware.json_repair_provider_id": {
+                        "description": "JSON 修复模型",
+                        "type": "string",
+                        "_special": "select_provider",
+                        "hint": "留空时仅使用本地 JSON 修复库。修复库失败后每轮最多请求此模型一次，正常回复不增加调用。适用于 Persona 流式记录和独立动作 JSON；不补造缺失内容。",
+                    },
+                    "interaction_middleware.json_repair_timeout": {
+                        "description": "JSON 模型修复超时秒数",
+                        "type": "float",
+                        "hint": "同时受当前对话及动作剩余期限限制，不延长原请求期限。",
+                    },
                     "interaction_middleware.expression_provider_id": {
                         "description": "表达模型提供商",
                         "type": "string",

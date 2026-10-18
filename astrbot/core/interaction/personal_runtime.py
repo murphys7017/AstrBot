@@ -2398,12 +2398,16 @@ class PersonalRuntimeManager:
             else "none"
         )
         logger.debug(
-            "DIAG interaction.turn: phase=settled turn_id=%s session_id=%s status=%s route=%s "
+            "DIAG interaction.turn: phase=settling turn_id=%s session_id=%s "
+            "umo=%s status=%s route=%s "
             "personal_first_output_ms=%s turn_total_ms=%.0f persona_ms=%.0f provider_ms=%.0f "
             "plugin_enrichment_ms=%.0f planner_ms=%.0f core_executor_ms=%.0f "
-            "deadline_remaining_ms=%s deadline_expired=%s delivery=%s failures=%s",
+            "deadline_remaining_ms=%s deadline_expired=%s delivery=%s failures=%s "
+            "timing_covered_ms=%.0f timing_unattributed_ms=%.0f timing_gaps_ms=%s "
+            "audio_drain_ms=%.0f motion_drain_ms=%.0f timing_basis=interval_union",
             turn.turn_id,
             turn.session.session_id,
+            getattr(turn.event, "unified_msg_origin", "none"),
             turn_status,
             route_mode,
             personal_elapsed_ms,
@@ -2419,6 +2423,12 @@ class PersonalRuntimeManager:
             snapshot.get("expired", "none"),
             delivery,
             failure_stages,
+            float(snapshot.get("instrumented_wall_seconds", 0.0)) * 1000,
+            float(snapshot.get("unattributed_wall_seconds", 0.0)) * 1000,
+            [(round(item["started_seconds"] * 1000), round(item["ended_seconds"] * 1000))
+             for item in snapshot.get("unattributed_intervals", [])[:8]],
+            stage_elapsed.get("audio_drain", 0.0) * 1000,
+            stage_elapsed.get("motion_drain", 0.0) * 1000,
         )
 
     def _settle(self, reservation: PendingTurnReservation) -> None:

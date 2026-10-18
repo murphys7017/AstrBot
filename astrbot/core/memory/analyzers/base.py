@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +57,7 @@ class MemoryAnalyzerRequest:
     extra_body: dict | None = None
     umo: str | None = None
     conversation_id: str | None = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -108,6 +108,13 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
             if isinstance(model, dict) and model.get("name")
         )
 
+    def supports_output_format_test_mode(self, output_format: str, mode: str) -> bool:
+        if output_format == "json" and mode in {
+            "provider_native_json", "provider_native_json_schema",
+        }:
+            return True
+        return super().supports_output_format_test_mode(output_format, mode)
+
     def _build_ollama_payload(
         self,
         payloads: dict[str, Any],
@@ -128,6 +135,8 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
         custom_body = dict(custom_body) if isinstance(custom_body, dict) else {}
         options = custom_body.pop("options", {})
         options = dict(options) if isinstance(options, dict) else {}
+        if isinstance(payloads.get("options"), dict):
+            options.update(payloads["options"])
 
         for source_key, option_key in _OLLAMA_OPTION_ALIASES.items():
             if source_key in custom_body:
@@ -154,6 +163,17 @@ class ProviderOllamaNative(ProviderOpenAIOfficial):
                 logger.warning("Ignoring protected Ollama request field: %s", key)
                 continue
             request[key] = value
+
+        # Honor request-local structured output and thinking controls. These
+        # must not mutate the Provider configuration shared by other calls.
+        response_format = payloads.get("response_format", {})
+        if isinstance(response_format, dict):
+            if response_format.get("type") == "json_schema":
+                request["format"] = response_format.get("json_schema", {}).get("schema")
+            elif response_format.get("type") == "json_object":
+                request["format"] = "json"
+        if isinstance(payloads.get("think"), bool):
+            request["think"] = payloads["think"]
 
         if self._ollama_disable_thinking_enabled():
             request["think"] = False

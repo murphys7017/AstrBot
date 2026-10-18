@@ -62,6 +62,7 @@ from astrbot.core.prompt.context_views import (
     PromptContextView,
     resolve_prompt_context_view,
 )
+from astrbot.core.prompt.json_recovery import parse_json_record, recover_json_record
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
     PromptRenderProfile,
@@ -1279,8 +1280,9 @@ class PersonaSegmentStreamParser:
         self._delta_index = 0
         self._finished = False
         self._last_record_shape: dict[str, Any] = {}
+        self._repaired_records: dict[str, dict[str, Any]] = {}
 
-    def feed(self, text: str) -> list[dict[str, Any]]:
+    def _append_text(self, text: str, *, final: bool = False) -> list[str]:
         if self._finished and text.strip():
             raise InteractionExpressionError("persona_stream_data_after_finish")
         if len(self._wire_text) + len(text) > self.MAX_STREAM_CHARS:
@@ -1289,13 +1291,55 @@ class PersonaSegmentStreamParser:
         self._buffer += text
         records = self._buffer.split("\n")
         self._buffer = records.pop()
-        events: list[dict[str, Any]] = []
-        for line in records:
+        if final and self._buffer:
+            records.append(self._buffer)
+            self._buffer = ""
+        if len(self._buffer) > self.MAX_RECORD_CHARS:
+            raise InteractionExpressionError("persona_stream_record_too_large")
+        return records
+
+    def feed(self, text: str) -> list[dict[str, Any]]:
+        events = []
+        for line in self._append_text(text):
             event = self._consume_line(line)
             if event is not None and event.get("type") != "finish":
                 events.append(event)
-        if len(self._buffer) > self.MAX_RECORD_CHARS:
-            raise InteractionExpressionError("persona_stream_record_too_large")
+        return events
+
+    async def feed_async(self, text: str, *, plugin_context, event, final: bool = False):
+        """Repair only complete lines; retain original wire bytes for auditing."""
+        for line in self._append_text(text, final=final):
+            if len(line) > self.MAX_RECORD_CHARS:
+                raise InteractionExpressionError("persona_stream_record_too_large")
+            if line.strip():
+                try:
+                    json.loads(line, object_pairs_hook=self._unique_object)
+                except json.JSONDecodeError:
+                    recovered = await recover_json_record(
+                        line, plugin_context=plugin_context, event=event,
+                        scope="persona_stream_record",
+                    )
+                    if recovered is None:
+                        raise InteractionExpressionError("persona_stream_invalid_json") from None
+                    self._repaired_records[line] = recovered
+            record = self._consume_line(line)
+            if record is not None and record.get("type") != "finish":
+                yield record
+
+    def recover_normal_end(self) -> list[dict[str, Any]]:
+        """Close existing content after a verified normal Provider stop only."""
+        if self._finished or self._buffer or self._turn_action is None:
+            return []
+        events = []
+        if self._current_segment is not None:
+            if not self._current_segment.speech:
+                return []
+            event = self._consume_line('{"v":1,"record":"segment_end","thought":""}')
+            if event is not None:
+                events.append(event)
+        if not self._segments and self._turn_action is not PersonalResponseAction.SILENT:
+            return []
+        self._consume_line('{"v":1,"record":"finish","effect_calls":[]}')
         return events
 
     def finish(self) -> PersonaExpressionResult:
@@ -1341,9 +1385,16 @@ class PersonaSegmentStreamParser:
         except InteractionExpressionError:
             raise
         except (json.JSONDecodeError, TypeError) as exc:
-            raise InteractionExpressionError(
-                "persona_stream_invalid_json", str(exc)
-            ) from exc
+            record = self._repaired_records.pop(line, None)
+            if record is None:
+                try:
+                    record = parse_json_record(line)
+                except ValueError as duplicate:
+                    raise InteractionExpressionError("persona_stream_duplicate_field") from duplicate
+            if record is None:
+                raise InteractionExpressionError(
+                    "persona_stream_invalid_json", str(exc)
+                ) from exc
         if not isinstance(record, dict):
             raise InteractionExpressionError("persona_stream_record_not_object")
         self._last_record_shape = {
@@ -3294,6 +3345,74 @@ class InteractionExpressionAgent:
             provider_kwargs=provider_kwargs,
             deadline=get_interaction_turn_deadline(event),
         )
+        async def dispatch_record(record):
+            nonlocal stream_turn_action
+            if record.get("type") == "header":
+                record["persona_result_id"] = prepared.lifecycle.lifecycle_id
+                stream_turn_action = PersonalResponseAction(
+                    record["turn_action"]
+                )
+            if record.get("type") == "segment_start":
+                with prepared.lifecycle.expose_request():
+                    await call_event_hook(
+                        event,
+                        EventType.OnPersonaExpressionSegmentIntentReadyEvent,
+                        turn_id=str(
+                            event.get_extra("_turn_id", "") or ""
+                        ),
+                        persona_result_id=prepared.lifecycle.lifecycle_id,
+                        segment_index=record["segment_index"],
+                        message_id=segment_message_id,
+                        actions=list(record.get("actions") or []),
+                        tendency=dict(record.get("tendency") or {}),
+                        turn_action=stream_turn_action,
+                        execution_surface=(
+                            PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
+                        ),
+                    )
+            if record.get("type") == "segment_end":
+                raw_segment = record["segment"]
+                raw_speech = raw_segment["speech"]
+                record["raw_speech"] = raw_speech
+                with prepared.lifecycle.expose_request():
+                    hook_stopped = await call_event_hook(
+                        event,
+                        EventType.OnPersonaExpressionSegmentReadyEvent,
+                        turn_id=str(
+                            event.get_extra("_turn_id", "") or ""
+                        ),
+                        persona_result_id=prepared.lifecycle.lifecycle_id,
+                        segment_index=record["segment_index"],
+                        message_id=segment_message_id,
+                        segment=raw_segment,
+                        turn_action=stream_turn_action,
+                        execution_surface=(
+                            PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
+                        ),
+                    )
+                segment = _validated_persona_segment(record["segment"])
+                record["segment"] = segment.to_mapping()
+                logger.info(
+                    "DIAG latency.persona_segment_ready turn_id=%s "
+                    "persona_result_id=%s segment_index=%s message_id=%s "
+                    "timestamp_epoch_ms=%s",
+                    str(event.get_extra("_turn_id", "") or "") or "<missing>",
+                    prepared.lifecycle.lifecycle_id,
+                    record["segment_index"],
+                    segment_message_id,
+                    time.time_ns() // 1_000_000,
+                )
+                await segment_stream_callback(record)
+                if hook_stopped:
+                    raise InteractionExpressionError(
+                        "persona_segment_ready_hook_stopped",
+                        tool_execution_count=(
+                            prepared.lifecycle.tool_execution_count
+                        ),
+                    )
+            else:
+                await segment_stream_callback(record)
+
         try:
             async for response in runner.step_until_done(8):
                 if segment_parser is None or response.type != "streaming_delta":
@@ -3301,72 +3420,11 @@ class InteractionExpressionAgent:
                 chain = response.data.get("chain")
                 if chain is None or chain.type == "reasoning":
                     continue
-                for record in segment_parser.feed(chain.get_plain_text()):
-                    if record.get("type") == "header":
-                        record["persona_result_id"] = prepared.lifecycle.lifecycle_id
-                        stream_turn_action = PersonalResponseAction(
-                            record["turn_action"]
-                        )
-                    if record.get("type") == "segment_start":
-                        with prepared.lifecycle.expose_request():
-                            await call_event_hook(
-                                event,
-                                EventType.OnPersonaExpressionSegmentIntentReadyEvent,
-                                turn_id=str(
-                                    event.get_extra("_turn_id", "") or ""
-                                ),
-                                persona_result_id=prepared.lifecycle.lifecycle_id,
-                                segment_index=record["segment_index"],
-                                message_id=segment_message_id,
-                                actions=list(record.get("actions") or []),
-                                tendency=dict(record.get("tendency") or {}),
-                                turn_action=stream_turn_action,
-                                execution_surface=(
-                                    PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
-                                ),
-                            )
-                    if record.get("type") == "segment_end":
-                        raw_segment = record["segment"]
-                        raw_speech = raw_segment["speech"]
-                        record["raw_speech"] = raw_speech
-                        with prepared.lifecycle.expose_request():
-                            hook_stopped = await call_event_hook(
-                                event,
-                                EventType.OnPersonaExpressionSegmentReadyEvent,
-                                turn_id=str(
-                                    event.get_extra("_turn_id", "") or ""
-                                ),
-                                persona_result_id=prepared.lifecycle.lifecycle_id,
-                                segment_index=record["segment_index"],
-                                message_id=segment_message_id,
-                                segment=raw_segment,
-                                turn_action=stream_turn_action,
-                                execution_surface=(
-                                    PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
-                                ),
-                            )
-                        segment = _validated_persona_segment(record["segment"])
-                        record["segment"] = segment.to_mapping()
-                        logger.info(
-                            "DIAG latency.persona_segment_ready turn_id=%s "
-                            "persona_result_id=%s segment_index=%s message_id=%s "
-                            "timestamp_epoch_ms=%s",
-                            str(event.get_extra("_turn_id", "") or "") or "<missing>",
-                            prepared.lifecycle.lifecycle_id,
-                            record["segment_index"],
-                            segment_message_id,
-                            time.time_ns() // 1_000_000,
-                        )
-                        await segment_stream_callback(record)
-                        if hook_stopped:
-                            raise InteractionExpressionError(
-                                "persona_segment_ready_hook_stopped",
-                                tool_execution_count=(
-                                    prepared.lifecycle.tool_execution_count
-                                ),
-                            )
-                    else:
-                        await segment_stream_callback(record)
+                async for record in segment_parser.feed_async(
+                    chain.get_plain_text(), plugin_context=prepared.run_context.context.context,
+                    event=event,
+                ):
+                    await dispatch_record(record)
         except TurnDeadlineExceeded:
             raise
         except TimeoutError:
@@ -3417,7 +3475,28 @@ class InteractionExpressionAgent:
                     tool_execution_count=prepared.lifecycle.tool_execution_count,
                 )
             try:
+                async for record in segment_parser.feed_async(
+                    "", plugin_context=prepared.run_context.context.context, event=event, final=True,
+                ):
+                    await dispatch_record(record)
+                completion = llm_resp.raw_completion
+                choices = getattr(completion, "choices", None)
+                normal_stop = bool(choices) and choices[0].finish_reason == "stop"
+                recovered_at_eof = False
+                if normal_stop and not segment_parser._finished:
+                    recovered_events = segment_parser.recover_normal_end()
+                    for record in recovered_events:
+                        await dispatch_record(record)
+                    if segment_parser._finished:
+                        recovered_at_eof = True
+                        logger.warning(
+                            "DIAG persona_stream.normal_end_recovered turn_id=%s "
+                            "action=preserve_received_content",
+                            event.get_extra("_turn_id", ""),
+                        )
                 streamed_result = segment_parser.finish()
+                if recovered_at_eof:
+                    streamed_result.metadata["stream_recovered_at_eof"] = True
             except InteractionExpressionError as exc:
                 _log_persona_segment_stream_failure(
                     event, segment_parser, exc, prepared.lifecycle.lifecycle_id,
