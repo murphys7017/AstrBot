@@ -1042,7 +1042,7 @@ class Context:
         kind: str,
         session: str | MessageSession | None,
         payload: Mapping[str, Any] | None,
-        expires_in_seconds: float,
+        expires_at: float,
         coalesce_key: str | None,
         correlation_id: str | None,
     ) -> Any:
@@ -1094,7 +1094,7 @@ class Context:
                 f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"
             ),
             occurred_at=occurred_at,
-            expires_at=occurred_at + expires_in_seconds,
+            expires_at=expires_at,
             coalesce_key=coalesce_key,
             correlation_id=correlation_id,
             target_session=RuntimeObservationTarget(

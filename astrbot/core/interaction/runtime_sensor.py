@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from math import isfinite
+from time import time
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core.platform.message_session import MessageSession
@@ -41,14 +42,14 @@ class RuntimeObservationSensorHandle:
 
         ``session=None`` uses the configured proactive-message target. Payloads
         are facts rather than messages: do not include user text, prompts, or
-        final reply material.
+        final reply material. Expiry starts at this call, including admission waits.
         """
         return await self._submitter(
             self._registration_id,
             kind,
             session,
             payload,
-            _validate_expiry(expires_in_seconds),
+            time() + _validate_expiry(expires_in_seconds),
             _clean_optional_identifier(coalesce_key, field_name="coalesce_key"),
             _clean_optional_identifier(correlation_id, field_name="correlation_id"),
         )

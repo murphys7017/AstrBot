@@ -1,3 +1,29 @@
+runtime_sensor_expiry_admission_repair_20261019:
+  class: bugfix
+  risk: high
+  status: reviewed_selectively_synced_pending_paired_reload
+  scope: >-
+    Fix generic RuntimeObservationSensorHandle expiry: pin the absolute deadline
+    at public submit invocation before asynchronous permission/routing waits.
+    Private Context submitter consumes that deadline without extending it.
+    Public submit arguments remain unchanged. No desktop-specific Core logic.
+    AG99live separately accounts for capture/filter/model time and passes only
+    remaining lifetime; adds configurable large-area filtering and capture recovery.
+  validation: >-
+    Both changed Core modules passed Ruff and compilation. Public handle smoke
+    with a delayed admission sink observed an expired deadline rather than a
+    renewed lifetime. Source call-site review found only the registered handle
+    calls the private submitter. AG99live full Electron build, local image area
+    boundaries, capture recovery and a native Ollama large-change sample passed.
+  limitations: >-
+    Review found no additional blockers. Five related adapter files selectively
+    synced after source HEAD baseline verification, including tracked schema.
+    Unrelated deployed edits preserved; no process restart.
+    Private callback timing semantics require complete AstrBot restart, not only
+    plugin reload. No live Electron/Policy/TTS/Live2D acceptance. Existing queued
+    facts use Core TTL and are not retracted by stopping their source.
+    Preserve unrelated dirty plugin, J-space and state changes.
+
 desktop_observation_adapter_sync_20261019:
   class: feature
   risk: high
