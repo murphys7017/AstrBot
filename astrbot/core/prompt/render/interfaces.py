@@ -370,6 +370,8 @@ class BasePromptRenderer:
                 "pending_text",
                 "progress_stage",
                 "preserve_facts",
+                "short_reply",
+                "allow_empty",
             ),
         ):
             rendered_slot_names.append("input.visible_reply_material")

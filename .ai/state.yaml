@@ -1,7 +1,7 @@
 motion_prompt_regression_repair_20261018:
   class: bugfix
   risk: medium
-  status: awaiting_live_acceptance
+  status: rolled_back_at_user_request
   scope: >-
     Restore explicit requested-action and directional segment guidance in
     Persona. Clarify integer duration_weight and render a legal motion_steps
@@ -17,14 +17,21 @@ motion_prompt_regression_repair_20261018:
     The full-directory post-commit deploy was skipped to preserve concurrent
     speech/frontend edits; other hooks retained. User authorized scoped commits.
   rollback: >-
-    User requested one repair attempt; if live behavior still fails, revert the
-    Persona/Motion Prompt optimization while preserving unrelated streaming,
-    ASR and concurrent user edits. Local smoke checks do not establish success.
+    After another live failure the user requested withdrawal of all changes in
+    this Prompt optimization. Restored six AstrBot production files byte-for-byte
+    from 6cb4be21d and the two AG99live motion/context files from ba357ef in both
+    source and deployment. Preserve unrelated streaming, ASR, idle-motion and
+    concurrent user edits. No process restart or new live acceptance yet.
+    Rollback verification: baseline file equality, compilation and whitespace
+    checks passed. Two focused original Persona/render boundary checks passed.
+    User authorized audited rollback commits; AG99live source rollback be64850.
+    No full-directory deploy hook was run. Source/deployment byte equality
+    verified before commit; unrelated workspace/state sections preserved.
 
 persona_prompt_unification_20261018:
   class: refactor
   risk: high
-  status: committed_locally_validated
+  status: rolled_back_at_user_request
   scope: >-
     Reuse canonical PromptContextBuilder, target projection, RenderProfile and
     provider renderers. Consolidate Persona protocol in the system profile and

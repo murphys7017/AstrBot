@@ -34,7 +34,6 @@ _TARGET_MEMORY_TOKEN_LIMITS = {
     "core_planner": 4000,
     "personal_policy": 4000,
     "persona": 10000,
-    "motion": 1800,
     "core": 12000,
 }
 
@@ -63,9 +62,6 @@ def resolve_target_budget(
     elif target == "persona":
         selected_history_turns = 300
         history_limit_reason = "persona_history_candidate_limit"
-    elif target == "motion":
-        selected_history_turns = 0
-        history_limit_reason = "motion_history_disabled"
     else:
         configured_limit = getattr(config, "max_context_length", -1)
         if isinstance(configured_limit, int) and configured_limit >= 0:
@@ -75,12 +71,11 @@ def resolve_target_budget(
             selected_history_turns = CORE_HISTORY_HARD_TURN_LIMIT
             history_limit_reason = "core_history_hard_fallback"
 
-    compact_target = target in {"personal_policy", "motion"}
+    compact_target = target == "personal_policy"
     history_token_limit = {
         "personal_policy": 3000,
         "core_planner": 4000,
         "persona": 16000,
-        "motion": 0,
         "core": 16000,
     }[target]
     if history_max_estimated_tokens is not None:

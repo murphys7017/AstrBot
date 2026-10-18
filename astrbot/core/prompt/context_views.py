@@ -42,7 +42,6 @@ class PromptContextView(str, Enum):
     PROGRESS = "progress"
     FINAL_RESULT = "final_result"
     PROACTIVE = "proactive"
-    MOTION = "motion"
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,23 +206,6 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         history_turns=2,
         history_limit_reason="context_view_history_limit",
         history_max_estimated_tokens=1200,
-        requires_media_context=False,
-    ),
-    PromptContextView.MOTION: PromptContextViewSpec(
-        name=PromptContextView.MOTION,
-        target=PromptTarget.MOTION,
-        source_requirement=PromptContextSourceRequirement.BASE_ONLY,
-        allowed_slot_names=frozenset(
-            {
-                "persona.summary", "input.text", "input.quoted_text",
-                "memory.topic_state", "memory.short_term",
-                "memory.persona_state", "session.datetime",
-                "session.user_info",
-            }
-        ),
-        history_turns=0,
-        history_limit_reason="motion_history_disabled",
-        history_max_estimated_tokens=0,
         requires_media_context=False,
     ),
 }

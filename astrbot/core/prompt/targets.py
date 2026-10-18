@@ -20,7 +20,6 @@ class PromptTarget(str, Enum):
     CORE_PLANNER = "core_planner"
     PERSONAL_POLICY = "personal_policy"
     PERSONA = "persona"
-    MOTION = "motion"
     CORE = "core"
 
 
@@ -79,31 +78,6 @@ _PERSONAL_POLICY_SLOT_NAMES = frozenset(
         "runtime.observation_features",
     }
 )
-
-_MOTION_SLOT_NAMES = frozenset(
-    {
-        "persona.summary",
-        "input.text",
-        "input.quoted_text",
-        "memory.topic_state",
-        "memory.short_term",
-        "memory.persona_state",
-        "session.datetime",
-        "session.user_info",
-    }
-)
-
-_TARGET_DIAGNOSTIC_KEYS = frozenset(
-    {
-        "topic_confidence", "confidence", "raw_text",
-        "prompt_prefix", "prefix_applied", "source_field",
-        "explanation", "explanation_source", "user_id",
-        "group_id", "umo", "conversation_id", "last_active_at",
-        "updated_at", "event_time", "first_event_at",
-        "last_event_at", "source_refs", "scope_id", "scope_type",
-    }
-)
-_TARGET_SAFE_META_KEYS = frozenset({"targets", "semantic_type", "context_role"})
 
 
 def project_context_pack(
@@ -186,9 +160,6 @@ def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:
     if target is PromptTarget.PERSONAL_POLICY:
         return slot.name in _PERSONAL_POLICY_SLOT_NAMES
 
-    if target is PromptTarget.MOTION:
-        return slot.name in _MOTION_SLOT_NAMES
-
     group = slot.name.split(".", 1)[0]
     if target is PromptTarget.PERSONA:
         if slot.name in _PERSONA_BLOCKED_SLOT_NAMES:
@@ -219,47 +190,8 @@ def _project_slot(
         projected = _project_extension_slot(projected, target)
         if projected is None:
             return None
-    if target in {PromptTarget.PERSONA, PromptTarget.MOTION}:
-        _sanitize_target_slot(projected, target)
 
     return redact_context_slot(projected)
-
-
-def _sanitize_target_slot(slot: ContextSlot, target: PromptTarget) -> None:
-    """Remove collection diagnostics from an isolated model target view."""
-    if slot.name == "session.user_info" and isinstance(slot.value, dict):
-        slot.value = {
-            key: value for key, value in slot.value.items()
-            if key in {"nickname", "role", "group_name", "is_group"}
-        }
-    elif slot.name in {"input.text", "input.quoted_text"}:
-        raw_text = slot.meta.get("raw_text")
-        if target is PromptTarget.MOTION and isinstance(raw_text, str):
-            slot.value = raw_text
-        slot.meta = {
-            key: value for key, value in slot.meta.items()
-            if key in _TARGET_SAFE_META_KEYS
-        }
-    elif slot.name.startswith("memory."):
-        slot.value = _drop_target_diagnostic_keys(slot.value)
-    slot.meta = {
-        key: value for key, value in slot.meta.items()
-        if key in _TARGET_SAFE_META_KEYS
-    }
-
-
-def _drop_target_diagnostic_keys(value: object) -> object:
-    if isinstance(value, dict):
-        return {
-            key: _drop_target_diagnostic_keys(child)
-            for key, child in value.items()
-            if key not in _TARGET_DIAGNOSTIC_KEYS
-        }
-    if isinstance(value, list):
-        return [_drop_target_diagnostic_keys(child) for child in value]
-    if isinstance(value, tuple):
-        return tuple(_drop_target_diagnostic_keys(child) for child in value)
-    return value
 
 
 def _project_plugin_directory(
