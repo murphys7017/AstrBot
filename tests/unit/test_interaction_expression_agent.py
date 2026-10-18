@@ -1362,6 +1362,12 @@ async def test_progress_visible_reply_material_includes_current_tool_material():
     assert material.value["progress_context"] == (
         "工具名称：web_search\n当前工具回执：石家庄 20/11℃"
     )
+    result = PromptRenderEngine().render(
+        ContextPack(slots={slot.name: slot for slot in slots}),
+        target=PromptTarget.PERSONA,
+    )
+    rendered = json.dumps(result.messages, ensure_ascii=False)
+    assert rendered.count("石家庄 20/11℃") == 1
 
 
 @pytest.mark.asyncio
@@ -1370,8 +1376,14 @@ async def test_core_visible_reply_material_preserves_immediate_reply_context():
         "核心天气结果",
         immediate_reply="我没有联网能力",
     )
+    request.observed_text = request.source_text
+    request.total_text = request.source_text
+    request.pending_text = request.source_text
     slots = await PersonaVisibleReplyCollector(request).collect(None, None, None)
 
+    # Identical temporary material is represented once; already-spoken text
+    # keeps its distinct continuity role, and the source request is untouched.
+    assert request.total_text == "核心天气结果"
     assert request.intent == PersonaExpressionIntent(
         source="core_result",
         phase="final",
@@ -1382,6 +1394,7 @@ async def test_core_visible_reply_material_preserves_immediate_reply_context():
         "source_text": "核心天气结果",
         "immediate_reply": "我没有联网能力",
         "preserve_facts": True,
+        "short_reply": True,
     }
 
 
@@ -1429,16 +1442,16 @@ def test_persona_progress_prompt_keeps_single_tool_completion_local():
 
 
 def test_persona_expression_prompt_separates_history_continuity_from_facts():
-    prompt = _build_expression_prompt(PersonaExpressionRequest())
+    prompt = build_persona_runtime_system_prompt()
 
-    assert "可结合已提供的 history 回答当前明确指向的先前对话" in prompt
-    assert "如果当前输入确实包含图片或截图，其可见内容属于当前输入材料" in prompt
+    assert "可用于回答当前明确指向的先前发言" in prompt
+    assert "包括实际附带的图片" in prompt
 
 
 def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
     prompt = _build_expression_prompt(PersonaExpressionRequest(short_reply=True))
 
-    assert "日常闲聊或进度确认优先使用简短、口语化的一句表达，通常约 20 字" in prompt
+    assert "本次优先简短、口语化" in prompt
     assert "完整准确优先，不设置硬性字数上限" in prompt
 
 
@@ -1657,7 +1670,8 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
         assert "segments[].speech" not in result.system_prompt
         assert "只有 segments 中的 speech 会展示" not in result.system_prompt
         assert '"required"' not in result.system_prompt
-        assert "segment_stream_v1 JSONL" in result.request_prompt
+        assert result.request_prompt.count("【本轮输出协议：segment_stream_v1】") == 1
+        assert "segment_stream_v1" not in result.system_prompt
         records = [
             json.loads(line) for line in result.request_prompt.splitlines()
             if line.strip().startswith('{"v":')
@@ -1675,7 +1689,7 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     else:
         assert result.output_contract is not None
         assert "只输出一个完整 JSON 对象" in result.system_prompt
-        assert "完整 JSON 表达" in result.request_prompt
+        assert "【本轮输出】" not in result.request_prompt
         assert "segment_stream_v1" not in result.system_prompt
 
     selected_slots = set(result.metadata["selected_slot_names"])

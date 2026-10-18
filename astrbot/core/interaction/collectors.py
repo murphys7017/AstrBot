@@ -70,6 +70,7 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
             "short_reply": bool(getattr(request, "short_reply", False)),
             "allow_empty": bool(getattr(request, "allow_empty", False)),
         }
+        full_material = dict(payload)
         if intent_kind == "interjection":
             payload = {
                 "phase": payload["phase"],
@@ -102,6 +103,19 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                     payload[field],
                     max_chars=_PERSONA_PROACTIVE_TEXT_MAX_CHARS,
                 )
+        # Merge only identical current material, before comparing bounded text.
+        # Earlier speech has a different role and must remain even if it matches.
+        seen_material: set[str] = set()
+        for field in (
+            "source_text", "progress_context", "pending_text", "observed_text", "total_text",
+        ):
+            if not payload.get(field):
+                continue
+            original = full_material[field]
+            if original in seen_material:
+                payload.pop(field)
+            else:
+                seen_material.add(original)
         payload = {
             key: value for key, value in payload.items() if value not in {"", False}
         }

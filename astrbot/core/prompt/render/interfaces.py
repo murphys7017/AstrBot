@@ -366,6 +366,7 @@ class BasePromptRenderer:
             visible_reply_material_slot,
             body_keys=(
                 "source_text",
+                "progress_context",
                 "immediate_reply",
                 "observed_text",
                 "total_text",

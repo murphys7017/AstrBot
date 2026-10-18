@@ -1,3 +1,38 @@
+persona_prompt_rule_consolidation_20261018:
+  class: refactor
+  risk: high
+  status: reviewed_for_commit
+  scope: >-
+    Consolidate repeated Persona fact/style rules. Keep task continuation and
+    delegation requirements in routing invocations; confirmed results bypass
+    routing rules instead of receiving conflicting delegate/reply instructions.
+    System owns general behavior and field semantics; stage request owns phase
+    instructions. One stream protocol/example block stays in the raw request
+    because system-tree serialization escapes literal JSON quotes. Nonstream
+    format instructions are composed by the runtime system builder. Shared
+    semantic constants supply both human guidance and schema descriptions.
+    Merge exactly identical current material fields, comparing full originals
+    before bounded projections. Preserve distinct earlier-spoken material and
+    nonidentical fields; do not deduplicate arbitrary substrings or input facts.
+    Render progress_context as bounded material instead of embedding it again
+    into the stage instruction. No keyword-based scene classification.
+  validation: >-
+    Scoped Ruff passed. Focused collection/render/routing boundaries passed;
+    corrected escaped example placement and a stale short_reply fixture, then
+    reran the five affected cases successfully. Final review found no additional
+    blocking issues; retained prior checks instead of rerunning unchanged suites. Stream
+    example parser acceptance passed with the unchanged parser. Rule/protocol
+    text in three constructed samples: daily 3861 -> 2149 chars; routing 3981
+    -> 2521; confirmed-result 4083 -> 2258 (37-45 percent reduction). Counts
+    exclude persona/history/memory and do not establish live latency gains.
+    Structural schema comparison confirmed unchanged fields, types, required
+    keys, enums and numeric bounds. Scoped compilation and whitespace passed.
+  limitations: >-
+    No change to wire schema, parser acceptance, action vocabulary, provider
+    settings, persona content, history/memory budgets or adapter implementation.
+    No restart or live Provider/TTS/Live2D acceptance. Other dirty work
+    remains outside scope. Prompt-size savings do not establish latency gains.
+
 memory_request_controls_and_wall_timing_20261018:
   class: bugfix
   risk: high
