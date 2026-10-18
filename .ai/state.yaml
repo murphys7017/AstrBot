@@ -1,3 +1,76 @@
+attached_visual_keyword_gate_removal_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Remove visual-intent keyword matching and ambient screenshot exclusion
+    before media enrichment and during context-view projection. TURN_PLAN and
+    OLV_STREAM both retain attached images regardless of user wording, including
+    empty text. Preserve existing view slot visibility, media limits and provider
+    capability handling. Remove obsolete filtered-media cache key suffix.
+  supersedes: >-
+    The earlier olv_screen_image_request_delivery_20261018 decision to retain
+    keyword filtering in TURN_PLAN is superseded by the user's correction.
+  validation: >-
+    All 33 prompt-target cases passed, including attached snapshots with no
+    visual keywords or empty text and actual image decoding after normalization
+    for both TURN_PLAN and OLV_STREAM. Scoped Ruff, compilation and whitespace
+    checks passed; no references to the removed gate remain in Core or tests.
+  evidence_gap: >-
+    No restart or live Provider verification. Reviewed together with Persona
+    bookkeeping cleanup and the screenshot annotation. Unrelated dirty changes
+    are excluded from these commits. Existing 33-case boundary results retained;
+    scoped Ruff, compilation, whitespace and source/deployment hash rechecked.
+
+persona_prompt_bookkeeping_cleanup_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Remove known bookkeeping only from isolated Persona projections and model
+    serialization: session routing identifiers, redundant input annotations,
+    topic/memory confidence, persona identifier and reply construction flags.
+    Keep image transport references internally; textual image annotations keep
+    the explanation without paths or provenance flags. Extension identities
+    remain internal for grouping/target gating, with useful titles/values sent.
+  constraints: >-
+    Preserve canonical packs, Core/tool context, arbitrary task result facts,
+    personality, action/tendency fields and output protocols. No whole Prompt
+    redesign, plugin deployment, frontend rebuild or restart.
+  validation: >-
+    All 38 prompt-target cases passed, including public ProviderRequest cleanup,
+    canonical-source isolation, Core projection and actual image decoding after
+    normalization. Scoped Ruff, Python compilation and whitespace checks passed.
+    Screenshot assertion now decodes the actual image part instead of finding
+    the original PNG in text; normalization may legitimately transcode to JPEG.
+  evidence_gap: >-
+    No live Provider or Live2D acceptance. Free-text plugin instructions and
+    overall Prompt duplication/conflicting rules are outside this cleanup.
+
+olv_screen_image_request_delivery_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Keep current-turn OLV desktop screenshots in OLV_STREAM context whenever
+    the configured client attaches them. Retain textual intent filtering for
+    TURN_PLAN ambient screenshots. Label images only as the user current
+    desktop screenshot in both adapter source and deployment. OLV no longer
+    requires keyword matching; no OCR task or caption-generation step added.
+  evidence: >-
+    On 2026-10-18 at 18:53 and 18:54 CST, OLV logs show one image received,
+    accepted and resolved, but Persona trace has image_urls=[], media.parts=0,
+    and the projected source slots omit input.images. The visual-intent regex
+    did not match the user's natural request, so the desktop_snapshot was
+    excluded before the Provider request.
+  validation: >-
+    Fifteen focused projection/request-boundary cases passed. A real PNG plus
+    ordinary greeting survived OLV projection, rendering, ProviderRequest
+    adaptation and bounded image normalization, with image bytes and desktop
+    provenance retained together in request contexts. Scoped Ruff, Python
+    compile and whitespace checks passed. Adapter source/deployment match.
+  evidence_gap: >-
+    Need verify live model receipt after Core restart. Local request-boundary
+    validation is not a live Provider invocation. No OCR/caption generation,
+    restart or frontend rebuild in this repair.
+
 persona_stream_blank_separator_20261018:
   class: bugfix
   risk: medium

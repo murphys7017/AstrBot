@@ -60,8 +60,6 @@ from astrbot.core.prompt.collectors.input_collector import (
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.context_views import (
     PromptContextView,
-    exclude_unrequested_ambient_visual_context,
-    explicitly_requests_visual_context,
     resolve_prompt_context_view,
 )
 from astrbot.core.prompt.render import (
@@ -3549,14 +3547,6 @@ class InteractionExpressionAgent:
             persona_context_pack is material.target_context_packs.get("plugin")
         )
         view_spec = resolve_prompt_context_view(context_view)
-        if view_spec is not None and view_spec.name in {
-            PromptContextView.TURN_PLAN,
-            PromptContextView.OLV_STREAM,
-        }:
-            persona_context_pack = exclude_unrequested_ambient_visual_context(
-                persona_context_pack,
-                include=explicitly_requests_visual_context(persona_context_pack),
-            )
         if view_spec is None or view_spec.requires_media_context:
             persona_context_pack = await get_or_build_interaction_media_context_pack(
                 event=event,
@@ -3569,11 +3559,6 @@ class InteractionExpressionAgent:
                     "persona_plugin"
                     if persona_context_uses_plugin_extensions
                     else "persona_base"
-                ) + (
-                    ":ambient_excluded"
-                    if persona_context_pack.meta.get("ambient_visual_context")
-                    == "excluded_unrequested"
-                    else ""
                 ),
             )
         provider_request = build_prompt_render_provider_request(event, provider)

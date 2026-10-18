@@ -20,11 +20,8 @@ def _slot(name: str, value, category: str) -> ContextSlot:
 
 
 @pytest.mark.parametrize("view", [PromptContextView.TURN_PLAN, PromptContextView.OLV_STREAM])
-@pytest.mark.parametrize("text,keep", [
-    ("帮我看看", True), ("你看一下", True), ("帮我看一下", True),
-    ("你好，非流式再试一试", False),
-])
-def test_visual_request_keeps_ambient_snapshot_only_when_requested(view, text, keep):
+@pytest.mark.parametrize("text", ["帮我看看", "你好", "", "你能看得出来我在玩什么吗"])
+def test_attached_visual_context_does_not_require_keywords(view, text):
     from astrbot.core.prompt.context_views import project_prompt_context_view
 
     snapshot = {"ref": "desktop.png", "semantic_type": "desktop_snapshot"}
@@ -42,14 +39,120 @@ def test_visual_request_keeps_ambient_snapshot_only_when_requested(view, text, k
         ], "input"),
     })
     projected = project_prompt_context_view(pack, view)
-    assert projected.get_slot("input.images").value == (
-        [snapshot, explicit_image] if keep else [explicit_image]
-    )
+    assert projected.get_slot("input.images").value == [snapshot, explicit_image]
     assert pack.get_slot("input.images").value == [snapshot, explicit_image]
     for name in ("input.explicit_content_parts", "input.media_content_parts"):
-        assert projected.get_slot(name).value == (
-            pack.get_slot(name).value if keep else [pack.get_slot(name).value[1]]
-        )
+        assert projected.get_slot(name).value == pack.get_slot(name).value
+
+
+@pytest.mark.parametrize("view", [PromptContextView.TURN_PLAN, PromptContextView.OLV_STREAM])
+def test_olv_desktop_image_and_source_label_reach_provider_request(view):
+    import asyncio
+    import base64
+    import json
+    from io import BytesIO
+
+    from PIL import Image
+
+    from astrbot.core.prompt.render import apply_render_result_to_request
+    from astrbot.core.provider.entities import ProviderRequest
+    from astrbot.core.provider.request_media import normalize_provider_request_images
+
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(buffer, format="PNG")
+    reference = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+    pack = ContextPack(slots={
+        "input.text": _slot("input.text", "你好", "input"),
+        "input.images": _slot("input.images", [{
+            "ref": reference,
+            "semantic_type": "desktop_snapshot",
+            "explanation": "这是用户当前桌面截图。",
+        }], "input"),
+    })
+    rendered = PromptRenderEngine().render(
+        pack, target=PromptTarget.PERSONA, context_view=view,
+    )
+    # Persona uses a separate request prompt and keeps rendered input in contexts.
+    rendered.request_prompt = "Reply to the user."
+    request = ProviderRequest()
+    apply_render_result_to_request(rendered, request)
+    stats = asyncio.run(normalize_provider_request_images(
+        request, max_images=4, max_total_bytes=4 * 1024 * 1024, max_dimension=1536,
+    ))
+    wire_context = json.dumps(request.contexts, ensure_ascii=False)
+    assert stats.normalized == 1 and stats.dropped == 0
+    image_urls = [
+        part["image_url"]["url"]
+        for message in request.contexts
+        for part in message.get("content", [])
+        if isinstance(part, dict) and part.get("type") == "image_url"
+    ]
+    assert len(image_urls) == 1
+    normalized_image = base64.b64decode(image_urls[0].split(",", 1)[1])
+    assert Image.open(BytesIO(normalized_image)).size == (2, 2)
+    assert "image_url" in wire_context
+    assert "这是用户当前桌面截图。" in wire_context
+
+
+def test_persona_request_omits_bookkeeping_without_losing_context():
+    import json
+    from copy import deepcopy
+
+    from astrbot.core.prompt.render import apply_render_result_to_request
+    from astrbot.core.provider.entities import ProviderRequest
+
+    pack = ContextPack(slots={
+        "input.text": _slot("input.text", "你好", "input"),
+        "session.user_info": _slot("session.user_info", {
+            "nickname": "Alice", "role": "friend", "is_group": False,
+            "platform_name": "internal-platform", "umo": "internal-session",
+            "user_id": "internal-user", "conversation_scope": "internal-scope",
+        }, "session"),
+        "input.visible_reply_material": _slot("input.visible_reply_material", {
+            "source_text": "提醒已经创建，任务 ID：business-task-42",
+            "short_reply": True, "allow_empty": True, "preserve_facts": True,
+        }, "input"),
+        "memory.topic_state": _slot("memory.topic_state", {
+            "current_topic": "收衣服", "topic_confidence": 0.987654321,
+        }, "memory"),
+        "input.images": _slot("input.images", [{
+            "ref": "https://example.com/desktop.png",
+            "semantic_type": "desktop_snapshot",
+            "explanation": "这是用户当前桌面截图。",
+            "explanation_source": "internal-platform",
+            "context_role": "supporting", "transport": "url",
+        }], "input"),
+        "extension.system": _persona_identity_extension_slot(),
+    })
+    pack.get_slot("input.text").meta.update({
+        "raw_text": "internal-raw", "source_field": "internal-source",
+        "explanation": "internal-explanation", "context_role": "primary",
+    })
+    original = deepcopy(pack)
+    rendered = PromptRenderEngine().render(pack, target=PromptTarget.PERSONA)
+    rendered.request_prompt = "Reply to the user."
+    request = ProviderRequest()
+    apply_render_result_to_request(rendered, request)
+    wire = json.dumps({
+        "system": request.system_prompt, "prompt": request.prompt,
+        "contexts": request.contexts, "images": request.image_urls,
+    }, ensure_ascii=False)
+    for diagnostic in (
+        "internal-", "topic_confidence", "short_reply", "allow_empty",
+        "preserve_facts", "ag99live.companion_identity.prompt",
+        "explanation_source", "context_role", "semantic_type",
+    ):
+        assert diagnostic not in wire
+    for fact in (
+        "Alice", "friend", "你好", "收衣服", "business-task-42",
+        "AG99live Companion Identity", "这是用户当前桌面截图。",
+    ):
+        assert fact in wire
+    assert "image_url" in wire and "https://example.com/desktop.png" in wire
+    assert "<ref>" not in wire
+    assert pack == original
+    core = project_context_pack(pack, PromptTarget.CORE)
+    assert core.get_slot("session.user_info").value["umo"] == "internal-session"
 
 
 def _persona_identity_extension_slot() -> ContextSlot:

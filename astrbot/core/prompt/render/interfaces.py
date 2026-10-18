@@ -334,7 +334,9 @@ class BasePromptRenderer:
         config: MainAgentBuildConfig | None = None,
         provider_request: ProviderRequest | None = None,
     ) -> list[str]:
-        del pack, target, event, plugin_context, config, provider_request
+        del target, event, plugin_context, config, provider_request
+
+        persona = pack.meta.get("prompt_target") == "persona"
 
         rendered_slot_names: list[str] = []
 
@@ -431,6 +433,7 @@ class BasePromptRenderer:
                 records=self._coerce_list(quoted_images_slot.value),
                 item_tag="image_annotation",
                 body_keys=("ref",),
+                include_provenance=not persona,
             )
             if images_rendered or annotations_rendered:
                 rendered_slot_names.append(quoted_images_slot.name)
@@ -457,6 +460,7 @@ class BasePromptRenderer:
                 records=self._coerce_list(images_slot.value),
                 item_tag="image_annotation",
                 body_keys=("ref",),
+                include_provenance=not persona,
             )
             if images_rendered or annotations_rendered:
                 rendered_slot_names.append(images_slot.name)
@@ -1050,7 +1054,7 @@ class BasePromptRenderer:
         config: MainAgentBuildConfig | None = None,
         provider_request: ProviderRequest | None = None,
     ) -> list[str]:
-        del target, pack, event, plugin_context, config, provider_request
+        del target, event, plugin_context, config, provider_request
 
         rendered_slot_names: list[str] = []
         mount_targets = {
@@ -1066,7 +1070,10 @@ class BasePromptRenderer:
             slot = self._find_slot(slots, f"extension.{mount}")
             if slot is None:
                 continue
-            if self._render_prompt_extensions(resolve_node(node_path), slot):
+            if self._render_prompt_extensions(
+                resolve_node(node_path), slot,
+                include_provenance=pack.meta.get("prompt_target") != "persona",
+            ):
                 rendered_slot_names.append(slot.name)
 
         return rendered_slot_names
@@ -2227,11 +2234,23 @@ class BasePromptRenderer:
         records: list[dict[str, Any]],
         item_tag: str,
         body_keys: tuple[str, ...],
+        include_provenance: bool = True,
         ref_resolver: Callable[[dict[str, Any]], str | None] | None = None,
     ) -> bool:
+        if not include_provenance:
+            body_keys = ()
+        annotation_keys = (
+            SUPPORTED_INPUT_ANNOTATION_FIELDS if include_provenance else ("explanation",)
+        )
+        provenance_keys = (
+            ("source", "reply_id", "resolution", "transport") if include_provenance else ()
+        )
         annotated_records: list[dict[str, Any]] = []
         for record in records:
-            annotation = self._extract_input_annotation_fields(record)
+            annotation = {
+                key: value for key, value in self._extract_input_annotation_fields(record).items()
+                if key in annotation_keys
+            }
             if not annotation:
                 continue
 
@@ -2244,7 +2263,7 @@ class BasePromptRenderer:
                 if value:
                     normalized_record[key] = value
 
-            for meta_key in ("source", "reply_id", "resolution", "transport"):
+            for meta_key in provenance_keys:
                 value = record.get(meta_key)
                 if value is not None:
                     normalized_record[meta_key] = value
@@ -2262,13 +2281,13 @@ class BasePromptRenderer:
                 item_rendered |= self._render_generic_value(
                     item_ref, key, record.get(key)
                 )
-            for annotation_key in SUPPORTED_INPUT_ANNOTATION_FIELDS:
+            for annotation_key in annotation_keys:
                 item_rendered |= self._render_generic_value(
                     item_ref,
                     annotation_key,
                     record.get(annotation_key),
                 )
-            for meta_key in ("source", "reply_id", "resolution", "transport"):
+            for meta_key in provenance_keys:
                 item_rendered |= self._render_generic_value(
                     item_ref, meta_key, record.get(meta_key)
                 )
@@ -2393,6 +2412,8 @@ class BasePromptRenderer:
         self,
         target: NodeRef,
         slot: ContextSlot,
+        *,
+        include_provenance: bool = True,
     ) -> bool:
         if not isinstance(slot.value, dict):
             return False
@@ -2436,8 +2457,12 @@ class BasePromptRenderer:
                 )
             used_tags[plugin_tag] = plugin_id
 
-            plugin_ref = container.tag(plugin_tag, meta={"plugin_id": plugin_id})
-            plugin_ref.tag("plugin_id").add(plugin_id)
+            plugin_ref = container.tag(
+                plugin_tag if include_provenance else "extension",
+                meta={"plugin_id": plugin_id},
+            )
+            if include_provenance:
+                plugin_ref.tag("plugin_id").add(plugin_id)
             rendered_plugin = True
             for item in sorted(
                 grouped_items[plugin_id],

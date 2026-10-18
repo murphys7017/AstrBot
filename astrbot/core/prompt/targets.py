@@ -120,11 +120,51 @@ def project_context_pack(
         budget=budget,
     )
 
+    if resolved_target is PromptTarget.PERSONA:
+        _remove_persona_diagnostics(projected)
+
     projected.meta["prompt_target"] = resolved_target.value
     projected.meta["source_slot_names"] = sorted(pack.slots)
     projected.meta["selected_slot_names"] = sorted(projected.slots)
     projected.meta["slot_count"] = len(projected.slots)
     return projected
+
+
+def _remove_persona_diagnostics(pack: ContextPack) -> None:
+    """Clean the isolated Persona view after budget selection, never source facts.
+
+    Keep transport references and extension identities for rendering. Only known
+    bookkeeping fields are removed; arbitrary tool results are not traversed.
+    """
+    allowed_fields = {
+        "session.datetime": {"text"},
+        "session.user_info": {"nickname", "role", "group_name", "is_group"},
+    }
+    removed_fields = {
+        "memory.topic_state": {"topic_confidence"},
+        "memory.persona_state": {"persona_id"},
+        "input.visible_reply_material": {"short_reply", "allow_empty", "preserve_facts"},
+    }
+    for slot in pack.slots.values():
+        if slot.name in {"input.text", "input.quoted_text"}:
+            for key in (
+                "raw_text", "prompt_prefix", "prefix_applied", "source_field",
+                "semantic_type", "explanation", "explanation_source", "context_role",
+            ):
+                slot.meta.pop(key, None)
+        if not isinstance(slot.value, dict):
+            continue
+        if slot.name in allowed_fields:
+            slot.value = {
+                key: value for key, value in slot.value.items()
+                if key in allowed_fields[slot.name]
+            }
+        for key in removed_fields.get(slot.name, ()):
+            slot.value.pop(key, None)
+        if slot.name in {"memory.experiences", "memory.long_term_memories"}:
+            for item in slot.value.get("items", []):
+                if isinstance(item, dict):
+                    item.pop("confidence", None)
 
 
 def filter_llm_exposed_context_pack(
