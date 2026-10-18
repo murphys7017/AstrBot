@@ -1,3 +1,22 @@
+desktop_observation_math_adapter_sync_20261019:
+  class: refactor
+  risk: medium
+  status: reviewed_selectively_synced_pending_runtime_load
+  scope: >-
+    Synchronize four related AG99live adapter files for user-authorized pure
+    mathematical desktop change detection, after source HEAD baseline checks.
+    Tracked schema removes visual provider and model-timeout controls. No Core
+    implementation, quiet-hour settings or saved user thresholds changed.
+  validation: >-
+    Source Ruff/compilation and plugin structure checks passed. Public synthetic
+    comparison boundary rejects a small patch and accepts a large patch; uniform
+    +32 brightness sample has zero changed area. Synced files byte-match source.
+  limitations: >-
+    Review found no additional blockers. No process restart, plugin reload or live
+    desktop/Policy/TTS acceptance.
+    Preserve unrelated plugin, state and J-space modifications. Existing paired
+    frontend remains required; no frontend changes or rebuild needed this turn.
+
 runtime_sensor_expiry_admission_repair_20261019:
   class: bugfix
   risk: high
