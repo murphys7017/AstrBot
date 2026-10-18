@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from astrbot.api import logger
 
+from ...core_compatibility import get_motion_prompt_context_projection
 from ...motion.output_sanitizer import sanitize_assistant_output_text
 from ...motion.payload_validation import (
     normalize_motion_arguments_payload,
@@ -30,7 +31,6 @@ from .prompt_context import (
     _record_motion_prompt_reference_observation,
     _resolve_prompt_motion_history,
 )
-from ...core_compatibility import get_motion_prompt_context_projection
 from .prompt_references import _project_reference_examples_for_prompt
 from .shared import (
     _append_resolution_reason,

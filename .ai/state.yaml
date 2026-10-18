@@ -32,8 +32,8 @@ persona_prompt_unification_20261018:
     diagnostics from Persona/Motion views. No restart or live Provider/device
     acceptance was performed. This turn explicitly authorizes the scoped
     commits; unrelated user-owned middleware, platform adapter and .jspace
-    changes remain outside them. AstrBot commit is a40428dd1 and the paired
-    AG99live source commit is 86f5737.
+    changes remain outside them. AstrBot commit is 9eabc07ff and the paired
+    AG99live source commit is 99583b7.
 
 ptt_screenshot_asr_overlap_companion_20261018:
   class: feature
