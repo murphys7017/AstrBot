@@ -4701,7 +4701,7 @@ CONFIG_METADATA_3 = {
                     "interaction_middleware.personal_idle_initiation_after_seconds": {
                         "description": "空闲主动发起阈值秒数",
                         "type": "float",
-                        "hint": "最小 30 秒。每次新的用户活动最多触发一次空闲 Observation；重启后保持该去重状态。",
+                        "hint": "最小 30 秒。从最近用户输入与最近成功回复完成两者中较晚的时间开始计时；对话执行期间暂停。每次新的用户活动最多触发一次机会，重启后保持去重；机会有效期为 5 分钟，用户新输入会撤销旧机会。",
                         "condition": {
                             "interaction_middleware.personal_idle_initiation_enabled": True,
                         },

@@ -91,6 +91,7 @@ DEFAULT_IDLE_RUNTIME_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_MAX_IDLE_RUNTIMES = 1024
 DEFAULT_MAX_PENDING_OBSERVATIONS = 64
 DEFAULT_OBSERVATION_DEBOUNCE_SECONDS = 1.5
+IDLE_INITIATION_TTL_SECONDS = 5 * 60
 MAX_COALESCED_MATERIAL_FINGERPRINTS = 512
 
 
@@ -273,7 +274,8 @@ def _build_completion_feedback(turn: PersonalTurnContext) -> CompletionFeedback:
         action_id=_resolve_personal_action_id(turn),
         turn_id=turn.turn_id,
         delivery_status=delivery_status,
-        output_completed_at=delivered_at or completion.terminal_at,
+        # A visible utterance may be created well before streaming/playback ends.
+        output_completed_at=completion.terminal_at or delivered_at,
         failure_code=failure_code,
         visible_reply_fingerprint=visible_reply_fingerprint,
     )
@@ -644,6 +646,7 @@ class PersonalSessionRuntime:
         self.bound_turn_count = 0
         self.follow_ups = _FollowUpCoordinator()
         self.state = PersonalState()
+        self._idle_initiation_cancel_event = asyncio.Event()
         if persistent_state is not None:
             self.state.restore_persistent(persistent_state)
             self.state.mark_idle(now=now)
@@ -707,7 +710,12 @@ class PersonalSessionRuntime:
     def touch(self, *, now: float | None = None) -> None:
         self.last_access_at = time.time() if now is None else now
 
-    def bind_turn(self, *, now: float) -> None:
+    def bind_turn(self, *, now: float, user_input: bool = False) -> None:
+        if user_input:
+            # Withdraw speculative small talk before the new input waits for a
+            # turn lease, including input consumed as an executor follow-up.
+            self._idle_initiation_cancel_event.set()
+            self._idle_initiation_cancel_event = asyncio.Event()
         self.bound_turn_count += 1
         self.idle_since = None
         self.touch(now=now)
@@ -874,7 +882,12 @@ class PersonalSessionRuntime:
         user_activity_at = self.state.last_user_activity_at
         if user_activity_at is None:
             return self._ignored_idle_initiation("idle_initiation_no_user_activity")
-        if occurred_at < user_activity_at + minimum_idle_seconds:
+        if self.cleanup_blocked or self.has_active_conversational_work():
+            return self._ignored_idle_initiation("idle_initiation_runtime_busy")
+        idle_since = max(
+            user_activity_at, self.state.last_expression_at or user_activity_at
+        )
+        if occurred_at < idle_since + minimum_idle_seconds:
             return self._ignored_idle_initiation("idle_initiation_not_due")
         if (
             self.state.last_idle_initiation_activity_at is not None
@@ -885,6 +898,7 @@ class PersonalSessionRuntime:
         previous_idle_initiation_activity_at = (
             self.state.last_idle_initiation_activity_at
         )
+        cancellation = self._idle_initiation_cancel_event
         self.state.claim_idle_initiation(user_activity_at=user_activity_at)
         self._persistent_state_dirty = True
         try:
@@ -909,11 +923,13 @@ class PersonalSessionRuntime:
             kind="idle_initiation",
             source="personal_runtime.idle_initiation",
             occurred_at=occurred_at,
+            expires_at=occurred_at + IDLE_INITIATION_TTL_SECONDS,
+            cancel_event=cancellation,
             target_session=target_session,
             coalesce_key="idle_initiation",
             payload={
                 "user_activity_at": user_activity_at,
-                "idle_seconds": max(0.0, occurred_at - user_activity_at),
+                "idle_seconds": max(0.0, occurred_at - idle_since),
             },
         )
         return self.submit_observation(observation, now=occurred_at)
@@ -2339,7 +2355,13 @@ class PersonalRuntimeManager:
             or turn.session.privacy_scope != runtime.key.privacy_scope
         ):
             raise ValueError("Personal action turn does not match its runtime identity")
-        runtime.bind_turn(now=time.time())
+        runtime.bind_turn(
+            now=time.time(),
+            user_input=(
+                not is_group_reply_candidate(event)
+                and runtime._turn_user_activity_at(turn) is not None
+            ),
+        )
         reservation.runtime_key = runtime.key
         reservation.transition(PendingTurnState.BOUND)
         self._event_sessions[event] = runtime

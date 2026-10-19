@@ -1,3 +1,40 @@
+idle_initiation_optimization_20261020:
+  class: feature
+  risk: medium
+  status: reviewed_pending_restart_and_live_acceptance
+  scope: >-
+    User authorized idle small-talk optimization only; notification adapters are
+    explicitly deferred. Reuse Heartbeat/Gate/Policy/Persona. Measure idle since
+    the later of real user input and successful reply completion. Do not submit or
+    consume an opportunity during queued/active/follow-up work or blocked cleanup.
+    Preserve persistent once-per-user-activity admission; add a five-minute fact
+    lifetime and source cancellation on real input binding, before turn admission.
+    Completion feedback now prefers turn terminal time over utterance creation,
+    so reply completion/cooldown and the idle baseline use the completion boundary.
+    Existing cancellation reaches Policy and expression work. Policy may introduce
+    personality/preference-based light topics as well as continue prior topics,
+    while respecting busy/closed conversations and avoiding repetitive check-ins.
+    Update existing UI help and runtime docs; no new provider, settings or pipeline.
+  validation: >-
+    Changed Python Ruff/compile passed. The two existing idle-initiation tests
+    passed (46 unrelated cases deselected); two targeted delivery/cooldown cases
+    also passed after correcting completion-time precedence. Public runtime checks
+    verified reply-based delay, busy rejection without consuming the opportunity,
+    admitted fact expiry and invalidation by new input. Source tracing confirmed
+    runtime binding precedes admission/follow-up capture and internal observation
+    turns have no user actor/input. Review confirmed source expiry/cancellation
+    guard both Policy and expression dispatch, without self-cancelling internal
+    expression turns. Retained prior passing checks; no unchanged tests rerun.
+    Scoped staged diff checked before user-requested commit.
+  limitations: >-
+    User requested scoped commit. No restart, saved configuration changes, live Provider or voice/Live2D
+    acceptance. Complete AstrBot restart required; no AG99live frontend rebuild.
+    Preserve original configurable idle threshold and once-per-activity behavior;
+    this is not a continuously repeating solicitation loop. Actual checks occur
+    on existing heartbeat ticks. User input withdrawal begins at Core runtime
+    binding; microphone capture before Core receipt remains adapter-owned.
+    Keep unrelated deployed plugin and governance/J-space work untouched.
+
 desktop_return_adapter_sync_20261019:
   class: feature
   risk: high

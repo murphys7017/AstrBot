@@ -19,6 +19,7 @@ _QUIET_IDLE_INITIATION_REASONS = frozenset(
         "idle_initiation_no_user_activity",
         "idle_initiation_not_due",
         "idle_initiation_already_submitted",
+        "idle_initiation_runtime_busy",
     }
 )
 
