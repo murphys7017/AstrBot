@@ -1,7 +1,7 @@
 # Yakumo Current State
 
 > 本页保留实施时间线供追溯；下方带日期的小节是当时的历史快照，不代表现在仍未实现。
-> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。
+> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。最新 Runtime Observation 状态见文末 2026-10-20 更新。
 
 ## 2026-10-12 当前交付基线
 
@@ -513,3 +513,15 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - 已经存在主 Agent、SubAgent、Skill、Plugin、Provider、Platform 等天然模块
 - 但接口层不足，抽象还没从实现里分离出来
 - 更适合先做模块化重构，再做多服务部署
+
+## 2026-10-20 Runtime Observation 更新
+
+本节描述当前工作区源码；尚未提交的语音/流式改动不代表已发布或完成现场验收。
+
+- 空闲主动接话复用 Heartbeat → Runtime Observation → Gate → Personal Policy → Persona。默认阈值为 1800 秒，只对已有真实用户互动生成每轮一次的机会。计时基准取最近用户输入与最近成功回复完成时间中的较晚者；回复完成时间优先使用 turn terminal 时间，避免用流式 utterance 创建时间提前启动冷却或空闲窗口。
+- 有排队、执行、跟进中的对话工作或未完成清理时不提交机会，也不提前消耗该用户活动周期。事实有效 5 分钟；新用户输入在 Runtime 绑定、等待 turn 执行权之前撤销旧事实。策略不表达或用户没有回应都不会让同一轮空闲不断重试。
+- 空闲表达可以承接近期话题，也可以结合人格和已知偏好轻量开启新话题。没有合适内容时保持安静；不从沉默推断用户离开、孤独或低落，不重复询问“在吗”或催促回应。
+- `personal_idle_initiation_enabled` 默认关闭，阈值由 `personal_idle_initiation_after_seconds` 控制。Heartbeat 周期决定实际检查时点，因此该值是最早准入时间而非精确触发器。详细加载和验收边界见 [空闲主动接话](../runtime/idle-initiation.md)。
+- AG99live 当前通过插件 Runtime Sensor 提交 `desktop_changed` 与 `desktop_returned` 事实。桌面变化仅在本机以分块 SSIM/颜色差做数学比较；返回来源读取系统锁屏/休眠及输入空闲时长。两项功能默认关闭、遵循对话优先级并复用同一 Policy；变化图像不进入模型，事件本身也不保证触发发言。真实桌面、Windows 锁屏/休眠和语音/动作仍待配套加载验收，细则见 AG99live 文档中心的两份桌面计划。
+
+以上已通过针对性静态检查和运行时边界验证；重启后的实际策略 Provider、语音及 Live2D 表现仍需现场验收。

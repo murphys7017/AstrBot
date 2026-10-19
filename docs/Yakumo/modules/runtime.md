@@ -152,6 +152,13 @@ Action继承信号与原始期限，RuntimeObservationEvent在输出边界复核
 混合批次中的其他未撤销事实保留，且撤销的瞬时事实不结清它们的材料版本。未使用撤销信号的来源保持既有行为。
 生命周期装配器负责把它交给既有 `PersonalRuntimeManager`，因此插件不会拿到 Runtime、EventBus、
 Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module prefix 自动删除，旧 handle 随即失效。
+
+空闲主动接话是 Heartbeat 周期之外的明确准入来源：启用后只对已有真实用户互动提交一次机会，默认阈值 1800 秒，从最近用户输入与最近成功回复完成时间中的较晚者计时。Runtime 忙碌或清理未完成时不消耗机会；提交后 5 分钟过期，新用户输入在 Runtime 绑定时撤销旧事实。它可承接近期话题，也可结合人格和已知偏好开启轻话题；Personal Policy 仍可保持安静，同一轮无人回应不会反复触发。完整规则见 [`docs/runtime/idle-initiation.md`](../../runtime/idle-initiation.md)。
+
+Heartbeat 的常规职责仍是重评 retained batch；空 Inbox 不会因周期检查自行产生 Observation。空闲主动接话、群聊 `conversation_activity` 和插件 Sensor 是不同事实来源，但都进入同一 Inbox/Gate/Policy/Persona 流程。
+
+AG99live 当前注册的插件 Sensor 为 `ag99live.desktop_change` 和 `ag99live.desktop_return`，提交的 fact kind 分别是 `desktop_changed`、`desktop_returned`。前者只在本机对截图做数学变化比较，图片不写入事实或发送给模型；后者只提交锁屏/休眠来源、输入恢复和空闲时长的短事实。两者默认关闭、服从会话准入和对话撤销，是否表达由 Personal Policy 决定。
+
 `Context.send_message()` 仍是已经决定发送的兼容 API，不是 Sensor 或 Personal Policy
 决策；它保持 `support_proactive_message` 的精确发送语义，不进入自主表达防重。
 主动输出兼容
