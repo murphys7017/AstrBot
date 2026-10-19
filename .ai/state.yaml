@@ -1,3 +1,27 @@
+desktop_return_adapter_sync_20261019:
+  class: feature
+  risk: high
+  status: reviewed_selectively_synced_pending_paired_load_and_acceptance
+  scope: >-
+    Sync eight related AG99live adapter files for opt-in desktop return facts,
+    including tracked Chinese settings schema. Reuse existing cancellable Sensor
+    and proactive pipeline; no Core framework or user configuration changes.
+    Preserve unrelated deployed builder/coordinator/speech and governance edits.
+  validation: >-
+    Eight target files verified against source HEAD before selective sync; final
+    source/deployment byte equality passed. Source Electron complete build and
+    changed Python static checks passed. Public timing detector/wire boundaries
+    confirmed return recognition and rejection of bump/invalid/chat-turn samples.
+    Review on 2026-10-20 corrected the presence-specific chat-turn diagnostic in
+    source parser, repeated its public success/rejection boundary and static checks,
+    and selectively resynced parser after verifying the deployed pre-review baseline.
+  limitations: >-
+    User requested scoped commits. No restart, native lock/suspend test or actual proactive voice/motion
+    acceptance. Feature defaults disabled. Matching new Electron build and adapter
+    plus already-loaded Core cancellation API required; use full AstrBot restart.
+    Whole-directory deployment hook bypassed to preserve unrelated deployed work;
+    concurrent source passive behavior commit is outside this scoped sync.
+
 runtime_observation_cancellation_20261019:
   class: feature
   risk: high
