@@ -340,6 +340,22 @@ class BasePromptRenderer:
 
         rendered_slot_names: list[str] = []
 
+        acknowledgement_slot = self._find_slot(
+            slots, "input.previous_persona_acknowledgement"
+        )
+        if acknowledgement_slot is not None and isinstance(
+            acknowledgement_slot.value, dict
+        ):
+            acknowledgement = self._clean_text(acknowledgement_slot.value.get("text"))
+            if acknowledgement:
+                self._add_text_tag(
+                    resolve_node("user_input/previous_persona_acknowledgement"),
+                    "text",
+                    acknowledgement,
+                    meta=self._slot_meta(acknowledgement_slot),
+                )
+                rendered_slot_names.append(acknowledgement_slot.name)
+
         text_slot = self._find_slot(slots, "input.text")
         if text_slot is not None:
             text_target = resolve_node("user_input/text")
@@ -1173,6 +1189,16 @@ class BasePromptRenderer:
             return None
 
         content_parts: list[dict[str, Any]] = []
+        acknowledgement_node = self._find_tag_path(
+            prompt_tree, "user_input/previous_persona_acknowledgement"
+        )
+        acknowledgement_text = (
+            self._render_subtree_text(
+                prompt_tree, acknowledgement_node, include_root=True, escape_text=True
+            )
+            if acknowledgement_node is not None
+            else None
+        )
         explicit_content_parts = self._serialize_explicit_content_parts(
             user_input_node.meta.get("explicit_content_parts", [])
         )
@@ -1338,6 +1364,7 @@ class BasePromptRenderer:
 
         if (
             current_text
+            and not acknowledgement_text
             and not visible_reply_material_text
             and not request_context_text
             and not input_extensions_text
@@ -1359,6 +1386,8 @@ class BasePromptRenderer:
 
         if request_context_text:
             content_parts.append(self._build_text_content_part(request_context_text))
+        if acknowledgement_text:
+            content_parts.append(self._build_text_content_part(acknowledgement_text))
         if visible_reply_material_text:
             content_parts.append(
                 self._build_text_content_part(visible_reply_material_text)

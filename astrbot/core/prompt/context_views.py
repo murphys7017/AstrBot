@@ -83,8 +83,8 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
                 "session.user_info",
             }
         ),
-        history_turns=6,
-        history_limit_reason="context_view_history_limit",
+        # Direct Persona views inherit the configured candidate window from
+        # the render profile. Token budgets still bound the selected history.
         history_max_estimated_tokens=3000,
     ),
     PromptContextView.OLV_STREAM: PromptContextViewSpec(
@@ -120,8 +120,6 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
                 "session.user_info",
             }
         ),
-        history_turns=3,
-        history_limit_reason="olv_stream_history_limit",
         history_max_estimated_tokens=1800,
     ),
     PromptContextView.FINAL_RESULT: PromptContextViewSpec(
@@ -150,8 +148,6 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
                 "session.user_info",
             }
         ),
-        history_turns=6,
-        history_limit_reason="final_result_history_limit",
         history_max_estimated_tokens=3000,
         requires_media_context=False,
     ),

@@ -3066,3 +3066,25 @@ idle_motion_isolation_20261018:
   evidence_gap: >-
     One existing VAD test is blocked by fake AstrBot fixture imports. No live
     renderer/Provider acceptance or plugin restart; disabled toggle preserved.
+prompt_system_audit_first_batch_20261020:
+  class: bugfix
+  risk: medium
+  status: local_boundary_validated_pending_live_acceptance
+  scope: >-
+    Restore Persona progress acknowledgement rendering and configured direct-view
+    history candidate windows while retaining token budgets. Preserve semantic
+    group/control role in AG99live motion prompts and share sequence/weight bounds
+    across prompt, reference projection, dynamic schema and normalizer.
+  validation: >-
+    Prompt target boundary suite: 49 passed. Four renderers deliver acknowledgement
+    once through final request apply; empty input and canonical Pack isolation
+    verified. Direct views honor 0/1/50/300 candidate windows. Real plugin import,
+    synthetic Profile-to-prompt projection and schema/normalizer checks passed.
+    Commit review also unified capability/sample limits and verified public sample
+    normalization-to-reference output; unchanged 115 passing checks retained.
+  evidence_gap: >-
+    No live Provider request, latency measurement, desktop playback or restart.
+    Ten pre-existing audit-suite failures remain outside this batch. User
+    authorized review/commit; six previously ignored plugin sources are included
+    as complete snapshots. Other plugin dependencies retain local installation
+    semantics; this is not a standalone plugin packaging change.

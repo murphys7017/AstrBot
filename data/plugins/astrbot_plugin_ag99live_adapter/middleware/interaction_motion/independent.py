@@ -12,6 +12,12 @@ from uuid import uuid4
 
 from astrbot.api import logger
 
+from ...motion.motion_intent import (
+    MOTION_STEP_DURATION_WEIGHT_MAX,
+    MOTION_STEP_DURATION_WEIGHT_MIN,
+    MOTION_STEPS_MAX_COUNT,
+    MOTION_STEPS_MIN_COUNT,
+)
 from ...motion.output_sanitizer import sanitize_assistant_output_text
 from ...motion.payload_validation import (
     normalize_motion_arguments_payload,
@@ -1680,7 +1686,10 @@ def _build_independent_system_prompt(
 ) -> str:
     capability = _build_motion_capability_prompt_payload(capability_payload)
     capability.pop("pose_references", None)
-    axis_keys = {"id", "label", "negative_semantics", "positive_semantics", "available_levels", "usage_notes"}
+    axis_keys = {
+        "id", "label", "semantic_group", "control_role", "negative_semantics",
+        "positive_semantics", "available_levels", "usage_notes",
+    }
     capability["axes"] = [
         {key: value for key, value in axis.items() if key in axis_keys}
         for axis in capability.get("axes", [])
@@ -1733,7 +1742,11 @@ def _build_independent_system_prompt(
         "参考示例的 output 就是输出格式；最近执行动作只用于衔接和避免机械重复，勿照搬。"
         "只输出一个 JSON 对象，不要 Markdown、解释文字、工具调用或额外字段。"
         "必需字段 intent_tags 是 1 到 6 个简短关键词。执行形状必须且只能选择一种："
-        "axis_levels（单个姿态）、motion_steps（2 到 4 个动作步骤，每步必须包含 axis_levels 和 1 到 3 的 duration_weight），"
+        "axis_levels（单个姿态）、"
+        f"motion_steps（{MOTION_STEPS_MIN_COUNT} 到 {MOTION_STEPS_MAX_COUNT} 个动作步骤，"
+        "每步必须包含 axis_levels 和 duration_weight；"
+        f"duration_weight 必须是 {MOTION_STEP_DURATION_WEIGHT_MIN} 到 {MOTION_STEP_DURATION_WEIGHT_MAX} 的整数，"
+        "表示相对时长权重，不是秒或毫秒），"
         "或 motion_resource_id（完整动作资源）。axis_levels 的值必须是能力数据里对应轴可用的等级。"
         "动作序列采用稀疏语义：每一步只写新开始控制或需要改变的轴，后续步骤可以新增或省略轴；"
         "不设整段动作的固定轴数量上限，但每个轴 ID 和等级都必须来自能力数据。"

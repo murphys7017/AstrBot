@@ -9,7 +9,13 @@ from astrbot.core.prompt import (
     PromptTarget,
 )
 from astrbot.core.prompt.context_collect import log_context_pack
-from astrbot.core.prompt.render import PromptRenderProfile
+from astrbot.core.prompt.render import (
+    AnthropicPromptRenderer,
+    BasePromptRenderer,
+    OpenAIPromptRenderer,
+    PromptRenderProfile,
+    apply_render_result_to_request,
+)
 from astrbot.core.prompt.render.engine import PromptRenderEngine
 from astrbot.core.prompt.render.minimax_renderer import MiniMaxPromptRenderer
 from astrbot.core.prompt.targets import project_context_pack
@@ -462,6 +468,90 @@ def test_persona_progress_view_keeps_only_phase_local_persona_facts():
     assert "persona.prompt" not in result.metadata["selected_slot_names"]
 
 
+@pytest.mark.parametrize("renderer", [
+    BasePromptRenderer, OpenAIPromptRenderer, AnthropicPromptRenderer,
+    MiniMaxPromptRenderer,
+])
+def test_progress_acknowledgement_reaches_final_request_once(renderer):
+    import json
+    from copy import deepcopy
+
+    from astrbot.core.provider.entities import ProviderRequest
+
+    pack = ContextPack(slots={
+        "input.visible_reply_material": _slot(
+            "input.visible_reply_material", {"progress_context": "工具仍在执行"}, "input"
+        ),
+        "input.previous_persona_acknowledgement": _slot(
+            "input.previous_persona_acknowledgement", {"text": "已经确认 marker_ack"}, "input"
+        ),
+    })
+    original = deepcopy(pack)
+    engine = PromptRenderEngine(default_renderer=renderer())
+    rendered = engine.render(
+        pack, target=PromptTarget.PERSONA, context_view=PromptContextView.PROGRESS,
+        profile=PromptRenderProfile(name="progress", request_prompt="报告进度"),
+    )
+    request = ProviderRequest()
+    apply_render_result_to_request(rendered, request)
+    assert json.dumps(request.contexts, ensure_ascii=False).count("marker_ack") == 1
+    assert "marker_ack" not in request.system_prompt
+    assert pack == original
+
+    # An empty acknowledgement must not create an extra data block/message.
+    pack.get_slot("input.previous_persona_acknowledgement").value = {"text": " "}
+    empty = engine.render(
+        pack, target=PromptTarget.PERSONA, context_view=PromptContextView.PROGRESS
+    )
+    pack.slots.pop("input.previous_persona_acknowledgement")
+    absent = engine.render(
+        pack, target=PromptTarget.PERSONA, context_view=PromptContextView.PROGRESS
+    )
+    assert empty.messages == absent.messages
+
+
+@pytest.mark.parametrize("view", [
+    PromptContextView.TURN_PLAN, PromptContextView.OLV_STREAM,
+    PromptContextView.FINAL_RESULT,
+])
+@pytest.mark.parametrize("window", [0, 1, 50, 300])
+def test_direct_persona_views_preserve_configured_history_candidate_window(view, window):
+    import json
+    from copy import deepcopy
+
+    from astrbot.core.provider.entities import ProviderRequest
+
+    pack = ContextPack(slots={
+        "input.text": _slot("input.text", "继续", "input"),
+        "conversation.history": _slot("conversation.history", {"turns": [
+            {"user_message": {"role": "user", "content": f"marker_history_{i}"},
+             "assistant_message": {"role": "assistant", "content": "好"}}
+            for i in range(12)
+        ]}, "conversation"),
+    })
+    original = deepcopy(pack)
+    rendered = PromptRenderEngine().render(
+        pack, target=PromptTarget.PERSONA, context_view=view,
+        profile=PromptRenderProfile(
+            name="configured_persona", history_turns=window, request_prompt="回复"
+        ),
+    )
+    request = ProviderRequest()
+    apply_render_result_to_request(rendered, request)
+    wire = json.dumps(request.contexts, ensure_ascii=False)
+    expected = min(window, 12)
+    assert wire.count("marker_history_") == expected
+    if expected:
+        assert "marker_history_11" in wire
+    budget = rendered.metadata["context_budgets"]["conversation_history"]
+    assert budget["limit_amount"] == window
+    assert budget["retained_amount"] == expected
+    assert budget["limit_estimated_tokens"] == (
+        1800 if view is PromptContextView.OLV_STREAM else 3000
+    )
+    assert pack == original
+
+
 def test_persona_turn_plan_view_bounds_history_and_keeps_persona_extension():
     pack = _canonical_pack()
     pack.add_slot(_persona_identity_extension_slot())
@@ -480,7 +570,7 @@ def test_persona_turn_plan_view_bounds_history_and_keeps_persona_extension():
     assert "conversation.pending_execution_continuity" in selected
     assert "extension.system" in selected
     assert "AG99live Companion Identity" in _rendered_prompt_text(result)
-    assert history_budget["limit_amount"] == 6
+    assert history_budget["limit_amount"] == 300
     assert history_budget["limit_estimated_tokens"] == 3000
     continuity_messages = [
         message
