@@ -271,48 +271,6 @@ json_record_recovery_and_stream_eof_20261018:
     increase or automatic retry added. Timing fields overlap and cannot be summed
     to establish an unmeasured remainder. Existing unrelated dirty work preserved.
 
-motion_deadline_ownership_repair_20261018:
-  class: bugfix
-  risk: high
-  scope: >-
-    Remove the extra one-second incremental-motion drain timeout. Await existing
-    finish_motion tasks, each bounded by the producer's original absolute
-    deadline or immediate closure when no producer is admitted. Keep PCM/text
-    delivery independent. Do not change configured timeout, Prompt or Provider.
-  evidence: >-
-    M3.1 at 18:07 returned a normalized motion record, but later production was
-    cancelled during stream cleanup. Frontend also rejected completed-speech
-    late actions. AG99live now schedules valid late actions in segment order
-    using a fresh motion-only clock while retaining interruption protection.
-  validation: >-
-    Existing action-only delivery/no-delivery checks passed (2 cases). Added
-    one public stream-boundary check: action delivered after 1.1 seconds within
-    its original three-second deadline remains completed and visibly emitted.
-    Frontend renderer typecheck and real store/orchestrator/timeline smoke
-    passed for late motion after audio completion and rejection after interrupt.
-  evidence_gap: >-
-    No restart, frontend deployment or live MiniMax/TTS/Live2D acceptance.
-    M3 returning conversational text remains a separate unresolved issue.
-
-motion_invalid_json_diagnostic_20261018:
-  class: bugfix
-  risk: medium
-  scope: >-
-    Add bounded repr-escaped rejected motion response preview (256 chars),
-    request ID, length and JSON error position to existing failure log. Source
-    and deployed independent.py matched before selective sync. No parser,
-    Prompt, Provider, retry or dialogue behavior changes.
-  evidence: >-
-    At 17:10 M3 requests report thinking disabled and dialogue replied, while
-    completed motion streams return 15/21/20 characters and fail JSON parsing.
-    Existing logs do not retain these rejected responses, so underlying output
-    cause is not established.
-  validation: >-
-    Changed file AST parsed; source and deployment synced byte-for-byte.
-  evidence_gap: >-
-    Needs a conversation after plugin reload to capture rejected response.
-    No root-cause fix, live Provider verification or restart claimed.
-
 attached_visual_keyword_gate_removal_20261018:
   class: bugfix
   risk: medium
@@ -385,6 +343,48 @@ olv_screen_image_request_delivery_20261018:
     Need verify live model receipt after Core restart. Local request-boundary
     validation is not a live Provider invocation. No OCR/caption generation,
     restart or frontend rebuild in this repair.
+
+motion_deadline_ownership_repair_20261018:
+  class: bugfix
+  risk: high
+  scope: >-
+    Remove the extra one-second incremental-motion drain timeout. Await existing
+    finish_motion tasks, each bounded by the producer's original absolute
+    deadline or immediate closure when no producer is admitted. Keep PCM/text
+    delivery independent. Do not change configured timeout, Prompt or Provider.
+  evidence: >-
+    M3.1 at 18:07 returned a normalized motion record, but later production was
+    cancelled during stream cleanup. Frontend also rejected completed-speech
+    late actions. AG99live now schedules valid late actions in segment order
+    using a fresh motion-only clock while retaining interruption protection.
+  validation: >-
+    Existing action-only delivery/no-delivery checks passed (2 cases). Added
+    one public stream-boundary check: action delivered after 1.1 seconds within
+    its original three-second deadline remains completed and visibly emitted.
+    Frontend renderer typecheck and real store/orchestrator/timeline smoke
+    passed for late motion after audio completion and rejection after interrupt.
+  evidence_gap: >-
+    No restart, frontend deployment or live MiniMax/TTS/Live2D acceptance.
+    M3 returning conversational text remains a separate unresolved issue.
+
+motion_invalid_json_diagnostic_20261018:
+  class: bugfix
+  risk: medium
+  scope: >-
+    Add bounded repr-escaped rejected motion response preview (256 chars),
+    request ID, length and JSON error position to existing failure log. Source
+    and deployed independent.py matched before selective sync. No parser,
+    Prompt, Provider, retry or dialogue behavior changes.
+  evidence: >-
+    At 17:10 M3 requests report thinking disabled and dialogue replied, while
+    completed motion streams return 15/21/20 characters and fail JSON parsing.
+    Existing logs do not retain these rejected responses, so underlying output
+    cause is not established.
+  validation: >-
+    Changed file AST parsed; source and deployment synced byte-for-byte.
+  evidence_gap: >-
+    Needs a conversation after plugin reload to capture rejected response.
+    No root-cause fix, live Provider verification or restart claimed.
 
 persona_stream_blank_separator_20261018:
   class: bugfix
@@ -3049,3 +3049,20 @@ neurobrain_application_simplification_20261018:
     checkpoint recheck passed ordered inputs on separate ticks, subsequent idle
     advancement, nonblocking reads, clamp/rejection and clean worker shutdown.
     No live application reload or desktop acceptance.
+
+
+idle_motion_isolation_20261018:
+  class: bugfix
+  risk: high
+  scope: >-
+    Paired deployed AG99live changes: idle output has null Turn, no Session or
+    synth lifecycle; desktop owns a low-priority parameter mixer layer. Slower
+    hints default to 4 seconds with a 3-second minimum. Do not touch current
+    conversation or foreground status. Preserve unrelated builder/speech edits.
+  validation: >-
+    Renderer/WebSDK/Electron typechecks passed. Isolated streaming boundary
+    produced one idle packet and left a frozen Session unchanged; actual packet
+    accepted by frontend parser; mathematical mixer handoff checked without jumps.
+  evidence_gap: >-
+    One existing VAD test is blocked by fake AstrBot fixture imports. No live
+    renderer/Provider acceptance or plugin restart; disabled toggle preserved.

@@ -1,7 +1,7 @@
 # J-Space Workspace Ledger
 
 ## Goal
-修正六项 Persona/Prompt 契约：默认输出路径、turn_action 枚举、AG99live Persona 身份、20字软约束、history/memory/continuity 规则、Plutchik 情绪范围；同步测试和 Yakumo 当前文档，保留前序用户改动。
+统一 Persona 与 AG99live 动作 Prompt 构建，移除重复/冲突/诊断字段，并验证流式和动作路径
 
 ## Core
 
@@ -10,4 +10,4 @@
 ## Open
 
 ## Next
-先审查源码与现有测试失败，建立每项契约的当前实现和缺口清单。
+修复表达契约与测试，然后实现 Persona 目标投影字段清理，评估动作适配器统一入口

@@ -23,6 +23,7 @@ from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest, TokenUsage
 from astrbot.core.provider.provider import Provider
+from astrbot.core.provider.sources.anthropic_source import ProviderAnthropic
 
 
 class MockProvider(Provider):
@@ -1670,7 +1671,27 @@ async def test_skills_like_requery_fallback_emits_streaming_delta():
 
 @pytest.mark.asyncio
 async def test_skills_like_requery_preserves_original_visible_reply():
-    """skills-like re-query should only replace tool-call fields."""
+    """Keep visible preamble but pair the re-query tool blocks with its result."""
+
+    original_blocks = [
+        {"type": "thinking", "thinking": "select", "signature": "sig-light"},
+        {
+            "type": "tool_use",
+            "id": "call_light",
+            "name": "test_tool",
+            "input": {"query": "light"},
+        },
+    ]
+    requery_blocks = [
+        {"type": "thinking", "thinking": "arguments", "signature": "sig-actual"},
+        {"type": "text", "text": "re-query internal text"},
+        {
+            "type": "tool_use",
+            "id": "call_actual",
+            "name": "test_tool",
+            "input": {"query": "actual"},
+        },
+    ]
 
     class SkillsLikeProvider(MockProvider):
         async def text_chat(self, **kwargs) -> LLMResponse:
@@ -1682,6 +1703,7 @@ async def test_skills_like_requery_preserves_original_visible_reply():
                     tools_call_name=["test_tool"],
                     tools_call_args=[{"query": "light"}],
                     tools_call_ids=["call_light"],
+                    anthropic_content_blocks=original_blocks,
                     usage=TokenUsage(input_other=10, output=5),
                 )
             if self.call_count == 2:
@@ -1691,6 +1713,7 @@ async def test_skills_like_requery_preserves_original_visible_reply():
                     tools_call_name=["test_tool"],
                     tools_call_args=[{"query": "actual"}],
                     tools_call_ids=["call_actual"],
+                    anthropic_content_blocks=requery_blocks,
                     usage=TokenUsage(input_other=10, output=5),
                 )
             return LLMResponse(
@@ -1736,6 +1759,32 @@ async def test_skills_like_requery_preserves_original_visible_reply():
     tool_call = assistant_message.tool_calls[0]
     assert tool_call.id == "call_actual"
     assert tool_call.function.arguments == '{"query": "actual"}'
+    assert assistant_message.anthropic_content_blocks == requery_blocks
+
+    tool_result = next(
+        message for message in runner.run_context.messages if message.role == "tool"
+    )
+    assert tool_result.tool_call_id == "call_actual"
+    anthropic = object.__new__(ProviderAnthropic)
+    _, provider_messages = await anthropic._prepare_payload(
+        [assistant_message.model_dump(), tool_result.model_dump()]
+    )
+    payloads = {"messages": provider_messages}
+    ProviderAnthropic._sanitize_assistant_messages(payloads)
+    assert provider_messages == [
+        {"role": "assistant", "content": requery_blocks},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_actual",
+                    "content": tool_result.content,
+                }
+            ],
+        },
+    ]
+    assert payloads["messages"] == provider_messages
 
 
 @pytest.mark.asyncio

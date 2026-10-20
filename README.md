@@ -21,6 +21,10 @@
   <a href="https://github.com/murphys7017/AG99/issues">问题反馈</a>
 </p>
 
+<p align="center">
+  <img src="./docs/public/readme-cover.jpg" width="100%" alt="AG99 桌面陪伴与 Live2D 场景插画">
+</p>
+
 ---
 
 ## 核心定位

@@ -1128,6 +1128,17 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     llm_resp.tools_call_name = requery_resp.tools_call_name
                     llm_resp.tools_call_args = requery_resp.tools_call_args
                     llm_resp.tools_call_ids = requery_resp.tools_call_ids
+                    llm_resp.tools_call_extra_content = (
+                        requery_resp.tools_call_extra_content
+                    )
+                    # Anthropic-compatible models may require the exact assistant
+                    # blocks from the response whose tool call is being executed.
+                    # The visible preamble remains from the first (light-schema)
+                    # response, while tool-call continuation data comes from the
+                    # parameter re-query.
+                    llm_resp.anthropic_content_blocks = (
+                        requery_resp.anthropic_content_blocks
+                    )
 
             tool_call_result_blocks = []
             cached_images = []  # Collect cached images for LLM visibility
