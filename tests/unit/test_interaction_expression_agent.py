@@ -398,6 +398,7 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
                 role="assistant",
                 tools_call_name=[],
                 completion_text=wire,
+                raw_completion=None,
             )
 
     class RunnerFactory:
@@ -431,7 +432,7 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
             compiled_output_contract=None,
             func_tool=ToolSet(),
         ),
-        run_context=SimpleNamespace(),
+        run_context=SimpleNamespace(context=SimpleNamespace(context=SimpleNamespace())),
         lifecycle=lifecycle,
     )
     runner = Runner()
@@ -2102,6 +2103,11 @@ async def test_persona_expression_passes_compiled_contract_and_returns_effect_ca
     if response_case in {"missing_expression", "both_missing"}:
         expression_call = provider.calls[1]
         assert expression_call["func_tool"].names() == ["persona_expression"]
+        assert (
+            "本次是运行时指定的 Persona 表达通道单独补全"
+            in _provider_context_text(expression_call)
+        )
+        assert "已接收的 effect_calls 保持不变" in _provider_context_text(expression_call)
         assert result.metadata["expression_correction_used"] is True
 
 
@@ -2336,6 +2342,7 @@ async def test_invalid_turn_plan_result_never_reaches_persona_result_hook(monkey
                         "turn_action": "invalid",
                     }
                 ],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -2439,6 +2446,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
                 result_chain=MessageChain(),
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("初始回复")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -2518,7 +2526,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
         elif hook_type.name == "OnLLMResponseEvent":
             assert args[0].completion_text == "初始回复"
             assert args[0].result_chain.get_plain_text() == "初始回复"
-            args[0].completion_text = "插件修饰后的回复"
+            args[0].completion_text = "初始"
         return False
 
     monkeypatch.setattr(
@@ -2547,7 +2555,7 @@ async def test_persona_expression_reuses_official_request_and_response_hooks(
     assert "plugin context" not in context_text
     assert provider.calls[0]["output_contract"] is contract
     assert provider.calls[0]["compiled_output_contract"] is compiled
-    assert result.speech == "插件修饰后的回复"
+    assert result.speech == "初始"
     assert observed_events == [original_event] * len(observed_hooks)
     assert original_event.get_extra("provider_request") is None
     assert original_event.get_extra(PROMPT_APPLY_RESULT_EXTRA_KEY) is None
@@ -2582,6 +2590,7 @@ async def test_persona_expression_dispatches_official_tool_hooks_once(
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("完成了")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -2729,6 +2738,7 @@ async def test_persona_request_hook_cannot_inject_core_tools_into_persona(monkey
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("无需工具")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -2835,6 +2845,7 @@ async def test_persona_tools_available_but_unused_need_one_model_call(
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("直接人格回复")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -2931,6 +2942,7 @@ async def test_persona_tool_failure_does_not_restart_the_tool_loop(monkeypatch):
                     completion_text="",
                     tools_call_name=["persona_expression"],
                     tools_call_args=[_persona_payload("不应回退")],
+                    tools_call_ids=["call-persona-expression"],
                 )
             if len(self.calls) == 1:
                 return LLMResponse(
@@ -3062,6 +3074,7 @@ async def test_persona_request_hook_context_mutation_survives_business_tool_loop
                 completion_text="",
                 tools_call_name=["persona_expression"],
                 tools_call_args=[_persona_payload("完成了")],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class Event:
@@ -3185,6 +3198,7 @@ async def test_persona_expression_fallback_does_not_repeat_request_hooks(monkeyp
                 tools_call_args=[
                     _persona_payload("由回退模型完成")
                 ],
+                tools_call_ids=["call-persona-expression"],
             )
 
     class CaptionProvider:

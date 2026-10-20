@@ -117,7 +117,7 @@ def _dump_schema(schema: dict[str, Any] | None) -> str:
     if not isinstance(schema, dict) or not schema:
         return ""
     try:
-        return json.dumps(schema, ensure_ascii=False, indent=2)
+        return json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
     except (TypeError, ValueError):
         return ""
 

@@ -9,6 +9,10 @@ from astrbot.core.interaction.structured_output import (
     build_persona_text_example,
     parse_persona_text,
 )
+from astrbot.core.output_contract import (
+    OutputContract,
+    build_output_contract_fallback_prompt,
+)
 
 _TENDENCY_XML = """
 <tendency>
@@ -28,6 +32,34 @@ def test_persona_json_example_passes_production_expression_parser():
         schema["properties"]["segments"]["items"]["properties"]["tendency"]["required"]
     )
     assert "effect_calls" not in parse_persona_text(example, "json")
+
+
+def test_json_output_contract_fallback_keeps_schema_without_pretty_print_overhead():
+    import json
+
+    from astrbot.core.prompt.context_types import ContextPack
+    from astrbot.core.prompt.render.engine import PromptRenderEngine
+    from astrbot.core.prompt.render.interfaces import PromptRenderProfile
+    from astrbot.core.prompt.targets import PromptTarget
+
+    schema = build_persona_expression_tool_parameters()
+    contract = OutputContract(mode="json_object", strict=True, schema=schema)
+    fallback = build_output_contract_fallback_prompt(contract)
+    schema_text = fallback.split("输出必须符合以下 JSON 结构：\n", 1)[1]
+    rendered = PromptRenderEngine().render(
+        ContextPack(),
+        target=PromptTarget.PERSONA,
+        profile=PromptRenderProfile(
+            name="compact_schema", system_prompt="Return the configured object.",
+            output_contract=contract,
+        ),
+    )
+
+    assert json.loads(schema_text) == schema
+    assert "\n  " not in schema_text
+    assert len(schema_text) < len(json.dumps(schema, ensure_ascii=False, indent=2))
+    assert rendered.system_prompt is not None
+    assert schema_text in rendered.system_prompt
 
 
 def test_parse_semantic_xml_persona_output():

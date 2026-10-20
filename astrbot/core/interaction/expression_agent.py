@@ -638,7 +638,8 @@ def build_persona_runtime_system_prompt(
             "persona_effect_batch 工具调用输出；该工具参数只包含 effect_calls。"
             "必须在同一模型响应中分别调用 persona_expression（或输出配置要求的表达格式）"
             "与 persona_effect_batch。无必发 effect 时 effect_calls 可以为空数组；"
-            "不得把 effect_calls 嵌入表达文本、表达 JSON、XML 或 Markdown。\n"
+            "不得把 effect_calls 嵌入表达文本、表达 JSON、XML 或 Markdown。"
+            "若运行时发起单通道补全，该次补全明确指定的通道优先；已接收的另一通道保持不变。\n"
         )
     if required_effects:
         names = ", ".join(effect.name for effect in required_effects)
@@ -1088,11 +1089,11 @@ def _supports_persona_effect_batch(
 def _build_persona_text_output_prompt(output_format: str) -> str:
     if output_format == "json":
         return (
-            "\n【Persona Response JSON 输出】只输出一个完整 JSON 对象，"
+            "\n【Persona Response JSON 输出】表达文本通道只输出一个完整 JSON 对象，"
             "不要添加解释文字、Markdown 代码围栏或只返回 speech。"
             "输入上下文中的结构键不是输出模板；表达对象只包含 turn_action 与 segments，"
             "每个分段必须包含 speech、actions、thought 和八维 tendency。"
-            "不得把 effect_calls 嵌入表达 JSON。"
+            "Persona Effect 使用独立工具通道，不得把 effect_calls 嵌入表达 JSON。"
         )
     if output_format == "xml":
         return (
@@ -3041,8 +3042,9 @@ class InteractionExpressionAgent:
             )
         request.system_prompt = (
             (request.system_prompt or "")
-            + "\n本次只补全 Persona 表达通道。保留角色设定和原任务约束；"
-            "不要再次输出 persona_effect_batch，也不要调用任何业务工具。"
+            + "\n本次是运行时指定的 Persona 表达通道单独补全。此单通道要求优先于上文常规首次生成的双通道同响应要求；"
+            "保留角色设定和原任务约束，只生成 Persona 表达，不要再次输出 persona_effect_batch，"
+            "已接收的 effect_calls 保持不变，也不要调用任何业务工具。"
         )
         request.prompt = (
             (request.prompt or "")

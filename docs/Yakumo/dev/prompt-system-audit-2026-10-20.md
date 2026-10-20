@@ -1,6 +1,6 @@
 # Prompt 文本与系统审阅（2026-10-20）
 
-审阅基线：AstrBot `ee38dfadc`。先完成源码、配置、确定性渲染与测试审阅，随后落实第一批四项局部修复，并按用户要求复核、提交本批变更。没有修改运行中的人格或数据库，没有真实模型联调或重启。以下问题描述保留审阅时证据；完成状态以本节为准，不能把所有建议视为已实现。
+审阅基线：AstrBot `ee38dfadc`。第一批四项局部修复已提交到 `8ac3cb4be`；本轮完成 A5 的 schema 紧凑序列化、A7 的通道作用域澄清和 A8 的测试基线修复，并通过本地验证。没有修改运行中的人格或数据库，没有真实模型联调或重启。以下问题描述保留审阅时证据；完成状态以状态表为准，不能把所有建议视为已实现。
 
 ## 第一批实施状态
 
@@ -11,9 +11,11 @@
 | A3 轴分类丢失 | 原始 Profile 摘要保留 semantic_group；独立动作最终能力文本同时保留 semantic_group 和 control_role | 合成合法原始 Profile → 摘要 → capability → 独立动作 Prompt，head/body/gaze 分类与角色均保留，源 Profile 不变 |
 | A4 时长契约歧义 | 独立动作明确 duration_weight 为整数、相对权重而非秒/毫秒；步数与权重上下界在 normalizer、effect schema、参考投影、能力限制文本、调参样本验证和 Prompt 共用常量 | 经当前参考投影进入最终 Prompt 的两步示例同时通过真实 normalizer 与动态 schema；拒绝小数、布尔值、非法步数，保留既有越界饱和策略 |
 
+**第二批复核：** A3/A4 相关文件与提交 `8ac3cb4be` 一致，semantic_group/control_role 投影及共享动作范围常量均存在。此前观察到的提交后差异已不在当前工作区；本轮没有覆盖或回退这些文件。
+
 本批不自动追加新的两步示例；使用既有参考投影验证真实契约。是否按动作请求选择并补齐示例，留到 A5 的契约文本优化一起评估，避免每次请求无条件增加示例长度。
 
-验证：`tests/unit/test_prompt_targets.py` **49 passed**（新增 16 项公开最终请求输入输出回归检查）；渲染器和请求适配相关测试 **66 passed、1 deselected**（排除审阅已确认的旧 Persona 诊断字段断言）。插件真实导入、Profile 到最终能力文本、schema/normalizer 的直接验收通过，修改文件 Ruff 和插件结构检查通过。原审阅的 10 项基线失败未在本批修复，不作为已通过项。
+验证：`tests/unit/test_prompt_targets.py` **49 passed**（新增 16 项公开最终请求输入输出回归检查）；渲染器和请求适配相关测试 **66 passed、1 deselected**（排除审阅已确认的旧 Persona 诊断字段断言）。插件真实导入、Profile 到最终能力文本、schema/normalizer 的直接验收通过，修改文件 Ruff 和插件结构检查通过。A8 后续修复了实施前的 10 项基线失败，详见第二批状态。
 
 提交范围：下列六个源文件原本被根目录 `.gitignore` 的 `data` 规则排除。本次按用户授权显式加入版本控制，保留既有内容及本批局部修复，未修改全局忽略规则；因此提交统计包含这些文件的完整现有快照：
 
@@ -26,7 +28,15 @@
 
 提交前复核又补齐能力文本和调参样本中的步数/权重常量引用。通过公开 `MotionTuningStore.normalize_sample()` → `refresh_reference_examples()` → `normalize_motion_steps()` 的直接验收，确认合法序列可投影、非法步数和权重被拒绝，原始样本不变。首个验收输入缺必需的 `original_axes`，补齐合法输入后通过，未为此放宽生产校验。本批沿用上述 115 项已通过检查；没有重复运行未变更的测试套件。旧插件其他未跟踪依赖仍沿用现有本地安装，本提交不声称提供可独立安装的完整插件包。
 
-A5–A8、稳定能力缓存与协议实验仍待实施。实际模型成功率、桌面动作质量和端到端延迟需要后续真实联调验证。
+## 第二批实施状态
+
+| 项目 | 当前改动 | 验证与边界 |
+|---|---|---|
+| A5 JSON schema fallback | JSON schema 从缩进序列化改为紧凑序列化，解析后的 schema 完全相同 | Persona 示例 schema 从 2,792 字符降到 1,425 字符，少 1,367 字符（49%）；这是字符数，不代表 token 或时延比例。系统规则与完整示例仍有语义重复，待模型样本评估后再删减 |
+| A7 双通道补救作用域 | JSON 规则明确只约束表达文本通道；通用规则说明单通道补全优先；表达补救 system 明确已接收 effect 保持不变 | 现有补救测试验证缺表达时只挂载 persona_expression terminal tool、保留已接收 effect；effect 补救沿用只注册 effect 工具的路径。未改业务工具与 effect 执行机制 |
+| A8 测试基线 | 更新清理后的 Persona session 预期；为工具响应 fixture 补齐 tool call ID；补齐 stream 的 raw_completion/run_context 结构；response hook 测试改为契约允许的前缀截断 | `test_structured_output.py`、`test_prompt_tree_renderer.py`、`test_interaction_expression_agent.py`、`test_persona_segment_stream.py` **157 passed**；原记录的 10 个失败点均在这些完整文件运行中覆盖并通过 |
+
+A6 稳定前缀与缓存、按阶段编译指令、深拷贝成本、JSONL 首个可播文本仍未修改。当前 Provider 尚无实测缓存 usage/分阶段延迟数据；不应据 Prompt 字符减少推断省时幅度。格式质量与动作播放仍需真实模型和桌面端验收。
 
 ## 判断
 
@@ -103,7 +113,7 @@ A5–A8、稳定能力缓存与协议实验仍待实施。实际模型成功率�
 - `_prepare_render_result` 先把格式说明和 `build_persona_text_example` 拼进 system。
 - Renderer 又由 OutputContract 生成完整 schema fallback，追加到 system。共享 actions/thought/tendency 描述再次出现在 schema 中。
 - Base/Anthropic 的 XML 外壳还会把示例中的引号、尖括号进行转义；这未必造成失败，但会增加模型理解示例的间接步骤。不能简单全局关闭转义。
-- 合成无人格、无历史、无记忆请求的尺寸如下。为测量采用生产函数，示例 schema 使用函数默认允许动作；不同阶段枚举和实际扩展会改变长度。数值是字符数，不是 token，不是线上耗时。
+- 紧凑编码改动前，合成无人格、无历史、无记忆请求的尺寸如下。为测量采用生产函数，示例 schema 使用函数默认允许动作；不同阶段枚举和实际扩展会改变长度。数值是字符数，不是 token，不是线上耗时。
 
 | 输出格式 | 最终 system 字符 | 最终 request 字符 | 其中 schema fallback 字符 |
 |---|---:|---:|---:|
@@ -112,7 +122,7 @@ A5–A8、稳定能力缓存与协议实验仍待实施。实际模型成功率�
 | Markdown | 1,979 | 400 | 0 |
 | segment_stream_v1 | 1,117 | 1,506 | 0 |
 
-- 修复：为每种传输选唯一的契约表达源。Prompt-only JSON 可由统一 schema 生成紧凑约束和一个合法实例；原生工具路径优先使用实际 schema，不再拷贝整套同义文字。
+- 已实施的低风险子集：fallback schema 使用紧凑 JSON 编码，schema 语义不变。仍待处理：规则、完整示例与 schema fallback 的重复；须先评估模型遵循效果，再按每种传输选择是否精简示例或规则。
 - 必须保留：必填字段、允许 turn_action、8 维情绪 0–10 整数、actions 方向性和同时/先后关系、thought 隔离、effect 通道规则。
 - 验收：修改前后合法字段集合与解析规则一致，非法输入仍被拒绝；字符/token 有确切对比；格式成功率与语义质量经过模型样本验证后才能认定可上线。
 
@@ -140,7 +150,7 @@ A5–A8、稳定能力缓存与协议实验仍待实施。实际模型成功率�
 - 10 项在隔离数据根目录后单独复跑仍失败：1 项期望 Persona 保留已被主动清理的 user_id/platform/umo 等诊断；2 项 stream fixture 的 run_context 缺 context；另 7 项涉及 mock 工具响应缺 tool_call ID，被现有 runner 提前拒绝，掩盖 hook/回退等原测试目标。
 - 这些失败在本批修改生产代码之前已存在；其中 7 项的第一失败点是 mock ID 缺失，不能据此宣布补 ID 后所有后续断言都正确。
 - 初次测试写到了正在使用的日志路径，引发 trace 文件轮转 PermissionError；随后改用 `.tmp/prompt-audit` 隔离根目录复跑，仍得到相同 10 项失败。系统临时目录尝试则因路径权限而没有成功收集测试。
-- 修复：调整 fixture 使其符合当前公开输入契约，保留原目标断言；过时字段预期按目标投影规则更新。不要为让旧 mock 通过而关闭生产 tool-call 校验。
+- 已修复：调整 fixture 使其符合当前公开输入契约，保留原目标断言；过时字段预期按 Persona 投影规则更新。工具响应补合法 call ID，stream fixture 补最小 ContextWrapper/raw completion 形状；没有为让 mock 通过而关闭生产校验。
 - 新验证集中在最终 ProviderRequest / 公开渲染边界，不能只证明某个内部函数被调用或 selected_slot_names 含某项。
 
 ## 其他可以加速的设计，尚未测得收益
@@ -158,8 +168,8 @@ A5–A8、稳定能力缓存与协议实验仍待实施。实际模型成功率�
 | 批次 | 内容 | 前置验收 | 回滚单位 |
 |---|---|---|---|
 | 1 | A1 丢确认语、A2 历史配置语义、A3 轴分类、A4 整数契约 | 实际最终请求/normalizer 边界通过，原 Pack 未改 | 每项独立变更 |
-| 2 | A8 修复 fixture，补最小最终请求验证与固定评测样本 | 不削弱生产校验，原失败根因可解释 | 测试与验证工具 |
-| 3 | A5 统一契约文本生成、A7 明确通道与纠正 Profile | 解析契约等价，模型样本格式与语义不退化 | 每种输出路径 |
+| 2 | A8 修复 fixture，补最小最终请求验证与固定评测样本 | 不削弱生产校验，原失败根因可解释；首个相关测试文件批次通过 | 测试与验证工具 |
+| 3 | A5 compact schema 子集、A7 明确通道与纠正作用域 | schema 解析等价，补救输入/工具集合边界通过；模型样本仍需验证 | 每种输出路径 |
 | 4 | A6 稳定前缀与静态能力复用 | 三类 renderer 事实等价、revision 失效正确、测量实际收益 | 布局/缓存分别回滚 |
 | 5 | 复制开销与 v2 首包协议实验 | 先有瓶颈数据；协议改动单独评审 | 独立实验配置 |
 
