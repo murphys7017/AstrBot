@@ -56,11 +56,22 @@ class CodexSdkRuntime:
             client = (self._client_factory or _build_sdk_client)()
             try:
                 await client.__aenter__()
-            except Exception as exc:
+            except BaseException as exc:
+                close_task = asyncio.create_task(client.close())
                 try:
-                    await client.close()
-                except Exception:
-                    pass
+                    await asyncio.wait_for(
+                        asyncio.shield(close_task),
+                        timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS,
+                    )
+                except BaseException:
+                    close_task.cancel()
+                    done, _ = await asyncio.wait(
+                        {close_task}, timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS
+                    )
+                    if done:
+                        await asyncio.gather(close_task, return_exceptions=True)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
                 raise CodexSdkError("Codex SDK runtime failed to start") from exc
             self._client = client
             return client

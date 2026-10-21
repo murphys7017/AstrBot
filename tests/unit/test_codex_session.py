@@ -85,6 +85,22 @@ class _FakeClient:
         self.close_count += 1
 
 
+class _BlockingEnterClient:
+    def __init__(self):
+        self.enter_started = asyncio.Event()
+        self.enter_release = asyncio.Event()
+        self.close_count = 0
+
+    async def __aenter__(self):
+        self.enter_started.set()
+        await self.enter_release.wait()
+        return self
+
+    async def close(self):
+        self.close_count += 1
+        self.enter_release.set()
+
+
 @pytest.mark.asyncio
 async def test_runtime_reuses_client_and_isolates_threads(monkeypatch, tmp_path):
     _install_sdk_types(monkeypatch)
@@ -118,6 +134,21 @@ async def test_runtime_reuses_client_and_isolates_threads(monkeypatch, tmp_path)
     assert client.close_count == 1
     assert first.unusable is True
     assert second.unusable is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_runtime_start_closes_unpublished_client():
+    client = _BlockingEnterClient()
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    start = asyncio.create_task(runtime.ensure_ready())
+
+    await asyncio.wait_for(client.enter_started.wait(), timeout=1)
+    start.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start
+
+    assert client.close_count == 1
+    assert runtime.initialized is False
 
 
 @pytest.mark.asyncio
