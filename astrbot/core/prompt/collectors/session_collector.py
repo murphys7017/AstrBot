@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 class SessionCollector(ContextCollectorInterface):
     """Collect stable per-request session metadata."""
 
+    parallel_safe = True
+
     async def collect(
         self,
         event: AstrMessageEvent,

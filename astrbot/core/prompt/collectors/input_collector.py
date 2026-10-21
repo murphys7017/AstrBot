@@ -66,6 +66,8 @@ class _ReplyPayload:
 class InputCollector(ContextCollectorInterface):
     """Collect the current user input into prompt context slots."""
 
+    parallel_safe = True
+
     def __init__(self, *, include_media_enrichment: bool = True) -> None:
         self.include_media_enrichment = include_media_enrichment
 

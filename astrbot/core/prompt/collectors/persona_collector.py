@@ -43,6 +43,8 @@ class PersonaCollector(ContextCollectorInterface):
     - persona.skills_whitelist: Skills 白名单
     """
 
+    parallel_safe = True
+
     @property
     def lifecycle(self) -> str:
         return "static"

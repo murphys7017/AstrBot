@@ -54,6 +54,7 @@ PROMPT_EXTENSION_STATIC_CACHE_EXTRA_KEY = "_prompt_extension_static_cache"
 PROMPT_EXTENSION_SLOT_NAMES: dict[str, str] = {
     mount: f"extension.{mount}" for mount in PROMPT_EXTENSION_MOUNTS
 }
+_PROMPT_CONTEXT_COLLECTOR_CONCURRENCY = 4
 PLUGIN_PROMPT_TARGETS = frozenset({"persona", "core"})
 CONTROL_PLANE_PROMPT_TARGETS = frozenset({"core_planner"})
 PromptExtensionCollectorScope = Literal["all", "control_plane", "plugin"]
@@ -869,9 +870,20 @@ async def collect_context_pack(
 
     timings = []
     pack.meta["collector_timings"] = timings
-    for collector in collector_list:
+    collector_timing_records: dict[int, list[dict[str, Any]]] = {}
+    collector_semaphore = asyncio.Semaphore(_PROMPT_CONTEXT_COLLECTOR_CONCURRENCY)
+
+    async def collect_one(
+        index: int,
+        collector: ContextCollectorInterface,
+        dependencies: tuple[asyncio.Task, ...] = (),
+    ):
+        for dependency in dependencies:
+            await dependency
+
         collector_name = collector.__class__.__name__
-        pack.meta["collectors"].append(collector_name)
+        local_timings: list[dict[str, Any]] = []
+        collector_timing_records[index] = local_timings
         lifecycle = _collector_lifecycle(collector)
         static_cache_key = _collector_cache_key(collector)
         policy = getattr(collector, "failure_policy", "required")
@@ -885,47 +897,59 @@ async def collect_context_pack(
             provider_request=provider_request,
         )
         if lifecycle == "static" and cached_items is not None:
-            with measure_prompt_stage(timings, collector_name, cache_hit=True) as metric:
+            with measure_prompt_stage(
+                local_timings, collector_name, cache_hit=True
+            ) as metric:
                 slots = deepcopy(cached_items)
                 metric["slot_count"] = len(slots)
-            pack.meta.setdefault("cached_collectors", []).append(collector_name)
-        else:
-            failed = False
-            try:
-                with measure_prompt_stage(timings, collector_name, cache_hit=False) as metric:
+            return slots, False, True, None
+
+        failed = False
+        failure = None
+        try:
+            with measure_prompt_stage(
+                local_timings, collector_name, cache_hit=False
+            ) as metric:
+                async with collector_semaphore:
                     slots = await collector.collect(
                         event, plugin_context, config, provider_request=provider_request,
                     )
                     metric["slot_count"] = len(slots)
-            except Exception as exc:  # noqa: BLE001
-                failed = True
-                if policy != "optional":
-                    record_prompt_timings(event, "collection", timings)
-                    raise
-                metric["status"] = "optional_failed"
-                logger.warning(
-                    "Optional prompt collector failed; continuing without its slots: collector=%s error=%s",
-                    collector_name,
-                    exc,
-                    exc_info=True,
-                )
-                pack.meta.setdefault("collector_failures", []).append(
-                    {
-                        "collector": collector_name,
-                        "error_type": type(exc).__name__,
-                        "reason": str(exc),
-                    }
-                )
-                slots = []
-            if lifecycle == "static" and not failed:
-                _store_static_cache_entry(
-                    static_context_cache,
-                    static_cache_key,
-                    config=config,
-                    provider_request=provider_request,
-                    items=slots,
-                )
+        except Exception as exc:  # noqa: BLE001
+            failed = True
+            if policy != "optional":
+                raise
+            failure = {
+                "collector": collector_name,
+                "error_type": type(exc).__name__,
+                "reason": str(exc),
+            }
+            local_timings[-1]["status"] = "optional_failed"
+            logger.warning(
+                "Optional prompt collector failed; continuing without its slots: collector=%s error=%s",
+                collector_name,
+                exc,
+                exc_info=True,
+            )
+            slots = []
+        return slots, failed, False, failure
 
+    def merge_collector_result(collector, result) -> None:
+        collector_name = collector.__class__.__name__
+        slots, failed, cache_hit, failure = result
+        pack.meta["collectors"].append(collector_name)
+        if cache_hit:
+            pack.meta.setdefault("cached_collectors", []).append(collector_name)
+        if failure is not None:
+            pack.meta.setdefault("collector_failures", []).append(failure)
+        if _collector_lifecycle(collector) == "static" and not failed and not cache_hit:
+            _store_static_cache_entry(
+                static_context_cache,
+                _collector_cache_key(collector),
+                config=config,
+                provider_request=provider_request,
+                items=slots,
+            )
         for slot in slots:
             if not catalog.has(slot.name):
                 logger.warning(
@@ -933,8 +957,126 @@ async def collect_context_pack(
                     slot.name,
                     collector_name,
                 )
-
             _add_collected_slot(pack, slot, producer=collector_name)
+
+    completed_collector_names: set[str] = set()
+    collector_index = 0
+    while collector_index < len(collector_list):
+        collector = collector_list[collector_index]
+        parallel_safe = bool(getattr(collector, "parallel_safe", False))
+        dependency_names = tuple(
+            str(name)
+            for name in getattr(collector, "parallel_dependencies", ())
+        )
+        prior_names = {
+            prior.__class__.__name__
+            for prior in collector_list[:collector_index]
+        }
+        missing_dependencies = tuple(
+            name
+            for name in dependency_names
+            if name not in completed_collector_names and name not in prior_names
+        )
+        if missing_dependencies:
+            raise ValueError(
+                f"collector dependencies must precede {collector.__class__.__name__}: "
+                f"{', '.join(missing_dependencies)}"
+            )
+        dependencies_available = all(
+            name in completed_collector_names
+            or any(
+                prior.__class__.__name__ == name
+                for prior in collector_list[:collector_index]
+                if bool(getattr(prior, "parallel_safe", False))
+            )
+            for name in dependency_names
+        )
+        if not parallel_safe or not dependencies_available:
+            try:
+                result = await collect_one(collector_index, collector)
+            except BaseException:
+                timings.extend(collector_timing_records.get(collector_index, []))
+                record_prompt_timings(event, "collection", timings)
+                raise
+            timings.extend(collector_timing_records.get(collector_index, []))
+            merge_collector_result(collector, result)
+            completed_collector_names.add(collector.__class__.__name__)
+            collector_index += 1
+            continue
+
+        batch_start = collector_index
+        batch: list[ContextCollectorInterface] = []
+        batch_names = set(completed_collector_names)
+        while collector_index < len(collector_list):
+            candidate = collector_list[collector_index]
+            if not bool(getattr(candidate, "parallel_safe", False)):
+                break
+            candidate_dependencies = tuple(
+                str(name)
+                for name in getattr(candidate, "parallel_dependencies", ())
+            )
+            prior_names = {
+                prior.__class__.__name__
+                for prior in collector_list[:collector_index]
+            }
+            missing_dependencies = tuple(
+                name
+                for name in candidate_dependencies
+                if name not in batch_names and name not in prior_names
+            )
+            if missing_dependencies:
+                raise ValueError(
+                    f"collector dependencies must precede {candidate.__class__.__name__}: "
+                    f"{', '.join(missing_dependencies)}"
+                )
+            if not all(
+                name in batch_names
+                or any(
+                    prior.__class__.__name__ == name
+                    for prior in collector_list[:collector_index]
+                    if bool(getattr(prior, "parallel_safe", False))
+                )
+                for name in candidate_dependencies
+            ):
+                break
+            batch.append(candidate)
+            batch_names.add(candidate.__class__.__name__)
+            collector_index += 1
+
+        batch_tasks: list[asyncio.Task] = []
+        batch_tasks_by_name: dict[str, asyncio.Task] = {}
+        for offset, batch_collector in enumerate(batch):
+            batch_index = batch_start + offset
+            dependencies = tuple(
+                batch_tasks_by_name[name]
+                for name in getattr(batch_collector, "parallel_dependencies", ())
+                if name in batch_tasks_by_name
+            )
+            task = asyncio.create_task(
+                collect_one(batch_index, batch_collector, dependencies)
+            )
+            batch_tasks.append(task)
+            batch_tasks_by_name[batch_collector.__class__.__name__] = task
+
+        try:
+            batch_results = await asyncio.gather(*batch_tasks)
+        except BaseException:
+            for task in batch_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*batch_tasks, return_exceptions=True)
+            for batch_index in range(batch_start, batch_start + len(batch)):
+                timings.extend(collector_timing_records.get(batch_index, []))
+            record_prompt_timings(event, "collection", timings)
+            raise
+
+        for offset, (batch_collector, result) in enumerate(
+            zip(batch, batch_results, strict=True)
+        ):
+            batch_index = batch_start + offset
+            timings.extend(collector_timing_records.get(batch_index, []))
+            merge_collector_result(batch_collector, result)
+            completed_collector_names.add(batch_collector.__class__.__name__)
 
     event.set_extra(PROMPT_STATIC_CONTEXT_CACHE_EXTRA_KEY, static_context_cache)
 

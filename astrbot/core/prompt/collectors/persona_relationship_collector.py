@@ -22,6 +22,9 @@ from .persona_state_projection import serialize_persona_state
 class PersonaRelationshipCollector(ContextCollectorInterface):
     """Collect ``memory.persona_state`` without owning general Memory facts."""
 
+    parallel_safe = True
+    parallel_dependencies = ("MemoryCollector",)
+
     @property
     def failure_policy(self) -> str:
         return "optional"

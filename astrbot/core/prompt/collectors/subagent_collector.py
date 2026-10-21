@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 class SubagentCollector(ContextCollectorInterface):
     """Collect subagent handoff tools and router prompt as structured context."""
 
+    parallel_safe = True
+
     @property
     def lifecycle(self) -> str:
         return "static"

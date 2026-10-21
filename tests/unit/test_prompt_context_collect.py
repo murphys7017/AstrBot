@@ -1,5 +1,6 @@
 """Tests for prompt context collection."""
 
+import asyncio
 from asyncio import Queue
 from datetime import datetime
 from pathlib import Path
@@ -3316,6 +3317,88 @@ async def test_optional_static_collector_failure_does_not_hide_later_recovery():
 class _BrokenCollector(ContextCollectorInterface):
     async def collect(self, event, plugin_context, config, provider_request=None):
         raise RuntimeError("boom")
+
+
+@pytest.mark.asyncio
+async def test_parallel_safe_context_collectors_merge_in_input_order():
+    both_started = asyncio.Event()
+    started_count = 0
+
+    class Collector(ContextCollectorInterface):
+        parallel_safe = True
+
+        def __init__(self, name: str, value: object):
+            self.name = name
+            self.value = value
+
+        async def collect(self, event, plugin_context, config, provider_request=None):
+            nonlocal started_count
+            started_count += 1
+            if started_count == 2:
+                both_started.set()
+            await both_started.wait()
+            return [ContextSlot(self.name, self.value, "input", "test")]
+
+    event, _ = _make_event()
+    context = _make_context()
+    pack = await asyncio.wait_for(
+        collect_context_pack(
+            event=event,
+            plugin_context=context,
+            config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+            collectors=[
+                Collector("input.text", "hello"),
+                Collector("input.files", []),
+            ],
+            include_prompt_extensions=False,
+        ),
+        timeout=2,
+    )
+
+    assert pack.get_slot("input.text").value == "hello"
+    assert pack.get_slot("input.files").value == []
+    assert list(pack.slots) == ["input.text", "input.files"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_safe_required_failure_cancels_and_joins_siblings():
+    all_started = asyncio.Event()
+    sibling_cleaned = asyncio.Event()
+    started_count = 0
+
+    class Collector(ContextCollectorInterface):
+        parallel_safe = True
+
+        def __init__(self, fail: bool):
+            self.fail = fail
+
+        async def collect(self, event, plugin_context, config, provider_request=None):
+            nonlocal started_count
+            started_count += 1
+            if started_count == 2:
+                all_started.set()
+            await all_started.wait()
+            if self.fail:
+                raise RuntimeError("required collector failed")
+            try:
+                await asyncio.Event().wait()
+            finally:
+                sibling_cleaned.set()
+
+    event, _ = _make_event()
+    with pytest.raises(RuntimeError, match="required collector failed"):
+        await asyncio.wait_for(
+            collect_context_pack(
+                event=event,
+                plugin_context=_make_context(),
+                config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+                collectors=[Collector(fail=True), Collector(fail=False)],
+                include_prompt_extensions=False,
+            ),
+            timeout=2,
+        )
+
+    assert sibling_cleaned.is_set()
 
 
 class _StaticCollector(ContextCollectorInterface):

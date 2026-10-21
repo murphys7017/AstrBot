@@ -195,6 +195,8 @@ def get_cached_prompt_memory_snapshot(
 class MemoryCollector(ContextCollectorInterface):
     """Collect prompt memory context from the current memory snapshot."""
 
+    parallel_safe = True
+
     def __init__(self, *, include_persona_state: bool = True) -> None:
         self.include_persona_state = include_persona_state
 

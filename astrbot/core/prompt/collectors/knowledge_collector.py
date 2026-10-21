@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 class KnowledgeCollector(ContextCollectorInterface):
     """Collect non-agentic knowledge-base text blocks for later rendering."""
 
+    parallel_safe = True
+
     @property
     def failure_policy(self) -> str:
         return "optional"

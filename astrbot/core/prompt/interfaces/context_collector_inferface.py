@@ -26,6 +26,10 @@ class ContextCollectorInterface(ABC):
     每个具体的 Collector 负责收集一类上下文信息（如 Persona、Input、Memory 等）。
     """
 
+    # Opt in only when collection is independent of peer collectors for an event.
+    parallel_safe = False
+    parallel_dependencies: tuple[str, ...] = ()
+
     @property
     def lifecycle(self) -> str:
         """Return collector lifecycle for per-event prompt build reuse.

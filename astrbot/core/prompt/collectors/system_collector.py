@@ -38,6 +38,8 @@ if TYPE_CHECKING:
 class SystemCollector(ContextCollectorInterface):
     """Collect base system prompt and tool-call instruction metadata."""
 
+    parallel_safe = True
+
     def __init__(
         self,
         *,

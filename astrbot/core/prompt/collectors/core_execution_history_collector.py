@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 class CoreExecutionHistoryCollector(ContextCollectorInterface):
     """Collect Core-only execution continuity without exposing it as dialogue."""
 
+    parallel_safe = True
     failure_policy = "optional"
 
     async def collect(

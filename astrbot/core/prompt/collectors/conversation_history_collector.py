@@ -30,6 +30,8 @@ _CURRENT_CONVERSATION_HISTORY_CACHE_EXTRA_KEY = (
 class ConversationHistoryCollector(ContextCollectorInterface):
     """Collect the current conversation history as normalized turn pairs."""
 
+    parallel_safe = True
+
     async def collect(
         self,
         event: AstrMessageEvent,

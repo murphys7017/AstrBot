@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 class CoreTaskCollector(ContextCollectorInterface):
     """Expose middleware delegation intent without mutating ProviderRequest."""
 
+    parallel_safe = True
+
     async def collect(
         self,
         event: AstrMessageEvent,

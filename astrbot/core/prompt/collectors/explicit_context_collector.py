@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 class ExplicitContextCollector(ContextCollectorInterface):
     """Preserve plugin contexts while leaving official history in its own slot."""
 
+    parallel_safe = True
+
     async def collect(
         self,
         event: AstrMessageEvent,
