@@ -1,13 +1,14 @@
 import asyncio
 import sys
 from enum import Enum
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from astrbot.core.executors.codex_session import (
+    CodexSdkError,
     CodexSdkRuntime,
-    CodexSdkRuntimeBusy,
 )
 
 
@@ -101,6 +102,21 @@ class _BlockingEnterClient:
         self.enter_release.set()
 
 
+class _BlockingCloseClient:
+    def __init__(self):
+        self.close_started = asyncio.Event()
+        self.close_release = asyncio.Event()
+        self.close_count = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def close(self):
+        self.close_count += 1
+        self.close_started.set()
+        await self.close_release.wait()
+
+
 @pytest.mark.asyncio
 async def test_runtime_reuses_client_and_isolates_threads(monkeypatch, tmp_path):
     _install_sdk_types(monkeypatch)
@@ -152,26 +168,125 @@ async def test_cancel_during_runtime_start_closes_unpublished_client():
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_overlapping_turns_across_threads(monkeypatch, tmp_path):
+async def test_runtime_close_is_bounded_while_startup_holds_lock(monkeypatch):
+    import astrbot.core.executors.codex_session as codex_session
+
+    monkeypatch.setattr(codex_session, "_RUNTIME_CLOSE_TIMEOUT_SECONDS", 0.01)
+    client = _BlockingEnterClient()
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    startup = asyncio.create_task(runtime.ensure_ready())
+
+    await asyncio.wait_for(client.enter_started.wait(), timeout=1)
+    with pytest.raises(CodexSdkError, match="close did not settle"):
+        await runtime.aclose()
+
+    assert runtime.closed is True
+    assert runtime.initialized is False
+
+    client.enter_release.set()
+    with pytest.raises(CodexSdkError, match="runtime is closed"):
+        await asyncio.wait_for(startup, timeout=1)
+    assert client.close_count == 1
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_serializes_overlapping_turns_across_threads(monkeypatch):
     _install_sdk_types(monkeypatch)
     first_handle = _FakeHandle(blocked=True)
-    client = _FakeClient([first_handle, _FakeHandle()])
+    second_handle = _FakeHandle()
+    client = _FakeClient([first_handle, second_handle])
     runtime = CodexSdkRuntime(client_factory=lambda: client)
-    first = await runtime.create_session(workspace=tmp_path, executor_config={})
-    second = await runtime.create_session(workspace=tmp_path, executor_config={})
+    first = await runtime.create_session(workspace=Path.cwd(), executor_config={})
+    second = await runtime.create_session(workspace=Path.cwd(), executor_config={})
 
     first_turn = asyncio.create_task(
         _collect_events(first, "first request")
     )
     await asyncio.wait_for(first_handle.started.wait(), timeout=1)
-    with pytest.raises(CodexSdkRuntimeBusy, match="already has an active turn"):
-        await _collect_events(second, "second request")
+    second_turn = asyncio.create_task(
+        _collect_events(second, "second request")
+    )
+    await asyncio.sleep(0)
+    assert not second_handle.started.is_set()
 
     first_handle.release.set()
-    await first_turn
+    first_events, second_events = await asyncio.gather(
+        asyncio.wait_for(first_turn, timeout=1),
+        asyncio.wait_for(second_turn, timeout=1),
+    )
+    assert [event.method for event in first_events] == [
+        "turn/started",
+        "turn/completed",
+    ]
+    assert [event.method for event in second_events] == [
+        "turn/started",
+        "turn/completed",
+    ]
+    assert second_handle.started.is_set()
     await first.aclose()
     await second.aclose()
     await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_queued_turn_does_not_interrupt_active_turn(monkeypatch):
+    _install_sdk_types(monkeypatch)
+    first_handle = _FakeHandle(blocked=True)
+    second_handle = _FakeHandle()
+    client = _FakeClient([first_handle, second_handle])
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    first = await runtime.create_session(workspace=Path.cwd(), executor_config={})
+    second = await runtime.create_session(workspace=Path.cwd(), executor_config={})
+
+    first_turn = asyncio.create_task(_collect_events(first, "first request"))
+    await asyncio.wait_for(first_handle.started.wait(), timeout=1)
+    queued_turn = asyncio.create_task(_collect_events(second, "queued request"))
+    await asyncio.sleep(0)
+    assert not second_handle.started.is_set()
+
+    queued_turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(queued_turn, timeout=1)
+    assert not first_handle.interrupted.is_set()
+
+    first_handle.release.set()
+    await asyncio.wait_for(first_turn, timeout=1)
+    retry_events = await asyncio.wait_for(
+        _collect_events(second, "retry request"),
+        timeout=1,
+    )
+    assert [event.method for event in retry_events] == [
+        "turn/started",
+        "turn/completed",
+    ]
+
+    await first.aclose()
+    await second.aclose()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_is_bounded_and_can_be_retried(monkeypatch):
+    import astrbot.core.executors.codex_session as codex_session
+
+    monkeypatch.setattr(codex_session, "_RUNTIME_CLOSE_TIMEOUT_SECONDS", 0.01)
+    client = _BlockingCloseClient()
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    await runtime.ensure_ready()
+
+    with pytest.raises(CodexSdkError, match="close did not settle"):
+        await runtime.aclose()
+
+    assert runtime.closed is True
+    assert runtime.initialized is True
+    assert client.close_count == 1
+
+    client.close_release.set()
+    await runtime.aclose()
+
+    assert runtime.initialized is False
+    assert client.close_count == 1
 
 
 @pytest.mark.asyncio

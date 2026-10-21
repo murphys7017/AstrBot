@@ -12,10 +12,6 @@ class CodexSdkError(RuntimeError):
     """Raised when the shared Codex SDK runtime cannot serve a session."""
 
 
-class CodexSdkRuntimeBusy(CodexSdkError):
-    """Raised instead of queueing a second turn on the shared runtime."""
-
-
 _END_OF_STREAM = object()
 _EVENT_QUEUE_SIZE = 64
 _INTERRUPT_RPC_TIMEOUT_SECONDS = 3.0
@@ -31,6 +27,7 @@ class CodexSdkRuntime:
         self._client: Any | None = None
         self._lock = asyncio.Lock()
         self._turn_lock = asyncio.Lock()
+        self._close_task: asyncio.Task[Any] | None = None
         self._closed = False
 
     @property
@@ -56,23 +53,14 @@ class CodexSdkRuntime:
             client = (self._client_factory or _build_sdk_client)()
             try:
                 await client.__aenter__()
-            except BaseException as exc:
-                close_task = asyncio.create_task(client.close())
-                try:
-                    await asyncio.wait_for(
-                        asyncio.shield(close_task),
-                        timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS,
-                    )
-                except BaseException:
-                    close_task.cancel()
-                    done, _ = await asyncio.wait(
-                        {close_task}, timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS
-                    )
-                    if done:
-                        await asyncio.gather(close_task, return_exceptions=True)
+            except (Exception, asyncio.CancelledError) as exc:
+                await _close_unpublished_client(client)
                 if isinstance(exc, asyncio.CancelledError):
                     raise
                 raise CodexSdkError("Codex SDK runtime failed to start") from exc
+            if self._closed:
+                await _close_unpublished_client(client)
+                raise CodexSdkError("Codex SDK runtime is closed")
             self._client = client
             return client
 
@@ -103,25 +91,72 @@ class CodexSdkRuntime:
     async def acquire_turn_slot(self) -> None:
         if self._closed:
             raise CodexSdkError("Codex SDK runtime is closed")
-        if self._turn_lock.locked():
-            raise CodexSdkRuntimeBusy(
-                "Codex SDK runtime already has an active turn"
-            )
         await self._turn_lock.acquire()
+        if self._closed:
+            self._turn_lock.release()
+            raise CodexSdkError("Codex SDK runtime is closed")
 
     def release_turn_slot(self) -> None:
         if self._turn_lock.locked():
             self._turn_lock.release()
 
     async def aclose(self) -> None:
-        async with self._lock:
-            if self._closed:
+        self._closed = True
+        deadline = asyncio.get_running_loop().time() + _RUNTIME_CLOSE_TIMEOUT_SECONDS
+        try:
+            await asyncio.wait_for(
+                self._lock.acquire(), timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS
+            )
+        except TimeoutError as exc:
+            raise CodexSdkError(
+                "Codex SDK runtime close did not settle within the timeout"
+            ) from exc
+
+        try:
+            close_task = self._close_task
+            if close_task is None and self._client is None:
                 return
-            self._closed = True
-            client = self._client
+            if close_task is None:
+                client = self._client
+                close_task = asyncio.create_task(
+                    client.close(), name="codex-sdk-runtime-close"
+                )
+                close_task.add_done_callback(self._runtime_close_completed)
+                self._close_task = close_task
+        finally:
+            self._lock.release()
+
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(close_task),
+                timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
+            )
+        except TimeoutError as exc:
+            raise CodexSdkError(
+                "Codex SDK runtime close did not settle within the timeout"
+            ) from exc
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            async with self._lock:
+                if self._close_task is close_task:
+                    self._close_task = None
+            raise
+        else:
+            async with self._lock:
+                if self._close_task is close_task:
+                    self._close_task = None
+                    self._client = None
+
+    def _runtime_close_completed(self, task: asyncio.Task[Any]) -> None:
+        if self._close_task is not task:
+            return
+        if task.cancelled():
+            self._close_task = None
+            return
+        if task.exception() is None:
             self._client = None
-        if client is not None:
-            await client.close()
+        self._close_task = None
 
 
 class CodexSdkSession:
@@ -166,12 +201,15 @@ class CodexSdkSession:
             raise CodexSdkError("Codex SDK runtime is closed")
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Codex turn prompt must be a non-empty string")
-        if self._turn_lock.locked():
-            raise CodexSdkRuntimeBusy("Codex thread already has an active turn")
-
         await self._turn_lock.acquire()
         slot_acquired = False
         try:
+            if self._closed:
+                raise CodexSdkError("Codex SDK session is closed")
+            if self._unusable:
+                raise CodexSdkError("Codex SDK session requires cleanup")
+            if self._runtime.closed:
+                raise CodexSdkError("Codex SDK runtime is closed")
             await self._runtime.acquire_turn_slot()
             slot_acquired = True
             handle = await self._thread.turn(
@@ -278,10 +316,7 @@ class CodexSdkSession:
 
 async def _close_runtime_bounded(runtime: CodexSdkRuntime) -> None:
     try:
-        await asyncio.wait_for(
-            runtime.aclose(),
-            timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS,
-        )
+        await runtime.aclose()
     except Exception:
         pass
 
@@ -310,6 +345,21 @@ def _build_sdk_client() -> Any:
     from openai_codex import AsyncCodex
 
     return AsyncCodex()
+
+
+async def _close_unpublished_client(client: Any) -> None:
+    close_task = asyncio.create_task(client.close())
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(close_task), timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS
+        )
+    except BaseException:
+        close_task.cancel()
+        done, _ = await asyncio.wait(
+            {close_task}, timeout=_RUNTIME_CLOSE_TIMEOUT_SECONDS
+        )
+        if done:
+            await asyncio.gather(close_task, return_exceptions=True)
 
 
 def _validate_sdk_executor_config(config: Mapping[str, Any]) -> None:
@@ -377,4 +427,4 @@ def _positive_int(value: object, *, field_name: str) -> int:
     return result
 
 
-__all__ = ["CodexSdkError", "CodexSdkRuntime", "CodexSdkRuntimeBusy", "CodexSdkSession"]
+__all__ = ["CodexSdkError", "CodexSdkRuntime", "CodexSdkSession"]

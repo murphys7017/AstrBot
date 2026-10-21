@@ -13,7 +13,6 @@ from .codex_cli import CodexExecutorRun, build_codex_executor_run
 from .codex_session import (
     CodexSdkError,
     CodexSdkRuntime,
-    CodexSdkRuntimeBusy,
     CodexSdkSession,
 )
 from .contracts import (
@@ -69,7 +68,6 @@ __all__ = [
     "prepare_external_executor_request",
     "CodexSdkError",
     "CodexSdkRuntime",
-    "CodexSdkRuntimeBusy",
     "CodexSdkSession",
     "ExternalCoreExecutionResult",
     "execute_external_core_turn",

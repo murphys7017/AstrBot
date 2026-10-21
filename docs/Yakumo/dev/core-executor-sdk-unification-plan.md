@@ -8,9 +8,11 @@
 
 - 依赖已固定为 `openai-codex==0.163.0`，`uv.lock` 已包含 SDK 与匹配平台 runtime；隔离项目副本中的 `uv lock --check` 通过。
 - Windows SDK smoke 使用独立 `CODEX_HOME` 启动真实 `AsyncCodex`，成功创建两个不同 thread 并关闭 client；未运行已认证 turn。
-- SDK fake 边界覆盖共享 client、多 thread 隔离、单活动 turn、取消超时和 runtime 失效；Core 全局 selector 已覆盖唯一活动内核、停止旧准入、等待 run/清理 task、超时保留旧内核和 legacy profile 冲突。
+- SDK fake 边界覆盖共享 client、多 thread 隔离、跨 thread turn 串行等待、取消超时、启动取消清理，以及启动锁等待和 runtime 关闭均有界；启动晚于关闭请求时不会发布 client。真实 SDK 的跨 thread 并行仍关闭，须先通过 Windows 并发 smoke。
+- Core 全局 selector 已覆盖唯一活动内核、停止旧准入、等待 run/清理 task、超时保留旧内核和 legacy profile 冲突。
 - 普通 Interaction 与 Cron/主动任务都使用 Core-wide selector lease；Codex progress 只映射 allowlist 阶段，经 Output Controller 的 `core_progress` 路径呈现。
 - 当前窄回归：41 项执行器、selector、registry、桥接和 proactive 测试通过；4 项进度输出边界测试通过；相关 Ruff 检查和 `git diff --check` 通过。
+- 2026-10-22 复核追加：Codex session 5 项并发/关闭边界和 executor adapter 3 项测试通过；使用系统 Python 3.11，并在进程内禁用 Loguru 文件 sink 以避开 Windows IPC 权限限制。项目 Python 3.12 虚拟环境因 `_ssl` DLL 加载失败无法收集 pytest；改动文件在 Python 3.12 下编译通过，Ruff 和 `git diff --check` 通过。
 - 未完成验收：真实账号 turn 与 interrupt、取消中的真实 runtime 子进程回收、管理界面的运行时切换入口、Native 普通 Interaction 共用 coordinator 的完整收口，以及 OLV/Live/Live2D 实机回归。不得据当前 fake/启动 smoke 宣布 SDK 准入或全链路实施完成。
 
 关联文档：
