@@ -224,6 +224,12 @@ class InternalAgentSubStage(Stage):
         execution_head = None
         runner_reset_completed = False
         executor_activated = False
+        core_executor_selector = getattr(
+            self.ctx.plugin_manager.context,
+            "core_executor_selector",
+            None,
+        )
+        core_executor_lease = None
         try:
             runtime_config = get_interaction_turn_runtime_config(event)
             runtime_settings = (
@@ -237,8 +243,21 @@ class InternalAgentSubStage(Stage):
                 runtime_config if isinstance(runtime_config, Mapping) else {},
                 provider_manager=self.ctx.plugin_manager.context.provider_manager,
                 execution_source="interaction",
+                active_executor_id=(
+                    core_executor_selector.active_executor_id
+                    if core_executor_selector is not None
+                    else None
+                ),
             )
             executor_id = selected_executor.executor_id
+            if core_executor_selector is not None:
+                current_task = asyncio.current_task()
+                core_executor_lease = await core_executor_selector.acquire(
+                    executor_id,
+                    stop_preparation=(
+                        current_task.cancel if current_task is not None else None
+                    ),
+                )
             streaming_response = runtime_settings.get(
                 "streaming_response",
                 getattr(self, "streaming_response", self.main_agent_cfg.streaming_response),
@@ -375,6 +394,7 @@ class InternalAgentSubStage(Stage):
                             "streaming": False,
                         },
                         on_started=register_external_input_control,
+                        executor_lease=core_executor_lease,
                     )
                     execution_head = external.head
                     executor_activated = True
@@ -470,6 +490,8 @@ class InternalAgentSubStage(Stage):
                 )
                 native_attachment = native_assembly.attachment
                 native_executor = native_assembly.executor
+                if core_executor_lease is not None:
+                    core_executor_lease.bind_stop(native_executor.request_stop)
 
                 await build_result.reset_prepared_runner()
                 runner_reset_completed = True
@@ -709,6 +731,8 @@ class InternalAgentSubStage(Stage):
                     await event.stop_typing()
                 except Exception:
                     logger.warning("stop_typing failed", exc_info=True)
+            if core_executor_lease is not None:
+                await core_executor_lease.aclose()
 
     async def _save_to_history(
         self,

@@ -2,6 +2,8 @@
 
 > 5.6 的逐批编码指令见 [`internal-executor-replacement-implementation-guide.md`](internal-executor-replacement-implementation-guide.md)。本文件保留架构目标、边界和批次定义；实施时以操作级手册中的文件、接口和退出条件为准。
 
+> 2026-10-22 复核修订：多内核只能有一个 Core-wide active selector；切换时使用 AstrBot 现有记忆/上下文，不要求 backend 间迁移 transcript/thread。提案见 [Core 多执行内核切换与 Codex SDK 常驻实施方案](core-executor-sdk-unification-plan.md)。该提案尚未替代本文件记录的 per-bot selector 现状，也不代表 R8 真实平台验收已通过。
+
 日期：2026-09-23。状态：R1-R7 的最小替换基础已审阅并提交；Codex app-server 已进入普通交互与主动任务的外部执行路径，R8 真实平台验收仍待完成。Native 普通交互仍保留专用生产链路，因此整体执行器生命周期尚未收敛。
 
 逐批编码步骤、修改范围和验证命令见

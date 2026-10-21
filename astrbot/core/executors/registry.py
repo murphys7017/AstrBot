@@ -58,27 +58,54 @@ def resolve_core_executor_selection(
     *,
     provider_manager: Any,
     execution_source: str,
+    active_executor_id: str | None = None,
 ) -> SelectedCoreExecutor:
-    """Resolve the immutable Core Body selection for one frozen bot configuration."""
+    """Resolve Core's active Body and this profile's backend configuration."""
 
     if not isinstance(config_snapshot, Mapping):
         raise ValueError(
             f"{execution_source} requires a mapping runtime configuration snapshot"
         )
-    selection = resolve_core_execution_configuration(config_snapshot)
-    if selection.executor_id == "native":
+    if active_executor_id is None:
+        selection = resolve_core_execution_configuration(config_snapshot)
+        executor_id = selection.executor_id
+        provider_id = selection.provider_id
+    else:
+        executor_id = _normalize_executor_id(active_executor_id)
+        if executor_id not in {"native", "codex_cli"}:
+            raise ValueError(f"unknown Core-wide executor_id: {executor_id}")
+        if executor_id == "native":
+            return SelectedCoreExecutor("native", None, {})
+        core_execution = config_snapshot.get("core_execution")
+        if not isinstance(core_execution, Mapping):
+            raise ValueError("core_execution must be an object")
+        codex_cli = core_execution.get("codex_cli")
+        if not isinstance(codex_cli, Mapping):
+            codex_cli = {}
+        raw_provider_id = codex_cli.get("provider_id")
+        provider_id = (
+            raw_provider_id.strip()
+            if isinstance(raw_provider_id, str) and raw_provider_id.strip()
+            else None
+        )
+
+    if executor_id == "native":
         return SelectedCoreExecutor("native", None, {})
     if provider_manager is None:
         raise RuntimeError("Codex CLI Core execution requires a provider manager")
-    if selection.executor_id != "codex_cli" or selection.provider_id is None:
+    if executor_id != "codex_cli" or provider_id is None:
         raise ValueError(
             f"{execution_source} does not use a supported Core executor: "
-            f"{selection.executor_id}"
+            f"{executor_id}"
         )
-    instance_id = selection.provider_id
+    instance_id = provider_id
     config = provider_manager.get_execution_adapter_config(instance_id, "codex_cli")
     resolve_executor_factory("codex_cli")
     return SelectedCoreExecutor("codex_cli", instance_id, config)
+
+
+def _normalize_executor_id(executor_id: object) -> str:
+    return str(executor_id or "").strip().lower()
 
 
 def _build_native_executor_run(**kwargs: Any) -> ExecutorRun:

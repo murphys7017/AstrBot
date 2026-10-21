@@ -1,115 +1,173 @@
 import asyncio
-import json
+import sys
+from enum import Enum
+from types import SimpleNamespace
 
 import pytest
 
-from astrbot.core.executors.codex_protocol import (
-    CodexProtocolError,
-    decode_message,
-    encode_request,
-    parse_error,
+from astrbot.core.executors.codex_session import (
+    CodexSdkRuntime,
+    CodexSdkRuntimeBusy,
 )
-from astrbot.core.executors.codex_session import CodexSessionManager
 
 
-def test_codex_protocol_round_trip_and_error():
-    message = json.loads(encode_request(7, "thread/start").decode())
-    assert decode_message(json.dumps(message)) == message
-    assert parse_error({"jsonrpc": "2.0", "id": 7, "result": {}}) is None
-    assert decode_message(
-        '{"method":"remoteControl/status/changed","params":{},"emittedAtMs":1}'
-    )["method"] == "remoteControl/status/changed"
-    assert decode_message('{"id":7,"result":{}}')["id"] == 7
-    with pytest.raises(CodexProtocolError):
-        decode_message(b"not-json")
+class _ApprovalMode(Enum):
+    deny_all = "deny_all"
 
 
-@pytest.mark.asyncio
-async def test_codex_session_initializes_thread_and_yields_turn_notifications(monkeypatch):
-    class FakeStdin:
-        def __init__(self, stdout):
-            self.stdout = stdout
+class _Sandbox(Enum):
+    workspace_write = "workspace-write"
+    read_only = "read-only"
 
-        def write(self, payload):
-            request = json.loads(payload)
-            method = request.get("method")
-            if "id" in request:
-                if method == "initialize":
-                    result = {}
-                elif method == "thread/start":
-                    result = {"thread": {"id": "thread-1"}}
-                elif method == "turn/start":
-                    result = {"turn": {"id": "turn-1"}}
-                else:
-                    result = {}
-                self.stdout.feed_data(
-                    (json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}) + "\n").encode()
-                )
-                if method == "turn/start":
-                    self.stdout.feed_data(
-                        b'{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"delta":"ok"}}\n'
-                    )
-                    self.stdout.feed_data(
-                        b'{"jsonrpc":"2.0","method":"turn/completed","params":{}}\n'
-                    )
 
-        async def drain(self):
-            await asyncio.sleep(0)
+def _install_sdk_types(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "openai_codex",
+        SimpleNamespace(ApprovalMode=_ApprovalMode, Sandbox=_Sandbox),
+    )
 
-    class FakeProcess:
-        def __init__(self):
-            self.stdout = asyncio.StreamReader()
-            self.stderr = asyncio.StreamReader()
-            self.stdin = FakeStdin(self.stdout)
-            self.returncode = None
 
-        def terminate(self):
-            self.returncode = 0
-            self.stdout.feed_eof()
-            self.stderr.feed_eof()
+class _FakeHandle:
+    def __init__(self, *, blocked=False, block_interrupt=False):
+        self.blocked = blocked
+        self.block_interrupt = block_interrupt
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.interrupted = asyncio.Event()
 
-        def kill(self):
-            self.returncode = -9
+    async def stream(self):
+        self.started.set()
+        if self.blocked:
+            await self.release.wait()
+        if self.interrupted.is_set():
+            yield SimpleNamespace(method="turn/completed", payload=None)
+            return
+        yield SimpleNamespace(method="turn/started", payload=None)
+        yield SimpleNamespace(method="turn/completed", payload=None)
 
-        async def wait(self):
-            return self.returncode
+    async def interrupt(self):
+        if self.block_interrupt:
+            await asyncio.Future()
+        self.interrupted.set()
+        self.release.set()
 
-    process = FakeProcess()
 
-    async def create_process(*args, **kwargs):
-        assert args[:3] == ("codex", "app-server", "--stdio")
-        return process
+class _FakeThread:
+    def __init__(self, thread_id, handle):
+        self.id = thread_id
+        self.handle = handle
+        self.calls = []
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
-    manager = CodexSessionManager(request_timeout=1)
-    try:
-        assert await manager.start_thread() == "thread-1"
-        events = [event async for event in manager.iter_turn("do it")]
-        assert [event["method"] for event in events] == [
-            "item/agentMessage/delta",
-            "turn/completed",
-        ]
-    finally:
-        await manager.aclose()
+    async def turn(self, prompt, **kwargs):
+        self.calls.append((prompt, kwargs))
+        return self.handle
+
+
+class _FakeClient:
+    def __init__(self, handles):
+        self.handles = iter(handles)
+        self.enter_count = 0
+        self.close_count = 0
+        self.threads = []
+
+    async def __aenter__(self):
+        self.enter_count += 1
+        return self
+
+    async def thread_start(self, **kwargs):
+        thread = _FakeThread(f"thread-{len(self.threads) + 1}", next(self.handles))
+        thread.start_kwargs = kwargs
+        self.threads.append(thread)
+        return thread
+
+    async def close(self):
+        self.close_count += 1
 
 
 @pytest.mark.asyncio
-async def test_codex_session_keeps_only_bounded_stderr_tail():
-    manager = CodexSessionManager(stderr_limit=1024)
+async def test_runtime_reuses_client_and_isolates_threads(monkeypatch, tmp_path):
+    _install_sdk_types(monkeypatch)
+    handles = [_FakeHandle(), _FakeHandle()]
+    client = _FakeClient(handles)
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
 
-    class _Stderr:
-        def __init__(self):
-            self.chunks = [b"a" * 800, b"b" * 600, b""]
+    first = await runtime.create_session(
+        workspace=tmp_path,
+        executor_config={"sandbox": "workspace-write"},
+    )
+    second = await runtime.create_session(
+        workspace=tmp_path,
+        executor_config={"sandbox": "read-only"},
+    )
 
-        async def read(self, _size):
-            return self.chunks.pop(0)
+    assert client.enter_count == 1
+    assert len(client.threads) == 2
+    assert client.threads[0].start_kwargs["approval_mode"] is _ApprovalMode.deny_all
+    assert client.threads[0].start_kwargs["sandbox"] is _Sandbox.workspace_write
+    assert client.threads[1].start_kwargs["sandbox"] is _Sandbox.read_only
 
-    class _Process:
-        stderr = _Stderr()
+    events = [event async for event in first.iter_turn("first request")]
+    assert [event.method for event in events] == ["turn/started", "turn/completed"]
+    assert client.threads[0].calls[0][0] == "first request"
+    assert client.threads[1].calls == []
 
-    manager._process = _Process()
-    await manager._read_stderr()
-    tail, truncated = manager.stderr_diagnostics
-    assert len(tail) == 1024
-    assert tail == b"a" * 424 + b"b" * 600
-    assert truncated is True
+    await first.aclose()
+    await second.aclose()
+    await runtime.aclose()
+    assert client.close_count == 1
+    assert first.unusable is True
+    assert second.unusable is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_overlapping_turns_across_threads(monkeypatch, tmp_path):
+    _install_sdk_types(monkeypatch)
+    first_handle = _FakeHandle(blocked=True)
+    client = _FakeClient([first_handle, _FakeHandle()])
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    first = await runtime.create_session(workspace=tmp_path, executor_config={})
+    second = await runtime.create_session(workspace=tmp_path, executor_config={})
+
+    first_turn = asyncio.create_task(
+        _collect_events(first, "first request")
+    )
+    await asyncio.wait_for(first_handle.started.wait(), timeout=1)
+    with pytest.raises(CodexSdkRuntimeBusy, match="already has an active turn"):
+        await _collect_events(second, "second request")
+
+    first_handle.release.set()
+    await first_turn
+    await first.aclose()
+    await second.aclose()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancel_bounds_interrupt_and_closes_unresponsive_runtime(
+    monkeypatch,
+    tmp_path,
+):
+    import astrbot.core.executors.codex_session as codex_session
+
+    _install_sdk_types(monkeypatch)
+    monkeypatch.setattr(codex_session, "_INTERRUPT_RPC_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(codex_session, "_INTERRUPT_DRAIN_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(codex_session, "_RUNTIME_CLOSE_TIMEOUT_SECONDS", 0.1)
+    handle = _FakeHandle(blocked=True, block_interrupt=True)
+    client = _FakeClient([handle])
+    runtime = CodexSdkRuntime(client_factory=lambda: client)
+    session = await runtime.create_session(workspace=tmp_path, executor_config={})
+    turn = asyncio.create_task(_collect_events(session, "cancel me"))
+    await asyncio.wait_for(handle.started.wait(), timeout=1)
+
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(turn, timeout=1)
+
+    assert client.close_count == 1
+    assert session.unusable is True
+
+
+async def _collect_events(session, prompt):
+    return [event async for event in session.iter_turn(prompt)]

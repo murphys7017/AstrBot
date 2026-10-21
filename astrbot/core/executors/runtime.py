@@ -39,6 +39,7 @@ async def drive_executor_run(
     submission_metadata: dict | None = None,
     output_sink: OutputSink | None = None,
     cleanup_scope: TurnExecutionScope | None = None,
+    executor_lease: object | None = None,
 ) -> ExecutionResult:
     """Drive one Body and settle its Core lifecycle exactly once.
 
@@ -185,6 +186,9 @@ async def drive_executor_run(
             cleanup = asyncio.create_task(
                 close_run(), name=f"executor-cleanup:{body.executor_id}"
             )
+        bind_cleanup = getattr(executor_lease, "bind_cleanup_task", None)
+        if callable(bind_cleanup):
+            bind_cleanup(cleanup)
         try:
             done, pending = await asyncio.wait({cleanup}, timeout=1.0)
         except asyncio.CancelledError:

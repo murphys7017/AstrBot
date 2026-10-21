@@ -52,6 +52,7 @@ async def execute_external_core_turn(
     output_controller: Any,
     submission_metadata: dict[str, Any] | None = None,
     on_started: Callable[[CoreExecutionHead, str], None] | None = None,
+    executor_lease: Any | None = None,
 ) -> ExternalCoreExecutionResult:
     """Prepare, assemble, drive and output one configured external Body."""
 
@@ -104,6 +105,8 @@ async def execute_external_core_turn(
             executor_config=executor_config,
         )
         run = assembly.build_run(request)
+        if executor_lease is not None:
+            executor_lease.bind_stop(run.request_stop)
         if on_started is not None:
             on_started(head, run.executor_id)
         result = await drive_executor_to_personal_output(
@@ -114,6 +117,7 @@ async def execute_external_core_turn(
             run=run,
             deadline=deadline,
             submission_metadata=submission_metadata,
+            executor_lease=executor_lease,
         )
         return ExternalCoreExecutionResult(request=request, result=result, head=head)
     except TurnDeadlineExceeded as exc:

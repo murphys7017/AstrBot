@@ -30,6 +30,8 @@ from astrbot.core.interaction.observation_inbox import (
 )
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.output_modes import (
+    CORE_OUTPUT_DELIVERY_EXTRA_KEY,
+    OUTPUT_ORIGIN_EXTRA_KEY,
     CoreOutputDelivery,
     temporary_core_output_delivery,
 )
@@ -1127,6 +1129,33 @@ async def test_core_progress_output_does_not_finalize_visible_turn():
     assert state.visible_outputs[-1]["kind"] == "core_progress"
     assert state.visible_outputs[-1]["memory_relevant"] is False
     persist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_core_executor_progress_uses_allowlisted_nonfinal_output():
+    class _ProgressEvent:
+        def __init__(self):
+            self.extras = {}
+            self.sent = []
+
+        def get_extra(self, key, default=None):
+            return self.extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self.extras[key] = value
+
+        async def send(self, message):
+            self.sent.append(message)
+
+    event = _ProgressEvent()
+    controller = InteractionOutputController()
+
+    assert await controller.deliver_core_execution_progress("working", event) is True
+    assert await controller.deliver_core_execution_progress("working", event) is False
+    assert await controller.deliver_core_execution_progress("raw command output", event) is False
+    assert [message.get_plain_text() for message in event.sent] == ["正在执行任务。"]
+    assert event.get_extra(OUTPUT_ORIGIN_EXTRA_KEY) is None
+    assert event.get_extra(CORE_OUTPUT_DELIVERY_EXTRA_KEY) is None
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -6,18 +7,12 @@ from astrbot.core.executors.external import ExternalExecutorSessionKey
 from astrbot.core.executors.session_registry import ExternalExecutorSessionRegistry
 
 
-class _Manager:
-    instances = []
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        self.started = False
+class _Session:
+    def __init__(self, workspace, config):
+        self.workspace = workspace
+        self.config = dict(config)
         self.closed = False
         self.unusable = False
-        self.__class__.instances.append(self)
-
-    async def start(self):
-        self.started = True
 
     async def aclose(self):
         self.closed = True
@@ -26,41 +21,57 @@ class _Manager:
         self.unusable = True
 
 
-@pytest.mark.asyncio
-async def test_registry_reuses_key_and_closes_sessions(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "astrbot.core.executors.session_registry.CodexSessionManager", _Manager
-    )
-    root = tmp_path / "root"
-    root.mkdir()
-    key = ExternalExecutorSessionKey(
+class _Runtime:
+    def __init__(self):
+        self.sessions = []
+
+    async def create_session(self, *, workspace, executor_config):
+        session = _Session(workspace, executor_config)
+        self.sessions.append(session)
+        return session
+
+
+def _key(root, session_id="session-a", instance_id="codex-main"):
+    return ExternalExecutorSessionKey(
         executor_id="codex_cli",
-        executor_instance_id="codex-main",
+        executor_instance_id=instance_id,
         runtime_config_id="bot-a",
-        session_id="session-a",
+        session_id=session_id,
         workspace_root=root,
         workspace=root,
     )
-    registry = ExternalExecutorSessionRegistry()
-    first = await registry.get_or_create(key=key, executor_config={})
-    second = await registry.get_or_create(key=key, executor_config={})
+
+
+@pytest.mark.asyncio
+async def test_registry_reuses_key_and_closes_sessions(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    runtime = _Runtime()
+    registry = ExternalExecutorSessionRegistry(runtime=runtime)
+
+    first = await registry.get_or_create(key=_key(root), executor_config={})
+    second = await registry.get_or_create(key=_key(root), executor_config={})
+
     assert first is second
-    assert len(_Manager.instances) == 1
+    assert len(runtime.sessions) == 1
     await registry.aclose()
     assert first.closed is True
 
 
 @pytest.mark.asyncio
-async def test_registry_replaces_session_when_configuration_changes(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "astrbot.core.executors.session_registry.CodexSessionManager", _Manager
-    )
+async def test_registry_replaces_session_when_configuration_changes(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
-    key = ExternalExecutorSessionKey("codex_cli", "codex-main", "bot-a", "session-a", root, root)
-    registry = ExternalExecutorSessionRegistry()
-    first = await registry.get_or_create(key=key, executor_config={"model": "a"})
-    second = await registry.get_or_create(key=key, executor_config={"model": "b"})
+    runtime = _Runtime()
+    registry = ExternalExecutorSessionRegistry(runtime=runtime)
+
+    first = await registry.get_or_create(
+        key=_key(root), executor_config={"sandbox": "workspace-write"}
+    )
+    second = await registry.get_or_create(
+        key=_key(root), executor_config={"sandbox": "read-only"}
+    )
+
     assert first is not second
     assert first.closed is True
     assert second.closed is False
@@ -68,35 +79,28 @@ async def test_registry_replaces_session_when_configuration_changes(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_registry_isolates_different_codex_instances(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "astrbot.core.executors.session_registry.CodexSessionManager", _Manager
-    )
+async def test_registry_isolates_different_codex_instances(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
-    registry = ExternalExecutorSessionRegistry()
+    runtime = _Runtime()
+    registry = ExternalExecutorSessionRegistry(runtime=runtime)
+
     first = await registry.get_or_create(
-        key=ExternalExecutorSessionKey(
-            "codex_cli", "codex-a", "bot", "session", root, root
-        ),
-        executor_config={},
+        key=_key(root, instance_id="codex-a"), executor_config={}
     )
     second = await registry.get_or_create(
-        key=ExternalExecutorSessionKey(
-            "codex_cli", "codex-b", "bot", "session", root, root
-        ),
-        executor_config={},
+        key=_key(root, instance_id="codex-b"), executor_config={}
     )
+
     assert first is not second
     await registry.aclose()
 
 
 @pytest.mark.asyncio
-async def test_registry_rejects_command_arguments(tmp_path):
-    root = tmp_path / "root"
-    root.mkdir()
-    key = ExternalExecutorSessionKey("codex_cli", "codex-main", "bot", "session", root, root)
-    with pytest.raises(ValueError, match="must not contain command arguments"):
+async def test_registry_rejects_custom_executable():
+    root = Path.cwd()
+    key = _key(root)
+    with pytest.raises(ValueError, match="pinned bundled runtime"):
         await ExternalExecutorSessionRegistry().get_or_create(
             key=key,
             executor_config={"executable": "codex --unsafe"},
@@ -104,76 +108,69 @@ async def test_registry_rejects_command_arguments(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_registry_starts_different_keys_without_serializing_io(monkeypatch, tmp_path):
-    start_count = 0
+async def test_registry_starts_different_keys_without_serializing_creation(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
     all_started = asyncio.Event()
     release = asyncio.Event()
 
-    class _SlowManager(_Manager):
-        async def start(self):
-            nonlocal start_count
-            start_count += 1
-            if start_count == 2:
+    class _ConcurrentRuntime(_Runtime):
+        async def create_session(self, *, workspace, executor_config):
+            session = _Session(workspace, executor_config)
+            self.sessions.append(session)
+            if len(self.sessions) == 2:
                 all_started.set()
             await release.wait()
-            self.started = True
+            return session
 
-    monkeypatch.setattr(
-        "astrbot.core.executors.session_registry.CodexSessionManager", _SlowManager
+    runtime = _ConcurrentRuntime()
+    registry = ExternalExecutorSessionRegistry(runtime=runtime)
+    first = asyncio.create_task(
+        registry.get_or_create(key=_key(root, "a"), executor_config={})
     )
-    root = tmp_path / "root"
-    root.mkdir()
-    registry = ExternalExecutorSessionRegistry()
-    key_a = ExternalExecutorSessionKey("codex_cli", "codex-main", "bot", "a", root, root)
-    key_b = ExternalExecutorSessionKey("codex_cli", "codex-main", "bot", "b", root, root)
-    task_a = asyncio.create_task(
-        registry.get_or_create(key=key_a, executor_config={})
+    second = asyncio.create_task(
+        registry.get_or_create(key=_key(root, "b"), executor_config={})
     )
-    task_b = asyncio.create_task(
-        registry.get_or_create(key=key_b, executor_config={})
-    )
+
     await asyncio.wait_for(all_started.wait(), timeout=1)
     release.set()
-    await asyncio.gather(task_a, task_b)
+    await asyncio.gather(first, second)
     await registry.aclose()
 
 
 @pytest.mark.asyncio
-async def test_registry_serializes_configuration_replacement(monkeypatch, tmp_path):
+async def test_registry_serializes_configuration_replacement(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
     first_started = asyncio.Event()
     release_first = asyncio.Event()
 
-    class _VersionedManager(_Manager):
-        async def start(self):
-            if self.kwargs["request_timeout"] == 5.0:
+    class _VersionedRuntime(_Runtime):
+        async def create_session(self, *, workspace, executor_config):
+            session = _Session(workspace, executor_config)
+            self.sessions.append(session)
+            if executor_config.get("sandbox") == "workspace-write":
                 first_started.set()
                 await release_first.wait()
-            self.started = True
+            return session
 
-    monkeypatch.setattr(
-        "astrbot.core.executors.session_registry.CodexSessionManager",
-        _VersionedManager,
-    )
-    root = tmp_path / "root"
-    root.mkdir()
-    key = ExternalExecutorSessionKey("codex_cli", "codex-main", "bot", "session", root, root)
-    registry = ExternalExecutorSessionRegistry()
+    runtime = _VersionedRuntime()
+    registry = ExternalExecutorSessionRegistry(runtime=runtime)
     first = asyncio.create_task(
         registry.get_or_create(
-            key=key,
-            executor_config={"request_timeout": 5.0},
+            key=_key(root), executor_config={"sandbox": "workspace-write"}
         )
     )
     await first_started.wait()
     second = asyncio.create_task(
         registry.get_or_create(
-            key=key,
-            executor_config={"request_timeout": 10.0},
+            key=_key(root), executor_config={"sandbox": "read-only"}
         )
     )
     release_first.set()
-    first_manager, second_manager = await asyncio.gather(first, second)
-    assert first_manager is not second_manager
-    assert first_manager.closed is True
-    assert second_manager.closed is False
+    first_session, second_session = await asyncio.gather(first, second)
+
+    assert first_session is not second_session
+    assert first_session.closed is True
+    assert second_session.closed is False
     await registry.aclose()

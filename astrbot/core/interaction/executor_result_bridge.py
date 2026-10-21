@@ -10,6 +10,7 @@ from astrbot.core.execution import CoreExecutionEventKind, CoreExecutionHead
 from astrbot.core.executors.contracts import (
     ExecutionFinalUpdate,
     ExecutionOutputUpdate,
+    ExecutionProgressUpdate,
     ExecutionResult,
     ExecutionUpdate,
 )
@@ -18,6 +19,8 @@ from astrbot.core.message.message_event_result import MessageChain
 
 from .output_controller import InteractionOutputController
 from .turn_state import get_interaction_turn_state
+
+_VISIBLE_PROGRESS_STAGES = frozenset({"accepted", "working"})
 
 
 @dataclass(slots=True)
@@ -33,6 +36,7 @@ class ExecutionResultOutputBridge:
     output_controller: InteractionOutputController
     head: CoreExecutionHead
     _final_delivery_started: bool = field(default=False, init=False)
+    _last_progress_stage: str | None = field(default=None, init=False)
 
     async def accept(self, update: ExecutionUpdate) -> None:
         """Handle result-bearing updates while the execution is still current."""
@@ -47,6 +51,25 @@ class ExecutionResultOutputBridge:
             # Incremental generic output cannot safely reproduce the existing
             # streaming/TTS protocol yet. It remains non-visible until that
             # protocol is migrated explicitly.
+            return
+        if isinstance(update, ExecutionProgressUpdate):
+            stage = str(update.summary or "").strip().lower()
+            if stage not in _VISIBLE_PROGRESS_STAGES or stage == self._last_progress_stage:
+                return
+            self._last_progress_stage = stage
+            try:
+                await self.output_controller.deliver_core_execution_progress(
+                    stage,
+                    self.event,
+                )
+            except Exception:
+                logger.warning(
+                    "Core executor progress delivery failed; continuing run: "
+                    "execution_id=%s stage=%s",
+                    self.head.spec.execution_id,
+                    stage,
+                    exc_info=True,
+                )
             return
         if isinstance(update, ExecutionFinalUpdate):
             await self.deliver_final(update.result)
@@ -92,6 +115,7 @@ async def drive_executor_to_personal_output(
     run,
     deadline: TurnDeadlineBudget | None = None,
     submission_metadata: dict | None = None,
+    executor_lease: object | None = None,
 ):
     """Drive any Executor Body and route its final material through Personal.
 
@@ -104,6 +128,11 @@ async def drive_executor_to_personal_output(
         output_controller=output_controller,
         head=head,
     )
+    state = (
+        get_interaction_turn_state(event)
+        if callable(getattr(event, "get_extra", None))
+        else None
+    )
     return await drive_executor_run(
         head=head,
         body=body,
@@ -111,11 +140,8 @@ async def drive_executor_to_personal_output(
         deadline=deadline,
         submission_metadata=submission_metadata,
         output_sink=bridge.accept,
-        cleanup_scope=(
-            state.execution_scope
-            if (state := get_interaction_turn_state(event)) is not None
-            else None
-        ),
+        executor_lease=executor_lease,
+        cleanup_scope=state.execution_scope if state is not None else None,
     )
 
 

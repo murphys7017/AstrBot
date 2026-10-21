@@ -8,6 +8,8 @@ Executor Body 进入普通 Interaction 与主动任务路径。Native 仍保留�
 
 > 下文保留原始实施计划与验收条目。凡表述“尚未接入第二 Body”或“待开始”的内容，均是
 > 2026-09-23 的历史计划，不是当前代码状态。
+>
+> 2026-10-22 方案复核：当前实现仍由 Core 自行维护 app-server JSON-RPC。多内核切换与 Codex SDK 常驻的修订提案见 [Core 多执行内核切换与 Codex SDK 常驻实施方案](core-executor-sdk-unification-plan.md)。该提案要求单一 Core-wide selector；backend 间沿用 AstrBot context/memory，不要求 transcript/thread 迁移；SDK 方案仍须通过公开 API 和 Windows 生命周期准入。
 
 ## 1. 目标
 

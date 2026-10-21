@@ -32,6 +32,7 @@ dependencies = [
   "lark-oapi>=1.4.15",
   "mcp>=1.8.0",
   "openai>=1.78.0",
+  "openai-codex==0.163.0",
   "ormsgpack>=1.9.1",
   "pillow>=11.2.1",
   "pip>=25.1.1",

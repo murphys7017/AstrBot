@@ -642,13 +642,22 @@ class ProviderManager:
 
     def _assert_codex_cli_not_referenced(self, provider_id: str) -> None:
         references: list[str] = []
+        core_executor = self.acm.default_conf.get("core_executor", {})
+        global_executor_id = (
+            str(core_executor.get("active_executor_id") or "").strip().lower()
+            if isinstance(core_executor, Mapping)
+            else ""
+        )
         for config_id, config in self.acm.confs.items():
             core_execution = config.get("core_execution", {})
             if not isinstance(core_execution, Mapping):
                 continue
             codex_cli = core_execution.get("codex_cli", {})
             if (
-                core_execution.get("executor_id") == "codex_cli"
+                (
+                    global_executor_id == "codex_cli"
+                    or core_execution.get("executor_id") == "codex_cli"
+                )
                 and isinstance(codex_cli, Mapping)
                 and codex_cli.get("provider_id") == provider_id
             ):
@@ -944,10 +953,6 @@ class ProviderManager:
     ) -> None:
         """Delete provider and/or provider source from config and terminate the instances. Config will be saved after deletion."""
         async with self.resource_lock:
-            if provider_id:
-                existing = self.get_provider_config_by_id(provider_id, merged=False)
-                if existing and existing.get("type") == "codex_cli":
-                    self._assert_codex_cli_not_referenced(provider_id)
             # delete from config
             target_prov_ids = []
             if provider_id:
@@ -956,6 +961,13 @@ class ProviderManager:
                 for prov in self.providers_config:
                     if prov.get("provider_source_id") == provider_source_id:
                         target_prov_ids.append(prov.get("id"))
+            for target_provider_id in target_prov_ids:
+                existing = self.get_provider_config_by_id(
+                    target_provider_id,
+                    merged=False,
+                )
+                if existing and existing.get("type") == "codex_cli":
+                    self._assert_codex_cli_not_referenced(target_provider_id)
             config = self.acm.default_conf
             for tpid in target_prov_ids:
                 await self.terminate_provider(tpid)
@@ -979,6 +991,7 @@ class ProviderManager:
                 and (
                     npid != origin_provider_id
                     or new_config.get("enable") is not True
+                    or new_config.get("type") != "codex_cli"
                 )
             ):
                 self._assert_codex_cli_not_referenced(origin_provider_id)

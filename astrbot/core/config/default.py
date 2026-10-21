@@ -226,6 +226,9 @@ DEFAULT_CONFIG = {
             "provider_id": "",
         },
     },
+    "core_executor": {
+        "active_executor_id": "",
+    },
     # SubAgent orchestrator mode:
     # - main_enable = False: disabled; main LLM mounts tools normally (persona selection).
     # - main_enable = True: enabled; main LLM keeps its own tools and includes handoff
@@ -3094,6 +3097,14 @@ CONFIG_METADATA_2 = {
                     },
                 },
             },
+            "core_executor": {
+                "type": "object",
+                "items": {
+                    "active_executor_id": {
+                        "type": "string",
+                    },
+                },
+            },
             "provider_stt_settings": {
                 "type": "object",
                 "items": {
@@ -3324,28 +3335,31 @@ CONFIG_METADATA_3 = {
                 },
             },
             "core_execution": {
-                "description": "Core 内部执行体",
-                "hint": "仅决定 Personal 委派后的 Core 执行体。它不替代普通对话的 Agent Runner。",
+                "description": "Codex SDK Provider",
+                "hint": "Codex 内核运行配置。活动内核由 Core 全局执行器设置决定。",
                 "type": "object",
                 "items": {
-                    "core_execution.executor_id": {
-                        "description": "执行体",
+                    "core_execution.codex_cli.provider_id": {
+                        "description": "Codex CLI 执行体提供商 ID",
                         "type": "string",
-                        "options": ["native", "codex_cli"],
-                        "labels": ["AstrBot 内置 Core", "Codex CLI"],
+                        "_special": "select_agent_runner_provider:codex_cli",
+                        "hint": "Codex 活动内核使用的 Provider。可在切换到 Codex 前预先配置。",
                         "condition": {
                             "provider_settings.enable": True,
                         },
                     },
-                    "core_execution.codex_cli.provider_id": {
-                        "description": "Codex CLI 执行体提供商 ID",
+                },
+            },
+            "core_executor": {
+                "description": "Core 全局执行器",
+                "hint": "只读取默认全局配置，对所有 bot 和配置实例生效。修改该值需重启 Core；运行时切换会先关闭旧内核准入并排空旧 run。",
+                "type": "object",
+                "items": {
+                    "core_executor.active_executor_id": {
+                        "description": "当前活动内核",
                         "type": "string",
-                        "_special": "select_agent_runner_provider",
-                        "provider_subtype_selector": "core_execution.executor_id",
-                        "condition": {
-                            "core_execution.executor_id": "codex_cli",
-                            "provider_settings.enable": True,
-                        },
+                        "options": ["native", "codex_cli"],
+                        "labels": ["AstrBot 内置 Core", "Codex SDK"],
                     },
                 },
             },

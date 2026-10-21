@@ -208,12 +208,19 @@ async def run_proactive_agent_turn(
     runtime_config = turn_state.runtime_config_snapshot
     if runtime_config is None:
         raise RuntimeError("proactive configuration selection did not create a snapshot")
+    core_executor_selector = getattr(context, "core_executor_selector", None)
     selected_executor = resolve_core_executor_selection(
         runtime_config,
         provider_manager=getattr(context, "provider_manager", None),
         execution_source="proactive",
+        active_executor_id=(
+            core_executor_selector.active_executor_id
+            if core_executor_selector is not None
+            else None
+        ),
     )
     executor_id = selected_executor.executor_id
+    core_executor_lease = None
     deadline = _ensure_proactive_execution_deadline(event, runtime_config)
     event.plugins_name = resolve_event_plugins_name(runtime_config)
     request = ProviderRequest()
@@ -252,6 +259,7 @@ async def run_proactive_agent_turn(
                         prompt=prompt,
                         deadline=deadline,
                         executor_id=executor_id,
+                        executor_lease=core_executor_lease,
                     )
                 )
             except BaseException:
@@ -336,6 +344,8 @@ async def run_proactive_agent_turn(
             core_port=execution_head,
         )
         native_executor = native_assembly.executor
+        if core_executor_lease is not None:
+            core_executor_lease.bind_stop(native_executor.request_stop)
         await result.reset_prepared_runner()
         runner_reset_completed = True
         provider_settings = config.provider_settings
@@ -359,6 +369,7 @@ async def run_proactive_agent_turn(
             run=executor_run,
             deadline=deadline,
             cleanup_scope=get_interaction_turn_state(event).execution_scope,
+            executor_lease=core_executor_lease,
             submission_metadata={
                 "source": "cron" if extras.get("cron_job") else "background",
                 "executor_id": executor_id,
@@ -382,6 +393,14 @@ async def run_proactive_agent_turn(
         )
 
     try:
+        if core_executor_selector is not None:
+            current_task = asyncio.current_task()
+            core_executor_lease = await core_executor_selector.acquire(
+                executor_id,
+                stop_preparation=(
+                    current_task.cancel if current_task is not None else None
+                ),
+            )
         async with deadline.enforce("proactive_core_execution"):
             return await execute()
     except TurnDeadlineExceeded as exc:
@@ -492,6 +511,10 @@ async def run_proactive_agent_turn(
                         await ledger.append(record)
         except Exception:
             logger.exception("Proactive execution ledger persistence failed")
+        if core_executor_lease is not None:
+            await core_executor_lease.aclose()
+
+
 async def _execute_external_proactive_turn(
     *,
     context: Any,
@@ -502,6 +525,7 @@ async def _execute_external_proactive_turn(
     prompt: str,
     deadline: TurnDeadlineBudget,
     executor_id: str,
+    executor_lease: Any | None = None,
 ):
     """Run a configured external Body without constructing a Native agent."""
 
@@ -526,6 +550,7 @@ async def _execute_external_proactive_turn(
             "executor_id": executor_id,
             "streaming": False,
         },
+        executor_lease=executor_lease,
     )
     output = execution.result.output
     return (

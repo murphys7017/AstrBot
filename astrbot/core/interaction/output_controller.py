@@ -82,6 +82,7 @@ from .output_modes import (
     CoreOutputDelivery,
     OutputOrigin,
     PluginOutputMode,
+    temporary_core_output_delivery,
     temporary_output_origin,
 )
 from .personal_expression_guard import fingerprint_personal_expression
@@ -159,6 +160,12 @@ from .types import (
     PersonalResponseAction,
 )
 from .visible_message_fingerprint import fingerprint_visible_message
+
+_CORE_EXECUTION_PROGRESS_LABELS = {
+    "accepted": "任务已接收，开始执行。",
+    "working": "正在执行任务。",
+}
+_CORE_EXECUTION_PROGRESS_STAGE_EXTRA_KEY = "_core_execution_progress_stage"
 
 PLUGIN_OUTPUT_TRANSACTION_ACTIVE_EXTRA_KEY = (
     "_interaction_plugin_output_transaction_active"
@@ -3610,6 +3617,29 @@ class InteractionOutputController:
         """
 
         await self._deliver_core_reply(message, event)
+
+    async def deliver_core_execution_progress(
+        self,
+        stage: str,
+        event: AstrMessageEvent,
+    ) -> bool:
+        """Send one allowlisted, non-final Core execution progress stage."""
+
+        normalized_stage = str(stage or "").strip().lower()
+        text = _CORE_EXECUTION_PROGRESS_LABELS.get(normalized_stage)
+        if not text:
+            return False
+        if event.get_extra(_CORE_EXECUTION_PROGRESS_STAGE_EXTRA_KEY) == normalized_stage:
+            return False
+
+        event.set_extra(_CORE_EXECUTION_PROGRESS_STAGE_EXTRA_KEY, normalized_stage)
+        with temporary_output_origin(event, OutputOrigin.CORE.value):
+            with temporary_core_output_delivery(
+                event,
+                CoreOutputDelivery.PROGRESS.value,
+            ):
+                await event.send(MessageChain().message(text))
+        return True
 
     async def _deliver_core_reply(
         self,

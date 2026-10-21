@@ -25,6 +25,8 @@ from astrbot.core.conversation_mgr import ConversationManager
 from astrbot.core.cron import CronJobManager
 from astrbot.core.db import BaseDatabase
 from astrbot.core.execution_ledger import CoreExecutionLedger
+from astrbot.core.executors.codex_session import CodexSdkRuntime
+from astrbot.core.executors.selector import build_core_executor_selector
 from astrbot.core.executors.session_registry import ExternalExecutorSessionRegistry
 from astrbot.core.interaction import (
     InteractionMiddleware,
@@ -97,7 +99,11 @@ class AstrBotCoreLifecycle:
             self.personal_runtime_wake_scheduler
         )
         self.core_execution_ledger = CoreExecutionLedger(db)
-        self.external_executor_sessions = ExternalExecutorSessionRegistry()
+        self.core_executor_selector = None
+        self.codex_sdk_runtime = CodexSdkRuntime()
+        self.external_executor_sessions = ExternalExecutorSessionRegistry(
+            runtime=self.codex_sdk_runtime
+        )
         self.pre_output_processor = PreOutputProcessor()
         self.turn_delivery_coordinator = TurnDeliveryCoordinator()
         self._default_chat_provider_warning_emitted = False
@@ -301,6 +307,9 @@ class AstrBotCoreLifecycle:
             ucr=self.umop_config_router,
             sp=sp,
         )
+        self.core_executor_selector = build_core_executor_selector(
+            self.astrbot_config_mgr
+        )
         self.temp_dir_cleaner = TempDirCleaner(
             max_size_getter=lambda: self.astrbot_config_mgr.default_conf.get(
                 TempDirCleaner.CONFIG_KEY,
@@ -383,6 +392,7 @@ class AstrBotCoreLifecycle:
             self.subagent_orchestrator,
             self.core_execution_ledger,
         )
+        self.star_context.core_executor_selector = self.core_executor_selector
         self.star_context.external_executor_sessions = self.external_executor_sessions
         self.star_context.interaction_output_controller = (
             self.interaction_output_controller
@@ -666,6 +676,7 @@ class AstrBotCoreLifecycle:
                 "external_executor_sessions",
                 self.external_executor_sessions.aclose,
             )
+            await shutdown_step("codex_sdk_runtime", self.codex_sdk_runtime.aclose)
             await shutdown_step(
                 "postprocess_manager",
                 get_postprocess_manager().shutdown,

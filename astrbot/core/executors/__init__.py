@@ -10,7 +10,12 @@ from .assembly import (
     build_codex_executor_assembly,
 )
 from .codex_cli import CodexExecutorRun, build_codex_executor_run
-from .codex_session import CodexSessionError, CodexSessionManager
+from .codex_session import (
+    CodexSdkError,
+    CodexSdkRuntime,
+    CodexSdkRuntimeBusy,
+    CodexSdkSession,
+)
 from .contracts import (
     ExecutionFinalUpdate,
     ExecutionOutputMaterial,
@@ -34,6 +39,14 @@ from .registry import (
     resolve_executor_factory,
 )
 from .runtime import drive_executor_run
+from .selector import (
+    CoreExecutorDrainTimeout,
+    CoreExecutorLease,
+    CoreExecutorSelector,
+    CoreExecutorSelectorError,
+    CoreExecutorSwitchInProgress,
+    build_core_executor_selector,
+)
 from .session_registry import ExternalExecutorSessionRegistry
 
 __all__ = [
@@ -54,8 +67,10 @@ __all__ = [
     "resolve_core_executor_selection",
     "resolve_executor_factory",
     "prepare_external_executor_request",
-    "CodexSessionError",
-    "CodexSessionManager",
+    "CodexSdkError",
+    "CodexSdkRuntime",
+    "CodexSdkRuntimeBusy",
+    "CodexSdkSession",
     "ExternalCoreExecutionResult",
     "execute_external_core_turn",
     "CodexExecutorRun",
@@ -63,4 +78,10 @@ __all__ = [
     "CodexExecutorAssembly",
     "build_codex_executor_assembly",
     "NativeExecutorAssembly",
+    "CoreExecutorDrainTimeout",
+    "CoreExecutorLease",
+    "CoreExecutorSelector",
+    "CoreExecutorSelectorError",
+    "CoreExecutorSwitchInProgress",
+    "build_core_executor_selector",
 ]
