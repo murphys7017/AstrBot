@@ -1976,3 +1976,61 @@ Validation:
   older hashed assets were retained.
 - No backend restart or live browser acceptance was performed, so visual
   behavior on running pages remains pending.
+
+## 2026-10-22 Selected Runtime Reliability Updates
+
+Reviewed official release `v4.29.1` (2026-10-17) and local upstream snapshot
+`upstream/master` at `9fa49087b` (2026-10-09), plus PRs `#10563`, `#10581`,
+`#10588`, and `#10591`. The local package remains `4.29.0-beta.1`; no version
+bump is made for this partial, behavior-selected intake.
+
+Local implementation commits: `3ba9f340c`, `7b1989d35`, `41ee07a5f`, and
+`c9178ecda`.
+
+Absorbed by local rewrite:
+
+- `#10581`: unique-session normalization now runs after configuration selection
+  but before EventBus schedules the Pipeline. The original UMO still selects
+  the configuration, while active-event registration, cancellation, and later
+  reset operations all see the normalized session from the start.
+- `#10588`: Edge TTS no longer mutates the SDK's shared `WSS_HEADERS` at module
+  import, preserving the library's native User-Agent for unrelated SDK users.
+- `#10563`: Discord messages explicitly flagged by the platform as mentioning
+  everyone now carry the common `AtAll` component, so Core's existing
+  `ignore_at_all` policy handles them consistently. The original message text
+  and ordinary messages remain unchanged.
+- `#10591` (open upstream PR): local and plugin Skills scans now log and skip an
+  unreadable root or individual directory instead of aborting the whole
+  inventory request. The local adaptation also guards plugin traversal and
+  per-entry metadata checks called out during upstream review.
+
+Deferred:
+
+- `#10584` (merged 2026-10-17): the batch combines cross-platform Local
+  defaults, a one-time migration of legacy Windows member file access, stable
+  Windows file handles/reparse-point protection, isolation-failure behavior,
+  and permission UI changes. AG99's Windows member `none` / admin `host` default
+  reflects the user's explicit role-policy choice and must not be migrated or
+  replaced. The Windows handle-safety subset remains valuable, but needs a
+  separate review against AG99's custom role scopes before adaptation.
+- `#10557`: not selected in this batch. The local sender already routes
+  outgoing Markdown through `telegramify_markdown`, while incoming Telegram
+  entities currently normalize mentions only. Review the upstream diff and pin
+  the affected direction/serialization with a boundary test before adapting it.
+
+Validation:
+
+- Eight focused tests passed, covering EventBus normalization before scheduling,
+  unreadable local/plugin Skill directories, and Edge TTS header preservation.
+- Two additional Discord conversion cases passed for `mention_everyone` true
+  and false.
+- Scoped Ruff checks, Python compilation, and `git diff --check` passed. Full
+  `ruff format --check` is not clean on several legacy files with mixed line
+  endings; only the new session helper and Discord test were formatted to avoid
+  unrelated churn.
+- The full EventBus module still contains tests using the older
+  `get_conf_info()` dispatch mock contract; those cases fail before reaching
+  the changed normalization path. The new EventBus boundary test passes.
+- The Python 3.12 virtual environment cannot import `_ssl` on this host, so the
+  focused pytest run used the available Python 3.11 environment with queued
+  Loguru sinks disabled. No running service was restarted.
