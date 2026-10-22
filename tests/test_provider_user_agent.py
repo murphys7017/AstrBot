@@ -166,9 +166,25 @@ async def test_aiohttp_provider_sends_user_agent(
 
 
 @pytest.mark.asyncio
-async def test_edge_tts_synthesis_uses_astrbot_user_agent(monkeypatch, unused_tcp_port):
+async def test_edge_tts_synthesis_preserves_library_user_agent(
+    monkeypatch,
+    unused_tcp_port,
+):
     edge_tts = pytest.importorskip("edge_tts")
-    from astrbot.core.provider.sources import edge_tts_source  # noqa: F401
+    from edge_tts import constants as edge_tts_constants
+
+    expected_user_agent = "edge-tts-native-test-agent"
+    monkeypatch.setitem(
+        edge_tts_constants.WSS_HEADERS,
+        "User-Agent",
+        expected_user_agent,
+    )
+    from astrbot.core.provider.sources import edge_tts_source
+
+    assert edge_tts_source.edge_tts.constants.WSS_HEADERS["User-Agent"] == (
+        expected_user_agent
+    )
+    assert edge_tts_constants.WSS_HEADERS["User-Agent"] == expected_user_agent
 
     requests = []
 
@@ -193,6 +209,6 @@ async def test_edge_tts_synthesis_uses_astrbot_user_agent(monkeypatch, unused_tc
         with pytest.raises(edge_tts.exceptions.NoAudioReceived):
             async for _ in edge_tts.Communicate("hello", "en-US-AriaNeural").stream():
                 pass
-        assert requests[0].getall("User-Agent") == [DEFAULT_USER_AGENT]
+        assert requests[0].getall("User-Agent") == [expected_user_agent]
     finally:
         await runner.cleanup()
