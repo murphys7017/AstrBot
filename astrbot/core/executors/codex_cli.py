@@ -21,8 +21,6 @@ from .contracts import (
 class _CodexSession(Protocol):
     async def iter_turn(self, prompt: str) -> AsyncIterator[Any]: ...
 
-    async def interrupt(self, turn_id: str | None = None) -> None: ...
-
 
 class CodexExecutorRun:
     """Translate one SDK turn into the executor-neutral run contract."""
@@ -39,7 +37,6 @@ class CodexExecutorRun:
         self._prompt = prompt
         self._stop_requested = False
         self._turn_task: asyncio.Task[None] | None = None
-        self._interrupt_task: asyncio.Task[None] | None = None
         self._closed = False
         self._turn_terminal_seen = False
 
@@ -47,10 +44,14 @@ class CodexExecutorRun:
         if self._turn_terminal_seen:
             return
         self._stop_requested = True
-        if self._interrupt_task is None or self._interrupt_task.done():
-            self._interrupt_task = asyncio.create_task(self._session.interrupt())
         task = self._turn_task
-        if task is not None and not task.done() and task is not asyncio.current_task():
+        if task is None or task.done():
+            return
+        if task is asyncio.current_task():
+            stop_owned_turn = getattr(self._session, "request_stop_for_task", None)
+            if callable(stop_owned_turn):
+                stop_owned_turn(task)
+        else:
             task.cancel()
 
     def request_follow_up(self, message_text: str) -> None:
@@ -73,21 +74,6 @@ class CodexExecutorRun:
             self.request_stop()
             done, pending = await asyncio.wait({task}, timeout=10.0)
             if pending:
-                self.invalidate()
-        interrupt_task = self._interrupt_task
-        if interrupt_task is not None:
-            try:
-                if not interrupt_task.done():
-                    _, pending = await asyncio.wait({interrupt_task}, timeout=9.0)
-                    if pending:
-                        raise TimeoutError("Codex SDK interrupt did not settle")
-                await interrupt_task
-            except asyncio.CancelledError:
-                interrupt_task.cancel()
-                self.invalidate()
-                raise
-            except Exception:
-                interrupt_task.cancel()
                 self.invalidate()
 
     async def stream(self) -> AsyncIterator[ExecutionUpdate]:
@@ -135,7 +121,9 @@ class CodexExecutorRun:
                             continue
 
                         turn_items = list(getattr(turn, "items", ()) or ())
-                        final_text = _extract_final_text([*completed_items, *turn_items])
+                        final_text = _extract_final_text(
+                            [*completed_items, *turn_items]
+                        )
                         if not final_text:
                             terminal_error = RuntimeError(
                                 "Codex turn completed without a final assistant answer"

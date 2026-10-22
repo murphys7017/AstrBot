@@ -15,6 +15,7 @@
 - 2026-10-22 复核追加：Codex session 5 项并发/关闭边界和 executor adapter 3 项测试通过；使用系统 Python 3.11，并在进程内禁用 Loguru 文件 sink 以避开 Windows IPC 权限限制。项目 Python 3.12 虚拟环境因 `_ssl` DLL 加载失败无法收集 pytest；改动文件在 Python 3.12 下编译通过，Ruff 和 `git diff --check` 通过。
 - 2026-10-22 profile routing update：13 项 selector/registry 测试与 6 项配置加载/metadata 测试通过；本机配置路由 smoke 确认默认 Native、一个旧 profile Codex、另一个旧 profile Native。新增 Dashboard 配置边界 5 项、配置管理器 3 项和 Provider 引用保护 6 项测试通过；Ruff、Python 编译、locale/config JSON 解析、`git diff --check` 和 Dashboard `vue-tsc --noEmit` 通过。审阅修正了重载默认 profile 时反复将 Native 改成继承的问题：包括默认 profile 在内的已有明确选择均保留，只有新配置和缺失值默认继承。
 - 提交前扩大配置/Provider 回归：83 项通过，2 项失败，分别涉及交互中间件翻译缺项及 Memory storage 默认值缺项；已比较 HEAD 与工作区对应配置 AST/翻译子树，确认这些失败边界未由本次修改改变。本轮不扩展修复范围。
+- 整体审阅后修复六项执行器缺陷：主动任务显式构造 `CoreTaskSpec` 并传入调用方指令；主动任务统一使用完整 UMO 隔离 SDK thread；Provider 冲突迁移同步重写执行器引用；取消只作用于所属 run；session 关闭由唯一消费者接管清理，等待槽位的已关闭 session 不再启动 turn。重复取消期间仍保留槽位至远端清理完成；启动 RPC 被取消且尚无句柄时关闭 runtime，按既有策略拒绝继续接单。本轮分批通过 83 项相关回归（16 项 Codex session/run、4 项配置管理器、1 项主动任务投递与跨平台/消息类型隔离、62 项 registry/driver/coordinator/bridge/Cron）；Ruff、编译及差异检查通过。验证使用 SDK fixtures 和临时配置，真实 SDK 与桌面验收仍待进行。
 - 未完成验收：真实账号 turn 与 interrupt、取消中的真实 runtime 子进程回收、管理面板系统默认/profile 覆盖设置验收、Native 普通 Interaction 共用 coordinator 的完整收口，以及 OLV/Live/Live2D 实机回归。不得据当前 fake/启动 smoke 宣布 SDK 准入或全链路实施完成。
 
 关联文档：

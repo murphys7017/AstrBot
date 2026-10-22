@@ -181,43 +181,49 @@ class CodexSdkSession:
         self._interrupt_task: asyncio.Task[Any] | None = None
         self._pump_task: asyncio.Task[None] | None = None
         self._event_queue: asyncio.Queue[Any] | None = None
+        self._turn_task: asyncio.Task[Any] | None = None
+        self._turn_done: asyncio.Future[None] | None = None
+        self._cleanup_task: asyncio.Task[None] | None = None
         self._closed = False
         self._unusable = False
 
     @property
     def unusable(self) -> bool:
-        return self._unusable or self._runtime.closed
+        return self._closed or self._unusable or self._runtime.closed
 
     def invalidate(self) -> None:
         self._unusable = True
 
     async def iter_turn(self, prompt: str) -> AsyncIterator[Any]:
-        if self._closed:
-            raise CodexSdkError("Codex SDK session is closed")
-        if self._unusable:
-            raise CodexSdkError("Codex SDK session requires cleanup")
-        if self._runtime.closed:
-            self._unusable = True
-            raise CodexSdkError("Codex SDK runtime is closed")
+        self._check_available()
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Codex turn prompt must be a non-empty string")
         await self._turn_lock.acquire()
+        self._turn_task = asyncio.current_task()
+        turn_done = asyncio.get_running_loop().create_future()
+        self._turn_done = turn_done
         slot_acquired = False
         try:
-            if self._closed:
-                raise CodexSdkError("Codex SDK session is closed")
-            if self._unusable:
-                raise CodexSdkError("Codex SDK session requires cleanup")
-            if self._runtime.closed:
-                raise CodexSdkError("Codex SDK runtime is closed")
+            self._check_available()
             await self._runtime.acquire_turn_slot()
             slot_acquired = True
-            handle = await self._thread.turn(
-                prompt,
-                approval_mode=self._approval_mode,
-                cwd=str(self._workspace),
-                sandbox=self._sandbox,
-            )
+            self._check_available()
+            try:
+                handle = await self._thread.turn(
+                    prompt,
+                    approval_mode=self._approval_mode,
+                    cwd=str(self._workspace),
+                    sandbox=self._sandbox,
+                )
+            except asyncio.CancelledError:
+                # The RPC may have reached Codex before cancellation. Without a
+                # handle, only closing the runtime can establish that it stopped.
+                self._unusable = True
+                self._cleanup_task = asyncio.create_task(
+                    _close_runtime_bounded(self._runtime)
+                )
+                await asyncio.shield(self._cleanup_task)
+                raise
             self._active_turn = handle
             queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=_EVENT_QUEUE_SIZE)
             self._event_queue = queue
@@ -228,6 +234,8 @@ class CodexSdkSession:
             self._pump_task = pump
             try:
                 while True:
+                    if self._closed:
+                        raise asyncio.CancelledError("Codex SDK session is closed")
                     item = await queue.get()
                     if item is _END_OF_STREAM:
                         return
@@ -235,39 +243,102 @@ class CodexSdkSession:
                         raise item
                     yield item
             except (asyncio.CancelledError, GeneratorExit):
-                await asyncio.shield(self._interrupt_and_drain(pump, queue))
+                await self._cleanup_turn(pump, queue)
                 raise
             finally:
                 if pump.done():
                     await asyncio.gather(pump, return_exceptions=True)
+        finally:
+
+            def release(_cleanup: asyncio.Task[None] | None = None) -> None:
+                if _cleanup is not None and not _cleanup.cancelled():
+                    _cleanup.exception()
                 self._active_turn = None
                 self._event_queue = None
                 self._pump_task = None
+                self._turn_task = None
+                self._turn_done = None
+                self._cleanup_task = None
                 if self._interrupt_task is not None and self._interrupt_task.done():
                     self._interrupt_task = None
-        finally:
-            if slot_acquired:
-                self._runtime.release_turn_slot()
-            self._turn_lock.release()
+                if slot_acquired:
+                    self._runtime.release_turn_slot()
+                self._turn_lock.release()
+                turn_done.set_result(None)
+
+            cleanup = self._cleanup_task
+            if cleanup is not None and not cleanup.done():
+                # A second cancellation must not release the slot while the
+                # first cancellation is still stopping the remote turn.
+                cleanup.add_done_callback(release)
+            else:
+                release(cleanup)
+
+    def _check_available(self) -> None:
+        if self._closed:
+            raise CodexSdkError("Codex SDK session is closed")
+        if self._unusable:
+            raise CodexSdkError("Codex SDK session requires cleanup")
+        if self._runtime.closed:
+            self._unusable = True
+            raise CodexSdkError("Codex SDK runtime is closed")
 
     async def interrupt(self, _turn_id: str | None = None) -> None:
+        task = self._request_active_turn_interrupt()
+        if task is not None:
+            await asyncio.shield(task)
+
+    def request_stop_for_task(self, task: asyncio.Task[Any]) -> bool:
+        """Interrupt only the active turn consumed by the calling task."""
+        if task is not self._turn_task or self._active_turn is None:
+            return False
+        return self._request_active_turn_interrupt() is not None
+
+    def _request_active_turn_interrupt(self) -> asyncio.Task[Any] | None:
         handle = self._active_turn
         if handle is None:
-            return
+            return None
         task = self._interrupt_task
-        if task is None or task.done():
+        if task is None:
             task = asyncio.create_task(handle.interrupt())
             self._interrupt_task = task
-        await asyncio.shield(task)
+        return task
 
     async def aclose(self) -> None:
-        if self._closed:
-            return
         self._closed = True
-        pump = self._pump_task
-        queue = self._event_queue
-        if pump is not None and queue is not None and not pump.done():
-            await asyncio.shield(self._interrupt_and_drain(pump, queue))
+        task, turn_done = self._turn_task, self._turn_done
+        if task is None or turn_done is None:
+            return
+        if task is asyncio.current_task():
+            pump, queue = self._pump_task, self._event_queue
+            if pump is not None and queue is not None:
+                await self._cleanup_turn(pump, queue)
+            return
+        # The iterator remains the sole event consumer until its cancellation
+        # handler hands ownership to the one cleanup task.
+        if self._cleanup_task is None and not task.done():
+            task.cancel()
+        _, pending = await asyncio.wait(
+            {turn_done},
+            timeout=(
+                _INTERRUPT_RPC_TIMEOUT_SECONDS
+                + _INTERRUPT_DRAIN_TIMEOUT_SECONDS
+                + 3 * _RUNTIME_CLOSE_TIMEOUT_SECONDS
+            ),
+        )
+        if pending:
+            self._unusable = True
+            raise CodexSdkError("Codex SDK session close did not settle")
+
+    async def _cleanup_turn(
+        self, pump: asyncio.Task[None], queue: asyncio.Queue[Any]
+    ) -> None:
+        if self._cleanup_task is None:
+            self._cleanup_task = asyncio.create_task(
+                self._interrupt_and_drain(pump, queue),
+                name=f"codex-sdk-cleanup:{self._thread.id}",
+            )
+        await asyncio.shield(self._cleanup_task)
 
     async def _interrupt_and_drain(
         self,
@@ -383,9 +454,7 @@ def _validate_sdk_executor_config(config: Mapping[str, Any]) -> None:
         field_name="max_message_bytes",
     )
     if max_message_bytes != 4 * 1024 * 1024:
-        raise ValueError(
-            "custom Codex max_message_bytes is unsupported by the SDK"
-        )
+        raise ValueError("custom Codex max_message_bytes is unsupported by the SDK")
 
     approval_policy = str(config.get("approval_policy", "never")).strip().lower()
     if approval_policy not in {"never", "deny_all"}:

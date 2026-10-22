@@ -256,6 +256,7 @@ async def run_proactive_agent_turn(
                         session=session,
                         selected_executor=selected_executor,
                         config=config,
+                        system_prompt=system_prompt,
                         prompt=prompt,
                         deadline=deadline,
                         executor_id=executor_id,
@@ -522,6 +523,7 @@ async def _execute_external_proactive_turn(
     session: MessageSession,
     selected_executor: Any,
     config: Any,
+    system_prompt: str,
     prompt: str,
     deadline: TurnDeadlineBudget,
     executor_id: str,
@@ -535,13 +537,40 @@ async def _execute_external_proactive_turn(
     if output_controller is None:
         raise RuntimeError("Core interaction output controller is unavailable")
     from astrbot.core.executors import execute_external_core_turn
+    from astrbot.core.interaction.turn_state import set_interaction_turn_core_task_spec
+    from astrbot.core.interaction.types import CoreTaskSpec
+
+    # Synthetic turns do not pass through the Personal planner. Carry the
+    # caller's task into the same neutral contract used by delegated turns.
+    sections = [
+        "Proactive task input:",
+        event.message_str,
+        "",
+        "Caller instructions:",
+        system_prompt,
+        "",
+        "Requested work:",
+        prompt,
+        "",
+        "AstrBot handles delivery of your final result. Do not invoke AstrBot "
+        "delivery tools or produce a user-facing persona reply. Return the "
+        "factual result for AstrBot to render and deliver.",
+    ]
+    set_interaction_turn_core_task_spec(
+        event,
+        CoreTaskSpec(
+            task_intent="proactive",
+            task_summary=event.message_str.strip() or prompt.strip(),
+            execution_prompt="\n".join(sections),
+        ),
+    )
 
     execution = await execute_external_core_turn(
         context=context,
         event=event,
         selected_executor=selected_executor,
         config=config,
-        session_id=session.session_id,
+        session_id=str(session),
         prompt_config=config,
         deadline=deadline,
         output_controller=output_controller,

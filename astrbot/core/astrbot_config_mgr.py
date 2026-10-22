@@ -91,13 +91,21 @@ class AstrBotConfigManager:
     def _rewrite_profile_provider_references(
         value,
         replacements: dict[str, str],
+        *,
+        path: tuple[str, ...] = (),
     ):
         """Rewrite only declared provider-reference fields in Profile policy."""
         if isinstance(value, dict):
             rewritten = {}
             for key, item in value.items():
-                if key.endswith("_provider_id") and isinstance(item, str):
-                    rewritten[key] = replacements.get(item, item)
+                if isinstance(item, str) and (
+                    key.endswith("_provider_id")
+                    or (
+                        key == "provider_id"
+                        and path in {("agent_runner",), ("core_execution", "codex_cli")}
+                    )
+                ):
+                    rewritten[key] = replacements.get(item.strip(), item)
                 elif key == "fallback_chat_models" and isinstance(item, list):
                     rewritten[key] = [
                         replacements.get(entry, entry)
@@ -108,14 +116,14 @@ class AstrBotConfigManager:
                 else:
                     rewritten[key] = (
                         AstrBotConfigManager._rewrite_profile_provider_references(
-                            item, replacements
+                            item, replacements, path=(*path, key)
                         )
                     )
             return rewritten
         if isinstance(value, list):
             return [
                 AstrBotConfigManager._rewrite_profile_provider_references(
-                    item, replacements
+                    item, replacements, path=path
                 )
                 for item in value
             ]

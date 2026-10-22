@@ -2,9 +2,12 @@ import json
 
 import astrbot.core.astrbot_config_mgr as config_manager_module
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
+from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.config.default import DEFAULT_CONFIG
+from astrbot.core.executors.registry import resolve_core_executor_selection
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform.message_type import MessageType
+from astrbot.core.provider.manager import ProviderManager
 
 
 class _RecordingConfigRouter:
@@ -92,9 +95,7 @@ def test_load_profile_removes_stale_system_executor_copy(tmp_path, monkeypatch):
 
     class _Preferences:
         def get(self, _key, default=None, **_kwargs):
-            return {
-                profile_id: {"path": profile_path.name, "name": "Codex profile"}
-            }
+            return {profile_id: {"path": profile_path.name, "name": "Codex profile"}}
 
     monkeypatch.setattr(
         AstrBotConfigManager,
@@ -116,3 +117,64 @@ def test_load_profile_removes_stale_system_executor_copy(tmp_path, monkeypatch):
     assert "core_executor" not in persisted
     assert profile["core_execution"]["executor_id"] == "codex_cli"
     assert persisted["core_execution"]["executor_id"] == "codex_cli"
+
+
+def test_migrated_profile_keeps_its_executor_provider_and_workspace(
+    tmp_path, monkeypatch
+):
+    global_workspace, profile_workspace = tmp_path / "global", tmp_path / "profile"
+    global_workspace.mkdir()
+    profile_workspace.mkdir()
+    global_provider = {
+        "id": "codex-main",
+        "type": "codex_cli",
+        "provider_type": "agent_runner",
+        "enable": True,
+        "workspace_root": str(global_workspace),
+    }
+    profile_provider = {**global_provider, "workspace_root": str(profile_workspace)}
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "provider": [profile_provider],
+                "agent_runner": {"mode": "local", "provider_id": "codex-main"},
+                "core_execution": {
+                    "executor_id": "codex_cli",
+                    "codex_cli": {"provider_id": "codex-main"},
+                },
+                "plugin_config": {"provider_id": "codex-main"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    global_config = AstrBotConfig(
+        config_path=str(tmp_path / "global.json"),
+        default_config={"provider": [global_provider]},
+    )
+
+    class _Preferences:
+        def get(self, key, default=None, **_kwargs):
+            if key == "abconf_mapping":
+                return {"bot-a": {"path": profile_path.name, "name": "test"}}
+            return default
+
+    monkeypatch.setattr(
+        config_manager_module, "get_astrbot_config_path", lambda: str(tmp_path)
+    )
+    manager = AstrBotConfigManager(global_config, object(), _Preferences())
+    provider_manager = ProviderManager.__new__(ProviderManager)
+    provider_manager.providers_config = global_config["provider"]
+    selection = resolve_core_executor_selection(
+        manager.confs["bot-a"],
+        provider_manager=provider_manager,
+        execution_source="test",
+    )
+
+    persisted = json.loads(profile_path.read_text(encoding="utf-8-sig"))
+    assert selection.config["workspace_root"] == str(profile_workspace)
+    assert (
+        persisted["core_execution"]["codex_cli"]["provider_id"] == selection.instance_id
+    )
+    assert persisted["agent_runner"]["provider_id"] == selection.instance_id
+    assert persisted["plugin_config"]["provider_id"] == "codex-main"

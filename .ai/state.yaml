@@ -3144,3 +3144,25 @@ core_executor_profile_routing_20261022:
     No AstrBot restart, authenticated SDK turn/interrupt, cross-profile live
     turn, or OLV/Live/Live2D acceptance. Pre-existing AG99live and upstream-
     intake worktree edits were left untouched.
+
+core_executor_lifecycle_repairs_20261022:
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  scope: >-
+    Repair the six confirmed executor review findings: proactive Codex task
+    preparation, cancellation ownership for queued runs, scoped Provider ID
+    migration, single-consumer session shutdown, closed-session admission after
+    runtime-slot waits, and full-UMO proactive session identity. Keep cleanup
+    ownership through repeated cancellation and fail closed if turn startup
+    was cancelled before a remote handle became available.
+  validation: >-
+    83 distinct related cases passed in targeted batches: 16 Codex session/run
+    cases, four configuration-manager cases, one proactive task/delivery and
+    cross-platform/type isolation case, and 62 registry/driver/coordinator/bridge/
+    Cron cases. Ruff, scoped formatting, Python compilation, YAML parsing and
+    diff checks passed. SDK fixtures and temporary configurations were used.
+  evidence_gap: >-
+    No real authenticated SDK turn/interrupt, platform or Live2D acceptance,
+    runtime restart or frontend rebuild. Preserve unrelated AG99live edits and
+    the existing upstream-intake state entry.

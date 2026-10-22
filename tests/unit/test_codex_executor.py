@@ -8,6 +8,7 @@ from astrbot.core.executors.contracts import (
     ExecutionFinalUpdate,
     ExecutionProgressUpdate,
 )
+from astrbot.core.executors.runtime import drive_executor_run
 
 
 class _Session:
@@ -110,7 +111,7 @@ async def test_codex_run_rejects_failed_turn():
     )
 
     with pytest.raises(RuntimeError, match="Codex turn failed"):
-        _ = [update async for update in run.stream()]
+        await drive_executor_run(head=None, body=run, run=run)
 
 
 @pytest.mark.asyncio

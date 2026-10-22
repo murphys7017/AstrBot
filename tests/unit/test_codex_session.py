@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from astrbot.core.executors.codex_cli import CodexExecutorRun
 from astrbot.core.executors.codex_session import (
     CodexSdkError,
     CodexSdkRuntime,
@@ -42,10 +43,25 @@ class _FakeHandle:
         if self.blocked:
             await self.release.wait()
         if self.interrupted.is_set():
-            yield SimpleNamespace(method="turn/completed", payload=None)
+            yield SimpleNamespace(
+                method="turn/completed",
+                payload=SimpleNamespace(turn=SimpleNamespace(status="interrupted")),
+            )
             return
         yield SimpleNamespace(method="turn/started", payload=None)
-        yield SimpleNamespace(method="turn/completed", payload=None)
+        yield SimpleNamespace(
+            method="turn/completed",
+            payload=SimpleNamespace(
+                turn=SimpleNamespace(
+                    status="completed",
+                    items=[
+                        SimpleNamespace(
+                            type="agentMessage", phase="final_answer", text="done"
+                        )
+                    ],
+                )
+            ),
+        )
 
     async def interrupt(self):
         if self.block_interrupt:
@@ -200,13 +216,9 @@ async def test_runtime_serializes_overlapping_turns_across_threads(monkeypatch):
     first = await runtime.create_session(workspace=Path.cwd(), executor_config={})
     second = await runtime.create_session(workspace=Path.cwd(), executor_config={})
 
-    first_turn = asyncio.create_task(
-        _collect_events(first, "first request")
-    )
+    first_turn = asyncio.create_task(_collect_events(first, "first request"))
     await asyncio.wait_for(first_handle.started.wait(), timeout=1)
-    second_turn = asyncio.create_task(
-        _collect_events(second, "second request")
-    )
+    second_turn = asyncio.create_task(_collect_events(second, "second request"))
     await asyncio.sleep(0)
     assert not second_handle.started.is_set()
 
@@ -317,3 +329,167 @@ async def test_cancel_bounds_interrupt_and_closes_unresponsive_runtime(
 
 async def _collect_events(session, prompt):
     return [event async for event in session.iter_turn(prompt)]
+
+
+@pytest.mark.asyncio
+async def test_queued_run_cancel_does_not_interrupt_shared_session(
+    monkeypatch, tmp_path
+):
+    _install_sdk_types(monkeypatch)
+    handle = _FakeHandle(blocked=True)
+    runtime = CodexSdkRuntime(client_factory=lambda: _FakeClient([handle]))
+    session = await runtime.create_session(workspace=tmp_path, executor_config={})
+    first_run = CodexExecutorRun(session=session, prompt="first")
+    queued_run = CodexExecutorRun(session=session, prompt="queued")
+
+    async def collect(run):
+        return [update async for update in run.stream()]
+
+    first = asyncio.create_task(collect(first_run))
+    await asyncio.wait_for(handle.started.wait(), timeout=1)
+    queued = asyncio.create_task(collect(queued_run))
+    await asyncio.sleep(0)
+    queued_run.request_stop()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(queued, timeout=1)
+    assert not handle.interrupted.is_set()
+    handle.release.set()
+    updates = await asyncio.wait_for(first, timeout=1)
+    assert updates[-1].result.output.text == "done"
+    await first_run.aclose()
+    await queued_run.aclose()
+    await session.aclose()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stop_from_run_consumer_interrupts_its_own_turn(monkeypatch, tmp_path):
+    _install_sdk_types(monkeypatch)
+
+    class _ProgressHandle(_FakeHandle):
+        async def stream(self):
+            yield SimpleNamespace(method="turn/started", payload=None)
+            await self.release.wait()
+            yield SimpleNamespace(method="turn/completed", payload=None)
+
+    handle = _ProgressHandle()
+    runtime = CodexSdkRuntime(client_factory=lambda: _FakeClient([handle]))
+    session = await runtime.create_session(workspace=tmp_path, executor_config={})
+    run = CodexExecutorRun(session=session, prompt="stop on progress")
+
+    async def consume():
+        async for _ in run.stream():
+            run.request_stop()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(consume(), timeout=1)
+    assert handle.interrupted.is_set()
+    assert runtime.closed is False
+    await run.aclose()
+    await session.aclose()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_close_during_turn_start_fails_closed(monkeypatch, tmp_path):
+    _install_sdk_types(monkeypatch)
+    starting = asyncio.Event()
+
+    class _BlockingThread:
+        async def turn(self, *_args, **_kwargs):
+            starting.set()
+            await asyncio.Future()
+
+    class _StartingClient(_FakeClient):
+        async def thread_start(self, **_kwargs):
+            return _BlockingThread()
+
+    runtime = CodexSdkRuntime(client_factory=lambda: _StartingClient([]))
+    session = await runtime.create_session(workspace=tmp_path, executor_config={})
+    turn = asyncio.create_task(_collect_events(session, "starting"))
+    await asyncio.wait_for(starting.wait(), timeout=1)
+    await asyncio.wait_for(
+        asyncio.gather(session.aclose(), session.aclose()), timeout=1
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await turn
+    assert session.unusable is True
+    assert runtime.closed is True
+    await runtime.aclose()
+
+
+@pytest.mark.parametrize("close_queued", [False, True])
+@pytest.mark.asyncio
+async def test_session_close_stops_its_turn_and_preserves_other_threads(
+    monkeypatch, tmp_path, close_queued
+):
+    _install_sdk_types(monkeypatch)
+    active_handle, queued_handle = _FakeHandle(blocked=True), _FakeHandle()
+    runtime = CodexSdkRuntime(
+        client_factory=lambda: _FakeClient([active_handle, queued_handle])
+    )
+    active_session = await runtime.create_session(
+        workspace=tmp_path, executor_config={}
+    )
+    queued_session = await runtime.create_session(
+        workspace=tmp_path, executor_config={}
+    )
+    active = asyncio.create_task(_collect_events(active_session, "active"))
+    await asyncio.wait_for(active_handle.started.wait(), timeout=1)
+    queued = asyncio.create_task(_collect_events(queued_session, "queued"))
+    await asyncio.sleep(0)
+    closing_session = queued_session if close_queued else active_session
+    stopped, continuing = (queued, active) if close_queued else (active, queued)
+
+    await asyncio.wait_for(closing_session.aclose(), timeout=1)
+    with pytest.raises(asyncio.CancelledError):
+        await stopped
+    if close_queued:
+        assert not queued_handle.started.is_set()
+        assert not active_handle.interrupted.is_set()
+        active_handle.release.set()
+    assert await asyncio.wait_for(continuing, timeout=1)
+    assert runtime.closed is False
+    assert closing_session.unusable is True
+    with pytest.raises(CodexSdkError, match="session is closed"):
+        await _collect_events(closing_session, "closed")
+    await active_session.aclose()
+    await queued_session.aclose()
+    await runtime.aclose()
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancel_retains_slot_until_remote_cleanup(monkeypatch, tmp_path):
+    _install_sdk_types(monkeypatch)
+    interrupt_started, finish_interrupt = asyncio.Event(), asyncio.Event()
+
+    class _SlowInterruptHandle(_FakeHandle):
+        async def interrupt(self):
+            interrupt_started.set()
+            await finish_interrupt.wait()
+            await super().interrupt()
+
+    first_handle, second_handle = _SlowInterruptHandle(blocked=True), _FakeHandle()
+    runtime = CodexSdkRuntime(
+        client_factory=lambda: _FakeClient([first_handle, second_handle])
+    )
+    first_session = await runtime.create_session(workspace=tmp_path, executor_config={})
+    second_session = await runtime.create_session(
+        workspace=tmp_path, executor_config={}
+    )
+    first = asyncio.create_task(_collect_events(first_session, "first"))
+    await asyncio.wait_for(first_handle.started.wait(), timeout=1)
+    first.cancel()
+    await asyncio.wait_for(interrupt_started.wait(), timeout=1)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    second = asyncio.create_task(_collect_events(second_session, "second"))
+    await asyncio.sleep(0)
+    assert not second_handle.started.is_set()
+    finish_interrupt.set()
+    assert await asyncio.wait_for(second, timeout=1)
+    assert runtime.closed is False
+    await first_session.aclose()
+    await second_session.aclose()
+    await runtime.aclose()
