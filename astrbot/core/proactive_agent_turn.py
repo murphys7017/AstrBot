@@ -213,8 +213,8 @@ async def run_proactive_agent_turn(
         runtime_config,
         provider_manager=getattr(context, "provider_manager", None),
         execution_source="proactive",
-        active_executor_id=(
-            core_executor_selector.active_executor_id
+        default_executor_id=(
+            core_executor_selector.default_executor_id
             if core_executor_selector is not None
             else None
         ),

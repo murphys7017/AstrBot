@@ -58,36 +58,20 @@ def resolve_core_executor_selection(
     *,
     provider_manager: Any,
     execution_source: str,
-    active_executor_id: str | None = None,
+    default_executor_id: str | None = None,
 ) -> SelectedCoreExecutor:
-    """Resolve Core's active Body and this profile's backend configuration."""
+    """Resolve this profile's executor override and system fallback."""
 
     if not isinstance(config_snapshot, Mapping):
         raise ValueError(
             f"{execution_source} requires a mapping runtime configuration snapshot"
         )
-    if active_executor_id is None:
-        selection = resolve_core_execution_configuration(config_snapshot)
-        executor_id = selection.executor_id
-        provider_id = selection.provider_id
-    else:
-        executor_id = _normalize_executor_id(active_executor_id)
-        if executor_id not in {"native", "codex_cli"}:
-            raise ValueError(f"unknown Core-wide executor_id: {executor_id}")
-        if executor_id == "native":
-            return SelectedCoreExecutor("native", None, {})
-        core_execution = config_snapshot.get("core_execution")
-        if not isinstance(core_execution, Mapping):
-            raise ValueError("core_execution must be an object")
-        codex_cli = core_execution.get("codex_cli")
-        if not isinstance(codex_cli, Mapping):
-            codex_cli = {}
-        raw_provider_id = codex_cli.get("provider_id")
-        provider_id = (
-            raw_provider_id.strip()
-            if isinstance(raw_provider_id, str) and raw_provider_id.strip()
-            else None
-        )
+    selection = resolve_core_execution_configuration(
+        config_snapshot,
+        default_executor_id=default_executor_id or "native",
+    )
+    executor_id = selection.executor_id
+    provider_id = selection.provider_id
 
     if executor_id == "native":
         return SelectedCoreExecutor("native", None, {})

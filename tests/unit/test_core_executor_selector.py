@@ -6,7 +6,6 @@ import pytest
 from astrbot.core.executors.selector import (
     CoreExecutorDrainTimeout,
     CoreExecutorSelector,
-    CoreExecutorSelectorError,
     CoreExecutorSwitchInProgress,
     build_core_executor_selector,
 )
@@ -44,13 +43,11 @@ async def test_switch_timeout_keeps_old_executor_and_reopens_admission():
     with pytest.raises(CoreExecutorDrainTimeout):
         await selector.switch_to("codex_cli", timeout_seconds=0.01)
 
-    assert selector.active_executor_id == "native"
+    assert selector.default_executor_id == "native"
     assert selector.switching is False
-    with pytest.raises(CoreExecutorSelectorError, match="not active"):
-        await selector.acquire("codex_cli")
 
     await lease.aclose()
-    replacement = await selector.acquire("native")
+    replacement = await selector.acquire("codex_cli")
     await replacement.aclose()
 
 
@@ -81,34 +78,43 @@ async def test_switch_waits_for_detached_body_cleanup_task():
     assert selector.active_run_count == 0
 
 
-def test_selector_migrates_matching_legacy_profile_choices():
+def test_selector_uses_system_default_without_collapsing_profile_choices():
     class _Config(dict):
         save_count = 0
 
         def save_config(self):
             self.save_count += 1
 
-    default = _Config(
-        core_executor={"active_executor_id": ""},
-        core_execution={"executor_id": "codex_cli"},
-    )
+    default = _Config(core_executor={"active_executor_id": ""})
+    profile = {"core_execution": {"executor_id": "codex_cli"}}
     manager = SimpleNamespace(
         default_conf=default,
-        confs={
-            "default": default,
-            "bot-b": {"core_execution": {"executor_id": "codex_cli"}},
-        },
+        confs={"default": default, "bot-codex": profile},
     )
 
     selector = build_core_executor_selector(manager)
 
-    assert selector.active_executor_id == "codex_cli"
-    assert default["core_executor"]["active_executor_id"] == "codex_cli"
+    assert selector.default_executor_id == "native"
+    assert default["core_executor"]["active_executor_id"] == "native"
     assert default.save_count == 1
+    assert profile["core_execution"]["executor_id"] == "codex_cli"
 
 
-@pytest.mark.parametrize("explicit", ["", "native", "codex_cli"])
-def test_selector_uses_native_default_or_explicit_global_choice_for_mixed_profiles(explicit):
+@pytest.mark.asyncio
+async def test_selector_admits_different_profile_executors_concurrently():
+    selector = CoreExecutorSelector("native")
+    native_lease = await selector.acquire("native")
+    codex_lease = await selector.acquire("codex_cli")
+
+    assert selector.active_run_count == 2
+
+    await native_lease.aclose()
+    await codex_lease.aclose()
+    assert selector.active_run_count == 0
+
+
+@pytest.mark.parametrize("explicit", ["native", "codex_cli"])
+def test_selector_preserves_explicit_system_default_for_mixed_profiles(explicit):
     default = {
         "core_executor": {"active_executor_id": explicit},
         "core_execution": {"executor_id": "native"},
@@ -123,8 +129,8 @@ def test_selector_uses_native_default_or_explicit_global_choice_for_mixed_profil
 
     selector = build_core_executor_selector(manager)
 
-    assert selector.active_executor_id == (explicit or "native")
-    assert default["core_executor"]["active_executor_id"] == (explicit or "native")
+    assert selector.default_executor_id == explicit
+    assert default["core_executor"]["active_executor_id"] == explicit
 
 
 @pytest.mark.asyncio

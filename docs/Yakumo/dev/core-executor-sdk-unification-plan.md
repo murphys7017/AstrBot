@@ -1,4 +1,4 @@
-# Core 多执行内核切换与 Codex SDK 常驻实施方案
+# Core 多执行内核选择与 Codex SDK 常驻实施方案
 
 日期：2026-10-22
 状态：分批实施中；S0 和 S1 尚未达到最终验收条件。
@@ -9,11 +9,13 @@
 - 依赖已固定为 `openai-codex==0.163.0`，`uv.lock` 已包含 SDK 与匹配平台 runtime；隔离项目副本中的 `uv lock --check` 通过。
 - Windows SDK smoke 使用独立 `CODEX_HOME` 启动真实 `AsyncCodex`，成功创建两个不同 thread 并关闭 client；未运行已认证 turn。
 - SDK fake 边界覆盖共享 client、多 thread 隔离、跨 thread turn 串行等待、取消超时、启动取消清理，以及启动锁等待和 runtime 关闭均有界；启动晚于关闭请求时不会发布 client。真实 SDK 的跨 thread 并行仍关闭，须先通过 Windows 并发 smoke。
-- Core 全局 selector 已覆盖唯一活动内核、停止旧准入、等待 run/清理 task、超时保留旧内核和 legacy profile 冲突。默认活动内核为 Native；未设置全局值且旧 profile 冲突时，记录告警并持久化 Native。已明确设置的全局值始终优先；全局值为空且旧配置一致时保留原有迁移行为。
-- 普通 Interaction 与 Cron/主动任务都使用 Core-wide selector lease；Codex progress 只映射 allowlist 阶段，经 Output Controller 的 `core_progress` 路径呈现。
+- 执行器选择采用系统默认值加 profile 覆盖：默认 Native；profile 的 `core_execution.executor_id` 可为 `inherit`、`native` 或 `codex_cli`。系统默认只存于默认系统配置，profile 选择固定在本轮配置快照中；不同 profile 可并行使用不同内核，每轮仍只能选择一个内核。旧 profile 的 Native/Codex 值保留为覆盖值。
+- 普通 Interaction 与 Cron/主动任务都使用 Core execution lease；profile 快照解析 Native/Codex，Codex progress 只映射 allowlist 阶段，经 Output Controller 的 `core_progress` 路径呈现。
 - 当前窄回归：41 项执行器、selector、registry、桥接和 proactive 测试通过；4 项进度输出边界测试通过；相关 Ruff 检查和 `git diff --check` 通过。
 - 2026-10-22 复核追加：Codex session 5 项并发/关闭边界和 executor adapter 3 项测试通过；使用系统 Python 3.11，并在进程内禁用 Loguru 文件 sink 以避开 Windows IPC 权限限制。项目 Python 3.12 虚拟环境因 `_ssl` DLL 加载失败无法收集 pytest；改动文件在 Python 3.12 下编译通过，Ruff 和 `git diff --check` 通过。
-- 未完成验收：真实账号 turn 与 interrupt、取消中的真实 runtime 子进程回收、管理界面的运行时切换入口、Native 普通 Interaction 共用 coordinator 的完整收口，以及 OLV/Live/Live2D 实机回归。不得据当前 fake/启动 smoke 宣布 SDK 准入或全链路实施完成。
+- 2026-10-22 profile routing update：13 项 selector/registry 测试与 6 项配置加载/metadata 测试通过；本机配置路由 smoke 确认默认 Native、一个旧 profile Codex、另一个旧 profile Native。新增 Dashboard 配置边界 5 项、配置管理器 3 项和 Provider 引用保护 6 项测试通过；Ruff、Python 编译、locale/config JSON 解析、`git diff --check` 和 Dashboard `vue-tsc --noEmit` 通过。审阅修正了重载默认 profile 时反复将 Native 改成继承的问题：包括默认 profile 在内的已有明确选择均保留，只有新配置和缺失值默认继承。
+- 提交前扩大配置/Provider 回归：83 项通过，2 项失败，分别涉及交互中间件翻译缺项及 Memory storage 默认值缺项；已比较 HEAD 与工作区对应配置 AST/翻译子树，确认这些失败边界未由本次修改改变。本轮不扩展修复范围。
+- 未完成验收：真实账号 turn 与 interrupt、取消中的真实 runtime 子进程回收、管理面板系统默认/profile 覆盖设置验收、Native 普通 Interaction 共用 coordinator 的完整收口，以及 OLV/Live/Live2D 实机回归。不得据当前 fake/启动 smoke 宣布 SDK 准入或全链路实施完成。
 
 关联文档：
 
@@ -26,9 +28,9 @@
 
 建议把 OpenAI Python Codex SDK 作为 Codex 在 Core 中唯一的生产接入路径。启用 Codex 后，由 Core 生命周期持有长期运行的异步 SDK runtime；一个 SDK 客户端服务多个 Core-owned thread 和 turn，不能按每次请求创建、关闭客户端，也不能在 SDK 失败时静默回退到手写 JSON-RPC 或 `codex exec`。
 
-Core 允许注册多个执行内核，例如 Native 和 Codex，但在任一时刻只有一个 Core-wide `active_executor_id` 接收新任务。它不是按用户、平台、任务类型或 bot 配置分别选内核；不得同时路由给多个 backend，也不得在一个任务中并行询问多个内核后择优。切换是明确的全局操作：现有执行先按正常 Core 生命周期完成或取消，不做运行中迁移；切换窗口暂停新的 Core 执行准入，完成旧内核的活动 run 清理后再切换 selector。其他已启用 backend 可以保持已加载但处于 idle，不接收新 run。切换期间的请求使用现有交互失败/等待策略，不新增第二套队列。
+Core 全局设置提供默认内核，默认 Native；每个 profile 可以继承该值，也可以覆盖为 Native 或 Codex。每轮从已经冻结的 profile 配置解析一个 executor id，并只创建这一个 backend 的 run；禁止在同一轮双跑、provider fallback 和多 backend fan-out。不同 profile 可以同时运行不同 backend。profile 配置变更仅影响之后新建的 turn，进行中的 turn 继续使用其配置快照。修改系统默认值通过系统设置完成；Codex SDK runtime 仍由 Core 生命周期全局持有并服务多个 profile。
 
-内核切换不要求迁移或继承引擎私有的对话历史。AstrBot 的上下文、记忆和可见对话历史是唯一跨内核事实来源；每轮由 Core 使用当前 AstrBot 状态准备输入，再交给当前唯一选中的内核。某个内核自己的 thread/session 可以独立保留，但它不能代替 AstrBot 记忆，也不能作为切换成功的前置条件。
+profile 更换内核不要求迁移或继承引擎私有的对话历史。AstrBot 的上下文、记忆和可见对话历史是唯一跨内核事实来源；每轮由 Core 使用当前 AstrBot 状态准备输入，再交给该 turn 选中的唯一内核。某个内核自己的 thread/session 可以独立保留，但它不能代替 AstrBot 记忆，也不能作为更换 profile 执行器的前置条件。
 
 SDK 的选择仍有一个实施前准入门槛：当前官方资料确认 Python 包 `openai-codex` 有稳定发布、`AsyncCodex` 和随 SDK 固定版本的 Codex CLI runtime；Python 文档示例明确展示异步创建 thread、运行 turn 和沙箱 preset。Codex 平台指南也称 SDK 可用于启动、恢复和流式任务，同时把需要产品级持久对话、直接流式事件和审批处理的集成指向 app-server。不能把 TypeScript 示例直接当成 Python API 保证。6.1 必须针对选定的 Python SDK 精确版本，核对并实测公开 API 是否满足 Core 必需的事件流、取消/interrupt、thread 创建、关闭和权限配置。thread resume 只在启用同内核连续性时验证，不作为切换内核的条件。不能依赖未公开的 SDK 私有对象或协议细节。
 
@@ -40,13 +42,13 @@ SDK 的选择仍有一个实施前准入门槛：当前官方资料确认 Python
 
 本方案只覆盖：
 
-- 多个执行内核的 Core registry，以及单一、全局、可切换的 active backend 选择；
+- 多个执行内核的 Core registry、系统级默认内核和 profile 级可选覆盖；
 - AstrBot Core 的执行器准备、选择、装配、运行协调和生命周期；
 - 用 Python Codex SDK 替换当前 Codex app-server 手写 JSON-RPC 传输层；
 - Core-owned Codex runtime；Codex thread/session 的隔离，及可选的同内核连续性；
 - 执行进度经 Core 契约和既有 Output Controller 的受控呈现；
 - Native 普通交互与 Codex 外部执行共享 Core 终态和结算规则，同时保留各自必须的输出适配；
-- Native -> Codex -> Native 切换验收，确认共享 AstrBot 上下文，无需跨内核历史复制。
+- profile 依次选择 Native -> Codex -> Native，确认共享 AstrBot 上下文，无需跨内核历史复制。
 
 本方案不做：
 
@@ -69,7 +71,7 @@ SDK 的选择仍有一个实施前准入门槛：当前官方资料确认 Python
 2. 当前 Codex 适配仍由 `codex_session.py` 自行启动 `codex app-server --stdio` 并维护 JSON-RPC；`codex_protocol.py` 是自制协议层。当前 `pyproject.toml` 和 `uv.lock` 没有 Codex Python SDK 依赖。
 3. `ExternalExecutorSessionRegistry` 是进程内映射；当前按完整 session key 为会话创建独立的 `CodexSessionManager`。AstrBot 重启后没有 Core 持久化的 session-key 到 Codex thread-id 映射。
 4. `CodexExecutorRun` 会积累 agent message delta 供最终结果使用，但只对少数通知产生粗粒度进度；`ExecutionResultOutputBridge.accept()` 目前只投递最终结果，忽略进度并抑制增量正文。
-5. `core_execution.executor_id` 目前通过当前 bot 的配置快照解析。它能做到每个 run 选择一个 backend，但不能表达用户现在提出的“Core 全局只有一个活动内核”；新方案必须将选择 owner 收敛到 Core runtime 的单值配置，并处理旧 per-bot 配置冲突。
+5. `core_execution.executor_id` 已存在于当前 bot 的配置快照，Codex provider id 也按 profile 保存。旧实现把 profile executor choice 覆盖为 Core 全局 active id，并在 profile 值冲突时阻止启动。新方案保留 profile choice 为覆盖值，增加 Native 系统默认；profile 选择 `inherit` 时才使用系统默认。
 6. Native 的 `ExecutorRun`/adapter 与主动任务路径已经存在，但普通 Interaction 仍保留 Native 专用生产输出路径；因此不能把“已有 ExecutorRun 契约”当作“Core 整体执行生命周期已统一完成”。
 7. `core_lifecycle.py` 创建并关闭 external executor session registry，表明 Core 生命周期已有资源 owner 落点。后续 SDK runtime 应沿用 Core 生命周期，不转交插件或平台事件。
 8. 现有 Codex 会话测试使用 fake subprocess；先前 Windows smoke 曾记录关闭阶段等待进程退出失败，但本轮未重新复现。必须用真实 SDK/runtime 重新验收 Windows 启动、取消和关闭。
@@ -94,7 +96,7 @@ SDK 的选择仍有一个实施前准入门槛：当前官方资料确认 Python
 ```text
 OLV / 普通交互 / Cron / 主动任务
   -> AstrBot-owned context/memory snapshot + provider-neutral Core preparation
-  -> Core-wide active_executor_id（单值）+ Core executor registry
+  -> system default + frozen profile override + Core executor registry
   -> Core coordinator + CoreExecutionHead + 唯一 deadline
   -> ExecutorRun
        Native adapter
@@ -108,7 +110,7 @@ OLV / 普通交互 / Cron / 主动任务
 | 对象 | 唯一责任 |
 | --- | --- |
 | Personal Runtime | 决定是否委派、管理对话顺序和统一用户表达 |
-| Core executor selector | 保存唯一 active executor id；切换时管理准入与旧 run drain |
+| Core executor selector | 保存系统默认并跟踪 Core run lease；profile override 在每轮解析 |
 | Core Head/Lifecycle | execution identity、取消、deadline 结算、唯一终态和生命周期清理 |
 | Core coordinator | 创建并驱动所选 `ExecutorRun`，投影更新，统一处理失败与关闭 |
 | Native Adapter | 保留 Native Provider、工具、Hook、富文本/流式语义，并投影到中立 Core 契约 |
@@ -119,7 +121,7 @@ OLV / 普通交互 / Cron / 主动任务
 
 Codex SDK Adapter 不得直接调用 `event.send()`，不接收完整的 AstrBot Event/Context，不写可见对话历史。Codex 终态正文仍经既有 Personal Core-final 表达路径；进度只能走既有 Output Controller 的 progress 边界。
 
-AstrBot 生成的 `CoreExecutionSpec`、上下文投影和 memory snapshot 是 backend-neutral 输入。切换内核只改变执行 Body，不更换或复制 AstrBot 的 memory、conversation history、Personal 或 Planner。backend 私有 thread 的存在与否不改变跨内核上下文来源。
+AstrBot 生成的 `CoreExecutionSpec`、上下文投影和 memory snapshot 是 backend-neutral 输入。profile 选择变化只改变后续 turn 的执行 Body，不更换或复制 AstrBot 的 memory、conversation history、Personal 或 Planner。backend 私有 thread 的存在与否不改变跨内核上下文来源。
 
 ## 5. SDK 采用边界
 
@@ -161,17 +163,18 @@ SDK 对同一 Codex thread 的恢复能力只在明确启用“Codex 内核自�
 
 旧 app-server 代码可以在有明确隔离和删除期限的迁移提交中暂存；它不是长期双栈方案。
 
-## 6. 内核切换与 backend 私有 session
+## 6. profile 内核选择与 backend 私有 session
 
-### 6.1 内核切换和上下文语义
+### 6.1 系统默认、profile 覆盖和上下文语义
 
-- Core runtime 只有一个单值 `active_executor_id`，初始值为 Native。registry 可以注册多个 factory，但只有选中的 backend 创建 run 并接收任务；未选中的 backend 不启动新的 runtime。已启用且启动过的 Codex SDK runtime 可以保留为 idle，直到 Core shutdown 或 Codex 被禁用。
-- 该单值归 Core runtime 的全局配置所有，不放在每个平台 bot 的独立配置快照里；所有 bot 的 Core 委派都使用同一个活动内核。建议配置语义为 `core_execution.active_executor_id`，具体 schema 位置要在配置字段清点后确定。
-- 新执行在 Core 准入时读取一次 active id，并把它固定到 execution identity/diagnostics；一项执行从开始到终态只属于这一个 executor。禁止 provider fallback 和多 backend fan-out。
-- 切换请求先进入 draining：不再向旧 backend 接纳新 Core run，已有 run 由原 Head 完成或按明确的 Core cancel 结束。全部旧 run 清理后，原子更新 active id 并接纳新 run；已启用的持久 runtime 可以继续 idle，不等于仍有资格处理任务。
+- 默认值存于 `data/cmd_config.json` 的 `core_executor.active_executor_id`，初始为 Native；该字段只在系统设置页展示和修改，不作为 profile 配置项。它是 `inherit` profile 的回退值，不代表全进程只能运行一种 backend。
+- 每个 profile 的 `core_execution.executor_id` 支持 `inherit`、`native`、`codex_cli`。新建 profile 默认为 `inherit`；已有 profile 的 `native`/`codex_cli` 保留为明确覆盖。Codex profile 的 Provider id 继续保存在对应 profile 的 `core_execution.codex_cli.provider_id`。
+- 新执行在准入时读取一次冻结的 profile snapshot 和系统默认值，把解析出的 executor id 固定到 execution identity/diagnostics；一项执行从开始到终态只属于这一个 executor。禁止该 turn 同时调用多个 backend，也不在失败时回退到另一个 backend。
+- profile 覆盖变化只影响之后的 turn，已运行的 turn 不迁移、不重解释。系统默认值通过系统设置保存并重启 Core 生效；不因此要求跨 backend drain profile 覆盖的正在运行任务。
+- Native 和 Codex profile 可以同时有新 run。Codex SDK runtime 和 thread registry 仍由 Core 全局持有；Codex 当前跨 session turn 槽位保持串行，直到真实 SDK 并发通过 Windows smoke。Native 与 Codex 的不同 profile 可并行工作。
 - 切换不会把旧 backend transcript/thread 内容导入新 backend。新 backend 使用当轮由 AstrBot 构造的 context/memory snapshot。AstrBot 的 memory 更新流程保持现有 owner 和时序，不等待或依赖 backend 私有记忆同步。
 - 同一 backend 下是否恢复自己的私有 thread 是独立配置/产品能力。切回某 backend 可以从其自己的 thread 继续，也可以新建 thread；两种方式都必须以当前 AstrBot context 为准，不能假定它包含全量用户记忆。
-- 当前按 bot 配置快照选择 executor 的实现与全局 active selector 不兼容。实施时统一选择来源；明确设置的全局值优先。全局值为空且旧 bot 配置彼此冲突时记录告警，并将 Native 持久化为唯一全局选择；旧配置一致时沿用原值完成迁移。无效或不支持的配置值仍报错。
+- 旧 profile executor 值迁移为 profile 覆盖并保留；缺失值迁移为 `inherit`。全局 `active_executor_id` 仅作为默认值，profile 之间的选择冲突是合法状态，不得再因不同 profile 选择不同 backend 而启动失败。无效或不支持的值仍报错。
 
 ### 6.2 会话身份
 
@@ -263,13 +266,13 @@ Final result 仍只有一个 `ExecutionFinalUpdate`，经 Personal Core-final �
 
 1. 重新核对 R1-R7 和 C1-C6 哪些已在当前源码完成，哪些只是文档历史，不重复实现已完成项。
 2. 将普通 Interaction 的 Native 主路径接入同一 Core coordinator/Head 运行和唯一终态管理。
-3. 将 selector 收敛为 Core runtime 全局单值配置，默认 Native；全局值为空时迁移一致的旧 per-bot executor 值，旧值冲突则告警并持久化 Native，不得让不同 bot 同时选中不同内核。
-4. 实现切换状态：停止旧内核的新 run 准入，等现有 run 按原 Head 完成或取消并清理后再切换；切换窗口按既有交互策略拒绝/延后 Core 委派，不迁移 in-flight run，也不增加无界队列。
+3. 将系统默认 Native 放入系统设置；profile executor 允许 `inherit`/Native/Codex。保留每个 profile 的既有 Native/Codex 选择，不因 profile 之间配置不同而失败。
+4. profile 配置变化只作用于后续新 turn；进行中的任务继续使用准入时冻结的 executor 和配置快照，不迁移，也不增加第二套队列。
 5. 让 Native 保留必要的 Provider Hook、工具执行、流式文本/动作/音频投影；只合并执行身份、取消、deadline、终态、清理和结果归属，不强迫所有 Body 用同一输出形式。
 6. 外部执行路径不得先创建闲置 Native Runner；Native Provider 没配置时 Codex Core 路径仍可使用。
 7. OLV 现有协议与可见响应不变。
 
-退出条件：普通交互与 Cron/主动任务共用 Core 执行生命周期；任一时刻只有一个全局 backend 接收新 run；切换前旧 run 已结算和清理；Codex SDK 可在切出后保持 idle；Native 与 Codex 选择均不复制 Head 终态、deadline 或结果结算逻辑；既有 Native OLV 行为通过回归验收。
+退出条件：普通交互与 Cron/主动任务共用 Core 执行生命周期；每个 run 只选择一个 backend，profile 配置快照决定该 run 的选择；系统默认只服务 `inherit` profile；Codex SDK 可由多个 profile 共用 Core-owned runtime；Native 与 Codex 选择均不复制 Head 终态、deadline 或结果结算逻辑；既有 Native OLV 行为通过回归验收。
 
 ### S2：Core-owned SDK runtime 和 Codex Adapter
 
@@ -318,10 +321,10 @@ Final result 仍只有一个 `ExecutionFinalUpdate`，经 Personal Core-final �
 
 复用并扩充 `execution-backend-acceptance-matrix.md`，覆盖：
 
-- 多个 backend 都已注册，但只有 Core-wide 配置指定的 `active_executor_id` 获得新 run；
-- Native -> Codex -> Native 切换；每次切换先 drain 旧 run，切换窗口没有新 backend run 与旧 backend run 并行；
-- 切换后新 backend 收到当前 AstrBot context/memory snapshot，不导入上一 backend 的 transcript/thread；
-- 两个 bot 使用同一个 Core-wide active backend；未设置全局值且旧 per-bot selector 冲突时，告警并持久化 Native，明确设置的全局值仍优先；
+- 多个 backend 都已注册；profile override 与继承系统默认的 profile 分别路由到期望 backend；
+- 两个 profile 的 Native 与 Codex turns 可以同时运行，每个 turn 只有一个 executor；Codex SDK 内部并发遵守当前 runtime turn 槽位限制；
+- profile 更换 backend 后，新 turn 收到当前 AstrBot context/memory snapshot，不导入上一 backend 的 transcript/thread；
+- 改变系统默认只影响之后选择 `inherit` 的 profile turns；显式 Native/Codex profile override 不受影响，进行中的 turns 保留其 admission snapshot；
 - Codex 配置和 Native Provider 缺失时，Core 仍只启动/使用 Codex SDK backend；
 - 同一 Codex backend 多轮同 thread（仅当启用 per-engine continuity），以及彼此隔离的 session；
 - Codex 任务进程重启后从 AstrBot context 重新执行；恢复 Codex 私有 thread 属于可选验收；
@@ -336,9 +339,9 @@ Final result 仍只有一个 `ExecutionFinalUpdate`，经 Personal Core-final �
 
 通过门槛：
 
-1. Core runtime 的 active selector 始终只有一个值；每个 run 只有一个 executor id，且只有 selector 指向的 backend 接收新 run。
-2. backend 切换后，没有旧 backend 活动 run；未选中的 backend 可保持 idle runtime，但不能收到任务。切换窗口的准入行为可观察且有界。
-3. 由 AstrBot 管理的记忆/上下文在切换前后保持唯一 canonical owner；不要求跨 backend 复制 thread/transcript。
+1. Core system default 始终只有一个值；每个 profile snapshot 解析出一个 executor id，每个 run 只由该 executor 处理。
+2. 不同 profile 可以分别选择 Native 与 Codex；`inherit` 使用系统默认，显式 override 不受系统默认变化影响。
+3. 由 AstrBot 管理的记忆/上下文在 profile 更换 backend 前后保持唯一 canonical owner；不要求跨 backend 复制 thread/transcript。
 4. Codex SDK runtime 第一次启动后，在其启用周期跨 turn 和 selector 切换复用，不因每个 turn 或每次切换反复创建。
 5. 同一个 Core Head 只有一个终态，成功结果只交付一次。
 6. SDK/runtime 失败不会静默切换 Native 或 raw app-server。
@@ -353,12 +356,11 @@ S5 完成后，仅在 SDK 准入通过、真实验收通过、代码审阅无未
 以下决策不得由 Adapter 临时猜测：
 
 1. 锁定使用哪个 `openai-codex` 稳定版本，以及该版本的公开 async streaming、interrupt API 是否通过 Windows 准入；resume API 仅在启用同内核 continuity 时纳入准入。
-2. 全局 active selector 的配置 schema 位置，以及旧 per-bot selector 的迁移/冲突处理。
-3. 切换 draining 时，新 Core 委派按哪一个现有交互策略等待或明确拒绝。
-4. 是否需要 Codex 内部 thread 跨 turn/重启连续性；它不影响跨内核切换能力。
-5. `approval_policy: never`、现有 sandbox 配置与 SDK approval/sandbox 类型的确定映射。
-6. progress 的用户可见策略：允许哪些阶段，多久合并一次，以及是否在平台不支持编辑消息时发送独立短状态。
-7. 是否将 Codex Desktop 历史 thread 的只读/恢复作为下一阶段。它不影响首期 Core-owned thread 交付。
+2. 不同 profile 的 Codex turn 是否可在未来解除当前 runtime 全局串行限制；在 Windows 并发 smoke 通过前维持串行。
+3. 是否需要 Codex 内部 thread 跨 turn/重启连续性；它不影响跨内核切换能力。
+4. `approval_policy: never`、现有 sandbox 配置与 SDK approval/sandbox 类型的确定映射。
+5. progress 的用户可见策略：允许哪些阶段，多久合并一次，以及是否在平台不支持编辑消息时发送独立短状态。
+6. 是否将 Codex Desktop 历史 thread 的只读/恢复作为下一阶段。它不影响首期 Core-owned thread 交付。
 
 ## 11. 官方资料
 

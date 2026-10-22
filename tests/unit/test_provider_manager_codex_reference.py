@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -18,20 +19,24 @@ class _Config(dict):
         "profile_executor_id",
         "delete_by_source",
         "change_type",
+        "is_referenced",
     ),
     [
-        ("codex_cli", "native", False, False),
-        ("codex_cli", "native", True, False),
-        ("native", "codex_cli", False, False),
-        ("codex_cli", "native", False, True),
+        ("codex_cli", "native", False, False, False),
+        ("codex_cli", "native", True, False, False),
+        ("codex_cli", "native", False, True, False),
+        ("codex_cli", "inherit", False, False, True),
+        ("native", "codex_cli", False, False, True),
+        ("native", "inherit", False, False, False),
     ],
 )
 @pytest.mark.asyncio
-async def test_mutating_referenced_codex_provider_is_rejected(
+async def test_codex_provider_mutation_uses_effective_profile_executor(
     active_executor_id,
     profile_executor_id,
     delete_by_source,
     change_type,
+    is_referenced,
 ):
     provider = {
         "id": "codex-main",
@@ -49,7 +54,7 @@ async def test_mutating_referenced_codex_provider_is_rejected(
             "default": {
                 "core_execution": {
                     "executor_id": profile_executor_id,
-                    "codex_cli": {"provider_id": "codex-main"},
+                    "codex_cli": {"provider_id": " codex-main "},
                 }
             }
         },
@@ -57,8 +62,11 @@ async def test_mutating_referenced_codex_provider_is_rejected(
     manager.resource_lock = asyncio.Lock()
     manager.providers_config = [provider]
     manager.get_provider_config_by_id = lambda _provider_id, merged=False: provider
+    manager.terminate_provider = AsyncMock()
+    manager.reload = AsyncMock()
+    manager._refresh_resource_registry = lambda: None
 
-    with pytest.raises(ValueError, match="Codex CLI Core executor is referenced"):
+    async def mutate_provider():
         if change_type:
             await manager.update_provider(
                 "codex-main",
@@ -69,4 +77,13 @@ async def test_mutating_referenced_codex_provider_is_rejected(
         else:
             await manager.delete_provider(provider_id="codex-main")
 
-    assert default_config["provider"] == [provider]
+    if is_referenced:
+        with pytest.raises(ValueError, match="Codex CLI Core executor is referenced"):
+            await mutate_provider()
+        assert default_config["provider"] == [provider]
+    else:
+        await mutate_provider()
+        if change_type:
+            assert default_config["provider"][0]["type"] == "chat_completion"
+        else:
+            assert default_config["provider"] == []

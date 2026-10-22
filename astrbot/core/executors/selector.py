@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 
-from astrbot.core import logger
 from astrbot.core.config.execution import (
     CORE_EXECUTOR_CODEX_CLI_ID,
     CORE_EXECUTOR_NATIVE_ID,
@@ -115,7 +114,7 @@ class CoreExecutorLease:
 
 
 class CoreExecutorSelector:
-    """Own one active executor id and block switching until old runs drain."""
+    """Own the system default and leases for runs across supported executors."""
 
     def __init__(
         self,
@@ -123,7 +122,7 @@ class CoreExecutorSelector:
         *,
         persist_active_executor: Callable[[str], None] | None = None,
     ) -> None:
-        self._active_executor_id = _normalize_executor_id(active_executor_id)
+        self._default_executor_id = _normalize_executor_id(active_executor_id)
         self._persist_active_executor = persist_active_executor
         self._lock = asyncio.Lock()
         self._leases: set[CoreExecutorLease] = set()
@@ -133,7 +132,13 @@ class CoreExecutorSelector:
 
     @property
     def active_executor_id(self) -> str:
-        return self._active_executor_id
+        """Compatibility alias for the system default executor."""
+
+        return self._default_executor_id
+
+    @property
+    def default_executor_id(self) -> str:
+        return self._default_executor_id
 
     @property
     def switching(self) -> bool:
@@ -149,18 +154,15 @@ class CoreExecutorSelector:
         *,
         stop_preparation: Callable[[], None] | None = None,
     ) -> CoreExecutorLease:
-        """Admit a run only for the current backend and outside a switch."""
+        """Admit a run for either supported backend outside a default switch."""
 
         normalized = _normalize_executor_id(executor_id)
+        if normalized not in _SUPPORTED_EXECUTORS:
+            raise ValueError(f"unsupported Core executor: {normalized}")
         async with self._lock:
             if self._switching:
                 raise CoreExecutorSwitchInProgress(
                     "Core executor is switching; new execution is temporarily rejected"
-                )
-            if normalized != self._active_executor_id:
-                raise CoreExecutorSelectorError(
-                    "requested executor is not active: "
-                    f"requested={normalized} active={self._active_executor_id}"
                 )
             lease = CoreExecutorLease(
                 self,
@@ -177,7 +179,7 @@ class CoreExecutorSelector:
         *,
         timeout_seconds: float = 30.0,
     ) -> None:
-        """Stop admission, request old runs to stop, drain, then persist and swap."""
+        """Change the system default after draining admitted Core runs."""
 
         target = _normalize_executor_id(executor_id)
         timeout = _positive_timeout(timeout_seconds)
@@ -189,7 +191,7 @@ class CoreExecutorSelector:
                 raise CoreExecutorSwitchInProgress(
                     "another Core executor switch is already in progress"
                 )
-            if target == self._active_executor_id:
+            if target == self._default_executor_id:
                 return
             self._switching = True
             leases = tuple(self._leases)
@@ -203,7 +205,7 @@ class CoreExecutorSelector:
                 except TimeoutError as exc:
                     raise CoreExecutorDrainTimeout(
                         "Core executor switch timed out waiting for old runs to clean up: "
-                        f"active_executor={self._active_executor_id} "
+                        f"default_executor={self._default_executor_id} "
                         f"active_run_count={self.active_run_count}"
                     ) from exc
 
@@ -214,7 +216,7 @@ class CoreExecutorSelector:
                     )
                 if self._persist_active_executor is not None:
                     self._persist_active_executor(target)
-                self._active_executor_id = target
+                self._default_executor_id = target
         finally:
             async with self._lock:
                 self._switching = False
@@ -227,7 +229,7 @@ class CoreExecutorSelector:
 
 
 def build_core_executor_selector(config_manager: Any) -> CoreExecutorSelector:
-    """Prefer the global choice; use Native for ambiguous legacy profiles."""
+    """Build the system default executor; profile overrides are resolved per run."""
 
     default_config = config_manager.default_conf
     section = default_config.get("core_executor")
@@ -241,33 +243,7 @@ def build_core_executor_selector(config_manager: Any) -> CoreExecutorSelector:
         if active not in _SUPPORTED_EXECUTORS:
             raise ValueError(f"unsupported core_executor.active_executor_id: {active}")
     else:
-        profiles = getattr(config_manager, "confs", {"default": default_config})
-        legacy_choices: dict[str, str] = {}
-        for profile_id, config in profiles.items():
-            core_execution = config.get("core_execution", {})
-            if not isinstance(core_execution, Mapping):
-                raise ValueError(
-                    f"configuration {profile_id!r} has an invalid core_execution section"
-                )
-            choice = _normalize_executor_id(
-                core_execution.get("executor_id", CORE_EXECUTOR_NATIVE_ID)
-            )
-            if choice not in _SUPPORTED_EXECUTORS:
-                raise ValueError(
-                    f"configuration {profile_id!r} selects unsupported executor {choice!r}"
-                )
-            legacy_choices[str(profile_id)] = choice
-
-        distinct = set(legacy_choices.values())
-        if len(distinct) > 1:
-            logger.warning(
-                "Legacy Core executor profiles conflict; selecting Native as the "
-                "global default. Set core_executor.active_executor_id explicitly "
-                "to select another backend."
-            )
-            active = CORE_EXECUTOR_NATIVE_ID
-        else:
-            active = next(iter(distinct), CORE_EXECUTOR_NATIVE_ID)
+        active = CORE_EXECUTOR_NATIVE_ID
         section["active_executor_id"] = active
         save_config = getattr(default_config, "save_config", None)
         if callable(save_config):

@@ -289,11 +289,23 @@ class AstrBotConfigManager:
         """Load all configurations from the shared preferences."""
         abconf_data = self._get_abconf_data()
         self.abconf_data = abconf_data
+        profile_default = deepcopy(DEFAULT_CONFIG)
+        profile_default.pop("core_executor", None)
         for uuid_, meta in abconf_data.items():
             filename = meta["path"]
             conf_path = os.path.join(get_astrbot_config_path(), filename)
             if os.path.exists(conf_path):
-                conf = AstrBotConfig(config_path=conf_path)
+                conf = AstrBotConfig(
+                    config_path=conf_path,
+                    default_config=profile_default,
+                )
+                if "core_executor" in conf:
+                    conf.pop("core_executor", None)
+                    conf.save_config()
+                    logger.info(
+                        "Removed system-only Core executor setting from profile: %s",
+                        uuid_,
+                    )
                 self.confs[uuid_] = conf
             else:
                 logger.warning(
@@ -454,7 +466,9 @@ class AstrBotConfigManager:
         conf_uuid = str(uuid.uuid4())
         conf_file_name = f"abconf_{conf_uuid}.json"
         conf_path = os.path.join(get_astrbot_config_path(), conf_file_name)
-        conf = AstrBotConfig(config_path=conf_path, default_config=config)
+        profile_config = deepcopy(config)
+        profile_config.pop("core_executor", None)
+        conf = AstrBotConfig(config_path=conf_path, default_config=profile_config)
         conf.save_config()
         self._save_conf_mapping(conf_file_name, conf_uuid, abconf_name=name)
         self.confs[conf_uuid] = conf

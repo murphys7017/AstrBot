@@ -743,19 +743,21 @@
       "core_execution": {
         "codex_cli": {
           "provider_id": {
-            "description": "Codex CLI 执行体提供商 ID"
+            "description": "Codex CLI 执行体提供商 ID",
+            "hint": "此配置文件选择 Codex 或继承系统默认且系统默认是 Codex 时使用。"
           }
         },
         "executor_id": {
-          "description": "执行体",
+          "description": "执行内核",
           "labels": [
+            "继承系统默认",
             "AstrBot 内置 Core",
-            "Codex CLI"
+            "Codex SDK"
           ]
         }
       },
-      "description": "Core 内部执行体",
-      "hint": "仅决定 Personal 委派后的 Core 执行体。它不替代普通对话的 Agent Runner。"
+      "description": "Core 执行内核",
+      "hint": "此配置文件可继承系统默认内核，也可单独选择 Native 或 Codex。每轮任务只交给一个内核。"
     }
   },
   "platform_group": {
@@ -2238,6 +2240,10 @@
     "name": "系统配置",
     "system": {
       "description": "系统配置",
+      "core_executor.active_executor_id": {
+        "description": "系统默认 Core 内核",
+        "hint": "配置文件选择“继承系统默认”时使用此内核。单个配置文件可覆盖此选择。修改后重启 Core 生效。"
+      },
       "log_level": {
         "description": "控制台日志级别",
         "hint": "控制台输出日志的级别。"

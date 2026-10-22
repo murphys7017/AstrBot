@@ -90,29 +90,47 @@ def test_core_executor_selection_is_independent_from_agent_runner():
     assert selected.executor_id == "native"
 
 
-def test_core_wide_executor_selection_overrides_legacy_profile_executor():
-    config = {
+def test_profile_executor_overrides_system_default_and_can_inherit_it():
+    native_config = {
         "core_execution": {
             "executor_id": "native",
             "codex_cli": {"provider_id": "codex-main"},
         }
     }
     native = resolve_core_executor_selection(
-        config,
-        provider_manager=None,
-        execution_source="interaction",
-        active_executor_id="native",
-    )
-    codex = resolve_core_executor_selection(
-        config,
+        native_config,
         provider_manager=_ProviderManager({"id": "codex-main", "enable": True}),
         execution_source="interaction",
-        active_executor_id="codex_cli",
+        default_executor_id="codex_cli",
+    )
+    codex_config = {
+        "core_execution": {
+            "executor_id": "codex_cli",
+            "codex_cli": {"provider_id": "codex-main"},
+        }
+    }
+    codex = resolve_core_executor_selection(
+        codex_config,
+        provider_manager=_ProviderManager({"id": "codex-main", "enable": True}),
+        execution_source="interaction",
+        default_executor_id="native",
+    )
+    inherited_codex = resolve_core_executor_selection(
+        {
+            "core_execution": {
+                "executor_id": "inherit",
+                "codex_cli": {"provider_id": "codex-main"},
+            }
+        },
+        provider_manager=_ProviderManager({"id": "codex-main", "enable": True}),
+        execution_source="interaction",
+        default_executor_id="codex_cli",
     )
 
     assert native.executor_id == "native"
     assert codex.executor_id == "codex_cli"
     assert codex.instance_id == "codex-main"
+    assert inherited_codex.executor_id == "codex_cli"
 
 
 def test_executor_factory_registry_rejects_duplicate_ids():

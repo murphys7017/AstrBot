@@ -3110,3 +3110,37 @@ prompt_system_audit_second_batch_20261020:
     desktop playback or restart. Remaining AG99live changes are the empty
     AstrBot schema migration and formatting-only ASR/protocol changes; existing
     settings preservation and custom-panel persistence paths were inspected.
+
+core_executor_profile_routing_20261022:
+  class: feature
+  risk: high
+  status: dashboard_validated_pending_live_acceptance
+  decision: >-
+    Keep Native as the system-wide default in System Settings; each profile can
+    inherit that default or override with Native/Codex. Every turn selects one
+    backend from its frozen profile snapshot. Different profiles may use
+    different backends concurrently. Core continues to own the shared Codex SDK
+    runtime and per-profile thread/session registry.
+  scope: >-
+    Resolve profile executor overrides with the global default fallback, admit
+    either supported executor, preserve existing profile overrides including the
+    default profile across reloads, and split system-default
+    versus profile-override settings metadata. Keep the global default visible
+    and editable only in System Settings; strip it from profile reads and saves.
+    Resolve Codex provider deletion protection against each profile's effective
+    executor so explicit overrides take precedence over the global default.
+  validation: >-
+    13 selector/registry tests and 6 config loading/metadata tests passed.
+    Saved local configuration smoke routed the default profile to Native and
+    the existing Codex and Native profiles to their respective executors. Ruff,
+    Python compilation, locale/config JSON parsing, and git diff checks passed.
+    Five Dashboard config boundary tests and three config-manager tests passed;
+    six ProviderManager reference-guard cases passed; Dashboard vue-tsc --noEmit
+    passed. Review retained explicit default-profile overrides across reloads
+    and normalized Codex provider references. Expanded config/provider regression
+    reported 83 passed and two failures at unchanged HEAD boundaries: missing
+    interaction translation entries and memory storage defaults.
+  evidence_gap: >-
+    No AstrBot restart, authenticated SDK turn/interrupt, cross-profile live
+    turn, or OLV/Live/Live2D acceptance. Pre-existing AG99live and upstream-
+    intake worktree edits were left untouched.

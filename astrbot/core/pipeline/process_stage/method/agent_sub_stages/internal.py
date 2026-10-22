@@ -243,8 +243,8 @@ class InternalAgentSubStage(Stage):
                 runtime_config if isinstance(runtime_config, Mapping) else {},
                 provider_manager=self.ctx.plugin_manager.context.provider_manager,
                 execution_source="interaction",
-                active_executor_id=(
-                    core_executor_selector.active_executor_id
+                default_executor_id=(
+                    core_executor_selector.default_executor_id
                     if core_executor_selector is not None
                     else None
                 ),

@@ -15,6 +15,7 @@ AGENT_RUNNER_LOCAL_MODE = "local"
 AGENT_RUNNER_EXTERNAL_MODES = frozenset({"dify", "coze", "dashscope", "deerflow"})
 CORE_EXECUTOR_NATIVE_ID = "native"
 CORE_EXECUTOR_CODEX_CLI_ID = "codex_cli"
+CORE_EXECUTOR_INHERIT_ID = "inherit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,13 +57,24 @@ def resolve_agent_runner_configuration(
 
 def resolve_core_execution_configuration(
     config_snapshot: Mapping[str, Any],
+    *,
+    default_executor_id: str = CORE_EXECUTOR_NATIVE_ID,
 ) -> CoreExecutionConfiguration:
-    """Read the Profile-owned Core Body selection."""
+    """Resolve the profile override, falling back to the system default."""
 
     section = _require_mapping(config_snapshot, "core_execution")
+    raw_executor_id = section.get("executor_id", CORE_EXECUTOR_INHERIT_ID)
+    if not isinstance(raw_executor_id, str):
+        raise ValueError("core_execution.executor_id must be a string")
+    configured_executor_id = raw_executor_id.strip().lower()
+    inherits_default = configured_executor_id in {"", CORE_EXECUTOR_INHERIT_ID}
+    field_name = "default_executor_id" if inherits_default else "core_execution.executor_id"
     executor_id = _normalize_identifier(
-        section.get("executor_id"), "core_execution.executor_id"
+        default_executor_id if inherits_default else configured_executor_id,
+        field_name,
     )
+    if executor_id not in {CORE_EXECUTOR_NATIVE_ID, CORE_EXECUTOR_CODEX_CLI_ID}:
+        raise ValueError(f"unknown {field_name}: {executor_id}")
     if executor_id == CORE_EXECUTOR_NATIVE_ID:
         return CoreExecutionConfiguration(executor_id=executor_id, provider_id=None)
     if executor_id != CORE_EXECUTOR_CODEX_CLI_ID:
@@ -101,6 +113,7 @@ __all__ = [
     "AGENT_RUNNER_EXTERNAL_MODES",
     "AGENT_RUNNER_LOCAL_MODE",
     "CORE_EXECUTOR_CODEX_CLI_ID",
+    "CORE_EXECUTOR_INHERIT_ID",
     "CORE_EXECUTOR_NATIVE_ID",
     "AgentRunnerConfiguration",
     "CoreExecutionConfiguration",

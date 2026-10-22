@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+import astrbot.core.config.astrbot_config as astrbot_config_module
 from astrbot.core.config.astrbot_config import AstrBotConfig, RateLimitStrategy
 from astrbot.core.config.default import (
     CONFIG_METADATA_3,
+    CONFIG_METADATA_3_SYSTEM,
     DEFAULT_CONFIG,
     DEFAULT_VALUE_MAP,
 )
@@ -116,6 +118,34 @@ class TestAstrBotConfigLoad:
         assert config.platform_settings["unique_session"] is True
         assert config.provider_settings["enable"] is False
 
+    @pytest.mark.parametrize("executor_id", ["native", "codex_cli", "inherit"])
+    def test_default_profile_preserves_executor_override_after_reload(
+        self, temp_config_path, minimal_default_config, monkeypatch, executor_id
+    ):
+        monkeypatch.setattr(
+            astrbot_config_module, "ASTRBOT_CONFIG_PATH", temp_config_path
+        )
+        existing_config = {
+            "config_version": 2,
+            "provider_settings": {"enable": True},
+            "core_executor": {"active_executor_id": "codex_cli"},
+            "core_execution": {"executor_id": executor_id},
+        }
+        with open(temp_config_path, "w", encoding="utf-8-sig") as f:
+            json.dump(existing_config, f)
+
+        config = AstrBotConfig(
+            config_path=temp_config_path, default_config=minimal_default_config
+        )
+
+        assert config["core_execution"]["executor_id"] == executor_id
+
+        config.save_config()
+        reloaded_config = AstrBotConfig(
+            config_path=temp_config_path, default_config=minimal_default_config
+        )
+        assert reloaded_config["core_execution"]["executor_id"] == executor_id
+
     def test_load_migrates_legacy_codex_runner_to_core_execution(
         self, temp_config_path, minimal_default_config
     ):
@@ -171,11 +201,19 @@ class TestAstrBotConfigLoad:
 
         assert config["agent_runner"] == {"mode": "dify", "provider_id": "dify-main"}
         assert config["core_execution"] == {
-            "executor_id": "native",
+            "executor_id": "inherit",
             "codex_cli": {"provider_id": ""},
         }
         assert "agent_runner_type" not in config["provider_settings"]
         assert "dify_agent_runner_provider_id" not in config["provider_settings"]
+
+    def test_core_executor_default_is_system_scoped_and_profiles_inherit(self):
+        assert DEFAULT_CONFIG["core_execution"]["executor_id"] == "inherit"
+        assert "core_executor" not in CONFIG_METADATA_3["ai_group"]["metadata"]
+        assert (
+            "core_executor.active_executor_id"
+            in CONFIG_METADATA_3_SYSTEM["system_group"]["metadata"]["system"]["items"]
+        )
 
     def test_load_removes_retired_context_compression_turn_count(
         self, temp_config_path, minimal_default_config
@@ -1614,12 +1652,14 @@ class TestConfigRouteMemoryReload:
             "provider_sources": ["client-value"],
             "provider": ["client-value"],
             "platform": ["client-value"],
+            "core_executor": {"active_executor_id": "native"},
             "timezone": "UTC",
         }
         current_config = {
             "provider_sources": ["current-source"],
             "provider": ["current-provider"],
             "platform": ["current-platform"],
+            "core_executor": {"active_executor_id": "codex_cli"},
         }
 
         preserve_server_managed_config_keys(post_config, current_config)
@@ -1628,8 +1668,39 @@ class TestConfigRouteMemoryReload:
             "provider_sources": ["current-source"],
             "provider": ["current-provider"],
             "platform": ["current-platform"],
+            "core_executor": {"active_executor_id": "codex_cli"},
             "timezone": "UTC",
         }
+
+    @pytest.mark.asyncio
+    async def test_get_profile_hides_system_executor_but_system_config_exposes_it(self):
+        route = object.__new__(ConfigRoute)
+        stored_config = {
+            "core_executor": {"active_executor_id": "native"},
+            "core_execution": {"executor_id": "inherit"},
+        }
+        route.acm = SimpleNamespace(confs={"default": stored_config})
+
+        with patch(
+            "astrbot.dashboard.routes.config.request",
+            new=SimpleNamespace(args={"id": "default"}),
+        ):
+            profile_response = await route.get_abconf()
+
+        assert profile_response["status"] == "ok"
+        assert "core_executor" not in profile_response["data"]["config"]
+        assert "core_executor" in stored_config
+
+        with patch(
+            "astrbot.dashboard.routes.config.request",
+            new=SimpleNamespace(args={"system_config": "1"}),
+        ):
+            system_response = await route.get_abconf()
+
+        assert (
+            system_response["data"]["config"]["core_executor"]["active_executor_id"]
+            == "native"
+        )
 
     @pytest.mark.asyncio
     async def test_save_resets_memory_runtime_when_memory_config_changes(self):
@@ -1641,6 +1712,7 @@ class TestConfigRouteMemoryReload:
             "provider_sources": ["current-source"],
             "provider": ["current-provider"],
             "platform": ["current-platform"],
+            "core_executor": {"active_executor_id": "codex_cli"},
         }
         route.acm = SimpleNamespace(
             confs={
@@ -1663,6 +1735,7 @@ class TestConfigRouteMemoryReload:
             "provider_sources": ["client-value"],
             "provider": ["client-value"],
             "platform": ["client-value"],
+            "core_executor": {"active_executor_id": "native"},
         }
         route._save_astrbot_configs = AsyncMock()
 
@@ -1696,6 +1769,77 @@ class TestConfigRouteMemoryReload:
         assert saved_config["provider_sources"] == ["current-source"]
         assert saved_config["provider"] == ["current-provider"]
         assert saved_config["platform"] == ["current-platform"]
+        assert saved_config["core_executor"]["active_executor_id"] == "codex_cli"
+
+    @pytest.mark.asyncio
+    async def test_system_config_save_can_update_core_executor(self):
+        route = object.__new__(ConfigRoute)
+        route.acm = SimpleNamespace(
+            confs={"default": {"core_executor": {"active_executor_id": "native"}}}
+        )
+        route.core_lifecycle = SimpleNamespace(
+            reload_pipeline_scheduler=AsyncMock(),
+            reload_subagent_orchestrator_profile=AsyncMock(),
+        )
+        route._save_astrbot_configs = AsyncMock()
+
+        with (
+            patch(
+                "astrbot.dashboard.routes.config.request",
+                new=AwaitableJsonRequest(
+                    {
+                        "config": {
+                            "core_executor": {"active_executor_id": "codex_cli"}
+                        },
+                        "conf_id": "default",
+                        "system_config": True,
+                    }
+                ),
+            ),
+            patch(
+                "astrbot.dashboard.routes.config._validate_neo_connectivity",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            response = await route.post_astrbot_configs()
+
+        assert response["status"] == "ok"
+        saved_config = route._save_astrbot_configs.await_args.args[0]
+        assert saved_config["core_executor"]["active_executor_id"] == "codex_cli"
+
+    @pytest.mark.asyncio
+    async def test_profile_save_discards_system_executor_field(self):
+        route = object.__new__(ConfigRoute)
+        route.acm = SimpleNamespace(confs={"profile-1": {}})
+        route.core_lifecycle = SimpleNamespace(
+            reload_pipeline_scheduler=AsyncMock(),
+            reload_subagent_orchestrator_profile=AsyncMock(),
+        )
+        route._save_astrbot_configs = AsyncMock()
+
+        with (
+            patch(
+                "astrbot.dashboard.routes.config.request",
+                new=AwaitableJsonRequest(
+                    {
+                        "config": {
+                            "core_execution": {"executor_id": "native"},
+                            "core_executor": {"active_executor_id": "codex_cli"},
+                        },
+                        "conf_id": "profile-1",
+                    }
+                ),
+            ),
+            patch(
+                "astrbot.dashboard.routes.config._validate_neo_connectivity",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            response = await route.post_astrbot_configs()
+
+        assert response["status"] == "ok"
+        saved_config = route._save_astrbot_configs.await_args.args[0]
+        assert "core_executor" not in saved_config
 
     @pytest.mark.asyncio
     async def test_save_does_not_reset_memory_runtime_when_memory_config_unchanged(

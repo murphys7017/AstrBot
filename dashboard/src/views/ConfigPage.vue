@@ -604,6 +604,7 @@ export default {
 
       if (this.isSystemConfig) {
         postData.conf_id = 'default';
+        postData.system_config = true;
       } else {
         postData.conf_id = this.selectedConfigID;
       }

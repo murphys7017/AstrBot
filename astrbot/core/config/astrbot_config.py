@@ -338,7 +338,7 @@ def _migrate_execution_configuration(config: dict) -> bool:
 
     if "executor_id" not in core_execution:
         core_execution["executor_id"] = (
-            "codex_cli" if normalized_legacy_mode == "codex_cli" else "native"
+            "codex_cli" if normalized_legacy_mode == "codex_cli" else "inherit"
         )
         changed = True
     codex_cli = core_execution.get("codex_cli")

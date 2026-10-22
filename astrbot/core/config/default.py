@@ -221,7 +221,7 @@ DEFAULT_CONFIG = {
         "provider_id": "",
     },
     "core_execution": {
-        "executor_id": "native",
+        "executor_id": "inherit",
         "codex_cli": {
             "provider_id": "",
         },
@@ -3335,31 +3335,24 @@ CONFIG_METADATA_3 = {
                 },
             },
             "core_execution": {
-                "description": "Codex SDK Provider",
-                "hint": "Codex 内核运行配置。活动内核由 Core 全局执行器设置决定。",
+                "description": "Core 执行内核",
+                "hint": "此配置文件可继承系统默认内核，也可单独选择 Native 或 Codex。每轮任务只交给一个内核。",
                 "type": "object",
                 "items": {
+                    "core_execution.executor_id": {
+                        "description": "执行内核",
+                        "type": "string",
+                        "options": ["inherit", "native", "codex_cli"],
+                        "labels": ["继承系统默认", "AstrBot 内置 Core", "Codex SDK"],
+                    },
                     "core_execution.codex_cli.provider_id": {
                         "description": "Codex CLI 执行体提供商 ID",
                         "type": "string",
                         "_special": "select_agent_runner_provider:codex_cli",
-                        "hint": "Codex 活动内核使用的 Provider。可在切换到 Codex 前预先配置。",
+                        "hint": "此配置文件使用 Codex 时使用的 Provider；即使选择继承系统默认，也需要在系统默认设为 Codex 时填写。",
                         "condition": {
                             "provider_settings.enable": True,
                         },
-                    },
-                },
-            },
-            "core_executor": {
-                "description": "Core 全局执行器",
-                "hint": "默认使用 AstrBot 内置 Core。只读取默认全局配置，对所有 bot 和配置实例生效。修改该值需重启 Core；运行时切换会先关闭旧内核准入并排空旧 run。",
-                "type": "object",
-                "items": {
-                    "core_executor.active_executor_id": {
-                        "description": "当前活动内核",
-                        "type": "string",
-                        "options": ["native", "codex_cli"],
-                        "labels": ["AstrBot 内置 Core", "Codex SDK"],
                     },
                 },
             },
@@ -5093,6 +5086,13 @@ CONFIG_METADATA_3_SYSTEM = {
                         "type": "string",
                         "hint": "此处的值由文转图模板管理页面进行维护。",
                         "invisible": True,
+                    },
+                    "core_executor.active_executor_id": {
+                        "description": "系统默认 Core 内核",
+                        "type": "string",
+                        "hint": "配置文件选择“继承系统默认”时使用此内核。单个配置文件可覆盖此选择。修改后重启 Core 生效。",
+                        "options": ["native", "codex_cli"],
+                        "labels": ["AstrBot 内置 Core", "Codex SDK"],
                     },
                     "log_level": {
                         "description": "控制台日志级别",

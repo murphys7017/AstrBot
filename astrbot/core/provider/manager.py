@@ -652,14 +652,23 @@ class ProviderManager:
             core_execution = config.get("core_execution", {})
             if not isinstance(core_execution, Mapping):
                 continue
+            configured_executor_id = str(
+                core_execution.get("executor_id") or ""
+            ).strip().lower()
+            effective_executor_id = (
+                global_executor_id
+                if configured_executor_id in {"", "inherit"}
+                else configured_executor_id
+            )
+            if effective_executor_id != "codex_cli":
+                continue
             codex_cli = core_execution.get("codex_cli", {})
+            configured_provider_id = (
+                codex_cli.get("provider_id") if isinstance(codex_cli, Mapping) else None
+            )
             if (
-                (
-                    global_executor_id == "codex_cli"
-                    or core_execution.get("executor_id") == "codex_cli"
-                )
-                and isinstance(codex_cli, Mapping)
-                and codex_cli.get("provider_id") == provider_id
+                isinstance(configured_provider_id, str)
+                and configured_provider_id.strip() == provider_id
             ):
                 references.append(config_id)
         if references:

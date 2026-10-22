@@ -28,18 +28,20 @@
     },
     "core_execution": {
       "description": "Core Body",
-      "hint": "Only chooses the Core Body after Personal delegates work. It does not replace the ordinary chat Agent Runner.",
+      "hint": "Each profile can inherit the system default or select Native or Codex. Each turn is handled by exactly one executor.",
       "core_execution": {
         "executor_id": {
-          "description": "Executor",
+          "description": "Core Executor",
           "labels": [
+            "Inherit System Default",
             "AstrBot Native Core",
-            "Codex CLI"
+            "Codex SDK"
           ]
         },
         "codex_cli": {
           "provider_id": {
-            "description": "Codex CLI Core Provider ID"
+            "description": "Codex CLI Core Provider ID",
+            "hint": "Used when this profile selects Codex or inherits a system default of Codex."
           }
         }
       }
@@ -1812,6 +1814,10 @@
     "name": "System",
     "system": {
       "description": "System Settings",
+      "core_executor.active_executor_id": {
+        "description": "Default Core Executor",
+        "hint": "Profiles set to Inherit System Default use this executor. Individual profiles can override it. Restart Core after changing this setting."
+      },
       "t2i_strategy": {
         "description": "Text-to-Image Strategy",
         "hint": "Text-to-image strategy. `remote` uses a remote HTML-based rendering service, `local` uses PIL for local rendering. When using local, place a TTF font named 'font.ttf' in the data/ directory to customize the font."

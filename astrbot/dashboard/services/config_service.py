@@ -352,13 +352,22 @@ def save_config(
 def preserve_server_managed_config_keys(
     post_config: dict,
     current_config: dict | None,
+    *,
+    allow_core_executor_update: bool = False,
 ) -> None:
     """Keep config sections that are managed by dedicated dashboard APIs."""
-    if current_config is None:
+    keys = ["provider_sources", "provider", "platform"]
+    if current_config is not None:
+        for key in keys:
+            if key in current_config:
+                post_config[key] = copy.deepcopy(current_config[key])
+
+    if allow_core_executor_update:
         return
-    for key in ("provider_sources", "provider", "platform"):
-        if key in current_config:
-            post_config[key] = copy.deepcopy(current_config[key])
+    if current_config is not None and "core_executor" in current_config:
+        post_config["core_executor"] = copy.deepcopy(current_config["core_executor"])
+    else:
+        post_config.pop("core_executor", None)
 
 
 class ConfigService(DashboardService):
@@ -673,9 +682,13 @@ class ConfigService(DashboardService):
             return Response().error(f"删除路由表项失败: {e!s}").__dict__
 
     async def get_default_config(self):
-        """获取默认配置文件"""
+        """Return the profile template without system-only settings."""
         metadata = ConfigMetadataI18n.convert_to_i18n_keys(CONFIG_METADATA_3)
-        return Response().ok({"config": DEFAULT_CONFIG, "metadata": metadata}).__dict__
+        profile_config = copy.deepcopy(DEFAULT_CONFIG)
+        profile_config.pop("core_executor", None)
+        return Response().ok(
+            {"config": profile_config, "metadata": metadata}
+        ).__dict__
 
     async def get_abconf_list(self):
         """获取所有 AstrBot 配置文件的列表"""
@@ -714,7 +727,8 @@ class ConfigService(DashboardService):
                 return Response().ok({"config": abconf, "metadata": metadata}).__dict__
             if abconf_id is None:
                 raise ValueError("abconf_id cannot be None")
-            abconf = self.acm.confs[abconf_id]
+            abconf = copy.deepcopy(self.acm.confs[abconf_id])
+            abconf.pop("core_executor", None)
             metadata = ConfigMetadataI18n.convert_to_i18n_keys(CONFIG_METADATA_3)
             return Response().ok({"config": abconf, "metadata": metadata}).__dict__
         except ValueError as e:
@@ -1163,6 +1177,7 @@ class ConfigService(DashboardService):
         data = await request.json
         config = data.get("config", None)
         conf_id = data.get("conf_id", None)
+        system_config = data.get("system_config") is True and conf_id == "default"
 
         try:
             old_memory_config = None
@@ -1176,7 +1191,10 @@ class ConfigService(DashboardService):
                 preserve_server_managed_config_keys(
                     config,
                     self.acm.confs.get(conf_id),
+                    allow_core_executor_update=system_config,
                 )
+            else:
+                config.pop("core_executor", None)
 
             await self._save_astrbot_configs(config, conf_id)
             if config.get("memory") != old_memory_config:
