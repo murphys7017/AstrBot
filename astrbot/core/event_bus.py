@@ -16,6 +16,7 @@ from asyncio import Queue
 from astrbot.core import logger
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
 from astrbot.core.pipeline.scheduler import PipelineScheduler
+from astrbot.core.platform.unique_session import apply_unique_session
 from astrbot.core.utils.error_redaction import redact_sensitive_text
 
 from .platform import AstrMessageEvent
@@ -47,6 +48,7 @@ class EventBus:
                 selection = self.astrbot_config_mgr.resolve_configuration_selection(
                     event.unified_msg_origin
                 )
+                apply_unique_session(event, selection.runtime_config)
                 # Import at the live boundary to keep configuration selection
                 # independent from Interaction module initialization.
                 from astrbot.core.interaction.turn_state import (

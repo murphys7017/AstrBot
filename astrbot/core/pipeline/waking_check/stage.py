@@ -1,5 +1,5 @@
 import time
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Mapping
 
 from astrbot import logger
 from astrbot.core.interaction.conversation_activity_source import (
@@ -26,7 +26,12 @@ from astrbot.core.interaction.turn_state import (
 from astrbot.core.message.components import At, AtAll, Reply
 from astrbot.core.message.message_event_result import MessageChain, MessageEventResult
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
-from astrbot.core.platform.message_type import MessageType
+from astrbot.core.platform.unique_session import (
+    UNIQUE_SESSION_ID_BUILDERS as UNIQUE_SESSION_ID_BUILDERS,
+)
+from astrbot.core.platform.unique_session import (
+    build_unique_session_id as build_unique_session_id,
+)
 from astrbot.core.plugin_admission import (
     CapabilityKind,
     build_plugin_admission_snapshot,
@@ -42,17 +47,6 @@ from astrbot.core.star.star_handler import EventType, star_handlers_registry
 from ..context import PipelineContext
 from ..stage import Stage, register_stage
 
-UNIQUE_SESSION_ID_BUILDERS: dict[str, Callable[[AstrMessageEvent], str | None]] = {
-    "aiocqhttp": lambda e: f"{e.get_sender_id()}_{e.get_group_id()}",
-    "slack": lambda e: f"{e.get_sender_id()}_{e.get_group_id()}",
-    "dingtalk": lambda e: e.get_sender_id(),
-    "qq_official": lambda e: f"{e.get_sender_id()}_{e.get_group_id()}",
-    "qq_official_webhook": lambda e: f"{e.get_sender_id()}_{e.get_group_id()}",
-    "lark": lambda e: f"{e.get_sender_id()}%{e.get_group_id()}",
-    "misskey": lambda e: f"{e.get_session_id()}_{e.get_sender_id()}",
-    "matrix": lambda e: f"{e.get_sender_id()}_{e.get_group_id() or e.get_session_id()}",
-}
-
 HANDLER_DISCOVERY_METRICS_EXTRA = "_interaction_handler_discovery_metrics"
 
 
@@ -60,12 +54,6 @@ def _handler_plugin_name(handler) -> str:
     owner_module_path = plugin_owner_module_path(handler.handler_module_path)
     metadata = star_map.get(owner_module_path) if owner_module_path else None
     return getattr(metadata, "name", None) or handler.handler_module_path
-
-
-def build_unique_session_id(event: AstrMessageEvent) -> str | None:
-    platform = event.get_platform_name()
-    builder = UNIQUE_SESSION_ID_BUILDERS.get(platform)
-    return builder(event) if builder else None
 
 
 async def discover_activated_handlers(
@@ -266,16 +254,6 @@ class WakingCheckStage(Stage):
         ignore_bot_self_message = platform_settings.get("ignore_bot_self_message", False)
         ignore_at_all = platform_settings.get("ignore_at_all", False)
         disable_builtin_commands = runtime_config.get("disable_builtin_commands", False)
-
-        # The route selection is intentionally frozen before unique-session
-        # normalization. The normalized session only affects runtime grouping.
-        if (
-            platform_settings.get("unique_session", False)
-            and event.message_obj.type == MessageType.GROUP_MESSAGE
-        ):
-            sid = build_unique_session_id(event)
-            if sid:
-                event.session_id = sid
 
         # ignore bot self message
         if (

@@ -2,11 +2,13 @@
 
 import asyncio
 from contextlib import suppress
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from astrbot.core.event_bus import EventBus
+from astrbot.core.platform.message_type import MessageType
 
 
 @pytest.fixture
@@ -100,6 +102,59 @@ class TestEventBusDispatch:
         mock_pipeline_scheduler.execute.assert_called_once_with(mock_event)
         mock_config_manager.get_conf_info.assert_called_once_with(
             "test-platform:group:123"
+        )
+
+    @pytest.mark.asyncio
+    async def test_dispatch_normalizes_unique_session_before_scheduling(
+        self,
+        event_queue,
+        mock_pipeline_scheduler,
+        mock_config_manager,
+    ):
+        completed = asyncio.Event()
+        event = MagicMock()
+        event.unified_msg_origin = "aiocqhttp:group:123"
+        event.get_platform_id.return_value = "aiocqhttp"
+        event.get_platform_name.return_value = "aiocqhttp"
+        event.get_sender_name.return_value = "TestUser"
+        event.get_sender_id.return_value = "user-456"
+        event.get_group_id.return_value = "group-123"
+        event.get_message_outline.return_value = "Hello"
+        event.message_obj.type = MessageType.GROUP_MESSAGE
+
+        mock_config_manager.resolve_configuration_selection.return_value = (
+            SimpleNamespace(
+                config_id="test-conf-id",
+                config_info={"name": "Test Config"},
+                runtime_config={"platform_settings": {"unique_session": True}},
+                runtime_selection=SimpleNamespace(
+                    adapter_binding_id="adapter",
+                    provider_references={},
+                ),
+            )
+        )
+
+        async def assert_normalized_session(received_event):
+            assert received_event.session_id == "user-456_group-123"
+            completed.set()
+
+        mock_pipeline_scheduler.execute.side_effect = assert_normalized_session
+        await event_queue.put(event)
+        event_bus = EventBus(
+            event_queue=event_queue,
+            pipeline_scheduler_mapping={"test-conf-id": mock_pipeline_scheduler},
+            astrbot_config_mgr=mock_config_manager,
+        )
+        task = asyncio.create_task(event_bus.dispatch())
+        try:
+            await asyncio.wait_for(completed.wait(), timeout=1.0)
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+        mock_config_manager.resolve_configuration_selection.assert_called_once_with(
+            "aiocqhttp:group:123"
         )
 
     @pytest.mark.asyncio
