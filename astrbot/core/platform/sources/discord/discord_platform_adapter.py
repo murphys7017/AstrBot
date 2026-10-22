@@ -9,7 +9,7 @@ from discord.channel import DMChannel
 
 from astrbot import logger
 from astrbot.api.event import MessageChain
-from astrbot.api.message_components import File, Image, Plain
+from astrbot.api.message_components import AtAll, File, Image, Plain
 from astrbot.api.platform import (
     AstrBotMessage,
     MessageMember,
@@ -247,6 +247,8 @@ class DiscordPlatformAdapter(Platform):
         message_chain = []
         if abm.message_str:
             message_chain.append(Plain(text=abm.message_str))
+        if getattr(message, "mention_everyone", False):
+            message_chain.append(AtAll())
         if message.attachments:
             for attachment in message.attachments:
                 if attachment.content_type and attachment.content_type.startswith(
