@@ -29,6 +29,14 @@ def test_list_skills_merges_local_and_sandbox_cache(monkeypatch, tmp_path: Path)
         lambda: str(data_dir),
     )
     monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+        lambda: str(skills_root),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+        lambda: str(skills_root / "plugins"),
+    )
+    monkeypatch.setattr(
         "astrbot.core.skills.skill_manager.get_astrbot_temp_path",
         lambda: str(temp_dir),
     )
@@ -61,6 +69,60 @@ def test_list_skills_merges_local_and_sandbox_cache(monkeypatch, tmp_path: Path)
     assert by_name["python-sandbox"].path == "/app/skills/python-sandbox/SKILL.md"
 
 
+def test_list_skills_skips_unreadable_local_and_plugin_directories(
+    monkeypatch,
+    tmp_path: Path,
+):
+    data_dir = tmp_path / "data"
+    skills_root = tmp_path / "skills"
+    plugins_root = tmp_path / "plugins"
+    data_dir.mkdir()
+    skills_root.mkdir()
+    plugins_root.mkdir()
+
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_data_path",
+        lambda: str(data_dir),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+        lambda: str(skills_root),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+        lambda: str(skills_root / "plugins"),
+    )
+
+    _write_skill(skills_root, "readable-local", "local skill")
+    unreadable_local = skills_root / "blocked-local"
+    unreadable_local.mkdir()
+
+    plugin_skills = plugins_root / "astrbot_plugin_demo" / "skills"
+    _write_skill(plugin_skills, "readable-plugin", "plugin skill")
+    unreadable_plugin = plugin_skills / "blocked-plugin"
+    unreadable_plugin.mkdir()
+
+    original_iterdir = Path.iterdir
+
+    def fail_for_selected_directories(path: Path):
+        if path in {unreadable_local, unreadable_plugin}:
+            raise PermissionError("directory is not readable")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", fail_for_selected_directories)
+    manager = SkillManager(
+        skills_root=str(skills_root),
+        plugins_root=str(plugins_root),
+    )
+
+    skills = manager.list_skills()
+
+    assert {(skill.name, skill.source_type) for skill in skills} == {
+        ("readable-local", "local_only"),
+        ("readable-plugin", "plugin"),
+    }
+
+
 def test_sandbox_cached_skill_respects_active_and_display_path(
     monkeypatch,
     tmp_path: Path,
@@ -79,6 +141,14 @@ def test_sandbox_cached_skill_respects_active_and_display_path(
     monkeypatch.setattr(
         "astrbot.core.skills.skill_manager.get_astrbot_temp_path",
         lambda: str(temp_dir),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+        lambda: str(skills_root),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+        lambda: str(skills_root / "plugins"),
     )
 
     mgr = SkillManager(skills_root=str(skills_root))
@@ -122,6 +192,14 @@ def test_sandbox_and_local_path_resolution_with_show_sandbox_path_false(
     monkeypatch.setattr(
         "astrbot.core.skills.skill_manager.get_astrbot_data_path",
         lambda: str(data_dir),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_skills_path",
+        lambda: str(skills_root),
+    )
+    monkeypatch.setattr(
+        "astrbot.core.skills.skill_manager.get_astrbot_plugin_path",
+        lambda: str(skills_root / "plugins"),
     )
     monkeypatch.setattr(
         "astrbot.core.skills.skill_manager.get_astrbot_temp_path",

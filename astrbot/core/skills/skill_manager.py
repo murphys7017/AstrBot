@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+from astrbot.core import logger
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_data_path,
     get_astrbot_plugin_path,
@@ -320,31 +321,45 @@ class SkillManager:
             return []
 
         result: list[tuple[str, str, Path]] = []
-        for plugin_dir in sorted(plugins_root.iterdir(), key=lambda item: item.name):
-            if not plugin_dir.is_dir():
-                continue
-            plugin_name = plugin_dir.name
-            skills_dir = plugin_dir / "skills"
-            if not skills_dir.is_dir():
+        try:
+            plugin_dirs = sorted(plugins_root.iterdir(), key=lambda item: item.name)
+        except OSError as exc:
+            logger.warning(f"Unable to scan plugin skills at {plugins_root}: {exc}")
+            return result
+
+        for plugin_dir in plugin_dirs:
+            try:
+                if not plugin_dir.is_dir():
+                    continue
+                plugin_name = plugin_dir.name
+                skills_dir = plugin_dir / "skills"
+                if not skills_dir.is_dir():
+                    continue
+                direct_skill_md = _normalize_skill_markdown_path(
+                    skills_dir,
+                    rename_legacy=False,
+                )
+                if direct_skill_md is not None and _SKILL_NAME_RE.match(plugin_name):
+                    result.append((plugin_name, plugin_name, skills_dir))
+                skill_dirs = sorted(skills_dir.iterdir(), key=lambda item: item.name)
+            except OSError as exc:
+                logger.warning(f"Unable to scan plugin skills in {plugin_dir}: {exc}")
                 continue
 
-            direct_skill_md = _normalize_skill_markdown_path(
-                skills_dir,
-                rename_legacy=False,
-            )
-            if direct_skill_md is not None and _SKILL_NAME_RE.match(plugin_name):
-                result.append((plugin_name, plugin_name, skills_dir))
-
-            for skill_dir in sorted(skills_dir.iterdir(), key=lambda item: item.name):
-                if not skill_dir.is_dir():
-                    continue
-                skill_name = skill_dir.name
-                if not _SKILL_NAME_RE.match(skill_name):
-                    continue
-                if (
-                    _normalize_skill_markdown_path(skill_dir, rename_legacy=False)
-                    is None
-                ):
+            for skill_dir in skill_dirs:
+                try:
+                    if not skill_dir.is_dir():
+                        continue
+                    skill_name = skill_dir.name
+                    if not _SKILL_NAME_RE.match(skill_name):
+                        continue
+                    if (
+                        _normalize_skill_markdown_path(skill_dir, rename_legacy=False)
+                        is None
+                    ):
+                        continue
+                except OSError as exc:
+                    logger.warning(f"Unable to scan plugin skill at {skill_dir}: {exc}")
                     continue
                 result.append((skill_name, plugin_name, skill_dir))
         return result
@@ -536,11 +551,21 @@ class SkillManager:
             sandbox_cached_descriptions[name] = str(item.get("description", "") or "")
             sandbox_cached_paths[name] = path
 
-        for entry in sorted(Path(self.skills_root).iterdir()):
-            if not entry.is_dir():
+        try:
+            local_skill_dirs = sorted(Path(self.skills_root).iterdir())
+        except OSError as exc:
+            logger.warning(f"Unable to scan local skills at {self.skills_root}: {exc}")
+            local_skill_dirs = []
+
+        for entry in local_skill_dirs:
+            try:
+                if not entry.is_dir():
+                    continue
+                skill_name = entry.name
+                skill_md = _normalize_skill_markdown_path(entry)
+            except OSError as exc:
+                logger.warning(f"Unable to scan local skill at {entry}: {exc}")
                 continue
-            skill_name = entry.name
-            skill_md = _normalize_skill_markdown_path(entry)
             if skill_md is None:
                 continue
             active = skill_configs.get(skill_name, {}).get("active", True)
