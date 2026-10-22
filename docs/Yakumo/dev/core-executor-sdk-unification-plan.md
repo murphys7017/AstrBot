@@ -9,7 +9,7 @@
 - 依赖已固定为 `openai-codex==0.163.0`，`uv.lock` 已包含 SDK 与匹配平台 runtime；隔离项目副本中的 `uv lock --check` 通过。
 - Windows SDK smoke 使用独立 `CODEX_HOME` 启动真实 `AsyncCodex`，成功创建两个不同 thread 并关闭 client；未运行已认证 turn。
 - SDK fake 边界覆盖共享 client、多 thread 隔离、跨 thread turn 串行等待、取消超时、启动取消清理，以及启动锁等待和 runtime 关闭均有界；启动晚于关闭请求时不会发布 client。真实 SDK 的跨 thread 并行仍关闭，须先通过 Windows 并发 smoke。
-- Core 全局 selector 已覆盖唯一活动内核、停止旧准入、等待 run/清理 task、超时保留旧内核和 legacy profile 冲突。
+- Core 全局 selector 已覆盖唯一活动内核、停止旧准入、等待 run/清理 task、超时保留旧内核和 legacy profile 冲突。默认活动内核为 Native；未设置全局值且旧 profile 冲突时，记录告警并持久化 Native。已明确设置的全局值始终优先；全局值为空且旧配置一致时保留原有迁移行为。
 - 普通 Interaction 与 Cron/主动任务都使用 Core-wide selector lease；Codex progress 只映射 allowlist 阶段，经 Output Controller 的 `core_progress` 路径呈现。
 - 当前窄回归：41 项执行器、selector、registry、桥接和 proactive 测试通过；4 项进度输出边界测试通过；相关 Ruff 检查和 `git diff --check` 通过。
 - 2026-10-22 复核追加：Codex session 5 项并发/关闭边界和 executor adapter 3 项测试通过；使用系统 Python 3.11，并在进程内禁用 Loguru 文件 sink 以避开 Windows IPC 权限限制。项目 Python 3.12 虚拟环境因 `_ssl` DLL 加载失败无法收集 pytest；改动文件在 Python 3.12 下编译通过，Ruff 和 `git diff --check` 通过。
@@ -171,7 +171,7 @@ SDK 对同一 Codex thread 的恢复能力只在明确启用“Codex 内核自�
 - 切换请求先进入 draining：不再向旧 backend 接纳新 Core run，已有 run 由原 Head 完成或按明确的 Core cancel 结束。全部旧 run 清理后，原子更新 active id 并接纳新 run；已启用的持久 runtime 可以继续 idle，不等于仍有资格处理任务。
 - 切换不会把旧 backend transcript/thread 内容导入新 backend。新 backend 使用当轮由 AstrBot 构造的 context/memory snapshot。AstrBot 的 memory 更新流程保持现有 owner 和时序，不等待或依赖 backend 私有记忆同步。
 - 同一 backend 下是否恢复自己的私有 thread 是独立配置/产品能力。切回某 backend 可以从其自己的 thread 继续，也可以新建 thread；两种方式都必须以当前 AstrBot context 为准，不能假定它包含全量用户记忆。
-- 当前按 bot 配置快照选择 executor 的实现与全局 active selector 不兼容。实施时统一选择来源；检测到旧 bot 配置值彼此冲突时必须报清楚并要求迁移，不能静默挑一个值。
+- 当前按 bot 配置快照选择 executor 的实现与全局 active selector 不兼容。实施时统一选择来源；明确设置的全局值优先。全局值为空且旧 bot 配置彼此冲突时记录告警，并将 Native 持久化为唯一全局选择；旧配置一致时沿用原值完成迁移。无效或不支持的配置值仍报错。
 
 ### 6.2 会话身份
 
@@ -263,7 +263,7 @@ Final result 仍只有一个 `ExecutionFinalUpdate`，经 Personal Core-final �
 
 1. 重新核对 R1-R7 和 C1-C6 哪些已在当前源码完成，哪些只是文档历史，不重复实现已完成项。
 2. 将普通 Interaction 的 Native 主路径接入同一 Core coordinator/Head 运行和唯一终态管理。
-3. 将 selector 收敛为 Core runtime 全局单值配置；旧的 per-bot executor 值迁移或冲突时报错，不得让不同 bot 同时选中不同内核。
+3. 将 selector 收敛为 Core runtime 全局单值配置，默认 Native；全局值为空时迁移一致的旧 per-bot executor 值，旧值冲突则告警并持久化 Native，不得让不同 bot 同时选中不同内核。
 4. 实现切换状态：停止旧内核的新 run 准入，等现有 run 按原 Head 完成或取消并清理后再切换；切换窗口按既有交互策略拒绝/延后 Core 委派，不迁移 in-flight run，也不增加无界队列。
 5. 让 Native 保留必要的 Provider Hook、工具执行、流式文本/动作/音频投影；只合并执行身份、取消、deadline、终态、清理和结果归属，不强迫所有 Body 用同一输出形式。
 6. 外部执行路径不得先创建闲置 Native Runner；Native Provider 没配置时 Codex Core 路径仍可使用。
@@ -321,7 +321,7 @@ Final result 仍只有一个 `ExecutionFinalUpdate`，经 Personal Core-final �
 - 多个 backend 都已注册，但只有 Core-wide 配置指定的 `active_executor_id` 获得新 run；
 - Native -> Codex -> Native 切换；每次切换先 drain 旧 run，切换窗口没有新 backend run 与旧 backend run 并行；
 - 切换后新 backend 收到当前 AstrBot context/memory snapshot，不导入上一 backend 的 transcript/thread；
-- 两个 bot 使用同一个 Core-wide active backend；互相冲突的旧 per-bot selector 被明确拒绝；
+- 两个 bot 使用同一个 Core-wide active backend；未设置全局值且旧 per-bot selector 冲突时，告警并持久化 Native，明确设置的全局值仍优先；
 - Codex 配置和 Native Provider 缺失时，Core 仍只启动/使用 Codex SDK backend；
 - 同一 Codex backend 多轮同 thread（仅当启用 per-engine continuity），以及彼此隔离的 session；
 - Codex 任务进程重启后从 AstrBot context 重新执行；恢复 Codex 私有 thread 属于可选验收；

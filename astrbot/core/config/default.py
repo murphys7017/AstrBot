@@ -227,7 +227,7 @@ DEFAULT_CONFIG = {
         },
     },
     "core_executor": {
-        "active_executor_id": "",
+        "active_executor_id": "native",
     },
     # SubAgent orchestrator mode:
     # - main_enable = False: disabled; main LLM mounts tools normally (persona selection).
@@ -3352,7 +3352,7 @@ CONFIG_METADATA_3 = {
             },
             "core_executor": {
                 "description": "Core 全局执行器",
-                "hint": "只读取默认全局配置，对所有 bot 和配置实例生效。修改该值需重启 Core；运行时切换会先关闭旧内核准入并排空旧 run。",
+                "hint": "默认使用 AstrBot 内置 Core。只读取默认全局配置，对所有 bot 和配置实例生效。修改该值需重启 Core；运行时切换会先关闭旧内核准入并排空旧 run。",
                 "type": "object",
                 "items": {
                     "core_executor.active_executor_id": {

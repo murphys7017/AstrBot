@@ -107,9 +107,10 @@ def test_selector_migrates_matching_legacy_profile_choices():
     assert default.save_count == 1
 
 
-def test_selector_rejects_conflicting_legacy_profile_choices():
+@pytest.mark.parametrize("explicit", ["", "native", "codex_cli"])
+def test_selector_uses_native_default_or_explicit_global_choice_for_mixed_profiles(explicit):
     default = {
-        "core_executor": {"active_executor_id": ""},
+        "core_executor": {"active_executor_id": explicit},
         "core_execution": {"executor_id": "native"},
     }
     manager = SimpleNamespace(
@@ -120,8 +121,10 @@ def test_selector_rejects_conflicting_legacy_profile_choices():
         },
     )
 
-    with pytest.raises(ValueError, match="legacy profiles conflict"):
-        build_core_executor_selector(manager)
+    selector = build_core_executor_selector(manager)
+
+    assert selector.active_executor_id == (explicit or "native")
+    assert default["core_executor"]["active_executor_id"] == (explicit or "native")
 
 
 @pytest.mark.asyncio

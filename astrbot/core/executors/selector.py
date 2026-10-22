@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from astrbot.core import logger
 from astrbot.core.config.execution import (
     CORE_EXECUTOR_CODEX_CLI_ID,
     CORE_EXECUTOR_NATIVE_ID,
@@ -226,7 +227,7 @@ class CoreExecutorSelector:
 
 
 def build_core_executor_selector(config_manager: Any) -> CoreExecutorSelector:
-    """Migrate one consistent legacy profile choice into the global setting."""
+    """Prefer the global choice; use Native for ambiguous legacy profiles."""
 
     default_config = config_manager.default_conf
     section = default_config.get("core_executor")
@@ -259,15 +260,14 @@ def build_core_executor_selector(config_manager: Any) -> CoreExecutorSelector:
 
         distinct = set(legacy_choices.values())
         if len(distinct) > 1:
-            details = ", ".join(
-                f"{profile_id}={choice}"
-                for profile_id, choice in sorted(legacy_choices.items())
+            logger.warning(
+                "Legacy Core executor profiles conflict; selecting Native as the "
+                "global default. Set core_executor.active_executor_id explicitly "
+                "to select another backend."
             )
-            raise ValueError(
-                "Core executor selection must be global, but legacy profiles conflict: "
-                f"{details}. Set core_executor.active_executor_id explicitly."
-            )
-        active = next(iter(distinct), CORE_EXECUTOR_NATIVE_ID)
+            active = CORE_EXECUTOR_NATIVE_ID
+        else:
+            active = next(iter(distinct), CORE_EXECUTOR_NATIVE_ID)
         section["active_executor_id"] = active
         save_config = getattr(default_config, "save_config", None)
         if callable(save_config):
