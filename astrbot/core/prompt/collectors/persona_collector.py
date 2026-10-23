@@ -274,4 +274,15 @@ def _build_persona_summary(segments: dict[str, object]) -> dict[str, list[str]]:
         normalized = [str(item).strip() for item in value if str(item).strip()]
         if normalized:
             summary[key] = normalized[:6]
+    relationship = segments.get("relationship_layer")
+    if isinstance(relationship, dict):
+        traits = relationship.get("traits")
+        if isinstance(traits, list):
+            identity = set(summary.get("identity", []))
+            normalized = [
+                str(item).strip() for item in traits
+                if str(item).strip() and str(item).strip() not in identity
+            ]
+            if normalized:
+                summary["relationship_layer"] = normalized[:6]
     return summary

@@ -16,7 +16,12 @@ if TYPE_CHECKING:
 
 
 class PromptExtensionCollectorInterface(ABC):
-    """Base interface for plugin prompt extension collectors."""
+    """Base interface for plugin prompt extension collectors.
+
+    Collectors may override the prompt-context hooks to avoid generating
+    extension values that the active prompt view cannot consume. Renderers still
+    enforce the view's slot allowlist after collection.
+    """
 
     @property
     @abstractmethod
@@ -48,3 +53,42 @@ class PromptExtensionCollectorInterface(ABC):
     ) -> list[PromptExtension]:
         """Collect structured prompt extensions for the current request."""
         raise NotImplementedError
+
+    async def collect_for_prompt_mounts(
+        self,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+        *,
+        provider_request: ProviderRequest | None = None,
+        allowed_mounts: frozenset[str],
+    ) -> list[PromptExtension]:
+        """Optionally skip work for mounts excluded by the active prompt view."""
+        del allowed_mounts
+        return await self.collect(
+            event, plugin_context, config, provider_request=provider_request
+        )
+
+    async def collect_for_prompt_context(
+        self,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        config: MainAgentBuildConfig,
+        *,
+        provider_request: ProviderRequest | None = None,
+        allowed_mounts: frozenset[str] | None = None,
+        allowed_targets: frozenset[str] | None = None,
+    ) -> list[PromptExtension]:
+        """Optionally specialize collection for the consuming prompt target."""
+        del allowed_targets
+        if allowed_mounts is None:
+            return await self.collect(
+                event, plugin_context, config, provider_request=provider_request
+            )
+        return await self.collect_for_prompt_mounts(
+            event,
+            plugin_context,
+            config,
+            provider_request=provider_request,
+            allowed_mounts=allowed_mounts,
+        )

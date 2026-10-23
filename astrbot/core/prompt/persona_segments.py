@@ -11,16 +11,21 @@ from copy import deepcopy
 
 _SECTION_ALIASES = {
     "身份": "identity",
+    "身份与关系": "identity",
     "核心人格": "core_persona",
+    "情绪与连续性": "emotional_continuity",
     "示例语气": "tone_examples",
     "对话风格": "dialogue_style",
+    "表达方式": "dialogue_style",
     "互动反应": "interaction_reactions",
     "渐进式理解": "progressive_understanding",
     "认知偏差(rationalbias)": "rational_bias",
     "memoryhooks(持续兴趣)": "memory_hooks",
     "personalitydrives": "personality_drives",
     "personalitystatemachine": "personality_state_machine",
+    "状态模式": "personality_state_machine",
     "relationshiplayer": "relationship_layer",
+    "与用户的关系": "relationship_layer",
     "interactionmemory": "interaction_memory",
     "稳定规则": "stable_rules",
 }
@@ -29,6 +34,7 @@ _INTERACTION_REACTION_ALIASES = {
     "被夸": "praised",
     "被取外号": "nickname",
     "暧昧/关心": "affection_or_care",
+    "被关心": "affection_or_care",
 }
 
 _STATE_MACHINE_ALIASES = {
@@ -37,6 +43,9 @@ _STATE_MACHINE_ALIASES = {
     "mocking": "mocking",
     "curious": "curious",
     "tsundere": "tsundere",
+    "guarded": "guarded",
+    "affectionate": "affectionate",
+    "reflective": "reflective",
 }
 
 
@@ -44,12 +53,14 @@ def _empty_persona_segments() -> dict[str, object]:
     return {
         "identity": [],
         "core_persona": [],
+        "emotional_continuity": [],
         "tone_examples": [],
         "dialogue_style": [],
         "interaction_reactions": {
             "praised": [],
             "nickname": [],
             "affection_or_care": [],
+            "other": [],
         },
         "progressive_understanding": [],
         "rational_bias": [],
@@ -61,6 +72,9 @@ def _empty_persona_segments() -> dict[str, object]:
             "mocking": "",
             "curious": "",
             "tsundere": "",
+            "guarded": "",
+            "affectionate": "",
+            "reflective": "",
         },
         "relationship_layer": {
             "current_affinity": None,
@@ -74,6 +88,9 @@ def _empty_persona_segments() -> dict[str, object]:
 
 def _canonicalize_title(value: str) -> str:
     value = value.strip()
+    value = re.sub(r"^#{1,6}\s+", "", value).rstrip("#").strip()
+    if value.startswith("**") and value.endswith("**"):
+        value = value[2:-2].strip()
     value = value.replace("（", "(").replace("）", ")")
     value = value.rstrip("：:")
     value = value.replace(" ", "")
@@ -86,18 +103,14 @@ def normalize_section_name(title: str) -> str | None:
 
 
 def _normalize_interaction_reaction_name(title: str) -> str | None:
-    title = title.strip()
-    label, _, _ = title.partition("：")
-    if not label:
-        label, _, _ = title.partition(":")
-    if not label:
-        label = title
+    title = _parse_content_line(title)
+    label = re.split(r"[：:]", title, maxsplit=1)[0]
     return _INTERACTION_REACTION_ALIASES.get(label.strip())
 
 
 def _parse_content_line(line: str) -> str:
     value = line.strip()
-    if value.startswith("- "):
+    if value.startswith(("- ", "* ", "+ ")):
         value = value[2:].strip()
 
     if value.startswith("「") and value.endswith("」") and len(value) >= 2:
@@ -159,22 +172,37 @@ def parse_legacy_persona_prompt(prompt: str) -> dict[str, object]:
             current_subsection = None
             continue
 
+        # An explicit unknown heading starts a new section. Preserve it without
+        # assigning its contents to the previously recognized persona field.
+        if re.match(r"^#{1,6}\s+", line):
+            current_section = None
+            current_subsection = None
+            _append_unique(segments["unparsed_sections"], line)
+            continue
+
         if current_section == "interaction_reactions":
-            subsection = _normalize_interaction_reaction_name(line)
+            reaction_line = _parse_content_line(line)
+            subsection = _normalize_interaction_reaction_name(reaction_line)
             if subsection:
                 current_subsection = subsection
-                if "：" in line:
-                    _, value = line.split("：", 1)
-                elif ":" in line:
-                    _, value = line.split(":", 1)
-                else:
-                    value = ""
+                parts = re.split(r"[：:]", reaction_line, maxsplit=1)
+                value = parts[1] if len(parts) == 2 else ""
                 parsed_value = _parse_content_line(value)
                 if parsed_value:
                     _append_unique(
                         segments["interaction_reactions"][current_subsection],
                         parsed_value,
                     )
+                continue
+            # Other reaction rules are independent of the last named reaction.
+            # A list item or label begins its own rule; unlabelled continuation
+            # lines can still belong to the legacy named subsection.
+            if line.startswith(("- ", "* ", "+ ")) or re.match(
+                r"^[^：:「“\"]{1,32}[：:]", reaction_line
+            ):
+                current_subsection = None
+            if current_subsection is None:
+                _append_unique(segments["interaction_reactions"]["other"], reaction_line)
                 continue
 
         if current_section == "personality_state_machine":
@@ -217,6 +245,7 @@ def parse_legacy_persona_prompt(prompt: str) -> dict[str, object]:
         if current_section in {
             "identity",
             "core_persona",
+            "emotional_continuity",
             "tone_examples",
             "dialogue_style",
             "progressive_understanding",

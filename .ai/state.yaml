@@ -1,3 +1,28 @@
+ag99live_source_authority_20261023:
+  date: '2026-10-23'
+  class: maintenance
+  risk: high
+  status: deployments_synchronized_pending_restart
+  decision: >-
+    Treat C:\Users\Administrator\Documents\GitHub\AG99live as the sole
+    AG99live source. AstrBot data/plugins copies are runtime deployment outputs,
+    never authoring locations.
+  scope: >-
+    Synchronize both discovered AstrBot plugin deployment directories from the
+    AG99live main checkout using its deploy_adapter.ps1. Preserve deployment
+    user data managed by that script. Remove the 16 adapter files tracked by
+    AstrBot from its Git index while retaining the local ignored runtime
+    deployment. Add the source/deployment rule to AGENTS.md.
+  validation: >-
+    AG99live source checkout is clean at 7091216. Hash comparison found 164
+    managed source files in each deployment target with zero mismatches. No
+    tests were run; test search found no imports of the removed tracked adapter
+    files. Runtime reload remains pending.
+  limitation: >-
+    Deployment directories remain because AstrBot loads the plugin from them.
+    The separate AG99live-Native package was not treated as an adapter source
+    copy. Do not remove runtime assets without explicit disposition.
+
 interaction_router_persona_field_cleanup_20261023:
   date: '2026-10-23'
   class: feature
@@ -3169,6 +3194,44 @@ prompt_system_audit_second_batch_20261020:
     AstrBot schema migration and formatting-only ASR/protocol changes; existing
     settings preservation and custom-panel persistence paths were inspected.
 
+upstream_intake_20261022:
+  date: '2026-10-22'
+  upstream_release: v4.29.1
+  local_version: 4.29.0-beta.1
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  scope: >-
+    Adapt four targeted upstream runtime reliability changes: normalize unique
+    sessions after original configuration selection but before EventBus
+    scheduling; stop mutating Edge TTS shared SDK headers; isolate OSError
+    failures to the affected local/plugin Skills directory (including behavior
+    proposed in open upstream PR #10591); and preserve Discord
+    mention_everyone metadata for the existing AtAll policy. Defer merged
+    upstream PR #10584's Windows Local permission migration and file-handle
+    changes for separate review against the user's explicit role defaults.
+  non_goals: >-
+    Do not change the local version number, copy upstream files wholesale,
+    alter member/admin permission defaults, absorb the Windows Computer security
+    refactor, restart the running service, or touch user-owned AG99live edits.
+  validation: >-
+    Eight focused tests passed across EventBus session normalization, Skills
+    directory failure isolation, Edge TTS User-Agent preservation, and Discord
+    everyone mention conversion. Scoped Ruff checks, Python compilation, and
+    git diff --check passed. Only the new session helper and Discord test were
+    formatter-checked; older touched files contain mixed line endings. Broader
+    EventBus tests still use the old get_conf_info mock contract and fail before
+    the changed boundary. Tests used available Python 3.11 because the Python
+    3.12 venv cannot import _ssl on this host.
+  evidence_gap: >-
+    No running-service restart or live platform acceptance. Existing user-owned
+    AG99live and Core executor/profile edits remain untouched.
+  local_commits:
+    - 3ba9f340c
+    - 7b1989d35
+    - 41ee07a5f
+    - c9178ecda
+
 core_executor_profile_routing_20261022:
   class: feature
   risk: high
@@ -3224,3 +3287,34 @@ core_executor_lifecycle_repairs_20261022:
     No real authenticated SDK turn/interrupt, platform or Live2D acceptance,
     runtime restart or frontend rebuild. Preserve unrelated AG99live edits and
     the existing upstream-intake state entry.
+
+prompt_view_aware_plugin_extensions_20261023:
+  date: '2026-10-23'
+  class: bugfix
+  risk: high
+  status: source_validated_pending_live_acceptance
+  scope: >-
+    Pass the active Persona View's allowed extension mounts into plugin prompt
+    collectors through an optional per-mount collection hook. Let AG99live keep
+    static system guidance while skipping dynamic motion context computation
+    when the active View drops extension.context. Pass the consuming prompt
+    target to opt-in collectors and isolate Persona/Core plugin-pack caches so
+    Persona-only AG99live extensions are not collected for Core. Keep legacy
+    static collectors cached across targets unless they override a context hook,
+    and prevent Core from reusing an unqualified legacy Persona pack. Correct
+    the prompt documentation for TURN_PLAN and OLV_STREAM memory slots. Remove
+    duplicated memory injection from the independent AG99live action request
+    and align its default motion amplitude with the Companion Identity prompt.
+  validation: >-
+    Static source tracing confirmed that the View slot filter ran after plugin
+    collectors and AG99live's dynamic motion context was excluded from the
+    current Persona Views. Source review also confirmed the action prompt could
+    recursively include long-term memory fields and conflicted with the
+    companion identity's non-stage baseline; both were corrected. Review fixes
+    preserve per-event caching for collectors using the default hooks and keep
+    the Core cache target-scoped. Regression coverage was added but not run per
+    user direction. Core and AG99live changed Python modules compile, and git
+    diff --check passes in both repositories. The AG99live source was deployed
+    through deploy_adapter.ps1.
+  evidence_gap: >-
+    No live Provider request or service restart acceptance.

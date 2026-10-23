@@ -62,6 +62,7 @@ from astrbot.core.prompt.context_views import (
     PromptContextView,
     resolve_prompt_context_view,
 )
+from astrbot.core.prompt.extensions.types import PROMPT_EXTENSION_MOUNTS
 from astrbot.core.prompt.json_recovery import parse_json_record, recover_json_record
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
@@ -3480,9 +3481,27 @@ class InteractionExpressionAgent:
             context_view=context_view,
         )
         persona_context_uses_plugin_extensions = (
-            persona_context_pack is material.target_context_packs.get("plugin")
+            any(
+                cached_pack is persona_context_pack
+                for cache_key, cached_pack in material.target_context_packs.items()
+                if cache_key == "plugin" or cache_key.startswith("plugin:")
+            )
         )
         view_spec = resolve_prompt_context_view(context_view)
+        allowed_prompt_extension_mounts = (
+            frozenset(
+                mount
+                for mount in PROMPT_EXTENSION_MOUNTS
+                if view_spec.allows_slot(f"extension.{mount}")
+            )
+            if view_spec is not None
+            else None
+        )
+        allowed_prompt_extension_targets = (
+            frozenset({view_spec.target.value})
+            if view_spec is not None
+            else None
+        )
         if view_spec is None or view_spec.requires_media_context:
             persona_context_pack = await get_or_build_interaction_media_context_pack(
                 event=event,
@@ -3507,6 +3526,8 @@ class InteractionExpressionAgent:
             collectors=[PersonaVisibleReplyCollector(req)],
             include_prompt_extensions=not persona_context_uses_plugin_extensions,
             prompt_extension_collector_scope="plugin",
+            allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
+            allowed_prompt_extension_targets=allowed_prompt_extension_targets,
             base=persona_context_pack,
             scope="persona_expression",
         )

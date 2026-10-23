@@ -33,6 +33,8 @@ class PromptContextBuilder:
         capabilities: CapabilitySnapshot | None = None,
         include_prompt_extensions: bool = True,
         prompt_extension_collector_scope: PromptExtensionCollectorScope = "all",
+        allowed_prompt_extension_mounts: frozenset[str] | None = None,
+        allowed_prompt_extension_targets: frozenset[str] | None = None,
         base: ContextPack | None = None,
         replace_slots: Iterable[str] = (),
         scope: str = "default",
@@ -46,6 +48,8 @@ class PromptContextBuilder:
             capabilities=capabilities,
             include_prompt_extensions=include_prompt_extensions,
             prompt_extension_collector_scope=prompt_extension_collector_scope,
+            allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
+            allowed_prompt_extension_targets=allowed_prompt_extension_targets,
         )
         timings = []
         with measure_prompt_stage(timings, "merge"):

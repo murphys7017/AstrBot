@@ -271,6 +271,7 @@ class BasePromptRenderer:
                         "identity",
                         "core_persona",
                         "dialogue_style",
+                        "relationship_layer",
                         "stable_rules",
                     ),
                 ):
@@ -902,7 +903,10 @@ class BasePromptRenderer:
             target,
             "topic_state",
             slot_map.get("memory.topic_state"),
-            body_keys=("current_topic", "topic_summary", "topic_confidence"),
+            body_keys=(
+                "context_role", "summarized_through",
+                "current_topic", "topic_summary", "topic_confidence",
+            ),
         ):
             rendered_slot_names.append("memory.topic_state")
 
@@ -910,7 +914,9 @@ class BasePromptRenderer:
             target,
             "short_term",
             slot_map.get("memory.short_term"),
-            body_keys=("short_summary", "active_focus"),
+            body_keys=(
+                "context_role", "summarized_through", "short_summary", "active_focus",
+            ),
         ):
             rendered_slot_names.append("memory.short_term")
 

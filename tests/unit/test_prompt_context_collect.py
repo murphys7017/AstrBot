@@ -1,6 +1,7 @@
 """Tests for prompt context collection."""
 
 import asyncio
+import json
 from asyncio import Queue
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,8 @@ from astrbot.core.prompt.interfaces import (
 )
 from astrbot.core.prompt.render import (
     PROMPT_RENDER_RESULT_EXTRA_KEY,
+    MiniMaxPromptRenderer,
+    PromptRenderEngine,
 )
 from astrbot.core.prompt.resources import (
     CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
@@ -269,6 +272,34 @@ async def test_collect_context_pack_collects_persona_prompt():
     assert segments_slot is not None
     assert summary_slot is not None
     assert segments_slot.value["unparsed_sections"] == ["You are a helpful assistant."]
+
+
+@pytest.mark.asyncio
+async def test_persona_relationship_survives_lightweight_rendering():
+    event, _ = _make_event()
+    context = _make_context()
+    persona = {
+        "name": "alice",
+        "prompt": "身份\n你是 Alice。\nRelationship Layer\n行为特征：\n"
+        "- Aki 是你的亲密伴侣。\n表达方式\n自然接话。\n示例语气\n参考台词不会进入摘要。",
+    }
+    context.persona_manager.resolve_selected_persona = AsyncMock(
+        return_value=("alice", persona, None, False)
+    )
+    pack = await collect_context_pack(
+        event=event, plugin_context=context,
+        config=ama.MainAgentBuildConfig(tool_call_timeout=60),
+        provider_request=ProviderRequest(prompt="hello"),
+        collectors=[PersonaCollector()],
+    )
+    for view in ("progress", "proactive"):
+        rendered = PromptRenderEngine(default_renderer=MiniMaxPromptRenderer()).render(
+            pack, target="persona", context_view=view,
+        )
+        assert "你是 Alice" in rendered.system_prompt
+        assert "Aki 是你的亲密伴侣" in rendered.system_prompt
+        assert "自然接话" in rendered.system_prompt
+        assert "参考台词不会进入摘要" not in rendered.system_prompt
 
 
 @pytest.mark.asyncio
@@ -2023,6 +2054,8 @@ async def test_collect_context_pack_collects_memory_slots_from_snapshot(
         "current_topic": "Prompt pipeline",
         "topic_summary": "We are designing a memory collector.",
         "topic_confidence": 0.92,
+        "context_role": "historical_summary",
+        "summarized_through": "2026-04-05T12:30:00+00:00",
     }
     assert topic_slot.meta["snapshot_field"] == "topic_state"
 
@@ -2031,8 +2064,23 @@ async def test_collect_context_pack_collects_memory_slots_from_snapshot(
     assert short_term_slot.value == {
         "short_summary": "Discussed memory snapshot integration.",
         "active_focus": "MemoryCollector v1",
+        "context_role": "historical_summary",
+        "summarized_through": "2026-04-05T12:31:00+00:00",
     }
     assert short_term_slot.meta["snapshot_field"] == "short_term_memory"
+
+    engine = PromptRenderEngine(default_renderer=MiniMaxPromptRenderer())
+    direct = engine.render(
+        pack, target="persona", context_view="turn_plan",
+    )
+    direct_visible = json.dumps(direct.messages, ensure_ascii=False)
+    assert "historical_summary" not in direct_visible
+    rendered = engine.render(
+        pack, target="persona", context_view="proactive",
+    )
+    visible = json.dumps(rendered.messages, ensure_ascii=False)
+    assert "historical_summary" in visible
+    assert "2026-04-05T12:31:00+00:00" in visible
 
     experiences_slot = pack.get_slot("memory.experiences")
     assert experiences_slot is None
@@ -3644,6 +3692,35 @@ class _StaticCachingExtensionCollectorSibling(PromptExtensionCollectorInterface)
         ]
 
 
+class _TargetAwareStaticExtensionCollector(_StaticCachingExtensionCollector):
+    calls = 0
+
+    @property
+    def plugin_id(self) -> str:
+        return "target.static.plugin"
+
+    async def collect_for_prompt_context(
+        self,
+        event,
+        plugin_context,
+        config,
+        *,
+        provider_request=None,
+        allowed_mounts=None,
+        allowed_targets=None,
+    ):
+        type(self).calls += 1
+        return [
+            PromptExtension(
+                plugin_id=self.plugin_id,
+                mount="context",
+                title="Target static",
+                value={"targets": sorted(allowed_targets or ())},
+                meta={"targets": sorted(allowed_targets or ())},
+            )
+        ]
+
+
 class _DynamicExtensionCollector(PromptExtensionCollectorInterface):
     calls = 0
 
@@ -3901,6 +3978,66 @@ async def test_static_prompt_extension_collectors_are_cached_per_event():
     assert static_entries[0]["items"][0].value[
         "calls"
     ] == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_static_extension_cache_is_shared_across_prompt_targets():
+    event, _ = _make_event()
+    context = _make_context()
+    context.list_prompt_extension_collectors.return_value = [
+        _StaticCachingExtensionCollector(),
+    ]
+    _StaticCachingExtensionCollector.calls = 0
+    config = ama.MainAgentBuildConfig(tool_call_timeout=60)
+
+    await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"system"}),
+        allowed_prompt_extension_targets=frozenset({"persona"}),
+    )
+    await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"context"}),
+        allowed_prompt_extension_targets=frozenset({"core"}),
+    )
+
+    assert _StaticCachingExtensionCollector.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_context_aware_static_extension_cache_is_target_scoped():
+    event, _ = _make_event()
+    context = _make_context()
+    context.list_prompt_extension_collectors.return_value = [
+        _TargetAwareStaticExtensionCollector(),
+    ]
+    _TargetAwareStaticExtensionCollector.calls = 0
+    config = ama.MainAgentBuildConfig(tool_call_timeout=60)
+
+    await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"context"}),
+        allowed_prompt_extension_targets=frozenset({"persona"}),
+    )
+    await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"context"}),
+        allowed_prompt_extension_targets=frozenset({"core"}),
+    )
+
+    assert _TargetAwareStaticExtensionCollector.calls == 2
 
 
 @pytest.mark.asyncio

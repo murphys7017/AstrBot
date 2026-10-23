@@ -2,6 +2,44 @@
 
 from astrbot.core.prompt.persona_segments import parse_legacy_persona_prompt
 
+
+def test_current_persona_headings_preserve_relationship_and_reaction_boundaries():
+    segments = parse_legacy_persona_prompt("""
+# 身份与关系
+- 你是 Alice，Aki 是你的亲密伴侣。
+## 核心人格
+- 理性，好奇。
+## 情绪与连续性
+- 情绪随交流延续。
+## 表达方式
+- 自然接话，详略随内容。
+## 互动反应
+- 被夸: 坦然接受。
+- 被关心：自然回应。
+- 用户情绪低落：听他继续说。
+## 状态模式
+- Guarded: 谨慎。
+- Affectionate：亲近。
+- Reflective：思考。
+## 自定义章节
+- 保留这条未知设定。
+## 稳定规则
+- 不编造共同经历。
+""")
+
+    assert segments["identity"] == ["你是 Alice，Aki 是你的亲密伴侣。"]
+    assert segments["core_persona"] == ["理性，好奇。"]
+    assert segments["emotional_continuity"] == ["情绪随交流延续。"]
+    assert segments["dialogue_style"] == ["自然接话，详略随内容。"]
+    assert segments["interaction_reactions"]["praised"] == ["坦然接受。"]
+    assert segments["interaction_reactions"]["affection_or_care"] == ["自然回应。"]
+    assert segments["interaction_reactions"]["other"] == ["用户情绪低落：听他继续说。"]
+    assert segments["personality_state_machine"]["guarded"] == "谨慎。"
+    assert segments["personality_state_machine"]["affectionate"] == "亲近。"
+    assert segments["personality_state_machine"]["reflective"] == "思考。"
+    assert segments["unparsed_sections"] == ["## 自定义章节", "- 保留这条未知设定。"]
+    assert segments["stable_rules"] == ["不编造共同经历。"]
+
 ALICE_PROMPT = """
 身份
 - 你是 Alice，由 YakumoAki 设计。

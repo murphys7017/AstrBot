@@ -312,6 +312,7 @@ def test_persona_projection_keeps_history_and_hides_core_capabilities():
 
     assert projected.get_slot("persona.prompt") is not None
     assert projected.get_slot("conversation.history") is not None
+    assert projected.get_slot("conversation.pending_execution_continuity") is None
     assert projected.get_slot("memory.persona_state") is not None
     assert projected.get_slot("capability.tools_schema") is None
     assert projected.get_slot("knowledge.snippets") is None
@@ -332,6 +333,21 @@ def test_persona_projection_applies_target_local_history_window():
         {"id": 4},
     ]
     assert source.get_slot("conversation.history").value["turn_count"] == 5
+
+
+@pytest.mark.parametrize("view", [PromptContextView.TURN_PLAN, PromptContextView.OLV_STREAM])
+def test_direct_persona_views_use_recent_history_without_topic_summaries(view):
+    from astrbot.core.prompt.context_views import project_prompt_context_view
+
+    pack = _canonical_pack()
+    projected = project_prompt_context_view(pack, view)
+
+    assert projected.get_slot("conversation.history") is not None
+    assert projected.get_slot("memory.topic_state") is None
+    assert projected.get_slot("memory.short_term") is None
+    assert projected.get_slot("memory.persona_state") is not None
+    assert pack.get_slot("memory.topic_state") is not None
+    assert pack.get_slot("memory.short_term") is not None
 
 
 def test_persona_projection_drops_execution_capability_extensions():
@@ -368,8 +384,107 @@ def test_core_planner_projection_uses_facts_without_router_or_persona_decisions(
     assert projected.get_slot("memory.short_term") is not None
     assert projected.get_slot("capability.plugin_directory") is None
     assert projected.get_slot("persona.summary") is None
+    assert projected.get_slot("conversation.pending_execution_continuity") is not None
     assert projected.get_slot("interaction.route_decision") is None
     assert projected.get_slot("system.core_execution_context") is None
+
+
+def test_core_router_projection_is_bounded_and_excludes_persona_context():
+    history = {
+        "turns": [
+            {
+                "user_message": {"role": "user", "content": f"user-{index}-" + "x" * 900},
+                "assistant_message": {"role": "assistant", "content": f"reply-{index}"},
+            }
+            for index in range(6)
+        ]
+    }
+    pack = ContextPack(
+        slots={
+            "system.global": _slot("system.global", "global identity", "system"),
+            "system.base": _slot("system.base", "base instructions", "system"),
+            "persona.prompt": _slot("persona.prompt", "persona identity", "persona"),
+            "memory.persona_state": _slot("memory.persona_state", {"name": "Alice"}, "memory"),
+            "memory.short_term": _slot("memory.short_term", {"summary": "personal memory"}, "memory"),
+            "input.text": _slot("input.text", "Continue that task", "input"),
+            "input.quoted_text": _slot("input.quoted_text", "quoted request", "input"),
+            "input.images": _slot("input.images", [{"ref": "image"}], "input"),
+            "input.attachment_summary": _slot("input.attachment_summary", {"images": 1}, "input"),
+            "input.visible_reply_material": _slot("input.visible_reply_material", {"text": "already sent"}, "input"),
+            "session.datetime": _slot("session.datetime", {"text": "2026-10-23"}, "session"),
+            "conversation.history": _slot("conversation.history", history, "conversation"),
+            "conversation.group_recent": _slot("conversation.group_recent", {"records": ["ambient"]}, "conversation"),
+            "conversation.pending_execution_continuity": ContextSlot(
+                name="conversation.pending_execution_continuity",
+                value={
+                    "instruction": "do not expose this instruction",
+                    "task_summary": "unfinished task",
+                    "task_intent": "research",
+                    "status": "cancelled",
+                    "resume_recommended": True,
+                    "cancellation_reason": "private diagnostic",
+                },
+                category="conversation",
+                source="test",
+                meta={"targets": ["core_router", "core_planner"]},
+            ),
+            "capability.core_execution": ContextSlot(
+                name="capability.core_execution",
+                value={"executor_policy": "fixed_by_profile"},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+            "capability.tools_schema": ContextSlot(
+                name="capability.tools_schema",
+                value={"tools": [{"name": "shell", "description": "run commands"}]},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+            "capability.plugin_directory": ContextSlot(
+                name="capability.plugin_directory",
+                value={"plugins": [{"name": "internal plugin"}]},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+        }
+    )
+
+    projected = project_context_pack(pack, PromptTarget.CORE_ROUTER)
+
+    assert set(projected.slots) == {
+        "input.text",
+        "input.quoted_text",
+        "input.attachment_summary",
+        "session.datetime",
+        "conversation.history",
+        "conversation.pending_execution_continuity",
+    }
+    assert projected.get_slot("capability.core_execution") is None
+    assert projected.get_slot("capability.tools_schema") is None
+    history_turns = projected.get_slot("conversation.history").value["turns"]
+    assert len(history_turns) == 3
+    assert all(len(turn["user_message"]["content"]) <= 600 for turn in history_turns)
+    assert history_turns[-1]["user_message"]["content"].startswith("user-5-")
+    assert projected.get_slot("conversation.pending_execution_continuity").value == {
+        "task_summary": "unfinished task",
+        "task_intent": "research",
+        "status": "cancelled",
+        "resume_recommended": True,
+    }
+    assert len(pack.get_slot("conversation.history").value["turns"]) == 6
+    assert "global identity" not in _rendered_prompt_text(
+        PromptRenderEngine().render(
+            pack,
+            target=PromptTarget.CORE_ROUTER,
+            profile=PromptRenderProfile(
+                name="router_isolation",
+                system_prompt="isolated router instructions",
+            ),
+        )
+    )
 
 
 def test_plugin_directory_entries_remain_hidden_from_core_planner():
@@ -567,7 +682,7 @@ def test_persona_turn_plan_view_bounds_history_and_keeps_persona_extension():
 
     assert result.metadata["context_view"] == "turn_plan"
     assert result.metadata["context_view_source_requirement"] == "base_only"
-    assert "conversation.pending_execution_continuity" in selected
+    assert "conversation.pending_execution_continuity" not in selected
     assert "extension.system" in selected
     assert "AG99live Companion Identity" in _rendered_prompt_text(result)
     assert history_budget["limit_amount"] == 300
@@ -577,13 +692,12 @@ def test_persona_turn_plan_view_bounds_history_and_keeps_persona_extension():
         for message in result.messages
         if "look up the weather" in str(message.get("content", ""))
     ]
-    assert len(continuity_messages) == 1
-    assert continuity_messages[0]["_no_save"] is True
+    assert continuity_messages == []
     assert result.messages[-1]["role"] == "user"
     assert "current" in str(result.messages[-1]["content"])
 
 
-def test_minimax_turn_plan_keeps_continuity_in_framework_state():
+def test_minimax_turn_plan_does_not_receive_core_execution_continuity():
     result = PromptRenderEngine(
         default_renderer=MiniMaxPromptRenderer()
     ).render(
@@ -597,11 +711,7 @@ def test_minimax_turn_plan_keeps_continuity_in_framework_state():
         for message in result.messages
         if "look up the weather" in str(message.get("content", ""))
     ]
-    assert len(continuity_messages) == 1
-    assert continuity_messages[0]["_no_save"] is True
-    assert "astrbot_minimax_framework_state_v1" in str(
-        continuity_messages[0]["content"]
-    )
+    assert continuity_messages == []
     assert result.messages[-1]["role"] == "user"
     assert "current" in str(result.messages[-1]["content"])
 

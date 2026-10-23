@@ -87,7 +87,8 @@ Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享�
 
 当前 Persona View：
 
-- `turn_plan`：使用基础事实和 Persona 专属的 system 扩展，保留既有历史预算；不消费完整 plugin context pack。
+- `turn_plan`：使用基础事实、官方历史、Persona 状态和 Persona 专属的 system 扩展，保留既有历史预算；不自动带入话题/短期摘要或完整 plugin context pack。构建时会把当前 View 允许的挂载类型和消费目标告知支持该钩子的 Collector，避免生成 Persona/Core 不会消费的扩展；最终 slot 白名单仍由 Renderer 强制执行。
+- `olv_stream`：沿用同一基础事实边界，使用更紧的历史预算；不会自动带入话题/短期摘要，并且只请求该 View 允许的插件扩展挂载。
 - `final_result`：保留既有来源和质量预算，`source_text` 仍由请求指令定义为权威结果。
 - `progress`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、`extension.context`、旧结果或媒体派生；本阶段的职责指令仍由 Profile 显式写入。
 - `proactive`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入、`extension.context` 或媒体派生。
@@ -97,9 +98,9 @@ Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享�
 Persona 的不同调用 View 会选择不同 slot；缺失的历史或 Memory 不得靠猜测补齐。各类上下文的语义边界如下：
 
 - `conversation.history` 是官方 Conversation 的历史轮次，可用于回答当前明确指向的先前对话、消解“刚才/那个”等指代，并维持称呼、关系和语气。历史 assistant 文本能说明先前说过什么，不能单独证明其中外部事实仍然正确或某项操作已经成功。
-- `memory.topic_state` 提供当前话题摘要与置信度；`memory.short_term` 提供短期摘要和未解决焦点；按配置检索到的 `memory.experiences`、`memory.long_term_memories` 提供相关经历或长期记录；`memory.persona_state` 提供熟悉度、信任、亲近感和表达偏好。它们是经过选择或摘要的连续性材料，只在相关时使用，不视为当前状态的权威证明。默认 `turn_plan` View 只允许 `topic_state`、`short_term` 和 `persona_state`，不会自动带入长期记忆或经历；模型只能使用本轮实际投影的 Memory slot。
+- `memory.topic_state` 提供当前话题摘要与置信度；`memory.short_term` 提供短期摘要和未解决焦点；按配置检索到的 `memory.experiences`、`memory.long_term_memories` 提供相关经历或长期记录；`memory.persona_state` 提供熟悉度、信任、亲近感和表达偏好。它们是经过选择或摘要的连续性材料，只在相关时使用，不视为当前状态的权威证明。默认 `turn_plan` 和 `OLV_STREAM` View 只保留当前历史与 Persona 状态，不自动带入 topic/short-term 摘要、长期记忆或经历；模型只能使用本轮实际投影的 Memory slot。
 - 当前系统指令与用户本轮请求决定行为边界；本轮输入、已确认的 Core/插件结果及明确失败事实决定当前答复的事实内容。最新用户更正优先于旧历史或 Memory。没有当前执行结果时，不得依据旧记录声称当前状态、数值、能力或操作结果。
-- `conversation.pending_execution_continuity` 来自 Core Execution Ledger，表示某项 Core 工作被新消息打断；它不是 Conversation history、Memory，也不是成功结果。结合当前消息和对话历史确认用户正在续接该工作后，Persona 才可选择 `delegate`。
+- `conversation.pending_execution_continuity` 来自 Core Execution Ledger，表示某项 Core 工作被新消息打断；它不是 Conversation history、Memory，也不是成功结果。该字段只投影给 Core Router/Planner，Persona 不直接消费它；是否继续执行由独立 Router 决定。
 
 Renderer 结果会记录 `context_view`、来源要求、实际 slot 和目标预算；Interaction 额外记录阶段、保留历史数和近似 token 数，供生产 trace 检查。
 

@@ -1,10 +1,9 @@
 """End-to-end plugin context wait policy through the Persona Expression agent.
 
-These tests exercise the real policy entry point
-(``get_or_build_interaction_persona_context_pack``) rather than asserting that it
-was called: they verify which pack reaches the Persona prompt under each
-configured mode, that the plugin enrichment task runs exactly once, and that
-Personal and Core consume the same single-flight result.
+These tests exercise the real policy entry points rather than asserting that
+they were called: they verify which pack reaches the Persona prompt under each
+configured mode and that Persona and Core do not share a target-unqualified
+plugin enrichment result.
 """
 
 import asyncio
@@ -213,8 +212,8 @@ async def test_wait_complete_waits_for_the_same_plugin_task():
 
 
 @pytest.mark.asyncio
-async def test_personal_and_core_share_one_enrichment_task():
-    """Both consumers must reuse the single-flight task, not re-collect."""
+async def test_core_does_not_reuse_legacy_persona_plugin_pack_or_task(monkeypatch):
+    """A legacy unqualified Persona result must not cross into Core."""
     event = _Event()
     ensure_interaction_turn_state(event)
     builds: list[int] = []
@@ -228,6 +227,20 @@ async def test_personal_and_core_share_one_enrichment_task():
         build_config=None,
         material=material,
     )
+    material.target_context_packs["plugin"] = persona_pack
+
+    scoped_core_pack = _base_pack()
+    scoped_builds = []
+
+    async def build_scoped_core_pack(**kwargs):
+        scoped_builds.append(kwargs)
+        return scoped_core_pack
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_get_or_build_interaction_plugin_context_pack",
+        build_scoped_core_pack,
+    )
     core_pack = await get_or_build_interaction_core_plugin_context_pack(
         event=event,
         plugin_context=plugin_context,
@@ -235,9 +248,12 @@ async def test_personal_and_core_share_one_enrichment_task():
         material=material,
     )
 
-    assert builds == [1], "the plugin enrichment task must run exactly once"
-    assert persona_pack is core_pack, "Personal and Core must share one pack"
-    assert PLUGIN_SLOT in set(core_pack.slots)
+    assert builds == [1], "the legacy task must complete only its Persona work"
+    assert persona_pack is not core_pack
+    assert core_pack is scoped_core_pack
+    assert PLUGIN_SLOT not in set(core_pack.slots)
+    assert len(scoped_builds) == 1
+    assert scoped_builds[0]["allowed_prompt_extension_targets"] == frozenset({"core"})
 
 
 @pytest.mark.asyncio

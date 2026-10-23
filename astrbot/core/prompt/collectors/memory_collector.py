@@ -5,7 +5,7 @@ Memory context collector for prompt context packing.
 from __future__ import annotations
 
 import inspect
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from astrbot.core import logger
@@ -301,6 +301,8 @@ class MemoryCollector(ContextCollectorInterface):
             "current_topic": topic_state.current_topic,
             "topic_summary": topic_state.topic_summary,
             "topic_confidence": topic_state.topic_confidence,
+            "context_role": "historical_summary",
+            "summarized_through": self._serialize_coverage_time(topic_state.last_active_at),
         }
         if include_debug_fields:
             value.update(
@@ -336,6 +338,8 @@ class MemoryCollector(ContextCollectorInterface):
         value: dict[str, object] = {
             "short_summary": short_term_memory.short_summary,
             "active_focus": short_term_memory.active_focus,
+            "context_role": "historical_summary",
+            "summarized_through": self._serialize_coverage_time(short_term_memory.updated_at),
         }
         if include_debug_fields:
             value.update(
@@ -529,6 +533,15 @@ class MemoryCollector(ContextCollectorInterface):
         if value is None:
             return None
         return value.isoformat(timespec="seconds")
+
+    @staticmethod
+    def _serialize_coverage_time(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        # SQLite stores the memory pipeline's UTC timestamps without tzinfo.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat(timespec="seconds")
 
     def _enum_value(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
