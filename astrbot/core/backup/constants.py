@@ -6,12 +6,14 @@
 from sqlmodel import SQLModel
 
 from astrbot.core.db.po import (
+    ApiKey,
     Attachment,
     ChatUIProject,
     CommandConfig,
     CommandConflict,
     ConversationV2,
     CoreExecutionRecord,
+    ProviderStat,
     Persona,
     PersonaFolder,
     PlatformMessageHistory,
@@ -44,6 +46,7 @@ from astrbot.core.utils.astrbot_path import (
 # 主数据库模型类映射
 MAIN_DB_MODELS: dict[str, type[SQLModel]] = {
     "platform_stats": PlatformStat,
+    "provider_stats": ProviderStat,
     "conversations": ConversationV2,
     "core_execution_records": CoreExecutionRecord,
     "personas": Persona,
@@ -58,6 +61,7 @@ MAIN_DB_MODELS: dict[str, type[SQLModel]] = {
     "command_configs": CommandConfig,
     "command_conflicts": CommandConflict,
     "umo_aliases": UmoAlias,
+    "api_keys": ApiKey,
 }
 
 # 知识库元数据模型类映射

@@ -472,6 +472,20 @@ class AstrBotImporter:
                     except Exception as e:
                         result.add_warning(f"导入配置文件失败: {e}")
 
+                if "config/mcp_server.json" in zf.namelist():
+                    try:
+                        mcp_config_path = Path(get_astrbot_data_path()) / "mcp_server.json"
+                        mcp_config_path.parent.mkdir(parents=True, exist_ok=True)
+                        if mcp_config_path.exists():
+                            shutil.copy2(
+                                mcp_config_path,
+                                mcp_config_path.with_suffix(".json.bak"),
+                            )
+                        mcp_config_path.write_bytes(zf.read("config/mcp_server.json"))
+                        result.imported_files["mcp_config"] = 1
+                    except Exception as e:
+                        result.add_warning(f"恢复 MCP 配置失败: {e}")
+
                 if progress_callback:
                     await progress_callback("config", 100, 100, "配置文件导入完成")
 
