@@ -70,6 +70,7 @@ Current local reference-intake commits:
 - `7b66e9b87` Preserve Provider/API/MCP persistent data in backups.
 - `6cfb37c4d` Include scheduled tasks in backups.
 - `52a7c7ce1` Flush dashboard log SSE headers before waiting for events.
+- `fc0e9a9da` Keep the Console pip-install dialog attached to the fullscreen console container.
 
 ## 2026-10-23 v4.29.1 follow-up
 
@@ -82,6 +83,7 @@ Absorbed by local rewrite:
 - `5701a1d5` / `dfc434f8`: backups include Provider statistics, OpenAPI keys, MCP configuration, and persistent Cron definitions.
 - `0cd42bd4`: dashboard log SSE sends an initial comment frame so middleware flushes response headers before the connection waits for a log.
 - `8a7e6f37`: dependency floors for certifi and pip are refreshed to the upstream security-maintenance levels.
+- `776793b8`: the Console pip-install dialog is attached to `#console-wrapper`, so it remains visible while the log view is fullscreen.
 
 Deferred after review:
 
@@ -94,6 +96,7 @@ Validation for this follow-up:
 
 - Gemini schema tests: 4 passed.
 - Backup tests: 9 passed, including the scheduled-task table in exported data.
+- Dashboard production build passed and the generated `dashboard/dist` output was synchronized to `data/dist`.
 - SQLite module compilation and dashboard log-service compilation passed.
 - Conversation query tests were attempted but collection was blocked by the Windows sandbox refusing Loguru's multiprocessing pipe (`WinError 5`); no assertion failure was observed.
 
