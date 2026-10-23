@@ -239,6 +239,9 @@ class TestAstrBotExporter:
             assert "manifest.json" in namelist
             assert "databases/main_db.json" in namelist
             assert "config/cmd_config.json" in namelist
+            assert "cron_jobs" in json.loads(
+                zf.read("databases/main_db.json")
+            )
 
 
 class TestAstrBotImporter:
