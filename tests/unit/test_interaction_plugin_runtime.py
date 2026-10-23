@@ -1332,10 +1332,6 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
             PersonaExpressionResult(speech="三分钟后提醒你。", actions=["look_away"]),
         ),
         (
-            {"thought": "我已经安排好了"},
-            PersonaExpressionResult(speech="三分钟后提醒你。", thought="我有点担心"),
-        ),
-        (
             {"tendency": {"Joy": 2}},
             PersonaExpressionResult(
                 speech="三分钟后提醒你。",
@@ -1402,7 +1398,6 @@ async def test_immediate_output_records_persona_state_for_duplicate_arbitration(
     result = PersonaExpressionResult(
         speech="我先看看。",
         actions=["lower_head"],
-        thought="这需要仔细确认",
         tendency={
             "Joy": 0,
             "Trust": 0,
@@ -1424,7 +1419,6 @@ async def test_immediate_output_records_persona_state_for_duplicate_arbitration(
     assert delivered is True
     assert get_interaction_turn_immediate_persona_state(event) == (
         ("lower_head",),
-        "这需要仔细确认",
         {
             "Joy": 0,
             "Trust": 0,
@@ -1578,29 +1572,24 @@ async def test_olv_persona_segment_stream_request_respects_core_config(monkeypat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("action", "expected_route", "expected_status"),
+    ("action", "expected_publish", "expected_status"),
     [
         (
             PersonalResponseAction.REPLY,
-            InteractionRouteMode.PERSONA,
-            InteractionSpeculativePersonaStatus.EMITTED,
-        ),
-        (
-            PersonalResponseAction.DELEGATE,
-            InteractionRouteMode.HYBRID,
+            True,
             InteractionSpeculativePersonaStatus.EMITTED,
         ),
         (
             PersonalResponseAction.SILENT,
-            InteractionRouteMode.SILENT,
+            False,
             InteractionSpeculativePersonaStatus.SUPPRESSED,
         ),
     ],
 )
-async def test_segment_stream_header_preserves_personal_route_action(
+async def test_segment_stream_header_does_not_set_core_route(
     monkeypatch,
     action,
-    expected_route,
+    expected_publish,
     expected_status,
 ):
     class Event:
@@ -1632,8 +1621,8 @@ async def test_segment_stream_header_preserves_personal_route_action(
         generate_segment_stream_expression=AsyncMock()
     )
     middleware.output_controller = SimpleNamespace()
-    middleware._record_personal_response_plan_diagnostics = Mock()
     middleware.attach_event_context = Mock()
+    published = []
     result = PersonaExpressionResult(
         speech="reply" if action is not PersonalResponseAction.SILENT else "",
         turn_action=action,
@@ -1641,6 +1630,7 @@ async def test_segment_stream_header_preserves_personal_route_action(
 
     async def emit_persona_segment_stream(_event, *, producer, on_header):
         publish_stream = await on_header({"turn_action": action.value})
+        published.append(publish_stream)
         await producer(AsyncMock(), "message-1")
         return SimpleNamespace(
             expression=result,
@@ -1667,9 +1657,10 @@ async def test_segment_stream_header_preserves_personal_route_action(
     )
 
     assert returned is result
+    assert published == [expected_publish]
     generate_expression = middleware.expression_agent.generate_segment_stream_expression
     assert generate_expression.await_args.kwargs["message_id"] == "message-1"
-    assert turn_state.route_decision.route_mode is expected_route
+    assert turn_state.route_decision is None
     assert turn_state.speculative_persona_status is expected_status
 
 
@@ -2280,7 +2271,6 @@ async def test_plugin_persona_output_forwards_structured_result_and_components()
         return_value=PersonaExpressionResult(
             speech="rewritten reply",
             actions=["lower_head"],
-            thought="我有些难过",
             tendency={"Sadness": 5},
             effect_calls=[
                 PersonaEffectCall(
@@ -2327,12 +2317,10 @@ async def test_plugin_persona_output_forwards_structured_result_and_components()
     assert observed_views[0].final_result == "rewritten reply"
     assert observed_views[0].output_draft["source"] == "plugin"
     assert observed_views[0].actions == ("lower_head",)
-    assert observed_views[0].thought == "我有些难过"
     assert observed_views[0].tendency == {"Sadness": 5}
     assert observed_views[0].turn_action == "reply"
     assert observed_views[0].segments[0]["speech"] == "rewritten reply"
     assert observed_views[0].segments[0]["actions"] == ("lower_head",)
-    assert observed_views[0].segments[0]["thought"] == "我有些难过"
     assert observed_views[0].segments[0]["tendency"] == {"Sadness": 5}
     assert observed_views[0].effect_calls[0]["name"] == "motion.nod"
     assert observed_views[0].effect_calls[0]["arguments"] == {"speed": 1}

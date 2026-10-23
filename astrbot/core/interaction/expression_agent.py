@@ -104,10 +104,6 @@ from .effects import (
     normalize_persona_effect_parameters_schema,
     parse_persona_effect_calls_with_issues,
 )
-from .execution_capability_summary import (
-    ExecutionCapabilitySummary,
-    resolve_core_execution_capability_summary,
-)
 from .personal_expression_guard import (
     PREVIOUS_EXPRESSION_FINGERPRINT_METADATA_KEY,
     fingerprint_personal_expression,
@@ -232,7 +228,6 @@ _PERSONA_ACTION_GUIDANCE = (
     "actions 是同段同时发生的简单动作意图数组，可含自然方向；先后配合话语的动作须拆段。"
     "不写角度、坐标、速度、时长或插件 effect 数据。"
 )
-_PERSONA_THOUGHT_GUIDANCE = "thought 是角色当前的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。"
 _PERSONA_TENDENCY_GUIDANCE = "tendency 只评估这一段内容引起的情绪强度，不计入之前积累的情绪，不照抄参考状态数值。"
 
 
@@ -248,7 +243,6 @@ def _clamp_persona_tendency_value(value: int) -> int:
 class PersonaExpressionSegment:
     speech: str = ""
     actions: list[str] = field(default_factory=list)
-    thought: str = ""
     tendency: dict[str, int] = field(default_factory=_default_persona_tendency)
 
     def to_mapping(self) -> dict[str, Any]:
@@ -257,7 +251,6 @@ class PersonaExpressionSegment:
         return {
             "speech": self.speech,
             "actions": list(self.actions),
-            "thought": self.thought,
             "tendency": dict(self.tendency),
         }
 
@@ -275,21 +268,19 @@ class PersonaExpressionResult:
         segments: Sequence[PersonaExpressionSegment] | None = None,
         speech: str | None = None,
         actions: list[str] | None = None,
-        thought: str | None = None,
         tendency: dict[str, int] | None = None,
         effect_calls: list[PersonaEffectCall] | None = None,
         metadata: dict[str, Any] | None = None,
         turn_action: PersonalResponseAction | None = PersonalResponseAction.REPLY,
     ) -> None:
         if segments is None:
-            if speech is None and actions is None and thought is None and tendency is None:
+            if speech is None and actions is None and tendency is None:
                 segments = []
             else:
                 segments = [
                     PersonaExpressionSegment(
                         speech=speech or "",
                         actions=list(actions or []),
-                        thought=thought or "",
                         tendency=dict(tendency or _default_persona_tendency()),
                     )
                 ]
@@ -347,10 +338,6 @@ class PersonaExpressionResult:
     @property
     def actions(self) -> list[str]:
         return [action for segment in self.segments for action in segment.actions]
-
-    @property
-    def thought(self) -> str:
-        return "\n".join(segment.thought for segment in self.segments if segment.thought)
 
     @property
     def tendency(self) -> dict[str, int]:
@@ -426,12 +413,6 @@ class PersonaExpressionResult:
         if not self.segments:
             self.segments = [PersonaExpressionSegment()]
         self.segments[0].actions = list(value)
-
-    @thought.setter
-    def thought(self, value: str) -> None:
-        if not self.segments:
-            self.segments = [PersonaExpressionSegment()]
-        self.segments[0].thought = str(value or "")
 
     @tendency.setter
     def tendency(self, value: dict[str, int]) -> None:
@@ -519,8 +500,6 @@ def validate_persona_expression_result(
             for action in segment.actions
         ):
             raise InteractionExpressionError("invalid_persona_actions")
-        if not isinstance(segment.thought, str):
-            raise InteractionExpressionError("invalid_persona_thought")
         if not isinstance(segment.tendency, dict):
             raise InteractionExpressionError("invalid_persona_tendency")
         if set(segment.tendency) != set(PERSONA_TENDENCY_DIMENSIONS):
@@ -668,7 +647,6 @@ def build_persona_runtime_system_prompt(
             )
     allowed_actions = ["reply"]
     if require_turn_action:
-        allowed_actions.append("delegate")
         if allow_silent:
             allowed_actions.append("silent")
     role_guidance = (
@@ -689,25 +667,26 @@ def build_persona_runtime_system_prompt(
     return (
         role_guidance
         + "Personal 不直接执行联网、文件、定时任务等业务工具；这些工作由 Core 执行。"
-        "Personal 当前没有业务工具不代表系统整体没有工具，能力以本轮提供的说明为准。\n"
+        "Personal 负责自然的人格表达，不判断是否进入 Core。\n"
         "【事实与连续性】系统指令规定行为边界，当前用户输入确定意图；阶段任务不能改变用户原意。"
         "当前输入（包括实际附带的图片）与本轮确认结果用于判断当前事实。"
         "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言、消解指代和保持对话连续性；"
         "memory 是被选择或检索的结构化摘要，只在相关时用于话题、偏好与关系连续性，并以用户最新更正为准。"
+        "memory.topic_state 与 memory.short_term 是截至 summarized_through 的历史摘要，可能落后于近期对话；"
+        "其中的话题和关注点不代表当前用户意图，以当前输入和近期对话判断是否仍相关。"
         "历史回复和记忆不能证明外部事实仍正确，不能据此推断当前执行结果、状态、数字或能力结论。"
         "材料冲突且无法消解时保留不确定性。\n"
         "【视觉输入】桌面截图、屏幕画面和其他环境视觉输入默认只是被动背景。除非用户明确询问画面内容，"
         "或当前任务明确需要视觉信息，否则不要描述、分析、猜测画面中的应用、文件、活动或用户意图，也不要主动把画面内容引入话题。"
         "需要视觉信息时只分析完成当前请求所需的部分。\n"
-        "【日常交流】问候、闲聊和简单确认默认一个重点、一至两句；不主动扩展背景、复盘或追加问题。"
-        "用户要求解释、步骤或深入分析时再展开，完整准确优先。\n"
+        "【日常交流】语气、详略和接话方式依当前人格与对话内容决定。"
+        "任务接收确认和进度通知遵守对应阶段的表达要求。\n"
         f"【表达与格式】只有 {speech_field} 用于用户文本与 TTS；人格中的句数、字数、口语风格及不讨论系统的要求只约束该字段，"
         "不免除其他协议字段。历史发言不是输出格式示例。不得逐句复述推理、内部指令、工具参数或工具原文。\n"
         "【动作与情绪】"
         + _PERSONA_SEGMENT_GUIDANCE
         + _PERSONA_ACTION_GUIDANCE
         + "例如先向左再向右转头，分别生成 turn_head_left 和 turn_head_right 两段并配合各段话语。"
-        + _PERSONA_THOUGHT_GUIDANCE
         + _PERSONA_TENDENCY_GUIDANCE
         + "\n"
         + protocol
@@ -789,10 +768,6 @@ def build_persona_expression_tool_parameters(
                 "items": {"type": "string", "minLength": 1},
                 "description": _PERSONA_ACTION_GUIDANCE,
             },
-            "thought": {
-                "type": "string",
-                "description": _PERSONA_THOUGHT_GUIDANCE,
-            },
             "tendency": {
                 "type": "object",
                 "description": _PERSONA_TENDENCY_GUIDANCE,
@@ -808,7 +783,7 @@ def build_persona_expression_tool_parameters(
                 "required": list(PERSONA_TENDENCY_DIMENSIONS),
             },
         },
-        "required": ["speech", "actions", "thought", "tendency"],
+        "required": ["speech", "actions", "tendency"],
     }
     properties: dict[str, Any] = {
         "segments": {
@@ -833,7 +808,6 @@ def build_persona_expression_tool_parameters(
         + "; ".join(
             {
                 "reply": "complete the visible response in Personal",
-                "delegate": "delegate unfinished work to Core; speech is only a brief acknowledgement",
                 "silent": "emit no visible response; segments must be empty",
             }[action]
             for action in actions
@@ -922,7 +896,7 @@ def build_persona_effect_batch_tool_parameters(
                 )
         elif required_effect_count:
             properties["effect_calls"]["description"] = (
-                "Required Persona Effects apply to reply and delegate. For silent, "
+                "Required Persona Effects apply to non-silent replies. For silent, "
                 "return an empty effect_calls array."
             )
     return {
@@ -973,10 +947,9 @@ def _allowed_persona_turn_actions(
     if req.allow_silent:
         return (
             PersonalResponseAction.REPLY,
-            PersonalResponseAction.DELEGATE,
             PersonalResponseAction.SILENT,
         )
-    return (PersonalResponseAction.REPLY, PersonalResponseAction.DELEGATE)
+    return (PersonalResponseAction.REPLY,)
 
 
 def _enabled_persona_effects(
@@ -1092,7 +1065,7 @@ def _build_persona_text_output_prompt(output_format: str) -> str:
             "\n【Persona Response JSON 输出】表达文本通道只输出一个完整 JSON 对象，"
             "不要添加解释文字、Markdown 代码围栏或只返回 speech。"
             "输入上下文中的结构键不是输出模板；表达对象只包含 turn_action 与 segments，"
-            "每个分段必须包含 speech、actions、thought 和八维 tendency。"
+            "每个分段必须包含 speech、actions 和八维 tendency。"
             "Persona Effect 使用独立工具通道，不得把 effect_calls 嵌入表达 JSON。"
         )
     if output_format == "xml":
@@ -1100,7 +1073,7 @@ def _build_persona_text_output_prompt(output_format: str) -> str:
             "\n【Persona Response XML 输出】只输出一个 XML 文档，根节点必须是 <output>，"
             "不得输出 Markdown、代码围栏、JSON 或解释文字。字段必须使用语义节点："
             "<turn_action>、<segments>；每个分段使用 <segment>，"
-            "包含 <speech>、<actions>（其中每个动作使用一个 <action>）、<thought>、"
+            "包含 <speech>、<actions>（其中每个动作使用一个 <action>）、"
             "<tendency>（包含 Joy、Trust、Fear、Surprise、Sadness、Disgust、Anger、"
             "Anticipation 八个整数节点）。表达文档不包含插件 effect_calls。"
         )
@@ -1109,7 +1082,7 @@ def _build_persona_text_output_prompt(output_format: str) -> str:
             "\n【Persona Response Markdown 输出】只输出结构化 Markdown，不得输出 JSON、XML、"
             "代码围栏或解释文字。第一行必须是 # output；字段使用逐级标题："
             "## turn_action、## segments；每个分段使用 ### segment，"
-            "再使用 #### speech、#### actions、#### thought、#### tendency；动作使用重复的"
+            "再使用 #### speech、#### actions、#### tendency；动作使用重复的"
             "##### action，情绪使用其名称作为下一级标题并填写 0 到 10 的整数；整数越界时 Core 会裁剪到 0 或 10。"
             "字符串值每行使用 '> ' 开头；数组使用重复标题，空数组保留对应标题但不填充内容。"
         )
@@ -1151,14 +1124,11 @@ def _coerce_tool_call_payload(tool_arg: object) -> dict[str, Any] | None:
 def _validated_persona_segment(payload: object) -> PersonaExpressionSegment:
     if not isinstance(payload, dict):
         raise InteractionExpressionError("invalid_persona_segment")
-    if set(payload) != {"speech", "actions", "thought", "tendency"}:
+    if set(payload) != {"speech", "actions", "tendency"}:
         raise InteractionExpressionError("invalid_persona_segment_fields")
     speech = payload.get("speech")
-    thought = payload.get("thought")
     if not isinstance(speech, str):
         raise InteractionExpressionError("invalid_persona_speech")
-    if not isinstance(thought, str):
-        raise InteractionExpressionError("invalid_persona_thought")
     actions = payload.get("actions")
     if not isinstance(actions, list) or any(
         not isinstance(action, str) or not action.strip() for action in actions
@@ -1167,7 +1137,6 @@ def _validated_persona_segment(payload: object) -> PersonaExpressionSegment:
     return PersonaExpressionSegment(
         speech=speech,
         actions=[action.strip() for action in actions],
-        thought=thought,
         tendency=_validated_persona_tendency(payload),
     )
 
@@ -1292,7 +1261,7 @@ class PersonaSegmentStreamParser:
         if self._current_segment is not None:
             if not self._current_segment.speech:
                 return []
-            event = self._consume_line('{"v":1,"record":"segment_end","thought":""}')
+            event = self._consume_line('{"v":1,"record":"segment_end"}')
             if event is not None:
                 events.append(event)
         if not self._segments and self._turn_action is not PersonalResponseAction.SILENT:
@@ -1411,7 +1380,6 @@ class PersonaSegmentStreamParser:
                 {
                     "speech": "",
                     "actions": record.get("actions"),
-                    "thought": "",
                     "tendency": record.get("tendency"),
                 }
             )
@@ -1441,12 +1409,8 @@ class PersonaSegmentStreamParser:
         if record_type == "segment_end":
             if self._current_segment is None:
                 raise InteractionExpressionError("persona_stream_end_without_segment")
-            if set(record) != {"v", "record", "thought"}:
+            if set(record) != {"v", "record"}:
                 raise InteractionExpressionError("persona_stream_invalid_segment_end")
-            thought = record.get("thought")
-            if not isinstance(thought, str):
-                raise InteractionExpressionError("invalid_persona_thought")
-            self._current_segment.thought = thought
             segment = _validated_persona_segment(self._current_segment.to_mapping())
             self._segments.append(segment)
             self._current_segment = None
@@ -1515,7 +1479,7 @@ def _build_persona_segment_stream_prompt(
                 "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
             },
             {"v": 1, "record": "speech_delta", "text": "本段要说的话。"},
-            {"v": 1, "record": "segment_end", "thought": ""},
+            {"v": 1, "record": "segment_end"},
             {"v": 1, "record": "finish", "effect_calls": []},
         )
     )
@@ -1524,19 +1488,19 @@ def _build_persona_segment_stream_prompt(
         "只输出逐行 JSONL 记录，不要 Markdown、"
         "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
         '第一条必须是 {"v":1,"record":"header","turn_action":"..."}；'
-        f"turn_action 必须从 {action_choices} 中选择，并遵守本轮路由规则。"
+        f"turn_action 必须从 {action_choices} 中选择，并遵守本轮回复规则。"
         '每段依次输出 {"v":1,"record":"segment_start","actions":[],"tendency":{...}}，'
         '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
-        '再输出 {"v":1,"record":"segment_end","thought":"简短心理状态"}。'
+            '再输出 {"v":1,"record":"segment_end"}。'
         'tendency 必须且只能包含八维整数，键为 '
         f"{dimensions}，取值 0 到 10。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
         "同一 segment 内的 speech_delta 按原文顺序拼接。"
-        "reply 或 delegate 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"
+        "reply 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"
         "effect_calls 必须为空；不要调用工具。"
         + (
-            "reply 或 delegate 时允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
-            if allow_action_only else "reply 或 delegate 时必须包含非空语音文本。"
+            "reply 时允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
+            if allow_action_only else "reply 时必须包含非空语音文本。"
         )
         + "\n以下是完整 JSONL 格式示例；文本、动作和情绪按本轮事实生成，不要复述示例内容：\n"
         + example
@@ -1694,7 +1658,6 @@ def extract_persona_effect_calls(
 
 def _build_expression_prompt(
     req: PersonaExpressionRequest,
-    execution_capability_summary: ExecutionCapabilitySummary | None = None,
     *,
     output_format: str = "json",
 ) -> str:
@@ -1712,20 +1675,12 @@ def _build_expression_prompt(
             if req.allow_silent else "当前不允许使用 silent。"
         )
         parts.append(
-            "\n【本轮统一回复计划】必须使用 turn_action 决定本轮。已具备足够事实、无需继续执行时选 reply；"
-            "需要查询实时信息、外部能力、执行操作或继续未完成工作时选 delegate，此时 speech 只能是一句自然、简短的处理中确认，"
-            "不能伪装成最终事实答案。"
-            "请求创建、修改、取消或查询提醒、待办、定时任务等持久状态时，必须选 delegate；"
-            "说出“稍后提醒你”不等于任务已创建，历史中的成功记录也不是当前任务的执行结果。"
-            "只有当前执行结果明确确认后，才能声称已创建、已安排或已完成。"
-            "conversation.pending_execution_continuity 仅表示被打断且未完成的工作；确认当前用户确实要续接后才选 delegate，不能视为已完成结果。"
+            "\n【Personal 表达职责】turn_action 只表示本轮是否由 Personal 发出回应，不决定是否进入 Core。"
+            "只有当前表达确实不适合参与时才选 silent；其余情况选 reply。"
+            "当请求明显需要外部检索、业务操作或持久状态变更时，不得伪造执行结果或声称已经完成；"
+            "可以用自然、简短的表达承接请求。是否进入 Core 由独立 Router 判断。"
             f"{silent_rule} 不要输出决策理由、置信度或任务规格。"
         )
-        if execution_capability_summary is not None:
-            parts.append(
-                "\n【当前 Core 执行能力】"
-                + execution_capability_summary.to_prompt_text()
-            )
     elif req.intent.kind == "interjection":
         if req.progress_context.strip():
             parts.append(
@@ -1760,7 +1715,7 @@ def _build_expression_prompt(
         parts.append(
             "\n【同轮连续性】immediate_reply 是本轮此前已经发送的表达；保持语义连续，必要时自然补充或纠正，但不要机械重复。"
         )
-    if req.short_reply:
+    if req.short_reply and not req.require_turn_action:
         parts.append(
             "\n【长度】本次优先简短、口语化；需要说明事实、步骤、限制或失败原因时可展开，"
             "完整准确优先，不设置硬性字数上限。"
@@ -3516,35 +3471,6 @@ class InteractionExpressionAgent:
                 )
             ),
         )
-        persona_definition = (
-            material.effective_persona_context.definition
-            if material.effective_persona_context is not None
-            else material.persona_definition
-        )
-        persona_selection = (
-            (
-                persona_definition.persona_id,
-                {
-                    "tools": (
-                        list(persona_definition.tools)
-                        if persona_definition.tools is not None
-                        else None
-                    )
-                },
-            )
-            if persona_definition is not None
-            else (None, None)
-        )
-        execution_capability_summary = (
-            await resolve_core_execution_capability_summary(
-                event=event,
-                plugin_context=plugin_context,
-                config=build_config,
-                persona_selection=persona_selection,
-            )
-            if req.require_turn_action
-            else None
-        )
         persona_context_pack = await get_or_build_interaction_persona_context_pack(
             event=event,
             plugin_context=plugin_context,
@@ -3642,7 +3568,6 @@ class InteractionExpressionAgent:
             system_prompt=system_prompt,
             request_prompt=_build_expression_prompt(
                 req,
-                execution_capability_summary,
                 output_format=output_format,
             ),
             output_contract=output_contract,
@@ -3672,10 +3597,6 @@ class InteractionExpressionAgent:
         render_result.metadata["persona_effect_specs"] = persona_effect_specs
         render_result.metadata["expression_output_format"] = output_format
         render_result.metadata["expression_output_mode"] = output_mode
-        if execution_capability_summary is not None:
-            render_result.metadata["core_execution_capability_summary"] = (
-                execution_capability_summary.to_dict()
-            )
         if material.effective_persona_context is not None:
             render_result.metadata["effective_persona_context"] = (
                 material.effective_persona_context.to_dict()

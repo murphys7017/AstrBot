@@ -7,18 +7,12 @@ from astrbot.core.execution_capabilities import (
     WEB_RESEARCH_CAPABILITY,
     collect_semantic_capability_bindings,
 )
-from astrbot.core.interaction.capability_route_guard import (
-    correct_contradictory_capability_denial,
-)
 from astrbot.core.interaction.execution_capability_summary import (
-    ExecutionCapability,
-    ExecutionCapabilitySummary,
     resolve_core_execution_capability_summary,
 )
 from astrbot.core.interaction.turn_state import ensure_interaction_turn_state
 from astrbot.core.interaction.types import (
     InteractionPromptBuildConfig,
-    PersonalResponseAction,
 )
 
 
@@ -71,60 +65,6 @@ def test_web_research_capability_supports_action_level_declarations():
         ("minimax_cli", ("search",)),
         ("web_search_tavily", ()),
     ]
-
-
-def test_capability_denial_guard_delegates_without_exposing_core_tools():
-    expression = SimpleNamespace(
-        turn_action=PersonalResponseAction.REPLY,
-        speech="我这轮没有联网工具，天气查不了。",
-        metadata={},
-    )
-    summary = ExecutionCapabilitySummary(
-        config_id="olv",
-        capabilities=(
-            ExecutionCapability(
-                capability_id=WEB_RESEARCH_CAPABILITY,
-                state="admitted",
-                bindings=("minimax_cli",),
-            ),
-        ),
-    )
-
-    assert correct_contradictory_capability_denial(
-        request_text="查一下石家庄今天的天气",
-        expression=expression,
-        capability_summary=summary,
-    )
-    assert expression.turn_action is PersonalResponseAction.DELEGATE
-    assert expression.speech == "我去查一下，稍等。"
-    assert expression.metadata["route_correction_reason"] == (
-        "capability_denial_route_corrected"
-    )
-
-
-def test_capability_denial_guard_leaves_ordinary_reply_unchanged():
-    expression = SimpleNamespace(
-        turn_action=PersonalResponseAction.REPLY,
-        speech="今天想聊点什么？",
-        metadata={},
-    )
-    summary = ExecutionCapabilitySummary(
-        config_id="olv",
-        capabilities=(
-            ExecutionCapability(
-                capability_id=WEB_RESEARCH_CAPABILITY,
-                state="admitted",
-                bindings=("web_search_tavily",),
-            ),
-        ),
-    )
-
-    assert not correct_contradictory_capability_denial(
-        request_text="你好",
-        expression=expression,
-        capability_summary=summary,
-    )
-    assert expression.turn_action is PersonalResponseAction.REPLY
 
 
 @pytest.mark.asyncio

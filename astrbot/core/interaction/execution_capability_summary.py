@@ -1,4 +1,4 @@
-"""Read-only Core capability projection used by Personal routing."""
+"""Read-only Core capability projection used by independent Core routing."""
 
 from __future__ import annotations
 
@@ -61,10 +61,6 @@ class ExecutionCapabilitySummary:
             None,
         )
 
-    def is_delegatable(self, capability_id: str) -> bool:
-        capability = self.get(capability_id)
-        return capability is not None and capability.state in {"admitted", "unknown"}
-
     def admitted_ids(self) -> tuple[str, ...]:
         return tuple(
             capability.capability_id
@@ -81,24 +77,6 @@ class ExecutionCapabilitySummary:
                 capability.to_dict() for capability in self.capabilities
             ],
         }
-
-    def to_prompt_text(self) -> str:
-        capability = self.get(WEB_RESEARCH_CAPABILITY)
-        if capability is None or capability.state == "unknown":
-            return (
-                "Core 的联网检索能力状态当前未知。Personal 不得据此声称系统没有"
-                "联网能力；实时信息请求应选择 delegate，由 Core 检查真实工具快照。"
-            )
-        if capability.state == "admitted":
-            return (
-                "Core 当前已准入 web_research 联网检索能力。Personal 不直接调用该"
-                "能力；天气、最新信息、网页查询等实时请求必须选择 delegate。"
-            )
-        return (
-            "当前配置未发现已准入的 web_research 执行入口。只有 Core 的当前快照或"
-            "执行结果可以确认能力不可用，历史回复不能作为当前能力事实。"
-        )
-
 
 def get_core_execution_capability_summary(
     event,

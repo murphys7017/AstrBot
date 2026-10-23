@@ -1592,7 +1592,6 @@ class InteractionOutputController:
                     motion_delivered = segment_index in delivered_motion_indexes
                     has_persona_state = bool(
                         segment.get("actions")
-                        or segment.get("thought")
                         or segment.get("tendency")
                     )
                     if (
@@ -1619,11 +1618,6 @@ class InteractionOutputController:
                             for segment in mappings
                             for action in segment.get("actions", [])
                         ],
-                        thought="\n".join(
-                            str(segment.get("thought") or "")
-                            for segment in mappings
-                            if str(segment.get("thought") or "")
-                        ),
                         tendency=(mappings[-1].get("tendency", {}) if mappings else {}),
                     )
                 tts_status = platform_extras["persona_stream"].get(
@@ -1999,11 +1993,6 @@ class InteractionOutputController:
                     if prepared_expression is not None
                     else ()
                 ),
-                thought=(
-                    prepared_expression.thought
-                    if prepared_expression is not None
-                    else ""
-                ),
                 tendency=(
                     prepared_expression.tendency
                     if prepared_expression is not None
@@ -2057,7 +2046,6 @@ class InteractionOutputController:
                     else ()
                 ),
                 actions=prepared_expression.actions if prepared_expression else (),
-                thought=(prepared_expression.thought if prepared_expression else ""),
                 tendency=prepared_expression.tendency if prepared_expression else {},
             )
             incremental = await self._deliver_ready_persona_segments(
@@ -2304,7 +2292,6 @@ class InteractionOutputController:
                 effect_calls=result.effect_calls,
                 segments=result.segment_mappings,
                 actions=result.actions,
-                thought=result.thought,
                 tendency=result.tendency,
                 turn_action=(
                     result.turn_action.value if result.turn_action is not None else None
@@ -3846,7 +3833,6 @@ class InteractionOutputController:
                 else ()
             ),
             actions=(persona_expression.actions if persona_expression else ()),
-            thought=persona_expression.thought if persona_expression else "",
             tendency=(persona_expression.tendency if persona_expression else {}),
             turn_action=(
                 persona_expression.turn_action.value
@@ -4108,7 +4094,6 @@ class InteractionOutputController:
         effect_calls: Sequence[Any] = (),
         segments: Sequence[Mapping[str, Any]] = (),
         actions: Sequence[str] = (),
-        thought: str = "",
         tendency: Mapping[str, int] | None = None,
         turn_action: str | None = None,
         purpose: InteractionResultPurpose | None = None,
@@ -4180,7 +4165,6 @@ class InteractionOutputController:
             effect_calls=effect_calls,
             segments=tuple(deepcopy(dict(segment)) for segment in segments),
             actions=tuple(actions),
-            thought=thought,
             tendency=dict(tendency or {}),
             turn_action=turn_action,
             visible_outputs=self._snapshot_result_visible_outputs(event),

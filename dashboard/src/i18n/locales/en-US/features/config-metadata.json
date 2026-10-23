@@ -1229,18 +1229,18 @@
       }
     },
     "planner": {
-      "description": "Core Planner",
-      "hint": "Only after Personal delegates to Core, builds CoreTaskSpec for the current task; it no longer re-decides whether execution is needed.",
+      "description": "Core Router and Planner",
+      "hint": "The independent Router decides whether a request enters Core; the Planner builds CoreTaskSpec only for routed requests. Personal does not route.",
       "interaction_middleware": {
         "planner_provider_id": {
-          "description": "Planner Model Provider",
-          "hint": "Empty uses the Persona expression model."
+          "description": "Core Router and Planner Model Provider",
+          "hint": "The Router and Planner share this model; empty uses the Persona expression model."
         },
         "planner_temperature": {
-          "description": "Planner Temperature"
+          "description": "Core Router and Planner Temperature"
         },
         "planner_timeout": {
-          "description": "Planner Timeout Seconds"
+          "description": "Core Router and Planner Timeout Seconds"
         }
       }
     },

@@ -7,7 +7,7 @@
 - InteractionOutputDraft 已作为只读 output_draft 暴露在 InteractionResultView 中。
 - 当前已运行的扩展入口是 InteractionResultContributor，返回 InteractionResultContribution；OutputController 合并其 platform_extras、client_objects、metadata、priority，并在兼容路径中处理 final_text_override。
 - InteractionOutputContribution 类型已定义，但尚未接入当前 contributor 收集与输出合并流程；文中围绕它描述的 stage、latency class 等行为属于目标设计。
-- Persona 的 actions、thought、tendency、turn_action 和 effect_calls 可通过 InteractionResultView 提供给 contributor。Core 不会自动把这些值转换成平台 payload。
+- Persona 的 actions、tendency、turn_action 和 effect_calls 可通过 InteractionResultView 提供给 contributor。Core 不会自动把这些值转换成平台 payload。
 
 ## 目标
 
@@ -18,7 +18,8 @@
 ```text
 input
   -> Personal Response Plan
-  -> reply / delegate / silent
+  -> Personal reply / silent decision (independent from Core routing)
+  -> Core Router decision
   -> core, tool, or plugin execution result
   -> Interaction output draft
   -> output plugin contributions
@@ -52,8 +53,9 @@ input
 - `turn_id`: 当前 interaction turn。
 - `message_id`: 逻辑输出段 ID；在 contributor、TTS 和物理发送之前分配。
 - `source`: `interaction | core | plugin | system`。
-- `route_mode`: 兼容诊断投影：Personal 的 `reply | delegate | silent` 分别映射为
-  `persona | hybrid | silent`；协议 Core bypass 不伪造 route。
+- `route_mode`: Core Router 的路由诊断投影：`personal_only` 映射为 `persona`，
+  `route_to_core` 映射为 `hybrid`；Personal 的 `turn_action` 不映射为路由结果，
+  协议 Core bypass 不伪造 route。
 - `phase`: `immediate | final | background`。
 - `text`: 当前阶段的候选用户可见文本。
 - `semantic_text`: 当前阶段的候选语义文本，供 TTS、memory、analytics 或插件表现增强使用。
@@ -89,11 +91,11 @@ input
 
 ### 1. Decision
 
-Personal Response Plan 只选择本轮对话的处理路径；用户可见表达与 effect 不属于控制动作：
+Core Router 与 Personal Expression 分别负责 Core 路由和用户可见回复：
 
-- `reply`: 统一 Persona Expression 直接生成最终回复。
-- `delegate`: Personal 可提交简短处理中确认；Core Planner 为已委派任务生成 `execute` 规格，Core 的结果再交回统一 Persona Expression。
-- `silent`: 仅允许合格群聊候选，且不产生可见输出。
+- Router `personal_only`: 不启动 Core 执行，Personal 仍可生成回复。
+- Router `route_to_core`: Core Planner 为任务生成 `execute` 规格，Core 的结果再交回统一 Persona Expression。
+- Personal `reply`: 发出可见回复；允许静默的群聊候选可选择 `silent`，且不产生可见输出。
 
 直播音频和协议命令使用独立 Core bypass，不进入对话 Personal Response Plan，也不创建伪造的控制决策。
 

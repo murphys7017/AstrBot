@@ -434,6 +434,8 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
 - `enabled`：是否启用 Interaction Middleware。省略时启用；设为 `false` 可保留原有 Core-only 行为。
 - `expression_provider_id` 与 `planner_provider_id`：可选的分阶段模型覆盖。
   留空时复用当前会话已配置的聊天模型；显式填写 ID 时优先使用该模型。
+- `planner_provider_id`、`planner_temperature` 与 `planner_timeout` 同时用于独立 Core Router 和 Core Planner。
+  Router 与 Personal 并行判断是否进入 Core；只有路由到 Core 后才会调用 Planner。
 - `parallel_plugin_runtime_enabled`：是否启用 Personal 与 Official Plugin Job 的并行路径。
   默认 `false`，且是整条插件路径的全局开关，不支持按单个插件半启用。关闭时保留 Handler 先接管的
   兼容路径；开启前应先检查 `DIAG interaction.parallel_turn` 等运行日志。

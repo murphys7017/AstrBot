@@ -117,7 +117,7 @@ def stream_producer(speech, *, request=None, actions=None, deltas=None):
                 {"v": 1, "record": "speech_delta", "text": text}
                 for text in (deltas if deltas is not None else ([speech] if speech else []))
             ],
-            {"v": 1, "record": "segment_end", "thought": ""},
+            {"v": 1, "record": "segment_end"},
             {"v": 1, "record": "finish", "effect_calls": []},
         ]
         for record in records:

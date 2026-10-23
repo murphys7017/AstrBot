@@ -45,7 +45,6 @@
     {
       "speech": "啊……怎么会这样？",
       "actions": ["lower_head"],
-      "thought": "这件事出乎意料，让我感到遗憾",
       "tendency": {
         "Joy": 0,
         "Trust": 1,
@@ -62,7 +61,7 @@
 }
 ```
 
-上例是内部聚合结果，不是单个 Provider payload。表达通道只包含 `turn_action`、`segments`；适用 effect 使用参数仅含 `effect_calls` 的 `persona_effect_batch` 独立 tool call，并与表达在同一模型响应中返回。无适用 effect 时不提供该工具，内部聚合结果以空数组表示。默认表达格式为 JSON + Prompt-only；Provider 页面 10 次稳定性测试由用户判断结果，不自动持久化或修改 Persona Response 配置。`turn_action` 是调用场景允许值中的单个字符串；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段；普通路径逐段合成，声明支持的 OLV 路径可并行准备并按序投递。
+上例是内部聚合结果，不是单个 Provider payload。表达通道只包含 `turn_action`、`segments`；适用 effect 使用参数仅含 `effect_calls` 的 `persona_effect_batch` 独立 tool call，并与表达在同一模型响应中返回。无适用 effect 时不提供该工具，内部聚合结果以空数组表示。默认表达格式为 JSON + Prompt-only；Provider 页面 10 次稳定性测试由用户判断结果，不自动持久化或修改 Persona Response 配置。每个 `segments` 元素包含 `speech`、`actions` 和 `tendency`。`turn_action` 只表示 Personal 是否发出可见回复；是否进入 Core 由独立 Core Router 判断。文本平台使用按顺序拼接的 `segments[].speech`，TTS 使用原始分段；普通路径逐段合成，声明支持的 OLV 路径可并行准备并按序投递。
 
 ## 阶段状态
 

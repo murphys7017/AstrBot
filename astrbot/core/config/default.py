@@ -4615,23 +4615,23 @@ CONFIG_METADATA_3 = {
                 },
             },
             "planner": {
-                "description": "Core Planner",
+                "description": "Core Router and Planner",
                 "type": "object",
-                "hint": "仅在 Personal 委派 Core 后，把当前任务整理为 CoreTaskSpec；不再重新判断是否进入执行层。",
+                "hint": "独立 Router 判断当前请求是否进入 Core；Planner 只为已路由请求生成 CoreTaskSpec。Personal 不决定路由。",
                 "items": {
                     "interaction_middleware.planner_provider_id": {
-                        "description": "规划模型提供商",
+                        "description": "Core 路由与规划模型提供商",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "留空时使用 Persona 表达模型。",
+                        "hint": "Router 与 Planner 共用此模型；留空时使用 Persona 表达模型。",
                     },
                     "interaction_middleware.planner_temperature": {
-                        "description": "规划温度",
+                        "description": "Core 路由与规划温度",
                         "type": "float",
                         "slider": {"min": 0, "max": 2, "step": 0.05},
                     },
                     "interaction_middleware.planner_timeout": {
-                        "description": "规划超时秒数",
+                        "description": "Core 路由与规划超时秒数",
                         "type": "float",
                     },
                 },

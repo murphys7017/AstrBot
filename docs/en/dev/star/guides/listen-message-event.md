@@ -657,7 +657,7 @@ async def consider_group_message(self, event: AstrMessageEvent):
 ```
 
 The function returns `True` only for group messages. After plugin Handlers finish,
-the Personal Response Plan makes the final choice among `reply`, `delegate`, and
-eligible-group `silent`. Candidate status grants no reply ownership and does not
-call an LLM directly. Existing plugins that do not use this API retain their
-previous wake behavior.
+Personal may produce a visible reply or select `silent` for an eligible group
+candidate. An independent Core Router decides whether the message enters Core;
+candidate status grants no reply ownership and does not call an LLM directly.
+Existing plugins that do not use this API retain their previous wake behavior.

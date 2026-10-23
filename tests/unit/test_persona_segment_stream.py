@@ -200,7 +200,6 @@ async def test_completed_stream_preserves_empty_segment_persona_state(monkeypatc
                 "segment": {
                     "speech": "hello",
                     "actions": [],
-                    "thought": "",
                     "tendency": {},
                 },
             }
@@ -213,7 +212,6 @@ async def test_completed_stream_preserves_empty_segment_persona_state(monkeypatc
                 "segment": {
                     "speech": "",
                     "actions": ["blink"],
-                    "thought": "",
                     "tendency": {},
                 },
             }
@@ -298,7 +296,6 @@ async def test_incomplete_stream_reports_accepted_segment_prefix(monkeypatch):
                 "segment": {
                     "speech": "accepted",
                     "actions": [],
-                    "thought": "",
                     "tendency": {},
                 },
             }
@@ -467,7 +464,6 @@ async def test_olv_stream_delivers_complete_tts_segment_before_provider_finish(
                 "segment": {
                     "speech": "hello",
                     "actions": [],
-                    "thought": "",
                     "tendency": tendency,
                 },
             }
@@ -561,7 +557,6 @@ async def test_olv_stream_delivers_action_only_segment_in_order(monkeypatch):
                 "segment": {
                     "speech": "",
                     "actions": ["nod"],
-                    "thought": "",
                     "tendency": {},
                 },
             }
@@ -669,7 +664,6 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
             segment = {
                 "speech": segment_text,
                 "actions": [],
-                "thought": "",
                 "tendency": {},
             }
             await emit_record(
@@ -698,7 +692,6 @@ async def test_persona_stream_cancellation_cancels_stalled_tts(monkeypatch):
                 "segment": {
                     "speech": "",
                     "actions": ["blink"],
-                    "thought": "",
                     "tendency": {},
                 },
             }

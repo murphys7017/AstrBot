@@ -31,6 +31,7 @@ CORE_HISTORY_HARD_TURN_LIMIT = 64
 PERSONA_RECENT_HISTORY_TURNS = 28
 PERSONA_RECENT_TOKEN_SHARE = 0.75
 _TARGET_MEMORY_TOKEN_LIMITS = {
+    "core_router": 0,
     "core_planner": 4000,
     "personal_policy": 4000,
     "persona": 10000,
@@ -56,6 +57,9 @@ def resolve_target_budget(
     elif target == "personal_policy":
         selected_history_turns = 6
         history_limit_reason = "personal_policy_history_limit"
+    elif target == "core_router":
+        selected_history_turns = 4
+        history_limit_reason = "core_router_disambiguation_window"
     elif target == "core_planner":
         selected_history_turns = 8
         history_limit_reason = "core_planner_history_limit"
@@ -71,18 +75,19 @@ def resolve_target_budget(
             selected_history_turns = CORE_HISTORY_HARD_TURN_LIMIT
             history_limit_reason = "core_history_hard_fallback"
 
-    compact_target = target == "personal_policy"
+    compact_target = target in {"personal_policy", "core_router"}
     history_token_limit = {
         "personal_policy": 3000,
+        "core_router": 1200,
         "core_planner": 4000,
         "persona": 16000,
         "core": 16000,
     }[target]
     if history_max_estimated_tokens is not None:
         history_token_limit = max(0, int(history_max_estimated_tokens))
-    history_max_message_chars = 1800
-    if compact_target:
-        history_max_message_chars = 1200
+    history_max_message_chars = 1200 if compact_target else 1800
+    if target == "core_router":
+        history_max_message_chars = 600
 
     return PromptTargetBudget(
         history_turns=selected_history_turns,

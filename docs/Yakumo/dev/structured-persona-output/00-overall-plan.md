@@ -7,7 +7,7 @@
 
 ## 1. 目标与边界
 
-为 Persona Expression 建立稳定的语义结果协议，使用户可见文本、角色动作意图、角色心理状态、角色情绪和插件 effect 调用各有明确字段。Provider 的传输格式属于适配层；无论未来采用何种输出方式，都必须解析为同一业务结果类型 `PersonaExpressionResult`。
+为 Persona Expression 建立稳定的语义结果协议，使用户可见文本、角色动作意图、角色情绪倾向和插件 effect 调用各有明确字段。Provider 的传输格式属于适配层；无论未来采用何种输出方式，都必须解析为同一业务结果类型 `PersonaExpressionResult`。
 
 本协议描述**扮演角色的输出状态**。`tendency` 由模型依据角色设定和当前对话生成，采用 Plutchik 八种基本情绪作为统一含义及训练标注词汇；它不是用户情绪、模型内部情绪向量或对神经网络内部状态的轮结构约束。
 
@@ -22,7 +22,6 @@
     {
       "speech": "啊……怎么会这样？",
       "actions": ["lower_head"],
-      "thought": "这件事出乎意料，让我感到遗憾",
       "tendency": {
         "Joy": 0,
         "Trust": 1,
@@ -39,14 +38,13 @@
 }
 ```
 
-上例表示内部聚合后的 `PersonaExpressionResult`。Provider 请求将它拆成独立通道：`persona_expression` 只包含 `turn_action`、`segments`；若当前事件有已注册且适用的 Persona Effect，同一模型响应还必须调用 `persona_effect_batch`，其参数只包含 `effect_calls`。两个通道分别精确校验，再聚合给下游消费者。正常生成时不为 effect 单独发起请求；已解析的必发 effect 校验失败时，现有校正流程会额外请求模型修复 effect batch。无适用 effect 时不提供 effect 工具，内部结果的 `effect_calls` 为空数组。`segments` 按说话时动作或状态变化分段，每段都包含 `speech`、`actions`、`thought` 和 `tendency`。
+上例表示内部聚合后的 `PersonaExpressionResult`。Provider 请求将它拆成独立通道：`persona_expression` 只包含 `turn_action`、`segments`；若当前事件有已注册且适用的 Persona Effect，同一模型响应还必须调用 `persona_effect_batch`，其参数只包含 `effect_calls`。两个通道分别精确校验，再聚合给下游消费者。正常生成时不为 effect 单独发起请求；已解析的必发 effect 校验失败时，现有校正流程会额外请求模型修复 effect batch。无适用 effect 时不提供 effect 工具，内部结果的 `effect_calls` 为空数组。`segments` 按说话时动作或状态变化分段，每段包含 `speech`、`actions` 和 `tendency`。
 
 | 字段 | 当前代码约束 | 当前消费者 |
 | --- | --- | --- |
-| `turn_action` | 单个字符串；Schema 按请求限制可选值。 | Personal 路由和本轮执行控制。 |
+| `turn_action` | 单个字符串；Schema 按请求限制为 `reply`，或在允许静默的群聊候选中使用 `silent`。 | Personal 是否发出可见回复；Core 路由由独立 Router 决定。 |
 | `speech` | 字符串；正常回复不能为空。 | 所在分段的用户可见文本；平台文本发送时按 `segments` 顺序整合，TTS 消费时保留分段边界。 |
 | `actions` | Schema 校验为非空字符串数组；Prompt 要求其表达简单动作意图，不承载参数、方向、时长或平台数据。 | Result Contributor 可读取；需要投递动作数据时由插件构造自己的 contribution。 |
-| `thought` | 字符串；角色简短心理想法，不是完整推理链。 | Result Contributor 可读取；不进入普通对话历史或用户文本。 |
 | `tendency` | 必须恰好包含以下八个 key；值为不含 bool 的 `0..10` 整数。 | Result Contributor 可读取；不作为用户文本或普通对话历史。 |
 | `effect_calls` | 内部聚合结果中的数组；存在适用 effect 时由同一响应中的独立 `persona_effect_batch` tool call 提供，Schema 按本轮有效 effect 生成 item schema。无适用 effect 时不向模型提供该工具，内部结果置为空数组。Core 解析时只保留已注册且参数通过校验的调用，并将解析问题写入结果 metadata；已解析 batch 中缺失或无效的必发 effect 会失败或进入既有纠正流程。 | Result Contributor / effect 插件；由插件解释执行。 |
 
@@ -59,15 +57,15 @@
 ### 字段流向
 
 ```text
-turn_action  -> Personal 路由与 reply / delegate / silent 仲裁
+turn_action  -> Personal 是否发出可见回复（reply / silent）
+Core Router  -> 独立判断是否进入 Core
 segments[].speech -> 按顺序拼接为文本平台使用的整合文本；TTS 按段顺序消费每个 speech
 actions      -> InteractionResultView；需要外部动作输出时由插件生成 contribution
-thought      -> InteractionResultView；不自动投递、不进入普通对话历史
 tendency     -> InteractionResultView；不自动投递、不进入普通对话历史
 effect_calls -> InteractionResultView；effect 插件读取并解释
 ```
 
-Core 不会自动把 `actions`、`thought` 或 `tendency` 序列化成平台 payload。插件应注册 Interaction Result Contributor，根据 `view.purpose` 及字段产生 `platform_extras` 或 `client_objects`。`plugin_direct` 输出不经过 Persona 改写，也不会收到这些 Persona 字段；Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段。
+Core 不会自动把 `actions` 或 `tendency` 序列化成平台 payload。插件应注册 Interaction Result Contributor，根据 `view.purpose` 及字段产生 `platform_extras` 或 `client_objects`。`plugin_direct` 输出不经过 Persona 改写，也不会收到这些 Persona 字段；Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段。
 
 ## 3. 当前运行链路
 
@@ -127,9 +125,9 @@ Persona 表达默认使用 JSON 文本 + Prompt-only 约束，并经 Canonical S
 1. 表达通道必须由所选 JSON/XML/Markdown parser 成功恢复，或在显式选择 Tool Call 时由 `persona_expression` tool call 返回；适用 effect 时，首轮同一响应要求恰好包含一个合法的 `persona_effect_batch` 调用。若双通道首轮漏项，只补缺失通道一次；正常生成不单独请求 effect，已解析的必发 effect 未通过校验时也可沿用 effect batch 校正请求。
 2. 各通道字段集合必须精确匹配，`tendency` 八维和值域有效；无适用 effect 时不提供 effect 工具，聚合结果仍包含空 `effect_calls`。
 3. `segments[].speech` 按顺序拼接成文本平台使用的整合文本；TTS 不使用拼接结果，而是按原分段顺序逐段合成。
-4. `reply / delegate / silent` 由调用场景限制并驱动 Personal 路由。
+4. `reply / silent` 由调用场景限制；Core Router 独立决定是否进入 Core。
 5. `actions` 和 `effect_calls` 维持不同含义与消费者。
-6. 同文本但动作、心理想法或情绪状态变化的 Core 最终回复不能被错误去重。
+6. 同文本但动作或情绪状态变化的 Core 最终回复不能被错误去重。
 7. Persona 改写的插件输出把结构化状态传给 `plugin_reply` contributors；直接插件输出保持 direct 路径。
 
 阶段 2–4 还需补上各自的 Provider/格式/TTS 验收。当前已有定向测试覆盖上述部分运行时边界；完整 Provider 矩阵、真实平台交付和外部插件兼容不应据此标记完成。

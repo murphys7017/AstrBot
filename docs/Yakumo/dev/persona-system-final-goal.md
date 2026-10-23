@@ -37,8 +37,8 @@ Personal Runtime 是控制层，负责：
 
 - 以有效 persona、audience 和 privacy scope 识别持续运行实例。
 - 管理 turn、mailbox、并发、follow-up、取消和完成权。
-- 对普通显式消息和未被 Handler 接管的群聊候选启动一次 Personal Response Plan；它与即时 Persona 输出是同一结构化调用，在同一结果中决定 `reply`、`delegate` 或群聊 `silent`。
-- `delegate` 先交付简短处理中确认，再进入 Core Planner 与执行层；`silent` 只对允许静默的群聊候选有效，且不生成可见输出。
+- 对普通显式消息和未被 Handler 接管的群聊候选并行启动 Personal Expression 与独立 Core Router；Personal 输出 `reply` 或允许场景下的群聊 `silent`，Router 单独判断是否进入 Core。
+- Core Router 独立决定是否进入 Core；Personal 的 `turn_action` 只选择 `reply` 或允许静默的群聊候选 `silent`。
 - 将 Core 结果重新交给 Persona Expression 形成用户可见表达。
 - 仲裁 Persona、执行结果和插件输出，避免重复完成同一 turn。
 
@@ -75,15 +75,15 @@ Provider wire format 由输出契约决定；JSON、XML、Markdown 文本解析�
 `persona_expression` Tool Call 都归一为同一结果类型。静态 Persona、动态人格状态、对话历史和
 Memory 由 Prompt 系统收集后，按 Persona target 渲染。
 
-### Personal Response Plan 与 Core Planner
+### Personal Expression、Core Router 与 Core Planner
 
-普通对话不再经过独立 Router。Persona Expression 的即时结构化结果同时承担自然表达与本轮动作选择：
-`reply` 直接完成、`delegate` 继续 Core、`silent` 仅在允许的群聊候选中不参与。它不生成
-`CoreTaskSpec`、不执行 Core 工具，也不输出内部决策理由。
+普通对话并行运行 Persona Expression 与独立 Core Router。Persona Expression 负责自然表达，结构化
+`turn_action` 只选择 `reply` 或在允许的群聊候选中选择 `silent`；它不生成 `CoreTaskSpec`、不执行
+Core 工具，也不决定是否进入 Core。
 
-Core Planner 只在 `delegate` 路径上运行。它根据同一规范事实包的 Planner 投影整理必须为
-`execute` 的 `CoreTaskSpec`；不重新判断是否进入 Core，不生成用户台词，也不覆盖已经发出的
-Personal 确认。
+Core Router 使用隔离、限额的 `CORE_ROUTER` PromptTarget 判断当前请求是否需要 Core，不接收 Persona
+提示或人格记忆。Core Planner 只在 Router 路由到 Core 后运行，根据规范事实包的 Planner 投影整理
+`CoreTaskSpec`，不生成用户台词，也不覆盖已发出的 Personal 回复。
 
 ### Execution Backend
 

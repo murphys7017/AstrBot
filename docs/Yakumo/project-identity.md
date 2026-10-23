@@ -22,7 +22,7 @@ Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关�
 
 - **Interaction Middleware**：在官方 EventBus / Pipeline 完成过滤、权限和 Handler 准入后统一维护 interaction turn。
 - **Personal Runtime**：按人格、会话和隐私范围复用跨 turn 状态，管理主动观察、冷却、预算和连续对话 owner。
-- **Personal Response Plan 与 Core Planner**：Personal 的一次结构化 Persona Expression 同时决定 `reply / delegate / silent`；Core Planner 只为已经委派的任务生成 `execute + CoreTaskSpec`，不重新做执行必要性判断。
+- **Personal、Core Router 与 Core Planner**：Personal 的结构化 Persona Expression 只决定 `reply / silent`；独立 Core Router 判断是否进入 Core，Core Planner 在路由后生成执行规格。
 - **Persona Expression**：所有用户可见自然语言统一经过同一个表达入口，Core 结果也回到该入口。
 - **Structured Prompt**：通过 `collect → build → project → render → apply` 生成目标明确的 Prompt 视图。
 - **Observation 链路**：后台事实经过 `Observation → Gate → Policy → ActionIntent → Persona → Output`，不会直接唤醒模型或发送消息。
@@ -35,15 +35,16 @@ Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关�
 Platform Adapter
   -> EventBus / Pipeline / Handler
   -> Interaction Middleware
-  -> Personal Runtime + Personal Response Plan
-  -> Core Planner
+  -> Personal Runtime
+  -> Personal Expression || Core Router
+  -> Core Planner (when routed)
   -> Core Execution
   -> Persona Expression
   -> Output Runtime
   -> Conversation / Memory
 ```
 
-普通消息先由 Personal 的结构化 Persona Expression 生成即时表达和动作选择：`reply` 直接完成，`delegate` 先确认正在处理后进入 Core，`silent` 仅允许群聊候选使用。Core Planner 只整理已经委派的任务；Core 的结果不会绕过 Persona 直接发送。
+普通消息由 Personal 的结构化 Persona Expression 与独立 Core Router 并行处理。Personal 生成即时表达，`turn_action` 只表示是否发出回复（`reply` 或允许场景下的 `silent`）；Router 独立判断是否进入 Core。Core Planner 只在路由后准备执行任务；Core 的结果不会绕过 Persona 直接发送。
 
 ## 术语边界
 

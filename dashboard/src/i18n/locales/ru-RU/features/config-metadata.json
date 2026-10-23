@@ -1228,18 +1228,18 @@
             }
         },
         "planner": {
-            "description": "Core Planner",
-            "hint": "Только после делегирования Personal в Core формирует CoreTaskSpec для текущей задачи; больше не переопределяет необходимость выполнения.",
+            "description": "Core Router и Planner",
+            "hint": "Независимый Router решает, передавать ли запрос в Core; Planner формирует CoreTaskSpec только для переданных запросов. Personal не выбирает маршрут.",
             "interaction_middleware": {
                 "planner_provider_id": {
-                    "description": "Провайдер модели планирования",
-                    "hint": "Если пусто, используется модель выражения Persona."
+                    "description": "Провайдер модели Core Router и Planner",
+                    "hint": "Router и Planner используют эту модель; если поле пусто, используется модель выражения Persona."
                 },
                 "planner_temperature": {
-                    "description": "Температура планирования"
+                    "description": "Температура Core Router и Planner"
                 },
                 "planner_timeout": {
-                    "description": "Таймаут планирования (сек)"
+                    "description": "Таймаут Core Router и Planner (сек)"
                 }
             }
         },

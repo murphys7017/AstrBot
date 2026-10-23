@@ -26,15 +26,12 @@ from astrbot.core.voice import (
     transcribe_record,
 )
 
-from .capability_route_guard import correct_contradictory_capability_denial
 from .config import is_middleware_enabled, load_interaction_agent_config
 from .context_builder import get_interaction_prompt_source_request
 from .conversation_history import commit_interaction_conversation_turn
 from .core_planner import CorePlannerAgent, CorePlannerError
+from .core_router import CoreRouterAgent, CoreRouterError
 from .dialogue import build_canonical_user_message
-from .execution_capability_summary import (
-    get_core_execution_capability_summary,
-)
 from .expression_agent import (
     PERSONA_RESULT_ID_METADATA_KEY,
     InteractionExpressionAgent,
@@ -139,6 +136,7 @@ class InteractionMiddleware:
         self.interaction_config = load_interaction_agent_config(config)
         self.expression_agent = InteractionExpressionAgent()
         self.persona_runtime = InteractionPersonaRuntime(self.expression_agent)
+        self.core_router = CoreRouterAgent()
         self.core_planner = CorePlannerAgent()
         self.output_controller.interaction_config = self.interaction_config
         self.output_controller.plugin_context = plugin_context
@@ -264,7 +262,8 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         route: InteractionRouteDecision,
     ) -> None:
-        """Attach the Personal response plan resolved by the coordinator."""
+        """Attach the route resolved by the independent Core Router."""
+        set_interaction_turn_route_decision(event, route)
         self.attach_event_context(
             event,
             turn_id=str(event.get_extra("_turn_id", "") or ""),
@@ -864,13 +863,20 @@ class InteractionMiddleware:
             event,
             interaction_config,
         )
-        await persona_task
         turn_state = ensure_interaction_turn_state(event)
-        route = turn_state.route_decision
+        router_task = turn_state.core_router_task
+        try:
+            route = await router_task if router_task is not None else None
+        except TurnDeadlineExceeded:
+            await self.complete_persona_after_control_timeout(
+                event,
+                persona_task,
+            )
+            raise
         if not isinstance(route, InteractionRouteDecision):
             if await self.complete_unrouted_persona_stream(event):
                 return
-            raise RuntimeError("Personal response plan did not publish a route")
+            raise RuntimeError("Core Router did not publish a route")
         await self.complete_routed_turn(
             event,
             interaction_config,
@@ -883,10 +889,80 @@ class InteractionMiddleware:
             event,
             turn_id=str(event.get_extra("_turn_id", "") or ""),
         )
+        turn_state = ensure_interaction_turn_state(event)
         self._set_speculative_persona_status(
             event,
             InteractionSpeculativePersonaStatus.PENDING,
         )
+        if turn_state.core_router_task is None:
+            interaction_config = get_interaction_turn_config(event)
+            if interaction_config is None:
+                interaction_config = self.interaction_config
+            turn_state.core_router_task = turn_state.execution_scope.create_task(
+                self._run_core_router(event, interaction_config),
+                role="core_router",
+                name=(
+                    f"interaction_core_router_{event.get_platform_id()}_"
+                    f"{turn_state.turn_id}"
+                ),
+            )
+
+    async def _run_core_router(
+        self,
+        event: AstrMessageEvent,
+        interaction_config: InteractionAgentConfig,
+    ) -> InteractionRouteDecision:
+        turn_state = ensure_interaction_turn_state(event)
+        try:
+            if self.plugin_context is None:
+                raise CoreRouterError("plugin_context_unavailable")
+            router_decision = await self.core_router.route(
+                event,
+                self.plugin_context,
+                interaction_config,
+            )
+        except asyncio.CancelledError:
+            raise
+        except TurnDeadlineExceeded:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            reason = getattr(exc, "reason", None) or "router_error"
+            turn_state.core_router_failed = True
+            turn_state.core_router_failure_reason = str(reason)
+            record_interaction_turn_failure(
+                event,
+                stage="core_router",
+                reason=str(reason),
+                exception=exc,
+                user_visible_action="personal_reply_continues",
+            )
+            logger.warning(
+                "Core Router failed; continuing without Core execution: "
+                "turn_id=%s platform_id=%s reason=%s",
+                turn_state.turn_id,
+                event.get_platform_id(),
+                reason,
+                exc_info=True,
+            )
+            route = InteractionRouteDecision(
+                route_mode=InteractionRouteMode.PERSONA,
+                reason="core_router_failed",
+            )
+        else:
+            turn_state.core_router_decision = router_decision
+            route = InteractionRouteDecision.from_core_router_decision(
+                router_decision
+            )
+        turn_state.core_router_completed_monotonic = (
+            asyncio.get_running_loop().time()
+        )
+        set_interaction_turn_route_decision(event, route)
+        self.attach_event_context(
+            event,
+            turn_id=turn_state.turn_id,
+            route_decision=route,
+        )
+        return route
 
     async def run_personal_task(
         self,
@@ -967,6 +1043,25 @@ class InteractionMiddleware:
                 await self._invalidate_context_material_for_revised_input(event)
                 set_interaction_turn_core_planning_decision(event, None)
                 set_interaction_turn_core_task_spec(event, None)
+                route = await self._run_core_router(event, interaction_config)
+                if route.route_mode is not InteractionRouteMode.HYBRID:
+                    result = await asyncio.gather(
+                        persona_task,
+                        return_exceptions=True,
+                    )
+                    expression = result[0]
+                    if (
+                        isinstance(expression, PersonaExpressionResult)
+                        and turn_state.speculative_persona_status
+                        is InteractionSpeculativePersonaStatus.EMITTED
+                    ):
+                        await self._complete_persona_only_turn(event, expression)
+                    else:
+                        await self._complete_silent_or_committed_persona_turn(
+                            event,
+                            None,
+                        )
+                    return
                 planning_decision = await self._plan_core_execution(
                     event,
                     interaction_config,
@@ -976,6 +1071,7 @@ class InteractionMiddleware:
             planning_decision is not None
             and planning_decision.action is CorePlanningAction.EXECUTE
         ):
+            await asyncio.gather(persona_task, return_exceptions=True)
             await self._emit_delegated(event, route)
             self._forward_to_core(event)
             return
@@ -986,10 +1082,6 @@ class InteractionMiddleware:
             or turn_state.speculative_persona_status
             is not InteractionSpeculativePersonaStatus.EMITTED
         ):
-            # A Persona hook may intentionally suppress the speculative reply
-            # after the Personal plan selected the Persona route. Complete this as
-            # a silent turn instead of turning a valid control outcome into a
-            # pipeline failure.
             await self._complete_silent_or_committed_persona_turn(event, None)
             return
         await self._complete_persona_only_turn(event, expression)
@@ -1193,45 +1285,20 @@ class InteractionMiddleware:
                     )
             return None
 
-        capability_summary = get_core_execution_capability_summary(event)
-        if correct_contradictory_capability_denial(
-            request_text=str(getattr(event, "message_str", "") or ""),
-            expression=expression,
-            capability_summary=capability_summary,
-        ):
-            event.set_extra(
-                "_interaction_route_correction_reason",
-                "capability_denial_route_corrected",
-            )
-            logger.warning(
-                "Personal capability denial route corrected: turn_id=%s "
-                "config_id=%s capability=web_research",
-                str(event.get_extra("_turn_id", "") or ""),
-                capability_summary.config_id if capability_summary else "default",
-            )
-
         action = expression.turn_action
         if not isinstance(action, PersonalResponseAction):
-            raise RuntimeError("Personal response plan did not return turn_action")
-        route = InteractionRouteDecision.from_personal_action(action)
+            raise RuntimeError("Personal response did not return a valid action")
         async with turn_state.lock:
             if (
                 turn_state.speculative_persona_status
                 is not InteractionSpeculativePersonaStatus.PENDING
             ):
                 return None
-            set_interaction_turn_route_decision(event, route)
             if action is PersonalResponseAction.SILENT:
                 self._set_speculative_persona_status(
                     event,
                     InteractionSpeculativePersonaStatus.SUPPRESSED,
                 )
-        self._record_personal_response_plan_diagnostics(event, route, action)
-        self.attach_event_context(
-            event,
-            turn_id=str(event.get_extra("_turn_id", "") or ""),
-            route_decision=route,
-        )
         if action is PersonalResponseAction.SILENT:
             return expression
 
@@ -1295,7 +1362,6 @@ class InteractionMiddleware:
                     "persona_stream_invalid_turn_action"
                 ) from exc
             turn_state = ensure_interaction_turn_state(event)
-            route = InteractionRouteDecision.from_personal_action(action)
             async with turn_state.lock:
                 if (
                     turn_state.speculative_persona_status
@@ -1304,17 +1370,6 @@ class InteractionMiddleware:
                     raise InteractionExpressionError(
                         "persona_stream_turn_already_committed"
                     )
-                set_interaction_turn_route_decision(event, route)
-            self._record_personal_response_plan_diagnostics(
-                event,
-                route,
-                action,
-            )
-            self.attach_event_context(
-                event,
-                turn_id=str(event.get_extra("_turn_id", "") or ""),
-                route_decision=route,
-            )
             if action is PersonalResponseAction.SILENT:
                 return False
             if not await reserve_interaction_turn_immediate_output(event):
@@ -1459,6 +1514,21 @@ class InteractionMiddleware:
             return False
         await self._complete_silent_or_committed_persona_turn(event, expression)
         return True
+
+    async def complete_persona_after_control_timeout(
+        self,
+        event: AstrMessageEvent,
+        persona_task: asyncio.Task[PersonaExpressionResult | None],
+    ) -> None:
+        expression = await self._suppress_or_await_speculative_persona(
+            event,
+            persona_task,
+            propagate_failure=False,
+        )
+        await self._complete_emitted_persona_after_control_timeout(
+            event,
+            expression,
+        )
 
     async def _complete_silent_or_committed_persona_turn(
         self,
@@ -1648,45 +1718,6 @@ class InteractionMiddleware:
         if decision.action is CorePlanningAction.EXECUTE:
             set_interaction_turn_core_task_spec(event, decision.task_spec)
         return decision
-
-    def _record_personal_response_plan_diagnostics(
-        self,
-        event: AstrMessageEvent,
-        route: InteractionRouteDecision,
-        action: PersonalResponseAction,
-    ) -> None:
-        capability_summary = get_core_execution_capability_summary(event)
-        admitted_capability_ids = (
-            list(capability_summary.admitted_ids())
-            if capability_summary is not None
-            else []
-        )
-        web_capability = (
-            capability_summary.get("web_research")
-            if capability_summary is not None
-            else None
-        )
-        logger.info(
-            "DIAG interaction.personal_response_plan: platform_id=%s "
-            "session_id=%s config_id=%s action=%s route_mode=%s "
-            "core_capability_ids=%s core_web_research_bindings=%s "
-            "route_correction_reason=%s",
-            event.get_platform_id(),
-            event.session_id,
-            capability_summary.config_id if capability_summary else "default",
-            action.value,
-            route.route_mode.value,
-            admitted_capability_ids,
-            list(web_capability.bindings) if web_capability is not None else [],
-            str(
-                getattr(
-                    event,
-                    "get_extra",
-                    lambda *_args: None,
-                )("_interaction_route_correction_reason", "")
-                or ""
-            ),
-        )
 
     async def _emit_delegated(
         self,

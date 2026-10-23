@@ -228,7 +228,6 @@ const defaultTemplate = {
   segments: [{
     speech: '啊……怎么会这样？',
     actions: ['lower_head'],
-    thought: '这件事出乎意料，让我感到遗憾',
     tendency: {
       Joy: 0,
       Trust: 1,

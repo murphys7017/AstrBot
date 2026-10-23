@@ -12,11 +12,82 @@ class InteractionRouteMode(str, Enum):
 
 
 class PersonalResponseAction(str, Enum):
-    """Control decision emitted by the ordinary Personal response plan."""
+    """Whether Personal contributes a visible response to this turn."""
 
     REPLY = "reply"
-    DELEGATE = "delegate"
     SILENT = "silent"
+
+
+class CoreRouterAction(str, Enum):
+    ROUTE_TO_CORE = "route_to_core"
+    PERSONAL_ONLY = "personal_only"
+
+
+class CoreRouterReason(str, Enum):
+    CONVERSATION = "conversation"
+    DIRECT_ANSWER = "direct_answer"
+    EXTERNAL_INFORMATION = "external_information"
+    EXTERNAL_ACTION = "external_action"
+    WORKSPACE_OPERATION = "workspace_operation"
+    VISUAL_UNDERSTANDING = "visual_understanding"
+    COMPLEX_COMPUTATION = "complex_computation"
+    CONTINUED_TASK = "continued_task"
+    CLARIFICATION = "clarification"
+
+
+_CORE_ROUTER_REASONS = {
+    CoreRouterAction.ROUTE_TO_CORE: frozenset(
+        {
+            CoreRouterReason.EXTERNAL_INFORMATION,
+            CoreRouterReason.EXTERNAL_ACTION,
+            CoreRouterReason.WORKSPACE_OPERATION,
+            CoreRouterReason.VISUAL_UNDERSTANDING,
+            CoreRouterReason.COMPLEX_COMPUTATION,
+            CoreRouterReason.CONTINUED_TASK,
+        }
+    ),
+    CoreRouterAction.PERSONAL_ONLY: frozenset(
+        {
+            CoreRouterReason.CONVERSATION,
+            CoreRouterReason.DIRECT_ANSWER,
+            CoreRouterReason.CLARIFICATION,
+        }
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class CoreRouterDecision:
+    action: CoreRouterAction
+    reason_code: CoreRouterReason
+
+    @property
+    def should_route_to_core(self) -> bool:
+        return self.action is CoreRouterAction.ROUTE_TO_CORE
+
+    @classmethod
+    def from_mapping(cls, payload: object) -> CoreRouterDecision | None:
+        if not isinstance(payload, dict) or set(payload) != {
+            "action",
+            "reason_code",
+        }:
+            return None
+        try:
+            action = CoreRouterAction(str(payload["action"]).strip().lower())
+            reason_code = CoreRouterReason(
+                str(payload["reason_code"]).strip().lower()
+            )
+        except (TypeError, ValueError):
+            return None
+        if reason_code not in _CORE_ROUTER_REASONS[action]:
+            return None
+        return cls(action=action, reason_code=reason_code)
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "action": self.action.value,
+            "reason_code": self.reason_code.value,
+        }
 
 
 @dataclass(slots=True)
@@ -186,16 +257,19 @@ class InteractionRouteDecision:
     reason: str = "fast_route"
 
     @classmethod
-    def from_personal_action(
+    def from_core_router_decision(
         cls,
-        action: PersonalResponseAction,
+        decision: CoreRouterDecision,
     ) -> InteractionRouteDecision:
-        route_mode = {
-            PersonalResponseAction.REPLY: InteractionRouteMode.PERSONA,
-            PersonalResponseAction.DELEGATE: InteractionRouteMode.HYBRID,
-            PersonalResponseAction.SILENT: InteractionRouteMode.SILENT,
-        }[action]
-        return cls(route_mode=route_mode, reason="personal_response_plan")
+        route_mode = (
+            InteractionRouteMode.HYBRID
+            if decision.should_route_to_core
+            else InteractionRouteMode.PERSONA
+        )
+        return cls(
+            route_mode=route_mode,
+            reason=f"core_router:{decision.reason_code.value}",
+        )
 
     @classmethod
     def from_mapping(cls, payload: object) -> InteractionRouteDecision | None:

@@ -14,6 +14,7 @@ from .core_bridge import (
     get_interaction_route_decision,
 )
 from .core_planner import CorePlannerAgent, CorePlannerError
+from .core_router import CoreRouterAgent, CoreRouterError
 from .effects import (
     PersonaEffectCall,
     PersonaEffectParseIssue,
@@ -76,6 +77,9 @@ from .turn_state import (
     get_interaction_turn_state,
 )
 from .types import (
+    CoreRouterAction,
+    CoreRouterDecision,
+    CoreRouterReason,
     CorePlanningAction,
     CorePlanningDecision,
     CoreTaskSpec,
@@ -88,6 +92,11 @@ from .types import (
 __all__ = [
     "CorePlannerAgent",
     "CorePlannerError",
+    "CoreRouterAction",
+    "CoreRouterAgent",
+    "CoreRouterDecision",
+    "CoreRouterError",
+    "CoreRouterReason",
     "CorePlanningAction",
     "CorePlanningDecision",
     "CoreTaskSpec",

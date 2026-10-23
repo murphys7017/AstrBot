@@ -14,7 +14,6 @@
     {
       "speech": "啊……怎么会这样？",
       "actions": ["lower_head"],
-      "thought": "这件事出乎意料，让我感到遗憾",
       "tendency": {
         "Joy": 0,
         "Trust": 1,
@@ -39,13 +38,12 @@
 
 ### `turn_action`
 
-必填的单个字符串枚举：`reply`、`delegate` 或 `silent`。每次调用按请求目的收窄 Schema：
+必填的单个字符串枚举：`reply` 或 `silent`。每次调用按请求目的收窄 Schema：
 
 - 普通结果表达、Core 最终表达和 Persona 改写插件文本只允许 `reply`。
-- Personal Response Plan 要求输出动作；不可静默的私聊/续接允许 `reply`、`delegate`。
-- 仅允许静默的群聊候选可以额外选择 `silent`。
+- Personal 表达调用仅允许 `reply`；允许静默的群聊候选才额外开放 `silent`。
 
-`delegate` 表示 Personal 将工作委派给 Core；它不是另一个工具调用数组，也不携带 Core task specification。`silent` 只能用于允许静默的群聊候选。
+`turn_action` 只决定 Personal 是否发出可见回复，不决定是否进入 Core。独立 Core Router 判断是否路由到 Core；Core Planner 随后生成任务规格。`silent` 只能用于允许静默的群聊候选。
 
 ### `segments[].speech`
 
@@ -55,11 +53,7 @@
 
 必填数组，每个元素是非空字符串，例如 `lower_head`、`look_away`、`turn_head_left`。Prompt 要求元素表达简单动作意图，允许自然方向，不放角度、坐标、速度、时长等执行参数、平台 ID 或插件 effect 数据；Schema 本身不校验字符串是否符合某种动作词语法。空动作使用 `[]`。执行和具体动作解释不属于 Core schema。
 
-同段 `actions` 表示可同时发生的动作，不表示依次执行的时间序列。需要先后配合不同话语的动作必须拆为不同 `segments`，例如“左……”配左转头、“右……”配右转头，各段均完整填写 `thought` 和 `tendency`。没有动作或状态变化时不必拆段，不添加重复文本或无意义动作。该语义由 Prompt 与 Schema 描述要求模型遵守，结构校验不能保证模型按意图正确分段。
-
-### `thought`
-
-必填字符串，表示角色当前的简短心理想法，不是完整推理链。它不得拼接到用户消息、TTS 文本或普通对话历史。无心理描述时使用空字符串。
+同段 `actions` 表示可同时发生的动作，不表示依次执行的时间序列。需要先后配合不同话语的动作必须拆为不同 `segments`，例如“左……”配左转头、“右……”配右转头，各段填写 `tendency`。没有动作或状态变化时不必拆段，不添加重复文本或无意义动作。该语义由 Prompt 与 Schema 描述要求模型遵守，结构校验不能保证模型按意图正确分段。
 
 ### `tendency`
 
@@ -87,7 +81,7 @@
 ## 跨字段约束
 
 - `silent` 时表达 payload 的 `segments` 必须为空；如果本轮启用了 effect 通道，该通道的 `effect_calls` 也必须为空。无适用 effect 时不提供 effect 工具。
-- `delegate` 时由 Persona Request Prompt 限定 `speech` 为简短处理中确认；后续 task 由 Core Planner 生成。
+- Core 路由结果不包含在 Persona payload 中；路由到 Core 后由 Core Planner 生成任务规格。
 - 正常路径中表达 payload 与适用的 effect payload 来自同一模型响应；若双通道首轮漏项，Core 只请求缺失通道并在校验后合并。不能从自由文本或 provider 私有日志补猜缺值。
 
 ## 旧字段

@@ -7,7 +7,7 @@
 - Persona 的 `segments[].speech` 是分段用户可见文本和 TTS 输入来源。
 - 文本平台路径先按 `segments[].speech` 顺序整合成一个 Plain 文本，便于一次发送；TTS 路径保留分段，OutputController 按顺序把每个非空 speech 段交给 `synthesize_text`。
 - 一个 Persona 结果对应一个文本消息，但可以对应多个有序 TTS Record；每个音频 Record 带有 `parent_message_id`、`persona_result_id`、`persona_segment_index`、`persona_segment_count`、`message_id` 和 `tts_request_id`，用于在并发、取消和插件回调场景下保持消费顺序和关联。
-- actions、thought、tendency 和 effect_calls 不会自动拼接进 speech。
+- actions、tendency 和 effect_calls 不会自动拼接进 speech。
 - 已存在 Persona 分段时，只允许保持原文或按原边界进行前缀截断。响应 hook 或
   `final_text_override` 任意改写整合文本时，Core 忽略该次改写并记录
   `persona_text_rewrite_requires_segment_boundaries`，保留原始回复；不按旧段长度比例
@@ -35,7 +35,6 @@
 ## 与其他字段的关系
 
 - segments[].speech：承载语音标签和文本时序的结构化输出字段；平台文本消费使用其拼接结果，TTS 消费其原始分段。
-- thought：角色心理想法，不进入用户文本或 TTS。
 - tendency：角色当前情绪强度。是否以及如何影响语音生成，需由未来适配方案明确，当前不能当作已生效的 TTS cue。
 - actions：动作意图数组，由独立动作模型或插件解释，不进入 TTS 文本。
 - effect_calls：插件 effect 调用，保持现有独立消费链路。

@@ -17,6 +17,7 @@ from .target_budget import (
 class PromptTarget(str, Enum):
     """A model-facing role that consumes prompt context."""
 
+    CORE_ROUTER = "core_router"
     CORE_PLANNER = "core_planner"
     PERSONAL_POLICY = "personal_policy"
     PERSONA = "persona"
@@ -47,8 +48,20 @@ _CORE_PLANNER_SLOT_NAMES = frozenset(
         "session.user_info",
         "conversation.history",
         "conversation.group_recent",
+        "conversation.pending_execution_continuity",
         "memory.topic_state",
         "memory.short_term",
+    }
+)
+
+_CORE_ROUTER_SLOT_NAMES = frozenset(
+    {
+        "input.text",
+        "input.quoted_text",
+        "input.attachment_summary",
+        "session.datetime",
+        "conversation.history",
+        "conversation.pending_execution_continuity",
     }
 )
 
@@ -194,6 +207,9 @@ def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:
         if target.value not in targets:
             return False
 
+    if target is PromptTarget.CORE_ROUTER:
+        return slot.name in _CORE_ROUTER_SLOT_NAMES
+
     if target is PromptTarget.CORE_PLANNER:
         return slot.name in _CORE_PLANNER_SLOT_NAMES
 
@@ -208,7 +224,6 @@ def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:
             return slot.name in {
                 "conversation.history",
                 "conversation.group_recent",
-                "conversation.pending_execution_continuity",
             }
         return group not in {"capability", "knowledge", "policy"}
 
@@ -222,6 +237,16 @@ def _project_slot(
     target: PromptTarget,
 ) -> ContextSlot | None:
     projected = deepcopy(slot)
+    if (
+        projected.name == "conversation.pending_execution_continuity"
+        and target in {PromptTarget.CORE_ROUTER, PromptTarget.CORE_PLANNER}
+        and isinstance(projected.value, dict)
+    ):
+        projected.value = {
+            key: projected.value[key]
+            for key in ("task_summary", "task_intent", "status", "resume_recommended")
+            if key in projected.value
+        }
     if projected.name == "capability.plugin_directory":
         projected = _project_plugin_directory(projected, target)
         if projected is None:

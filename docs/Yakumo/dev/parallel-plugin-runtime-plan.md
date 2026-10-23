@@ -18,9 +18,9 @@ Phase 5B-4 至 5B-7 已把同一 t0 三线启动、Core Gate、窗口到期脱�
 T2、父对话绑定和 direct/media assistant-only 历史接入生产 ProcessStage。全局开关仍保持 false；
 真实私聊/群聊时间线完成前不得默认启用。
 
-## 2026-09 当前主链修订
+## 2026-10-23 当前主链修订
 
-本文记录了当时的三线设计和验收历史。当前协调路径只从同一 `t0` 启动 Personal Response Plan 与 Official Plugin Job；不存在独立 Interaction Router task。Personal 的同一次结构化 `persona_expression` 输出 `reply / delegate / silent`，`delegate` 后才进入 Planner 和 Core。下文关于 Router 的并发、Gate 和验收描述均是历史阶段记录，不得据此重新引入第二次普通消息路由调用。
+当前协调路径从同一 `t0` 启动 Personal、独立 Core Router 与 Official Plugin Job。Personal 的 `persona_expression` 只输出 `reply / silent`；Core Router 独立决定是否进入 Core，Planner 在路由后准备任务。下文关于早期 Router 并发、Gate 和验收的细节仍是各阶段的历史记录；当前路由上下文与职责以本节及 [Interaction 模块文档](../modules/interaction.md) 为准。
 
 Prompt Context 已同步拆成两层 single-flight：基础事实层只收集官方可信控制面扩展，Personal Response Plan 和 Core
 Planner 的首个请求只等待这一层；普通 Prompt Extension 与 Interaction Prompt Contributor 在基础事实
@@ -65,7 +65,8 @@ discovery 和 Personal Runtime lease 完成后调用 Coordinator，继续负责 
 编排迁入 Coordinator，避免 ProcessStage 和 Middleware 各自持有半套 turn 生命周期。
 
 Personal 生成结果后立即尝试发送，不等待 Router、Plugin、Planner 或 Core。Router 只产生
-silent、persona、hybrid 分类。Official Plugin Job 按官方顺序执行全部 activated Handlers。
+`personal_only / route_to_core` 路由决策，Personal 的 `reply / silent` 选择独立记录。Official
+Plugin Job 按官方顺序执行全部 activated Handlers。
 
 普通 Core 只在以下两个条件同时满足时启动：
 
@@ -311,13 +312,13 @@ committed 或 emitted 的 Personal 不撤回。
 
 ### 6.2 Router Task
 
-Router 只产生 silent、persona、hybrid：
+Router 只产生 `personal_only / route_to_core`：
 
 1. Router 不读取 Plugin Job 的运行结果作为 Prompt。
 2. Router 可以先完成并暂存，但不能绕过 Plugin Gate 启动普通 Core。
-3. 插件取得处理权后，Router 结果不再消费；未完成 Router 任务可以尽力取消。
+3. 插件取得处理权后，Router 结果不再消费；未完成 Router 任务会取消以释放 Provider 资源。
 4. Router 已经与插件并行启动，因此不能承诺“插件接管时 Router 从未执行”。
-5. Router silent 只压制原始 pending Personal，不能吞掉插件明确产生的 HANDLED 输出。
+5. Personal `silent` 只控制 Personal 自身是否回复，不改写 Router 结果；Router 路由到 Core 时仍按 Core Gate 处理。它也不能吞掉插件明确产生的 HANDLED 输出。
 
 ### 6.3 Official Plugin Job
 

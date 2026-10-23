@@ -49,6 +49,7 @@ async def test_persona_execution_continuity_uses_current_conversation_without_re
     assert conversation_manager.origins == ["webchat:friend:session-1"]
     assert ledger.calls == [("conversation-1", 1)]
     assert len(slots) == 1
+    assert slots[0].meta["targets"] == ["core_router", "core_planner"]
     assert slots[0].value["task_summary"] == "interrupted task"
 
 

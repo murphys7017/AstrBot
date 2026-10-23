@@ -560,8 +560,7 @@ def build_json_output_test_prompt(
     )
     return (
         "这是一次 JSON 输出格式稳定性测试。请完成一个简短的角色表达："
-        "面对意外的好消息，生成一句自然的中文回复，并给出简短的角色心理想法、"
-        "简单动作意图和当前情绪倾向。\n"
+        "面对意外的好消息，生成一句自然的中文回复，并给出简单动作意图和当前情绪倾向。\n"
         f"{output_instruction}"
         "参照下面的 JSON 示例保持对象字段、嵌套结构和字段值类型一致；"
         "字符串内容可以根据任务生成，空数组可以填入符合示例元素类型的项目。\n\n"
@@ -579,12 +578,11 @@ def build_output_format_test_prompt(
         example = build_xml_output_example(template)
         return (
             "这是一次 XML 结构化输出稳定性测试。请完成一个简短的角色表达："
-            "面对意外的好消息，生成一句自然的中文回复，并给出简短的角色心理想法、"
-            "简单动作意图和当前情绪倾向。\n"
+            "面对意外的好消息，生成一句自然的中文回复，并给出简单动作意图和当前情绪倾向。\n"
             "只输出一个 XML 文档，根节点必须是 <output>，不得添加说明或 Markdown 围栏。"
             "直接使用语义字段作为节点，例如 <turn_action>reply</turn_action>、"
             "<segments><segment><speech>...</speech><actions><action>...</action>"
-            "</actions><thought>...</thought><tendency><Joy>0</Joy></tendency>"
+            "</actions><tendency><Joy>0</Joy></tendency>"
             "</segment></segments>；数组使用语义单数节点（segment、action、effect_call）。"
             "字符串直接写入节点文本，不要加 JSON 引号；整数、数字使用十进制文本，"
             "布尔使用 true 或 false，null 使用空节点；空数组必须保持为空，"
@@ -597,8 +595,7 @@ def build_output_format_test_prompt(
         markdown_example = build_markdown_output_example(template)
         return (
             "这是一次 Markdown 结构化输出稳定性测试。请完成一个简短的角色表达："
-            "面对意外的好消息，生成一句自然的中文回复，并给出简短的角色心理想法、"
-            "简单动作意图和当前情绪倾向。\n"
+            "面对意外的好消息，生成一句自然的中文回复，并给出简单动作意图和当前情绪倾向。\n"
             "只输出一个完整的 Markdown 文档，第一行必须是 # output；使用 Markdown 标题表示字段，"
             "数组使用重复的单数标题（segment、action、effect_call），其他数组使用 item 标题。"
             "字符串每行用 Markdown 引用前缀 > 加一个空格，空字符串写成 > 加一个空格；"

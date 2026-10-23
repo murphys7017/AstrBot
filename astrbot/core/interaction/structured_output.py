@@ -242,8 +242,6 @@ def build_persona_text_example(schema: dict[str, Any], output_format: str) -> st
             segment["speech"] = "本段要说的话。"
             if "actions" in segment:
                 segment["actions"] = ["nod"]
-            if "thought" in segment:
-                segment["thought"] = "角色当前的简短心理想法。"
     if output_format == "json":
         return json.dumps(example, ensure_ascii=False, indent=2)
     if output_format == "xml":

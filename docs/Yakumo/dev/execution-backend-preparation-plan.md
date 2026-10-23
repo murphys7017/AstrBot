@@ -30,7 +30,7 @@ NativeExecutionLoop 和 NativeExecutionOutputBridge 的进程内 Native 主链�
 
 | 层次 | 当前状态 | 结论 |
 | --- | --- | --- |
-| Personal / Core 职责 | 普通对话已由 Personal Response Plan 决定 `reply / delegate / silent`；仅 `delegate` 进入 Planner 和 Core | 已建立主边界 |
+| Personal / Core 职责 | Personal 只决定 `reply / silent`；独立 Core Router 决定是否进入 Core，Planner 为路由后的执行生成 CoreTaskSpec | 已建立主边界 |
 | Core / Native 执行 | 已有 Core Head、Session、事件、取消、Ledger 结算、Native Adapter、Loop 与 Output Bridge | 已建立第一条 Native 实现链 |
 | 可替换 Executor | **2026-09-21 时**尚无第二个独立 Executor Body 通过同一输入、控制、事件和终态契约 | 历史基线；后续已接入 Codex CLI，但输出和真实平台验收仍有缺口 |
 
@@ -190,9 +190,9 @@ Adapter、Loop、Output Bridge 和默认 Body 装配，未进入 Core 事件载�
 状态：未完成。需要用户启动当前服务并执行真实 OLV、Cron、Live 场景；本轮不自动重启服务，
 也不以离线单元测试替代平台验收。
 
-## 2026-09 Interaction 主链修订
+## 2026-10-23 Interaction 主链更新
 
-本计划早期章节中的 Router 描述是已完成的迁移历史，不是当前实现或后续任务。普通对话现在由一次 Personal Response Plan 生成 `reply / delegate / silent`；`delegate` 后 Planner 只生成 `execute + CoreTaskSpec`。后续 Core Head、Session Runtime 和 Executor Body 的设计应保留这一单一控制入口，不得重新将 Router 作为独立普通消息 Agent 接入。
+本计划早期章节中的 Router 描述记录的是旧实现阶段。当前普通对话并行启动 Personal Expression 与独立 Core Router；Personal 只选择 `reply / silent`，Router 独立决定是否进入 Core，Core Planner 在路由后生成 `CoreTaskSpec`。后续 Core Head、Session Runtime 和 Executor Body 的设计应保留这两个职责边界。
 
 ## 上游参考边界
 
@@ -559,8 +559,8 @@ adapter 执行。
 实施内容：
 
 - 建立唯一 Capability Resolver，统一解析 Knowledge、Tools、Skills 和 Plugins。
-- 同一个 Snapshot 提供不同投影：Router 看极简摘要，Planner 看能力目录，执行阶段看
-  完整描述与调用绑定。
+- 同一个 Snapshot 提供不同投影：Router 只接收路由所需的输入与近期连续性，Planner 整理任务规格，执行阶段解析
+  完整能力描述与调用绑定。
 - 当前 Interaction 已直接复用统一 Prompt collectors，不再维护平行的能力摘要事实源；
   后续继续统一执行绑定。
 - 插件能力声明包含 owner、scope、权限、side effect、timeout 和可挂载位置。

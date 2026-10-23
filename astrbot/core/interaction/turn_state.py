@@ -27,6 +27,7 @@ from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_K
 from astrbot.core.prompt.context_types import ContextPack
 
 from .types import (
+    CoreRouterDecision,
     CorePlanningDecision,
     CoreTaskSpec,
     InteractionAgentConfig,
@@ -328,6 +329,11 @@ class InteractionTurnState:
     core_planner_failed: bool = False
     core_planner_failure_reason: str | None = None
     core_planner_recovered_via_persona: bool = False
+    core_router_failed: bool = False
+    core_router_failure_reason: str | None = None
+    core_router_decision: CoreRouterDecision | None = None
+    core_router_task: asyncio.Task[Any] | None = None
+    core_router_completed_monotonic: float | None = None
     expression_failed: bool = False
     expression_failure_reason: str | None = None
     expression_fallback_used: bool = False
@@ -343,7 +349,6 @@ class InteractionTurnState:
     immediate_reply: str | None = None
     immediate_segments: tuple[Mapping[str, Any], ...] | None = None
     immediate_actions: tuple[str, ...] | None = None
-    immediate_thought: str | None = None
     immediate_tendency: dict[str, int] | None = None
     personal_emitted_monotonic: float | None = None
     speculative_persona_status: InteractionSpeculativePersonaStatus = (
@@ -1766,7 +1771,6 @@ def set_interaction_turn_immediate_persona_state(
     *,
     segments: Sequence[Mapping[str, Any]] | None = None,
     actions: tuple[str, ...] | list[str] = (),
-    thought: str = "",
     tendency: Mapping[str, int] | None = None,
 ) -> None:
     state = ensure_interaction_turn_state(event)
@@ -1784,23 +1788,16 @@ def set_interaction_turn_immediate_persona_state(
                 for action in segment.get("actions", ())
                 if isinstance(action, str)
             )
-            state.immediate_thought = "\n".join(
-                str(segment.get("thought", "") or "")
-                for segment in normalized_segments
-                if str(segment.get("thought", "") or "")
-            )
             last_tendency = normalized_segments[-1].get("tendency", {})
             state.immediate_tendency = (
                 dict(last_tendency) if isinstance(last_tendency, Mapping) else {}
             )
         else:
             state.immediate_actions = ()
-            state.immediate_thought = ""
             state.immediate_tendency = {}
         return
     state.immediate_segments = None
     state.immediate_actions = tuple(actions)
-    state.immediate_thought = str(thought or "")
     state.immediate_tendency = dict(tendency or {})
 
 
@@ -1815,13 +1812,12 @@ def get_interaction_turn_immediate_persona_segments(
 
 def get_interaction_turn_immediate_persona_state(
     event,
-) -> tuple[tuple[str, ...], str, dict[str, int]] | None:
+) -> tuple[tuple[str, ...], dict[str, int]] | None:
     state = get_interaction_turn_state(event)
     if state is None or state.immediate_actions is None:
         return None
     return (
         state.immediate_actions,
-        state.immediate_thought or "",
         dict(state.immediate_tendency or {}),
     )
 

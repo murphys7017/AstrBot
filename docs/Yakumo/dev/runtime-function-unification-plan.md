@@ -6,7 +6,7 @@
 
 - 状态：Phase 1 至 Phase 5 的底层 owner 迁移已完成。普通对话已收敛为一次 Personal Response
   Plan；真实 Provider 日志 smoke、首回复延迟、长请求 deadline 与后续消息队头延迟仍待运行确认。
-- 更新日期：2026-10-12。
+- 更新日期：2026-10-23。
 - 实施基线：`ef389bce0`（`docs: plan runtime function unification`）。
 - 日志基线：`data/logs/astrbot.log` 与 `data/logs/astrbot.trace.log` 的 2026-08-03 样本。
 - 任务类型：架构重构与性能修复。
@@ -19,29 +19,22 @@
 状态、验收结果和剩余风险；已经稳定的事实再同步到
 [当前状态](../current-state.md) 与对应模块文档。
 
-## 2026-09 架构修订：统一 Personal 回复计划
+## 2026-10-23 架构更新：独立 Core Router
 
-此前 Phase 5A/5B 中“Personal 与 Router 并行”的叙述是历史实施记录，不再是当前主链。普通
-消息和合格群聊候选现在只调用一次即时 Persona Expression；默认以 JSON 文本 + Prompt-only 约束输出，
-并解析为统一的 `turn_action`、`segments`（每段含 `speech`、`actions`、`thought`、八维 `tendency`）与内部聚合的 `effect_calls`。
-默认表达使用 JSON 文本 + Prompt-only；严格 `persona_expression` Tool Call 仅在显式配置时使用，适用 effect 始终走独立 `persona_effect_batch` 通道：
+普通消息和合格群聊候选并行启动 Personal Expression 与独立 Core Router。Personal 默认以 JSON 文本 + Prompt-only 约束输出；严格 `persona_expression` Tool Call 仅在显式配置时使用，适用 effect 始终走独立 `persona_effect_batch` 通道。每个 segment 包含 `speech`、`actions` 和八维 `tendency`；`turn_action` 仅允许按调用场景选择 `reply` 或 `silent`，不负责 Core 路由。
 
 ```text
-Personal Response Plan
-  -> reply:    直接完成本轮
-  -> delegate: 先发简短确认 -> Core Planner -> Core -> Persona final
-  -> silent:   仅允许静默的群聊候选，不发消息
+Personal Expression ── reply / silent ──> 用户可见回复
+Core Router ── personal_only / route_to_core ──> Core Planner ──> Core
 ```
 
-- 私聊及直接续接窗口不允许 `silent`。
-- `delegate` 是 Personal 对 Core 的明确工作委派；Planner 只生成必须为 `execute` 的
-  `CoreTaskSpec`，不再进行第二次路由或 `not_required` 决策。
-- Plugin Job 仍可在启用并行运行时与 Personal 同一 `t0` 启动；它的接管和延迟投递边界保持不变，
-  但不再等待或取消独立 Router task。
-- Persona 历史候选池默认扩至 300 回合。渲染时先保留最近连续片段，再按当前输入、引用文本、
-  topic state 与 short-term memory 选择旧锚点，并受 token 预算约束；Core 和 Planner 保持独立预算。
+- Router 独立判断当前输入是否需要进入 Core，不决定 Personal 是否回复；Personal 的静默状态也不改写 Router 决定。
+- Router 使用独立的 `CORE_ROUTER` PromptTarget，只接收当前与引用文本、有限近期历史、待续 Core 任务摘要、附件概况和时间；不接收能力摘要、Persona 提示或人格记忆。实际可用能力在路由后由 Core 执行阶段解析。
+- 路由到 Core 后，Core Planner 构造 `CoreTaskSpec`；当前 Profile 仍决定执行器。
+- Plugin Job 可与 Personal 和 Router 同一 `t0` 启动；插件接管和延迟投递边界保持不变。
+- Persona 历史候选池默认扩至 300 回合。渲染时先保留最近连续片段，再按当前输入、引用文本、topic state 与 short-term memory 选择旧锚点，并受 token 预算约束；Core 和 Planner 保持独立预算。
 
-后续实现和验收以本节为准；文中未更新的 Router 语句仅用于说明当时的问题、迁移原因或旧日志。
+后续实现和验收以本节及[当前状态](../current-state.md)为准；更早的 Router 设计仅说明历史迁移背景。
 
 ## 一、结论先行
 
@@ -108,7 +101,7 @@ interaction turn
 | D-011 | `HandoffTool`/subagent 委派只属于 Core；Persona 可调用授权业务工具，但永不暴露 subagent。 |
 | D-012 | Personal 是唯一即时用户可见回复主线并与 Router 并行；结果形成后直接发送，不能为了群聊、插件或 Core 判断重新串行化首回复。 |
 | D-013 | 群聊 `silent` 必须与 Personal 发送权原子仲裁：pending 可取消，committed / emitted 不撤回；Router mode、Personal status 和 turn outcome 分开记录。 |
-| D-014 | Router 只决定 `silent/persona/hybrid`，Planner 只决定 Core 是否启动；二者都不得因任务类型或媒体输入取得 Personal 回复准入权。 |
+| D-014 | Router 只决定 `personal_only / route_to_core`，Planner 只在路由到 Core 后构造任务规格；二者都不得取得 Personal 回复准入权。 |
 | D-015 | 插件生命周期、插件工具和插件 Prompt Extension 只挂载到 `personal_expression` 或 `core`；Router/Planner 不加载插件能力目录或插件业务事实。官方群聊上下文等控制面事实必须由核心 Collector 提供。 |
 | D-016 | **Permission 与 Applicability 是两个正交的准入轴。** `Permission = 全局启用 ∧ Owner 有效 ∧ plugin_set 允许 ∧ 当前会话未禁用`；`Applicability = 平台/设备/运行时匹配（由能力自身 event_filter 决定）`。任何轮次级插件能力都必须同时通过两者。 |
 | D-017 | **`hard` 只豁免软丢弃，不豁免准入。** 声明 `required_per_segment` 的贡献不得被超时或 `best_effort` 跳过而静默丢弃；但它在全局停用、所有权失效、`plugin_set` 排除或会话禁用时同样不生效。 |

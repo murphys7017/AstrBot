@@ -41,8 +41,8 @@ class CorePlannerError(RuntimeError):
 def build_core_planner_system_prompt() -> str:
     return (
         "你是 Core Planner，负责把已经委派给 Core 的当前任务整理为执行规格。\n"
-        "当前任务已由 Personal 的统一结构化回复计划明确委派给 Core，必须返回 execute。\n"
-        "历史、memory 和其他说话者的任务只能帮助理解，不能替换、扩展或凭空创造当前任务。\n"
+        "独立 Core Router 已决定当前请求需要 Core；必须返回 execute，不要重新做路由判断。\n"
+        "当前输入仍是唯一任务来源。历史和 memory 只能用于消歧；被打断的 Core 任务只有在当前请求明确续接时才能恢复。\n"
         "把当前请求整理为简洁、完整、可执行的 CoreTaskSpec；"
         "suggested_capabilities 只使用与任务直接相关的能力意图：需要当前轮联网检索时必须填 web_research，"
         "需要文件处理时填 workspace_io，需要计算时填 computation。"
@@ -51,13 +51,14 @@ def build_core_planner_system_prompt() -> str:
         "web_research 表示必须留在当前 Core 回合直接完成，不能转交子 Agent 或后台任务。"
         "Personal 是否直接持有工具与 Core 能力无关；只有当前 Core 工具快照和实际执行结果"
         "可以确认能力是否可用，历史中的能力声明不能代替当前快照。"
-        "不要编造未提供的事实，也不要重新决定是否进入执行层。\n"
+        "不要编造未提供的事实，也不要重新决定是否进入执行层。"
+        "Personal 可能已发送自然的请求承接语；执行规格只描述用户要完成的工作，不重复该承接语。\n"
         "不要生成用户可见回复，不要输出人格内容、effect、工具调用参数或思考过程。"
     )
 
 
 def build_core_planner_prompt() -> str:
-    return "为已委派任务生成 CoreTaskSpec，并按输出契约返回 execute。"
+    return "为 Router 已路由的当前请求生成 CoreTaskSpec，并按输出契约返回 execute。"
 
 
 def build_core_planner_output_contract() -> OutputContract:
@@ -215,7 +216,7 @@ class CorePlannerAgent:
         if decision.action is not CorePlanningAction.EXECUTE or decision.task_spec is None:
             raise CorePlannerError(
                 "delegated_task_not_executable",
-                "Core Planner must return execute for a delegated Personal task",
+                "Core Planner must return execute for a Router-routed task",
             )
         logger.info(
             "Core Planner parsed: turn_id=%s target=core_planner platform_id=%s "

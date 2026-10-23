@@ -79,7 +79,6 @@ The `persona_expression` parameters use this shape:
     {
       "speech": "User-visible reply",
       "actions": [],
-      "thought": "The character's brief current thought",
       "tendency": {
         "Joy": 0,
         "Trust": 0,

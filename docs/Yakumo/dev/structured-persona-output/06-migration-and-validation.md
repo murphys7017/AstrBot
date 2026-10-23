@@ -6,12 +6,11 @@
 
 ## 已完成：Canonical Schema 与表达格式适配
 
-当前内部结果聚合为 `PersonaExpressionResult`。表达通道默认使用 JSON 文本 + Prompt-only 约束，也可配置为原生 JSON、XML、Markdown 或显式 `persona_expression` tool call；表达 payload 只包含 `turn_action`、`segments`。若当前事件有已注册且适用的 effect，同一模型响应还必须包含独立 `persona_effect_batch` tool call，其参数只包含 `effect_calls`。无适用 effect 时不提供该工具，内部结果保留空 `effect_calls` 数组。每个 segment 包含四个表达字段：
+当前内部结果聚合为 `PersonaExpressionResult`。表达通道默认使用 JSON 文本 + Prompt-only 约束，也可配置为原生 JSON、XML、Markdown 或显式 `persona_expression` tool call；表达 payload 只包含 `turn_action`、`segments`。若当前事件有已注册且适用的 effect，同一模型响应还必须包含独立 `persona_effect_batch` tool call，其参数只包含 `effect_calls`。无适用 effect 时不提供该工具，内部结果保留空 `effect_calls` 数组。每个 segment 包含三个表达字段：
 
 - turn_action：按调用场景限制的单值路由动作。
 - segments[].speech：按顺序拼接为文本平台使用的整合表达；TTS 按原分段逐段消费。
 - segments[].actions：简单动作意图数组。
-- segments[].thought：角色简短心理想法。
 - segments[].tendency：扮演角色当前的 Plutchik 八维情绪强度，规范化后每项为 0..10 整数；Core 对整数越界值执行边界裁剪。
 - effect_calls：内部聚合后的插件 effect 调用数组；在 Provider 边界由独立 effect 通道提供。
 
@@ -23,11 +22,11 @@
 
 新插件或输出功能不应读取 Provider 的原始 tool-call 响应，也不应解析用户可见 speech 来反推动作或情绪。应注册 Interaction Result Contributor，并从只读 InteractionResultView 中读取其负责的数据：
 
-- actions、thought、tendency、turn_action：Persona 结构化状态快照。
+- actions、tendency、turn_action：Persona 结构化状态快照。
 - effect_calls：本轮有效的插件 effect 调用；解析器会跳过无效项并把问题记录在结果 metadata。双通道首轮漏掉 effect batch 时会请求一次 effect-only 补全；已解析 batch 中的必发 effect 不合规时也可进入一次 effect-only 校正。重复 batch 或顶层结构无效仍直接拒绝响应。在 Contributor 快照中，每一项是含 name、arguments、call_id、plugin_id 和 source 的只读 mapping，消费方只处理自己注册的 effect。
 - purpose：区分 persona_reply、Persona 改写的 plugin_reply 和 core_reply。
 
-Contributor 返回 InteractionResultContribution 后，Core 可合并其 platform_extras 或 client_objects。Core 不会自动把 actions、thought 或 tendency 转成平台数据。直接 plugin_direct 输出绕过 Persona 改写链路，因此不会有 Persona Expression 的这些字段。
+Contributor 返回 InteractionResultContribution 后，Core 可合并其 platform_extras 或 client_objects。Core 不会自动把 actions 或 tendency 转成平台数据。直接 plugin_direct 输出绕过 Persona 改写链路，因此不会有 Persona Expression 的这些字段。
 
 实现代码示例与注册入口见 [Interaction 模块文档](../../modules/interaction.md) 的“Result Contributor”一节。跨插件输出边界见 [Interaction Output Plugin Contract](../interaction-output-plugin-contract.md)。
 

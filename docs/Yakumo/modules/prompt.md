@@ -122,7 +122,9 @@ Profile 是“如何使用事实”的局部策略，不是 Collector。Core Pla
 Persona 的 Prompt 分成两层，避免让一次调用同时解释彼此无关的阶段：
 
 - `system_prompt` 只声明稳定职责、`persona_expression` 输出契约，以及当前事件有适用 effect 时使用的 `persona_effect_batch` schema 和不泄露内部材料的共同边界。
-- `request_prompt` 只声明本次阶段任务：普通即时轮按本次 Schema 允许的 `turn_action` 枚举生成回复计划；普通表达仅开放 `reply`，需要 Core 时开放 `reply / delegate`，仅允许静默的群聊候选开放 `reply / delegate / silent`；结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
+- `request_prompt` 只声明本次阶段任务：Personal 即时表达只允许按场景选择 `reply` 或 `silent`，不决定是否进入 Core；独立 Core Router 使用自己的结构化契约判断路由。结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
+
+Core Router 使用独立的 `CORE_ROUTER` PromptTarget：只接收当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要。Persona 提示、人格记忆、Personal 回复、插件目录及工具清单不会进入该目标；实际能力在路由后由 Core 执行阶段解析。
 
 流式观察不是工具回执，因此不能宣称工具、来源、结果或整轮任务已完成。单个工具完成也只代表该步骤结束；只有 Core 最终结果才可表达为整轮完成。`input.visible_reply_material.progress_stage` 是这一语义的结构化事实，不能再依靠文案猜测。
 
@@ -160,7 +162,7 @@ Provider Renderer 只编译已经形成的树：
 
 ### Interaction
 
-Interaction 每轮先建立基础 Pack，并立即后台预取唯一的插件扩展 Pack；Personal 直接从 Persona 投影渲染一次回复计划。Persona 不等待完整插件扩展 Pack，已就绪时消费该 Pack，否则从基础 Pack 派生待表达材料；表达 Prompt 会另行收集目标为 Persona 的 Prompt Extension，并由 View 白名单限制可见 mount。仅在它选择 `delegate` 后，Planner 才从基础 Pack 整理 `CoreTaskSpec`；随后 Main Agent 等待同一插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
+Interaction 每轮先建立基础 Pack，并立即后台预取唯一的插件扩展 Pack；Personal 从 Persona 投影渲染回复。Persona 不等待完整插件扩展 Pack，已就绪时消费该 Pack，否则从基础 Pack 派生待表达材料；表达 Prompt 会另行收集目标为 Persona 的 Prompt Extension，并由 View 白名单限制可见 mount。Core Router 与 Personal 并行工作，Router 只读取独立的有限上下文；路由到 Core 后，Planner 从基础 Pack 整理 `CoreTaskSpec`，随后 Main Agent 等待同一插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
 
 ### 非 Interaction Core
 
@@ -182,7 +184,7 @@ OutputContract
   -> response parser
 ```
 
-Core Planner 使用独立的 `core_execution_plan` 契约，且对已委派任务必须返回 `execute`。Persona 默认要求 JSON 文本 + Prompt-only 约束，JSON/XML/Markdown parser 校验后均转换为同一 Canonical 结果；严格 `persona_expression` tool call 仅在配置显式选择时使用。每个结果包含 `turn_action` 和 `segments`；segment 含用户可见 speech、动作词数组 actions、角色心理想法 thought 和 Plutchik 八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将表达与 effect 聚合为内部 Persona 结果。`turn_action` 的 Schema 按调用场景动态收窄，不是始终可任意选择 `reply / delegate / silent`。两个 Persona 输出通道都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。Provider 页面 10 次格式测试仅提供稳定性参考，不自动保存结果或切换 Persona 设置。
+Core Planner 使用独立的 `core_execution_plan` 契约，且 Core Router 路由到 Core 后 Planner 必须返回 `execute`。Persona 默认要求 JSON 文本 + Prompt-only 约束，JSON/XML/Markdown parser 校验后均转换为同一 Canonical 结果；严格 `persona_expression` tool call 仅在配置显式选择时使用。每个结果包含 `turn_action` 和 `segments`；segment 含用户可见 speech、动作词数组 actions 和 Plutchik 八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将表达与 effect 聚合为内部 Persona 结果。`turn_action` 只按调用场景选择 `reply` 或 `silent`，Core 路由不由 Persona 输出决定。两个 Persona 输出通道都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。Provider 页面 10 次格式测试仅提供稳定性参考，不自动保存结果或切换 Persona 设置。
 
 Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect 注册事实，因为 effect schema 会作为条件性独立 terminal tool 提供，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 

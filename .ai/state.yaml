@@ -1,3 +1,61 @@
+interaction_router_persona_field_cleanup_20261023:
+  date: '2026-10-23'
+  class: feature
+  risk: high
+  status: reviewed_pending_live_acceptance
+  decision: >-
+    Remove the Persona thought field from its model protocol and Core result/state
+    surfaces. Move task routing out of Personal into a dedicated Core Router that
+    runs concurrently with Persona reply generation; Core waits for the route.
+    Router context is an isolated, bounded PromptTarget with no Persona or long-
+    term memory, capability summary, or tool inventory. It decides only whether
+    execution is needed; Core resolves actual capability and tool availability
+    after routing. Current profile executor policy remains authoritative.
+  scope: >-
+    Update all Persona schemas, parsers, stream records, result snapshots and
+    hooks for thought removal. Add a strict Core Router prompt target, bounded
+    route context without capability or tool inventories, provider deadline,
+    typed route result, and integrate the Router into both default and coordinated
+    interaction paths. Personal may still choose whether to emit a reply, but
+    cannot choose Core delegation.
+  non_goals: >-
+    Do not alter provider-specific thought_signature/reasoning fields, saved
+    profile executor selections, AG99live, or unrelated dirty files. Do not let
+    the route result modify or wait on Personal response generation.
+  supersedes: >-
+    This explicit 2026-10-23 request supersedes the historical
+    personal_core_capability_routing non-goal against adding a Router.
+  validation: >-
+    Static review confirmed both ordinary and coordinated pipeline paths start
+    Core Router alongside Personal, and confirmed the isolated router target,
+    deadline propagation, and Persona thought-field removal across runtime
+    protocol, snapshots, dashboard prompt, fixtures, and current architecture
+    docs. git diff --check passed with only existing line-ending warnings. The
+    focused pytest process already in progress when the user requested no more
+    tests completed with 271 passed, 8 failed and 3 errors. Follow-up review
+    corrected six failures attributable to outdated budget/prompt expectations
+    or Personal suppression overwriting the independent route. Two failures
+    (autonomous-expression deduplication and late plugin provider request)
+    remain untriaged; three errors were pytest temporary-directory permission
+    failures. No tests were rerun after the user's instruction; the user will
+    perform live testing. Follow-up review fixes also coupled Router action and
+    reason values in its output schema, restored the 600-character Router
+    history limit, and removed the retired thought field from the provider
+    output-test template. Post-fix git diff --check passed; no tests were run.
+    Follow-up boundary review confirmed the Router's allowlist excludes capability
+    slots even when their metadata targets core_router, and the Router provider
+    call does not pass Core business-tool schemas. Final path review confirmed
+    coordinated ProcessStage starts Router through prepare_parallel_turn_control.
+    Added visible-Persona finalization when the Router reaches the turn deadline
+    in ordinary and coordinated paths, and Router cancellation if coordinated
+    startup fails. Corrected current architecture docs that incorrectly listed a
+    capability summary in the Router projection. Scoped static compile and diff
+    checks passed; no tests were rerun per user direction.
+  evidence_gap: >-
+    No live Provider, Core execution, OLV stream or service-restart acceptance.
+    The two remaining failures from the interrupted focused suite still need
+    user-side or later targeted verification.
+
 idle_initiation_optimization_20261020:
   class: feature
   risk: medium

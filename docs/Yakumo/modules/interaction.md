@@ -7,14 +7,14 @@
 它不是某个前端或 Live2D 场景的专用逻辑，而是通用平台交互中间件：
 
 - 对启用平台，输入先经过官方 EventBus、Pipeline、权限和插件处理，再在核心 Agent 开始前进入 middleware。
-- Prompt 层先收集一份规范 `ContextPack`；普通显式消息和未被 Handler 接管的群聊候选由一次 Personal Response Plan 生成自然表达及 `reply / delegate / silent` 动作。`reply` 直接完成，`delegate` 才调用 Core Planner，`silent` 只对允许的群聊候选开放。Planner、Persona 和 Core 只读取各自投影；直播音频和协议命令使用独立 Core bypass。
+- Prompt 层先收集一份规范 `ContextPack`；普通显式消息和未被 Handler 接管的群聊候选会并行启动 Personal 表达与独立 Core Router。Personal 只决定是否发出可见回复（`reply / silent`）；Router 独立判断是否进入 Core，Core Planner 只在 Router 路由后构造执行任务。Persona、Router、Planner 和 Core 只读取各自投影；直播音频和协议命令使用独立 Core bypass。
 - 对 interaction turn，用户可见输出由 `InteractionOutputController` 统一 materialize、发送、记录。
 - core 仍负责工具、知识库、subagent、搜索、任务执行等能力。
 - middleware 负责 turn owner 语义、人格化表达、stream observation、finalized material 和 completion handoff。
 
-这里必须区分三个互不替代的事实：`route_mode` 表示 Personal Response Plan 的控制结果，
+这里必须区分三个互不替代的事实：`route_mode` 表示独立 Core Router 是否将本轮交给 Core，
 `personal_status` 表示 Personal 回复是否尚未开始、生成中、已提交、已送达或被压制，
-`turn_outcome` 表示本轮最终是否已经产生用户可见回复。`silent` 只能在群聊候选且表达尚未取得发送权时形成零输出，不能撤回已提交或已送达的表达。
+`turn_outcome` 表示本轮最终是否已经产生用户可见回复。Personal 选择 `silent` 不会改写 Router 决定；它只能在允许静默的群聊候选且表达尚未取得发送权时形成零输出，不能撤回已提交或已送达的表达。
 
 在 Yakumo 的目标态里，interaction middleware 应进一步收口为
 `Persona Runtime Shell`。它是人格层的一轮运行外壳，负责把输入 observation、Personal
@@ -93,9 +93,7 @@ Extension 或 Interaction Prompt Contributor，而不是直接发送消息。它
   -> Persona Expression 生成唯一用户可见回复
 ```
 
-这类插件不会参与 Personal 的 `reply / delegate / silent` 判断，也不能用注入事实强行让 Personal
-回复。需要改变消息是否被接管时，应使用官方 Handler；需要执行动作时，应注册 LLM Tool 或使用
-插件自己的显式业务系统。
+这类插件不参与 Personal 的 `reply / silent` 选择，也不会进入 Core Router 的上下文，因此不能用注入事实强行让 Personal 回复或改变路由。需要改变消息是否被接管时，应使用官方 Handler；需要执行动作时，应注册 LLM Tool 或使用插件自己的显式业务系统。
 
 ## Turn 总预算
 
@@ -225,11 +223,11 @@ WebUI 可在配置文件的“插件富化与能力目标”中统一编辑。�
   `MessageEventResult.set_async_stream(...)` 明确不支持并会给工具循环返回提示。最终 Persona
   Expression 是唯一可见回复的 owner；工具另开后台 task 后的输出不属于该次工具调用，仍按普通
   发送路径处理。
-- `delegate` 路径中，Personal 先发送简短处理中确认，Planner 再为该已委派任务生成
-  `execute + CoreTaskSpec`；Planner 不重新决定是否进入 Core，也不能因为任务类型、媒体输入或
-  Core 决策压制 Personal。群聊候选的 `silent` 只能在 Personal 尚未取得发送权时形成零输出。
+- Core Router 与 Personal 表达并行；Router 选中 Core 后，Planner 为任务生成
+  `execute + CoreTaskSpec`。Personal 回复与路由结果相互独立，Router 和 Planner 不得改变 Personal
+  的回复准入。群聊候选的 `silent` 只能在 Personal 尚未取得发送权时形成零输出。
   Core 更早取得最终输出 reservation 时，仍可按统一输出事务阻止迟到的 pending Personal，
-  但这是输出先后仲裁，不是 Personal 或 Planner 的回复门禁。
+  但这是输出先后仲裁，不是 Router 或 Planner 的回复门禁。
 - 人格 Provider 回退时保留 Hook 后冻结的同一 `ProviderRequest`、结构化输出契约和公开
   Agent context，并按候选 Provider 重新编译已投影的 PromptTree；不会重新采集事实，也不会重复调用
   `OnWaitingLLMRequest`、`OnLLMRequest` 或 `OnAgentBegin`。备用 Provider 无法满足严格 terminal
@@ -365,8 +363,8 @@ TopicState、ShortTermMemory、PersonaState 或启动 consolidation / promotion�
 Input Runtime / Observation
   -> Interaction Middleware / Persona Runtime Shell
       -> Effective Persona Resolver
-      -> Personal Response Plan (`reply` / `delegate` / `silent`)
-      -> Core Planner for delegated tasks
+      -> Personal Expression (`reply` / `silent`) || Core Router
+      -> Core Planner when routed to Core
       -> Core Agent / Tools / Capabilities, or Persona Expression
       -> Output Gateway
           -> Text / Streaming
@@ -387,18 +385,19 @@ Input Runtime / Observation
 - interaction STT
 - observation / reflex 前置判断
 - Prompt Collectors：一次收集本轮输入、人格、session、官方对话历史、统一 Memory、执行能力和插件贡献，生成规范 `ContextPack`
-- Personal Response Plan：普通显式唤醒和合格群聊候选通过同一模型响应中的 Persona 表达与（适用时）effect 通道输出 `reply`、`delegate` 或 `silent`、自然语言和 effect。它不拆解任务、不执行 Core 工具；`silent` 仅对允许的群聊候选开放。
-- Core Planner：只在 `delegate` 后生成固定的 `execute + CoreTaskSpec`，不重新判断任务是否应进入 Core，也不拥有用户可见表达权限。
-- Personal/Core 协同：`delegate` 的简短确认由 Personal 先交付；之后 Planner 与 Core 执行，不会压制已提交的表达。`silent` 只能在未提交时形成零输出，不能撤回已经提交或送达的表达。
+- Personal Expression：普通显式唤醒和合格群聊候选生成自然语言与（适用时）effect；`turn_action` 只选择 `reply` 或允许场景下的 `silent`，不拆解任务、不执行 Core 工具，也不决定是否进入 Core。
+- Core Router：与 Personal 并行运行，使用独立 PromptTarget 判断是否进入 Core；上下文不含 Persona 提示或人格记忆。
+- Core Planner：只在 Router 路由到 Core 后生成固定的 `execute + CoreTaskSpec`，不拥有用户可见表达权限。
+- Personal/Core 协同：Personal 可并行交付回复；Core 路由不改变已提交表达。`silent` 只能在未提交时形成零输出，不能撤回已经提交或送达的表达。
 - Runtime 所有权：ProcessStage 在插件 Handler 前完成 admission 并取得 session lease；
   `TurnExecutionScope` 持有 Personal、Context Material 和 Stream Observation task，
   lease 释放前统一完成或取消；`TurnDeadlineBudget.enforce()` 统一约束 binding、queue、
   Personal、Planner、Core、Provider 和工具执行，超时取消会等待工具结果 task 清理，
   不允许后台继续写状态
-- 委派协同：Personal 选择 `delegate` 后先交付即时确认；Planner 只生成 CoreTaskSpec，Core 最终结果仍由统一 Persona 输出层表达。
+- 路由协同：Core Router 独立选择是否进入 Core；Planner 只生成 CoreTaskSpec，Core 最终结果仍由统一 Persona 输出层表达。
 - Core 协同提示：Core 只接收执行任务与能力事实，并直接执行、返回实质结果材料；即时 Persona 的内部状态和预发送文本不注入 Core Prompt。
 - Context/失败协同：Personal、Planner 和 Persona 通过 turn-local single-flight 共享一次 Context Material 构建。Planner 失败禁止 Core，并以已经送达或仍可完成的 Persona 走 persona-only 恢复路径。
-- REPLY / DELEGATE / SILENT 编排；`silent` 只用于有界群聊模型续接候选
+- Personal `REPLY / SILENT` 与 Core Router 路由编排；`silent` 只用于有界群聊模型续接候选
 - live audio 与协议命令 Core bypass
 - 通用 effect call 的输出与插件消费边界；middleware 不理解 Motion 或 Live2D 语义
 - finalized material 校验
@@ -578,7 +577,7 @@ Persona Provider 全部失败后的本地错误回复也使用独立的结果实
 建立结果与 TTS 的关联。此通知不调用回复模型，也不重放 LLM 请求或响应生命周期钩子；
 本地错误回复不生成插件 effect_calls。插件上下文不可用时只创建独立结果，不分发插件钩子。
 
-Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payload 是 JSON 文本；严格 Tool Call 是显式选择的另一种传输格式。表达通道只包含 `turn_action` 与 `segments`：
+Canonical Persona 结果包含表达和是否发出可见回复的选择，不包含 Core 路由决定。默认 Provider payload 是 JSON 文本；严格 Tool Call 是显式选择的另一种传输格式。表达通道只包含 `turn_action` 与 `segments`：
 
 ```json
 {
@@ -587,7 +586,6 @@ Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payl
     {
       "speech": "string",
       "actions": ["lower_head"],
-      "thought": "角色当前的简短心理想法",
       "tendency": {
         "Joy": 0,
         "Trust": 0,
@@ -618,9 +616,9 @@ Canonical Persona 结果包含表达和本轮动作选择。默认 Provider payl
 
 表达可以使用 Prompt-only JSON，也可以在配置明确选择 XML、Markdown 或严格 Tool Call；Provider 页的 10 次格式诊断只提供稳定性参考，不会自动修改配置。适用 effect 始终由独立 `persona_effect_batch` terminal tool 提供；无适用 effect 时不提供 effect 工具，Core 聚合结果中仍提供空 `effect_calls` 数组。若本轮同时有表达 Tool Call 和 effect Tool Call，两者须在同一响应返回；若表达使用 JSON/XML/Markdown，适用的 effect 仍须通过独立工具调用返回。双通道首轮漏项时，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。
 
-`turn_action` 是单值字符串，枚举按调用场景限制：普通表达仅 `reply`；需要 Core 处理时允许 `reply | delegate`；允许静默的群聊候选允许 `reply | delegate | silent`，且 `silent` 时 `segments` 必须为空。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`thought` 表示角色简短的心理想法，不是完整推理链；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+`turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要；不包含 Persona 提示、人格式记忆、Personal 回复、插件目录或工具清单。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
-开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`thought`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
+开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 
@@ -808,7 +806,7 @@ class Main(star.Star):
 - `view.core_result`
 - `view.final_result`
 - `view.effect_calls`
-- `view.actions`、`view.thought`、`view.tendency`、`view.turn_action`
+- `view.actions`、`view.tendency`、`view.turn_action`
 - `view.visible_outputs`
 - `view.utterances`
 - `view.turn_material_snapshot`
@@ -821,7 +819,6 @@ class Main(star.Star):
 ```python
 persona_state = {
     "actions": list(view.actions),
-    "thought": view.thought,
     "tendency": dict(view.tendency),
     "turn_action": view.turn_action,
 }

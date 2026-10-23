@@ -68,7 +68,6 @@ def _persona_payload(speech: str = "", **overrides):
             {
                 "speech": speech,
                 "actions": [],
-                "thought": "",
                 "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
             }
         ],
@@ -107,7 +106,7 @@ def test_persona_segment_stream_parser_handles_fragmented_records(separator):
         },
         {"v": 1, "record": "speech_delta", "text": "你好"},
         {"v": 1, "record": "speech_delta", "text": "，世界。"},
-        {"v": 1, "record": "segment_end", "thought": ""},
+        {"v": 1, "record": "segment_end"},
         {"v": 1, "record": "finish", "effect_calls": []},
     ]
     wire = separator.join(json.dumps(record, ensure_ascii=False) for record in records)
@@ -138,7 +137,6 @@ def test_persona_segment_stream_parser_handles_fragmented_records(separator):
         {
             "speech": "你好，世界。",
             "actions": [],
-            "thought": "",
             "tendency": tendency,
         },
     )
@@ -174,7 +172,6 @@ def test_repaired_stream_preserves_speech_and_dispatches_eof_tail():
             "header", "segment_start", "speech_delta", "segment_end",
         ]
         assert parser.wire_text == wire
-        assert result.segment_mappings[0]["thought"] == ""
 
     asyncio.run(run())
 
@@ -212,31 +209,12 @@ def test_persona_segment_stream_parser_rejects_empty_reply():
         parser.finish()
 
 
-def test_persona_segment_stream_parser_preserves_delegate_action():
-    tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
+def test_persona_segment_stream_parser_rejects_core_route_action():
     parser = PersonaSegmentStreamParser(
         PersonaExpressionRequest(require_turn_action=True)
     )
-    records = [
-        {"v": 1, "record": "header", "turn_action": "delegate"},
-        {
-            "v": 1,
-            "record": "segment_start",
-            "actions": [],
-            "tendency": tendency,
-        },
-        {"v": 1, "record": "speech_delta", "text": "我来查一下。"},
-        {"v": 1, "record": "segment_end", "thought": ""},
-        {"v": 1, "record": "finish", "effect_calls": []},
-    ]
-
-    for record in records:
-        parser.feed(json.dumps(record, ensure_ascii=False) + "\n")
-
-    result = parser.finish()
-
-    assert result.turn_action is PersonalResponseAction.DELEGATE
-    assert result.speech == "我来查一下。"
+    with pytest.raises(InteractionExpressionError, match="invalid_turn_action"):
+        parser.feed('{"v":1,"record":"header","turn_action":"delegate"}\n')
 
 
 def test_persona_segment_stream_parser_accepts_silent_without_segments():
@@ -370,7 +348,7 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
                 "tendency": tendency,
             },
             {"v": 1, "record": "speech_delta", "text": "hello"},
-            {"v": 1, "record": "segment_end", "thought": ""},
+            {"v": 1, "record": "segment_end"},
             {"v": 1, "record": "finish", "effect_calls": []},
         )
     ) + "\n"
@@ -503,7 +481,6 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
         "segment": {
             "speech": "sanitized",
             "actions": ["look_left"],
-            "thought": "",
             "tendency": tendency,
         },
         "turn_action": PersonalResponseAction.REPLY,
@@ -612,15 +589,8 @@ def test_personal_response_plan_requires_an_allowed_action_and_reply():
 
     assert exc_info.value.reason == "missing_personal_response_action"
 
-    with pytest.raises(InteractionExpressionError) as exc_info:
-        validate_persona_expression_result(
-            request,
-            PersonaExpressionResult(
-                turn_action=PersonalResponseAction.DELEGATE,
-            ),
-        )
-
-    assert exc_info.value.reason == "empty_output"
+    with pytest.raises(ValueError):
+        PersonalResponseAction("delegate")
 
 
 def test_personal_response_plan_allows_empty_silent_only_for_group_candidate():
@@ -644,7 +614,7 @@ def test_personal_response_plan_schema_requires_turn_action():
     schema = build_persona_expression_tool_parameters(
         allowed_turn_actions=(
             PersonalResponseAction.REPLY,
-            PersonalResponseAction.DELEGATE,
+            PersonalResponseAction.SILENT,
         ),
     )
 
@@ -654,12 +624,12 @@ def test_personal_response_plan_schema_requires_turn_action():
     ]
     assert schema["properties"]["turn_action"]["enum"] == [
         "reply",
-        "delegate",
+        "silent",
     ]
     description = schema["properties"]["turn_action"]["description"]
     assert "complete the visible response in Personal" in description
-    assert "delegate unfinished work to Core" in description
-    assert "emit no visible response" not in description
+    assert "delegate" not in description
+    assert "emit no visible response" in description
 
 
 def test_persona_response_schema_describes_reply_only_calls_accurately():
@@ -677,7 +647,6 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
     schema = build_persona_expression_tool_parameters(
         allowed_turn_actions=(
             PersonalResponseAction.REPLY,
-            PersonalResponseAction.DELEGATE,
             PersonalResponseAction.SILENT,
         ),
     )
@@ -690,12 +659,10 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
     assert schema["properties"]["turn_action"]["type"] == "string"
     assert schema["properties"]["turn_action"]["enum"] == [
         "reply",
-        "delegate",
         "silent",
     ]
     assert schema["properties"]["turn_action"]["description"] == (
         "Allowed turn_action values: complete the visible response in Personal; "
-        "delegate unfinished work to Core; speech is only a brief acknowledgement; "
         "emit no visible response; segments must be empty"
     )
     segment_schema = schema["properties"]["segments"]["items"]
@@ -703,7 +670,6 @@ def test_persona_expression_schema_contains_canonical_structured_fields():
     assert segment_schema["required"] == [
         "speech",
         "actions",
-        "thought",
         "tendency",
     ]
     tendency = segment_schema["properties"]["tendency"]
@@ -1248,7 +1214,7 @@ def test_required_effect_schema_explains_silent_exception():
         allow_silent=True,
     )
 
-    assert "Required Persona Effects apply to reply and delegate" in schema[
+    assert "Required Persona Effects apply to non-silent replies" in schema[
         "properties"
     ]["effect_calls"]["description"]
     assert "For silent, return an empty effect_calls array" in schema[
@@ -1404,19 +1370,18 @@ def test_persona_runtime_prompt_constrains_result_free_immediate_requests():
         PersonaExpressionRequest(require_turn_action=True)
     )
 
-    assert "需要查询实时信息、外部能力、执行操作或继续未完成工作时选 delegate" in prompt
-    assert "不能伪装成最终事实答案" in prompt
-    assert "必须选 delegate" in prompt
-    assert "不等于任务已创建" in prompt
+    assert "不决定是否进入 Core" in prompt
+    assert "不得伪造执行结果或声称已经完成" in prompt
+    assert "是否进入 Core 由独立 Router 判断" in prompt
 
 
 def test_persona_system_prompt_distinguishes_personal_from_core_tools():
     prompt = build_persona_runtime_system_prompt(require_turn_action=True)
 
     assert "唯一的对外人格交流窗口" in prompt
-    assert "Personal 当前没有业务工具不代表系统整体没有工具" in prompt
     assert "联网、文件、定时任务等业务工具" in prompt
-    assert "只能从 reply / delegate 中选择 turn_action" in prompt
+    assert "只能从 reply 中选择 turn_action" in prompt
+    assert "不判断是否进入 Core" in prompt
     assert "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言" in prompt
     assert "memory 是被选择或检索的结构化摘要" in prompt
     assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
@@ -1426,7 +1391,7 @@ def test_persona_system_prompt_describes_reply_only_calls():
     prompt = build_persona_runtime_system_prompt()
 
     assert "当前调用只允许使用 turn_action=reply" in prompt
-    assert "只能从 reply / delegate 中选择 turn_action" not in prompt
+    assert "不判断是否进入 Core" in prompt
 
 
 def test_persona_progress_prompt_keeps_single_tool_completion_local():
@@ -1454,6 +1419,15 @@ def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
 
     assert "本次优先简短、口语化" in prompt
     assert "完整准确优先，不设置硬性字数上限" in prompt
+
+    direct_prompt = _build_expression_prompt(
+        PersonaExpressionRequest(short_reply=True, require_turn_action=True)
+    )
+    assert "【长度】" not in direct_prompt
+    assert "turn_action 只表示本轮是否由 Personal 发出回应" in direct_prompt
+    system_prompt = build_persona_runtime_system_prompt(require_turn_action=True)
+    assert "任务接收确认和进度通知遵守对应阶段的表达要求" in system_prompt
+    assert "不主动扩展背景、复盘或追加问题" not in system_prompt
 
 
 def test_visible_reply_material_profile_hides_redundant_media_slots():
@@ -1518,7 +1492,7 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     output_protocol,
     configured_format,
 ):
-    """Persona planning keeps bounded recent facts and defers plugin context.
+    """Persona planning keeps bounded recent history and defers plugin context.
 
     ``compact_context`` no longer selects the context pack: the configured
     ``persona_plugin_context_mode`` is the only wait policy, so every expression
@@ -1697,8 +1671,8 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
     assert {
         "persona.summary",
         "conversation.history",
-        "memory.short_term",
     } <= selected_slots
+    assert "memory.short_term" not in selected_slots
     assert "memory.long_term_memories" not in selected_slots
     assert "persona.segments" in selected_slots
     assert "persona.begin_dialogs" not in selected_slots
@@ -2366,10 +2340,7 @@ async def test_invalid_turn_plan_result_never_reaches_persona_result_hook(monkey
             return False
 
     provider = Provider()
-    allowed_turn_actions = (
-        PersonalResponseAction.REPLY,
-        PersonalResponseAction.DELEGATE,
-    )
+    allowed_turn_actions = (PersonalResponseAction.REPLY,)
     contract = build_persona_expression_output_contract(
         allowed_turn_actions=allowed_turn_actions,
     )

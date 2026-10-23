@@ -71,7 +71,6 @@ def test_parse_semantic_xml_persona_output():
             <segment>
               <speech>啊……怎么会这样？</speech>
               <actions><action>lower_head</action></actions>
-              <thought>这件事出乎意料</thought>
               {_TENDENCY_XML}
             </segment>
           </segments>
@@ -98,8 +97,6 @@ def test_parse_semantic_markdown_persona_output():
 #### actions
 ##### action
 > lower_head
-#### thought
-> 这件事出乎意料
 #### tendency
 ##### Joy
 0
@@ -149,7 +146,7 @@ def test_semantic_xml_parser_rejects_effect_calls_in_expression_output():
     with pytest.raises(ValueError, match="unexpected_fields:effect_calls"):
         parse_persona_text(
             """<output><turn_action>reply</turn_action><segments><segment>
-<speech>嗯</speech><actions/><thought/><tendency>
+<speech>嗯</speech><actions/><tendency>
 <Joy>0</Joy><Trust>0</Trust><Fear>0</Fear><Surprise>0</Surprise>
 <Sadness>0</Sadness><Disgust>0</Disgust><Anger>0</Anger><Anticipation>0</Anticipation>
 </tendency></segment></segments><effect_calls><effect_call>

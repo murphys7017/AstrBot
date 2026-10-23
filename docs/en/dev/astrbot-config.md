@@ -442,6 +442,9 @@ and plugin tools while still allowing compatible module-path keys to be entered 
 - `expression_provider_id` and `planner_provider_id`:
   Optional per-stage model overrides. Leave a field empty to reuse the current
   session's configured chat provider; an explicit ID takes precedence.
+- `planner_provider_id`, `planner_temperature`, and `planner_timeout` are shared
+  by the independent Core Router and Core Planner. The Router runs alongside
+  Personal and only invokes the Planner when it routes a request to Core.
 - `parallel_plugin_runtime_enabled`: Enable the concurrent Personal and Official
   Plugin Job path. It defaults to `false` and applies to the complete
   plugin path, not individual plugins. Disabled keeps the Handler-first

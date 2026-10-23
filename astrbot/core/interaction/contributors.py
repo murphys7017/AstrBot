@@ -326,7 +326,6 @@ class InteractionResultView:
     # Flattened fields remain available to existing in-process contributors;
     # new consumers should use ``segments`` so per-segment state is preserved.
     actions: tuple[str, ...] = field(default_factory=tuple)
-    thought: str = ""
     tendency: Mapping[str, int] = field(default_factory=dict)
     turn_action: str | None = None
 
@@ -345,7 +344,6 @@ class InteractionResultView:
                 "effect_calls": freeze_interaction_snapshot(self.effect_calls),
                 "segments": freeze_interaction_snapshot(self.segments),
                 "actions": freeze_interaction_snapshot(self.actions),
-                "thought": self.thought,
                 "tendency": freeze_interaction_snapshot(self.tendency),
                 "turn_action": self.turn_action,
                 "visible_outputs": freeze_interaction_snapshot(self.visible_outputs),

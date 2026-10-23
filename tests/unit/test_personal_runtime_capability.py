@@ -84,6 +84,9 @@ from astrbot.core.interaction.turn_state import (
     set_interaction_turn_configuration_selection,
 )
 from astrbot.core.interaction.types import (
+    CoreRouterAction,
+    CoreRouterDecision,
+    CoreRouterReason,
     CorePlanningAction,
     CorePlanningDecision,
     CoreTaskSpec,
@@ -1077,6 +1080,12 @@ async def test_personal_reply_completes_with_one_reply_plan(monkeypatch):
         InteractionOutputController(),
         SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
     )
+    middleware.core_router.route = AsyncMock(
+        return_value=CoreRouterDecision(
+            CoreRouterAction.PERSONAL_ONLY,
+            CoreRouterReason.CONVERSATION,
+        )
+    )
     persona_started = asyncio.Event()
     async def start_persona(*_args, **_kwargs):
         persona_started.set()
@@ -1106,6 +1115,55 @@ async def test_personal_reply_completes_with_one_reply_plan(monkeypatch):
     assert turn_state.completion_state.outcome is not None
     assert turn_state.completion_state.outcome.value == "replied"
     assert event.is_stopped()
+
+
+@pytest.mark.asyncio
+async def test_personal_visible_reply_does_not_wait_for_core_router(monkeypatch):
+    metadata = _metadata(support_personal_runtime=True)
+    event = _DirectEvent(metadata)
+    runtime_config = {"interaction_middleware": {"enabled": True}}
+    middleware = InteractionMiddleware(
+        runtime_config,
+        InteractionOutputController(),
+        SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
+    )
+    router_started = asyncio.Event()
+    release_router = asyncio.Event()
+    router_completed = asyncio.Event()
+
+    async def wait_for_route(*_args, **_kwargs):
+        router_started.set()
+        await release_router.wait()
+        router_completed.set()
+        return CoreRouterDecision(
+            CoreRouterAction.PERSONAL_ONLY,
+            CoreRouterReason.CONVERSATION,
+        )
+
+    middleware.core_router.route = AsyncMock(side_effect=wait_for_route)
+    middleware.persona_runtime.express_visible_reply = AsyncMock(
+        return_value=PersonaExpressionResult(speech="我在。")
+    )
+    middleware._materialize_inbound_media = AsyncMock()
+    monkeypatch.setattr(
+        "astrbot.core.interaction.middleware.dispatch_interaction_lifecycle",
+        AsyncMock(),
+    )
+
+    handle_task = asyncio.create_task(middleware.handle_pipeline_event(event))
+    await asyncio.wait_for(router_started.wait(), timeout=1.0)
+    await asyncio.wait_for(event.send_completed.wait(), timeout=1.0)
+
+    assert event.sent[0].get_plain_text() == "我在。"
+    assert router_completed.is_set() is False
+    assert handle_task.done() is False
+
+    release_router.set()
+    await asyncio.wait_for(handle_task, timeout=1.0)
+    turn_state = get_interaction_turn_state(event)
+    assert turn_state is not None
+    assert turn_state.route_decision.route_mode is InteractionRouteMode.PERSONA
+    await turn_state.execution_scope.close()
 
 
 @pytest.mark.asyncio
@@ -1212,7 +1270,7 @@ async def test_plugin_gate_can_suppress_pending_personal_before_completion():
 
 
 @pytest.mark.asyncio
-async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
+async def test_router_routes_personal_reply_to_core_after_planner(monkeypatch):
     metadata = _metadata(support_personal_runtime=True)
     event = _DirectEvent(metadata)
     event.set_extra("selected_provider", "test-provider")
@@ -1223,10 +1281,10 @@ async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
         InteractionOutputController(),
         SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
     )
-    async def generate_delegated(*_args, **_kwargs):
+    async def generate_personal(*_args, **_kwargs):
         return PersonaExpressionResult(
             speech="我来查一下。",
-            turn_action=PersonalResponseAction.DELEGATE,
+            turn_action=PersonalResponseAction.REPLY,
         )
 
     async def execute_core(*_args, **_kwargs):
@@ -1236,8 +1294,14 @@ async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
         )
 
     middleware.core_planner.plan = AsyncMock(side_effect=execute_core)
+    middleware.core_router.route = AsyncMock(
+        return_value=CoreRouterDecision(
+            CoreRouterAction.ROUTE_TO_CORE,
+            CoreRouterReason.VISUAL_UNDERSTANDING,
+        )
+    )
     middleware.persona_runtime.express_visible_reply = AsyncMock(
-        side_effect=generate_delegated
+        side_effect=generate_personal
     )
     middleware._materialize_inbound_media = AsyncMock()
     monkeypatch.setattr(
@@ -1252,6 +1316,8 @@ async def test_delegated_personal_reply_reaches_core_after_planner(monkeypatch):
     assert turn_state is not None
     assert [message.get_plain_text() for message in event.sent] == ["我来查一下。"]
     assert turn_state.core_delegated is True
+    assert turn_state.core_router_decision is not None
+    assert turn_state.core_router_decision.should_route_to_core is True
     assert turn_state.speculative_persona_status.value == "emitted"
     await turn_state.execution_scope.close()
 
@@ -1286,6 +1352,12 @@ async def test_handoff_review_revises_same_turn_before_core_forward():
         return next(planner_decisions)
 
     middleware.core_planner.plan = AsyncMock(side_effect=plan)
+    middleware.core_router.route = AsyncMock(
+        return_value=CoreRouterDecision(
+            CoreRouterAction.ROUTE_TO_CORE,
+            CoreRouterReason.EXTERNAL_INFORMATION,
+        )
+    )
     middleware._emit_delegated = AsyncMock()
     middleware._forward_to_core = Mock()
     persona_task = asyncio.create_task(asyncio.sleep(0, result=None))
@@ -1323,6 +1395,12 @@ async def test_group_personal_silent_plan_suppresses_visible_output(monkeypatch)
         runtime_config,
         InteractionOutputController(),
         SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
+    )
+    middleware.core_router.route = AsyncMock(
+        return_value=CoreRouterDecision(
+            CoreRouterAction.PERSONAL_ONLY,
+            CoreRouterReason.CONVERSATION,
+        )
     )
     middleware._materialize_inbound_media = AsyncMock()
     middleware.persona_runtime.express_visible_reply = AsyncMock(

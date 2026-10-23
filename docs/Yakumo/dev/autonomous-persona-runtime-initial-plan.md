@@ -1,8 +1,8 @@
 # 自主人格运行时实施计划
 
-> 2026-09-28 术语校准：普通入站消息不再启动独立 Router。当前由同一次 Persona
-> Expression 形成 Personal Response Plan，并产出 `reply / delegate / silent`；下文未标明
-> 历史的 Router 表述均应按此控制面理解。
+> 2026-10-23 架构更新：本初始计划中的 `reply / delegate / silent` 路由描述属于历史设计。
+> 当前 Personal 只选择 `reply / silent`，独立 Core Router 并行判断是否进入 Core；下文关于
+> 旧 Router 与委派动作的描述仅保留为历史记录。
 
 本文定义 Yakumo 如何从“能够主动投递消息”演进为“持续观察、谨慎判断、按需行动”的
 自主人格运行时，并给出可直接进入开发的分批实施顺序。

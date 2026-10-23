@@ -13,7 +13,7 @@
 
 ## 1. 结论与整改目标
 
-2026-09 修订：本计划中关于独立 Router 的文字记录的是已完成的旧实施阶段。当前普通对话由同一次 Personal Response Plan 决定 `reply / delegate / silent`；媒体目标投影分别服务 Personal Response Plan、Planner、Persona 与 Core，不再提供 Router view。
+2026-10-23 修订：普通对话现由独立 Core Router 与 Personal 并行处理。Router 使用 `CORE_ROUTER` 目标，仅接收附件概况而不读取图片内容；本计划中的媒体投影仍分别服务 Personal、Core Planner、Persona 与 Core。
 
 当前实现已完成本计划的主整改：基础 `InputCollector` 只收集原始媒体与附件事实，不在
 Interaction base 阶段调用图片转述或文件提取服务；实际 Provider 绑定后才派生分支局部的媒体

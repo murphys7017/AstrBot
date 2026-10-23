@@ -69,7 +69,6 @@ context.unregister_persona_effects(plugin_id="my_plugin")
     {
       "speech": "用户可见回复",
       "actions": [],
-      "thought": "角色当前的简短心理想法",
       "tendency": {
         "Joy": 0,
         "Trust": 0,

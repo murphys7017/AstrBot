@@ -16,17 +16,17 @@ AG99 将 AstrBot 从面向单次消息的 Bot Runtime 演进为持续运行的 P
 - `memory` 通过统一 Memory Service 为 Prompt 提供事实，不再建立 Interaction 私有记忆副本。
 - `Personal Runtime` 在官方 EventBus 和 Pipeline 完成过滤、权限与 Handler 准入后、核心执行器之前管理 turn、并发和 follow-up。
 - `Persona Expression` 是所有用户可见文本进入 Output 前的唯一拟人层。
-- `Core Planner` 只准备执行意图；当前注册的执行器是 Native 与 Codex CLI，其他后台仍属目标或方案。
+- `Core Router` 独立决定是否进入 Core；`Core Planner` 为路由后的任务准备执行意图。当前注册的执行器是 Native 与 Codex CLI，其他后台仍属目标或方案。
 - `effect_calls` 是插件扩展协议，AstrBot 不理解 Motion、Live2D 等插件领域语义。
 
-普通、明确面向 Bot 的消息与未被 Handler 接管的有界群聊候选，由同一次 Personal Response Plan 产生表达及 `reply`、`delegate` 或允许场景下的 `silent` 动作；只有 `delegate` 再经 Core Planner 判断是否执行。Core 的最终结果仍经同一个 Persona Expression 输出。群聊连续对话 owner 由 `PersonalRuntimeManager` 按群级 audience 统一仲裁，不随 Persona 切换产生多个 owner；只有通过唤醒命令、`@Bot` 或回复 Bot 明确触发对话的用户可以取得 owner。Bot 成功回复后的前 `personal_runtime_direct_continuation_seconds` 秒仅该用户可直接续接，此后到总窗口结束仍只接受该用户，但开放 `silent`。其他群成员不会继承窗口，没有显式触发 Bot 的 Handler-only turn 也不会建立或清空 owner。
+普通、明确面向 Bot 的消息与未被 Handler 接管的有界群聊候选，会并行启动 Personal Expression 和独立 Core Router。Personal 只选择 `reply` 或在允许场景下选择 `silent`；Router 独立决定是否进入 Core，Core Planner 在路由后整理执行任务。Core 的最终结果仍经同一个 Persona Expression 输出。群聊连续对话 owner 由 `PersonalRuntimeManager` 按群级 audience 统一仲裁，不随 Persona 切换产生多个 owner；只有通过唤醒命令、`@Bot` 或回复 Bot 明确触发对话的用户可以取得 owner。Bot 成功回复后的前 `personal_runtime_direct_continuation_seconds` 秒仅该用户可直接续接，此后到总窗口结束仍只接受该用户，但开放 `silent`。其他群成员不会继承窗口，没有显式触发 Bot 的 Handler-only turn 也不会建立或清空 owner。
 
 ## 当前稳定边界
 
-- Prompt 统一按 `Collector -> ContextPack -> target projection -> render profile -> Provider Renderer` 工作；Interaction 先形成 canonical base facts，再后台预取 Persona/Core 共用的 plugin enrichment。Persona 只消费已就绪结果，Personal Response Plan 与 Planner 不等待普通插件扩展，Core 等待并复用同一 task。
+- Prompt 统一按 `Collector -> ContextPack -> target projection -> render profile -> Provider Renderer` 工作；Interaction 先形成 canonical base facts，再后台预取 Persona/Core 共用的 plugin enrichment。Persona 只消费已就绪结果；Personal 与独立 Router 并行运行，Core 等待 Router 结果后使用执行材料。
 - Core 执行前形成 `CoreExecutionSpec`，把任务、上下文、执行历史和能力快照与 Native `ProviderRequest` 分开；进程内 `CoreExecutionHead` 与生命周期记录执行事实。当前已注册 Native 与 Codex CLI factory，定义 `ExecutorRun`，并为外部执行器建立运行协调与结果桥。Native 可见输出仍走原有路径，外部执行器的流式输出与资产投递尚未接入，不能表述为所有执行器已共用完全相同的输出链。
-- Personal Runtime 在 Plugin Handler body 执行前取得 session lease，并通过 `TurnExecutionScope` 持有 Personal Response Plan、Persona、Context Material 和流式观察任务；即时表达、Core 最终结果和插件最终输出共享 turn 级仲裁。默认兼容路径仍先保留 Handler 接管机会；默认关闭的并行插件路径会在 discovery 后从同一 `t0` 启动 Personal Response Plan 和 Plugin Job。
-  reservation 同时启动一个 `TurnDeadlineBudget`；binding、queue、Personal Response Plan、Planner、Persona、
+- Personal Runtime 在 Plugin Handler body 执行前取得 session lease，并通过 `TurnExecutionScope` 持有 Personal、Core Router、Context Material 和流式观察任务；即时表达、Core 最终结果和插件最终输出共享 turn 级仲裁。默认兼容路径仍先保留 Handler 接管机会；默认关闭的并行插件路径会在 discovery 后从同一 `t0` 启动 Personal、Router 和 Plugin Job。
+  reservation 同时启动一个 `TurnDeadlineBudget`；binding、queue、Personal、Core Router、Planner、Persona、
   Core、Provider fallback 与工具循环共享默认 120 秒的单调递减总预算。
 - `PersonalSessionRuntime` 现在按 RuntimeKey 在进程内跨 turn 保留控制状态；空闲实例受 24 小时 TTL 和 1024 条 LRU 上限约束。窄化的 Personal State Repository 只持久化最近表达、冷却、静音和每日用量，重启后按同一 RuntimeKey 恢复；Inbox、active turn、attention 和模型临时状态仍只存在于进程内。每个 Runtime 还持有最多 64 条 Observation 的有界 Inbox、唯一固定聚合窗口 task、确定性 Gate 和最后一次 Personal Policy 结果。Turn 结束时根据真实物理投递回执形成 Completion Feedback；所有已送达可见回复都会推进最近表达时间并启动自主表达冷却，只有携带 `ActionIntent.action_id` 的已送达输出才消耗每日主动输出配额，失败发送两者都不更新。
 - 通用 Runtime Observation 通过 `submit_observation()` 合并为只读 `ObservationBatch`，再由 Gate 生成 `evaluate / hold / reject` 及稳定原因码。`evaluate` 仅在显式启用时调用独立 Personal Policy Provider，并以严格 tool-call 契约形成 decision；Provider、超时或解析失败统一记录为 fail-closed `observe`。`express` 先形成内部 `ActionIntent`，再通过独立的 `RuntimeObservationEvent` 兼容路径复用 Persona Expression、Output Controller 与 assistant-only 历史；Policy 对无新事实且近期已表达的同一意图不得再次 `express`，自主 Persona 生成还会在 effect、TTS 和投递前与上一条真实送达表达做规范化指纹比较，重复时以 `suppressed` 结束且不写 Conversation、冷却或主动配额。`defer`、冷却和 quiet-hours 的 held batch 由生命周期托管的 Wake Scheduler 到期后重新评估；Heartbeat 在没有更早 wake deadline 时也会请求 retained batch 重评。它不创造材料，也不唤醒空 Inbox；Conversation 或 Memory 历史只提供语义上下文，从不单独授予 Policy 唤醒权限。普通 Intake 不直接进入 Persona、Core 或 Output；Policy 不调用 Core 或工具。

@@ -103,8 +103,9 @@ flowchart LR
         BYPASS{"Live Mode 或已注册协议命令?"}
         PROTOCOL["Protocol Core Bypass<br/>标记 delegate_to_core，不创建普通对话计划"]
         CTX["Turn-local Context Material single-flight<br/>PromptContextBuilder 构建规范 ContextPack"]
-        PERSONAL["Personal Response Plan<br/>Persona Projection → 结构化 persona_expression<br/>普通轮必须输出 reply / delegate；允许静默的群聊候选可输出 silent"]
-        ROUTE{"Personal turn_action<br/>reply / delegate / silent"}
+        PERSONAL["Personal Expression<br/>Persona Projection → 结构化 persona_expression<br/>按场景输出 reply / silent"]
+        ROUTER["Core Router<br/>CORE_ROUTER Projection<br/>与 Personal 并行判断是否进入 Core"]
+        ROUTE{"Core route decision<br/>personal_only / route_to_core"}
         PERSONA_ONLY["等待 Persona<br/>完成 visible turn + Finalized Material<br/>停止事件"]
         PLANNER["Core Planner<br/>仅整理已委派任务的 CoreTaskSpec"]
         PLAN{"execute（已委派任务必须可执行）"}
@@ -122,11 +123,12 @@ flowchart LR
         ROUTEABLE -->|"是"| IMAT --> BYPASS
         BYPASS -->|"是"| PROTOCOL --> AGENT_ENTRY
         BYPASS -->|"否"| CTX
-        CTX --> PERSONAL --> ROUTE
-        ROUTE -->|"reply"| PSTATE
-        ROUTE -->|"delegate"| PSTATE
-        ROUTE -->|"delegate"| PLANNER
-        ROUTE -->|"silent（仅允许的群聊候选）"| PSUP --> PERSONA_ONLY
+        CTX --> PERSONAL
+        CTX --> ROUTER --> ROUTE
+        PERSONAL -->|"reply"| PSTATE
+        PERSONAL -->|"silent（仅允许的群聊候选）"| PSUP
+        ROUTE -->|"personal_only"| PERSONA_ONLY
+        ROUTE -->|"route_to_core"| PLANNER
         PSTATE -->|"允许提交"| PIMM
         PSTATE -->|"被 Core-final 抢先"| PSUP
 
@@ -134,8 +136,8 @@ flowchart LR
         TASK -. "已委派 turn 继续由 scope 持有" .-> TURN_SCOPE
         PLANNER -->|"失败且即时确认未成功发出"| IFAIL
         PLANNER -->|"失败但即时确认已发出"| PERSONA_ONLY
-        PIMM -. "reply" .-> PERSONA_ONLY
-        PIMM -. "delegate" .-> TURN_SCOPE
+        PIMM -. "personal_only" .-> PERSONA_ONLY
+        PIMM -. "route_to_core" .-> TURN_SCOPE
     end
 
     subgraph AGENT["五、Core Agent 执行"]

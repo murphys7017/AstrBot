@@ -50,8 +50,9 @@ def test_core_planner_prompt_has_no_prior_decision_surface():
 
     assert "hybrid" not in prompt
     assert "silent" not in prompt
-    assert "Router" not in prompt
-    assert "上游路由" not in prompt
+    assert "Router" in prompt
+    assert "不要重新做路由判断" in prompt
+    assert "Personal 的统一结构化回复计划" not in prompt
     assert "插件目录" not in prompt
     assert "web_research" in prompt
 

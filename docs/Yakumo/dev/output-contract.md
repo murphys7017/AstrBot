@@ -135,15 +135,15 @@ Persona 的候选。普通业务 FunctionTool 仍按 MiniMax 原生 `auto` 工�
 
 Gemini、VolcEngine Ark 等 provider 当前没有 provider-specific renderer。strict contract 到达这些 provider 时，应按场景策略显式失败或受控降级。
 
-## Interaction Personal Response Plan
+## Core Router and Personal Response
 
-普通 Interaction 不再有独立 Fast Router。Persona 默认以 JSON 文本 + Prompt-only 约束表达自然语言和本轮动作选择，解析结果经 Canonical Schema 校验；用户可显式选择 JSON 原生约束、XML、Markdown 或严格 `persona_expression` Tool Call。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立的 `persona_effect_batch` Tool Call 承载 effect。
+普通 Interaction 由独立 Core Router 判断是否进入 Core；Router 与 Personal 表达并行，Core 等待路由结果。Router 使用独立、限额的 `CORE_ROUTER` PromptTarget，不接收 Persona 提示或人格记忆。Persona 默认以 JSON 文本 + Prompt-only 约束表达自然语言和 Personal 回复选择，解析结果经 Canonical Schema 校验；用户可显式选择 JSON 原生约束、XML、Markdown 或严格 `persona_expression` Tool Call。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立的 `persona_effect_batch` Tool Call 承载 effect。
 
 运行规则：
 
-- `turn_action=reply`：Personal 直接完成本轮可见回复。
-- `turn_action=delegate`：`segments[].speech` 只能是简短处理中确认，随后由 Core Planner 为已委派任务生成 `execute + CoreTaskSpec`。
+- `turn_action=reply`：Personal 发出本轮可见回复；它不决定是否进入 Core。
 - `turn_action=silent`：仅允许合格的群聊候选，且表达的 `segments` 必须为空；如果启用了 effect 通道，其 `effect_calls` 也必须为空。
+- Core Router 选择进入 Core 后，Core Planner 生成 `execute + CoreTaskSpec`；Persona payload 不包含路由决定或任务规格。
 - 无适用 effect 时不提供 `persona_effect_batch`；Core 聚合的结果仍包含空 `effect_calls` 数组。
 - 适用 effect 时，同一响应必须恰好返回一次 `persona_effect_batch`；正常生成不单独请求 effect，已解析的必发 effect 校验失败时沿用现有 effect batch 校正请求。
 - 结构化输出不携带 Planner 推理、Core task spec 或用户不可见的控制理由。
@@ -158,15 +158,14 @@ persona visible-reply 是当前主要高约束消费者。
 - `expression_output_mode="prompt_only"`
 - Provider 返回的表达文本必须解析并通过 Canonical Schema 校验；普通自由文本不算成功
 - 严格表达 `tool_call` 是可显式选择的配置，不是默认值
-- `persona_expression` Schema 固定为 `turn_action`、`segments`；每个 `segments` 元素包含 `speech`、`actions`、`thought` 和 `tendency`
+- `persona_expression` Schema 固定为 `turn_action`、`segments`；每个 `segments` 元素包含 `speech`、`actions` 和 `tendency`
 - 有适用 effect 时，独立 `persona_effect_batch` Schema 只包含 `effect_calls`；两路结果在同一响应后聚合
 
 字段含义：
 
-- `turn_action` 是单值字符串，Schema 按调用场景限制枚举：普通表达为 `reply`；需要 Core 时为 `reply | delegate`；允许静默的群聊候选为 `reply | delegate | silent`。
+- `turn_action` 是 Personal 回复选择，普通表达为 `reply`；允许静默的群聊候选还可选择 `silent`。是否进入 Core 由独立 Router 判断。
 - `segments[].speech` 按顺序拼接为文本平台使用的整合文本；TTS 消费保留每个分段并按顺序逐段合成。
 - `segments[].actions` 是简单动作意图数组，由后续动作模型解释，不带参数。Schema 只校验数组元素为非空字符串；简单动作词、不带参数的限制由 Persona Prompt 表达。
-- `segments[].thought` 是角色的简短心理想法，不是完整推理链，不进入用户文本、TTS 或普通对话历史。
 - `segments[].tendency` 表示角色当前的 Plutchik 八维情绪强度：`Joy`、`Trust`、`Fear`、`Surprise`、`Sadness`、`Disgust`、`Anger`、`Anticipation`；规范化后每项为 `0..10` 整数。模型应直接输出该范围；Core 对整数越界值执行边界裁剪，负数按 `0`、大于 `10` 按 `10` 处理，其他结构或类型错误仍拒绝。该字段由 AstrBot Core 拥有并校验，插件通过只读 `InteractionResultView` 读取；NeuroBrain 等外部状态引擎应在宿主适配层转换它，不反向修改该字段。
 - `effect_calls` 保持现有插件 effect 执行协议，与 `actions` 分开。
 - Core 不再接受 `spoken_reply` 或 `speech_cues`；TTS 标签注入与清理留待后续适配器阶段。

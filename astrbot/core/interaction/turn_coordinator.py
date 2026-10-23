@@ -229,6 +229,7 @@ class InteractionTurnCoordinator:
             else 0.0
         )
         deadline = t0 + effective_window_seconds
+        router_task = turn_state.core_router_task
         personal_task = turn_state.execution_scope.create_task(
             run_turn_task("personal", personal_factory),
             role="speculative_persona",
@@ -275,9 +276,14 @@ class InteractionTurnCoordinator:
                 )
         except BaseException:
             personal_task.cancel()
+            if router_task is not None:
+                router_task.cancel()
             provider_bridge.close()
+            pending_tasks = [personal_task]
+            if router_task is not None:
+                pending_tasks.append(router_task)
             await asyncio.gather(
-                personal_task,
+                *pending_tasks,
                 return_exceptions=True,
             )
             if module_lease is not None and not module_lease.released:
@@ -432,21 +438,33 @@ class InteractionTurnCoordinator:
         loop = asyncio.get_running_loop()
         turn_state = ensure_interaction_turn_state(turn.event)
         personal_completed_at: float | None = None
+        router_task = turn_state.core_router_task
         gate_task = turn.plugin_watcher_task
         if gate_task is None:
-            await turn.personal_task
+            if router_task is not None:
+                await router_task
+            else:
+                await turn.personal_task
             route = turn_state.route_decision
-            personal_completed_at = turn.task_completed_at.get("personal", loop.time())
+            personal_completed_at = turn.task_completed_at.get("personal")
+            router_completed_at = (
+                turn_state.core_router_completed_monotonic or loop.time()
+            )
             return InteractionControlResolution(
                 route=route,
                 plugin_gate=PluginGateResolution.PASSED,
                 personal_completed_monotonic=personal_completed_at,
                 plugin_resolved_monotonic=turn.t0_monotonic,
-                core_gate_monotonic=personal_completed_at,
+                core_gate_monotonic=router_completed_at,
             )
 
+        wait_tasks = {gate_task}
+        if router_task is not None:
+            wait_tasks.add(router_task)
+        else:
+            wait_tasks.add(turn.personal_task)
         done, _ = await asyncio.wait(
-            {turn.personal_task, gate_task},
+            wait_tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
         route: Any | None = None
@@ -463,6 +481,7 @@ class InteractionTurnCoordinator:
                 PluginGateResolution.STOPPED,
                 PluginGateResolution.DELEGATED,
             }:
+                turn_state.execution_scope.cancel("core_router")
                 await suppress_interaction_turn_pending_persona(
                     turn.event,
                     turn.personal_task,
@@ -475,10 +494,11 @@ class InteractionTurnCoordinator:
                     core_gate_monotonic=plugin_resolved_at,
                 )
 
-        if turn.personal_task in done:
-            await turn.personal_task
+        route_task = router_task or turn.personal_task
+        if route_task in done:
+            await route_task
             route = turn_state.route_decision
-            personal_completed_at = turn.task_completed_at.get("personal", loop.time())
+            personal_completed_at = turn.task_completed_at.get("personal")
 
         plugin_gate = await gate_task
         plugin_resolved_at = (
@@ -492,6 +512,7 @@ class InteractionTurnCoordinator:
             PluginGateResolution.STOPPED,
             PluginGateResolution.DELEGATED,
         }:
+            turn_state.execution_scope.cancel("core_router")
             await suppress_interaction_turn_pending_persona(
                 turn.event,
                 turn.personal_task,
@@ -505,10 +526,13 @@ class InteractionTurnCoordinator:
             )
 
         if route is None:
-            await turn.personal_task
+            await route_task
             route = turn_state.route_decision
-            personal_completed_at = turn.task_completed_at.get("personal", loop.time())
-        core_gate_at = max(personal_completed_at, plugin_resolved_at)
+            personal_completed_at = turn.task_completed_at.get("personal")
+        router_completed_at = (
+            turn_state.core_router_completed_monotonic or loop.time()
+        )
+        core_gate_at = max(router_completed_at, plugin_resolved_at)
         return InteractionControlResolution(
             route=route,
             plugin_gate=plugin_gate,

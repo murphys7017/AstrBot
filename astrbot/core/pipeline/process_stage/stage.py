@@ -400,7 +400,14 @@ class ProcessStage(Stage):
             t1_settled.set()
             raise
         try:
-            control = await coordinator.resolve_control(turn)
+            try:
+                control = await coordinator.resolve_control(turn)
+            except TurnDeadlineExceeded:
+                await middleware.complete_persona_after_control_timeout(
+                    event,
+                    turn.personal_task,
+                )
+                raise
             event.set_extra(
                 "_interaction_plugin_gate_resolution",
                 control.plugin_gate.value,

@@ -1640,18 +1640,18 @@
       }
     },
     "planner": {
-      "description": "Core Planner",
-      "hint": "仅在 Personal 委派 Core 后，把当前任务整理为 CoreTaskSpec；不再重新判断是否进入执行层。",
+      "description": "Core Router 与 Planner",
+      "hint": "独立 Router 判断当前请求是否进入 Core；Planner 只为已路由请求生成 CoreTaskSpec。Personal 不决定路由。",
       "interaction_middleware": {
         "planner_provider_id": {
-          "description": "规划模型提供商",
-          "hint": "留空时使用 Persona 表达模型。"
+          "description": "Core 路由与规划模型提供商",
+          "hint": "Router 与 Planner 共用此模型；留空时使用 Persona 表达模型。"
         },
         "planner_temperature": {
-          "description": "规划温度"
+          "description": "Core 路由与规划温度"
         },
         "planner_timeout": {
-          "description": "规划超时秒数"
+          "description": "Core 路由与规划超时秒数"
         }
       }
     },

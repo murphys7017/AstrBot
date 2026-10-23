@@ -101,7 +101,7 @@ def persona_template():
             {
                 "speech": "你好",
                 "actions": ["wave"],
-                "thought": "很高兴见到你",
+                "note": "很高兴见到你",
                 "tendency": {
                     "Joy": 8,
                     "Trust": 0,
@@ -120,12 +120,12 @@ def persona_template():
 def test_json_output_validator_checks_json_and_template_shape(persona_template):
     valid_output = json.dumps(
         {
-            "turn_action": "delegate",
+            "turn_action": "reply",
             "segments": [
                 {
                     "speech": "真是个好消息！",
                     "actions": ["smile", "wave"],
-                    "thought": "这让我很开心",
+                    "note": "这让我很开心",
                     "tendency": {
                         "Joy": 10,
                         "Trust": 0,
@@ -237,8 +237,8 @@ def test_markdown_requires_one_exact_block(persona_template):
         (
             parse_xml_output,
             "<output><segments><segment><speech>首行\n# heading\n</speech>"
-            "<thought/><actions><action>nod</action></actions></segment>"
-            "<segment><speech/><thought>文本 &amp; 标签</thought><actions/>"
+            "<note/><actions><action>nod</action></actions></segment>"
+            "<segment><speech/><note>文本 &amp; 标签</note><actions/>"
             "</segment></segments><effect_calls><effect_call><name>deliver</name>"
             "<arguments><enabled>true</enabled><value>1.5</value></arguments>"
             "</effect_call></effect_calls><optional><item/></optional></output>",
@@ -246,8 +246,8 @@ def test_markdown_requires_one_exact_block(persona_template):
         (
             parse_markdown_output,
             "# output\n## segments\n### segment\n#### speech\n> 首行\n"
-            "> # heading\n> \n#### thought\n> \n#### actions\n##### action\n"
-            "> nod\n### segment\n#### speech\n> \n#### thought\n> 文本 & 标签\n"
+            "> # heading\n> \n#### note\n> \n#### actions\n##### action\n"
+            "> nod\n### segment\n#### speech\n> \n#### note\n> 文本 & 标签\n"
             "#### actions\n## effect_calls\n### effect_call\n#### name\n> deliver\n"
             "#### arguments\n##### enabled\ntrue\n##### value\n1.5\n"
             "## optional\n### item\nnull\n",
@@ -256,14 +256,14 @@ def test_markdown_requires_one_exact_block(persona_template):
 )
 def test_semantic_formats_restore_text_arrays_and_effect_arguments(parser, output):
     template = {
-        "segments": [{"speech": "", "thought": "", "actions": ["nod"]}],
+        "segments": [{"speech": "", "note": "", "actions": ["nod"]}],
         "effect_calls": [{"name": "", "arguments": {"enabled": True, "value": 0.0}}],
         "optional": [None],
     }
     assert parser(output, template) == {
         "segments": [
-            {"speech": "首行\n# heading\n", "thought": "", "actions": ["nod"]},
-            {"speech": "", "thought": "文本 & 标签", "actions": []},
+            {"speech": "首行\n# heading\n", "note": "", "actions": ["nod"]},
+            {"speech": "", "note": "文本 & 标签", "actions": []},
         ],
         "effect_calls": [
             {"name": "deliver", "arguments": {"enabled": True, "value": 1.5}}

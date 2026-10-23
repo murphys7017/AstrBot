@@ -1884,7 +1884,6 @@ async def test_terminal_tool_finishes_without_executing_it():
                             {
                                 "speech": "done",
                                 "actions": [],
-                                "thought": "",
                                 "tendency": {
                                     "Joy": 0,
                                     "Trust": 0,
