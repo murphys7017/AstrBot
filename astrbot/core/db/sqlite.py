@@ -3,7 +3,7 @@ import typing as T
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import CursorResult, Row, literal
+from sqlalchemy import CursorResult, Row, Text, cast, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, delete, desc, func, or_, select, text, update
 
@@ -388,6 +388,7 @@ class SQLiteDatabase(BaseDatabase):
             session: AsyncSession
             # Build the base query with filters
             base_query = select(ConversationV2)
+            content_text = cast(ConversationV2.content, Text)
 
             if platform_ids:
                 base_query = base_query.where(
@@ -401,8 +402,8 @@ class SQLiteDatabase(BaseDatabase):
                 base_query = base_query.where(
                     or_(
                         col(ConversationV2.title).ilike(f"%{search_query}%"),
-                        col(ConversationV2.content).ilike(f"%{search_query}%"),
-                        col(ConversationV2.content).ilike(
+                        content_text.ilike(f"%{search_query}%"),
+                        content_text.ilike(
                             f"%{escaped_search_query}%"
                         ),
                         col(ConversationV2.user_id).ilike(f"%{search_query}%"),
@@ -615,13 +616,12 @@ class SQLiteDatabase(BaseDatabase):
         async with self.get_db() as session:
             session: AsyncSession
             offset = (page - 1) * page_size
+            conversation_id = col(Preference.value)["val"].as_string()
 
             base_query = (
                 select(
                     col(Preference.scope_id).label("session_id"),
-                    func.json_extract(Preference.value, "$.val").label(
-                        "conversation_id",
-                    ),  # type: ignore
+                    conversation_id.label("conversation_id"),
                     col(ConversationV2.persona_id).label("persona_id"),
                     col(ConversationV2.title).label("title"),
                     col(Persona.persona_id).label("persona_name"),
@@ -629,8 +629,7 @@ class SQLiteDatabase(BaseDatabase):
                 .select_from(Preference)
                 .outerjoin(
                     ConversationV2,
-                    func.json_extract(Preference.value, "$.val")
-                    == ConversationV2.conversation_id,
+                    conversation_id == ConversationV2.conversation_id,
                 )
                 .outerjoin(
                     Persona,
@@ -671,8 +670,7 @@ class SQLiteDatabase(BaseDatabase):
                 .select_from(Preference)
                 .outerjoin(
                     ConversationV2,
-                    func.json_extract(Preference.value, "$.val")
-                    == ConversationV2.conversation_id,
+                    conversation_id == ConversationV2.conversation_id,
                 )
                 .outerjoin(
                     Persona,
