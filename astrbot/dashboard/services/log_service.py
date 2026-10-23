@@ -55,6 +55,8 @@ class LogService(DashboardService):
                         yield event
 
                 queue = self.log_broker.register()
+                # Flush response headers through middleware before waiting for logs.
+                yield ": connected\n\n"
                 while True:
                     message = await queue.get()
                     current_ts = message.get("time", time.time())
