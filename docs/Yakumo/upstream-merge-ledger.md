@@ -7,13 +7,13 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-10-01
+Last updated: 2026-10-23
 
 Last recorded comparison baseline:
 
-- Local side at review start: `master` at `1429bcef9`; this AG99 fork is reviewed by behavior, not as an official upstream baseline.
+- Local side at review start: `master` at `0aea3b8a7`; this AG99 fork is reviewed by behavior, not as an official upstream baseline.
 - Upstream remote: `upstream` (`https://github.com/AstrBotDevs/AstrBot`)
-- Last local upstream snapshot checked: `upstream/master` at `9d4f523464644554e0e8e50fa2a65f146e320cd1` (2026-10-01), refreshed from the remote for this review.
+- Last local upstream snapshot checked: `0cd42bd4dd216d8810da4e3f5fb2e381d3c6817e` (2026-10-22), inspected from a temporary remote checkout because the local Git metadata is read-only.
 - Reference snapshot status: local history was checked against this SHA; only topic-relevant updates were considered, not the full divergent upstream history.
 - Git-only divergence is not tracked as a decision signal for this fork; topic and behavioral
   review remain the source of truth.
@@ -65,6 +65,37 @@ Current local reference-intake commits:
 - `f35f9a7c9` Enforce future-task creator ownership.
 - `be5bd430f` Preserve literal escape sequences in file edits.
 - `7bba141a8` Preserve legacy SQLite datetime storage.
+- `91c7efceb` Keep Gemini tool enum schemas valid for non-string values.
+- `3611d9c6a` Use portable JSON expressions for conversation and session queries.
+- `7b66e9b87` Preserve Provider/API/MCP persistent data in backups.
+- `6cfb37c4d` Include scheduled tasks in backups.
+- `52a7c7ce1` Flush dashboard log SSE headers before waiting for events.
+
+## 2026-10-23 v4.29.1 follow-up
+
+Reviewed upstream range: `9fa49087b..0cd42bd4`.
+
+Absorbed by local rewrite:
+
+- `1b10813c7`: Gemini tool schemas keep numeric and boolean types while moving allowed values into descriptions; string enums remain native and nullable values are represented explicitly.
+- `361505d38`: JSON columns are cast before substring searches and session-selection JSON uses SQLAlchemy expressions instead of SQLite-only extraction calls.
+- `5701a1d5` / `dfc434f8`: backups include Provider statistics, OpenAPI keys, MCP configuration, and persistent Cron definitions.
+- `0cd42bd4`: dashboard log SSE sends an initial comment frame so middleware flushes response headers before the connection waits for a log.
+- `8a7e6f37`: dependency floors for certifi and pip are refreshed to the upstream security-maintenance levels.
+
+Deferred after review:
+
+- Dashboard default-model selection (`d6a67da`) depends on the upstream ProviderSelectMenu and session-selection architecture; this fork has a different model menu and will need a behavior-level rewrite.
+- Configuration hint/hidden-option metadata (`f2404c19`) is useful for the panel, but the AG99 config wrapper and schema grouping have local changes in progress; applying it wholesale would overwrite those decisions.
+- Diagnostic export (`f52fe19`, `5881367`) and multilingual installer changes (`5d36ad2`) are larger operational features and remain candidates for a dedicated pass.
+- Dependency automation, issue-template, and documentation-only commits were not runtime feature candidates.
+
+Validation for this follow-up:
+
+- Gemini schema tests: 4 passed.
+- Backup tests: 9 passed, including the scheduled-task table in exported data.
+- SQLite module compilation and dashboard log-service compilation passed.
+- Conversation query tests were attempted but collection was blocked by the Windows sandbox refusing Loguru's multiprocessing pipe (`WinError 5`); no assertion failure was observed.
 
 ## 2026-09-27 conversation exclusion boundary follow-up
 
