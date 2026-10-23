@@ -26,7 +26,7 @@ const { tm } = useModuleI18n('features/console');
           color="primary"
           style="margin-right: 16px;"
         ></v-switch>
-        <v-dialog v-model="pipDialog" width="400">
+        <v-dialog v-model="pipDialog" width="400" attach="#console-wrapper">
           <template v-slot:activator="{ props }">
             <v-btn variant="plain" v-bind="props">{{ tm('pipInstall.button') }}</v-btn>
           </template>
