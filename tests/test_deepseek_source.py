@@ -6,7 +6,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 
 from astrbot.core.agent.tool import FunctionTool, ToolSet
 from astrbot.core.output_contract import OutputContract
-from astrbot.core.prompt.context_types import ContextPack
+from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.render import PromptRenderEngine
 from astrbot.core.provider import supports_strict_tool_call_output_contract
 from astrbot.core.provider.entities import LLMResponse
@@ -51,11 +51,56 @@ def test_deepseek_uses_protocol_tool_call_output_contract():
         )(),
     )
 
-    assert result.metadata["renderer_name"] == "openai"
+    assert result.metadata["renderer_name"] == "deepseek"
     assert result.compiled_output_contract is not None
     assert result.compiled_output_contract.strategy == "protocol_tool_call"
     assert result.compiled_output_contract.tool_name == "persona_expression"
     assert result.compiled_output_contract.degraded is False
+
+
+def test_deepseek_places_runtime_facts_after_history_in_a_context_message():
+    pack = ContextPack(
+        slots={
+            "system.base": ContextSlot(
+                name="system.base",
+                value="Follow the stable system contract.",
+                category="system",
+                source="test",
+            ),
+            "runtime.personal_state": ContextSlot(
+                name="runtime.personal_state",
+                value={"availability_state": "available"},
+                category="runtime",
+                source="test",
+            ),
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Current user request",
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    result = PromptRenderEngine().render(
+        pack,
+        provider_request=type(
+            "RequestStub",
+            (),
+            {"provider_type": "deepseek_chat_completion"},
+        )(),
+    )
+
+    assert result.metadata["renderer_name"] == "deepseek"
+    assert result.system_prompt is not None
+    assert "Follow the stable system contract." in result.system_prompt
+    assert "<runtime>" not in result.system_prompt
+    assert [message["role"] for message in result.messages] == ["user", "user"]
+    runtime_message, user_message = result.messages
+    assert runtime_message["_no_save"] is True
+    assert "<runtime>" in runtime_message["content"]
+    assert "available" in runtime_message["content"]
+    assert user_message["content"] == "Current user request"
 
 
 def test_deepseek_thinking_mode_rejects_strict_tool_call_contract():

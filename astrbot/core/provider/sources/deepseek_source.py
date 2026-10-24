@@ -347,7 +347,7 @@ def _normalize_deepseek_strict_schema(schema: object) -> dict[str, Any]:
 @register_provider_adapter(
     "deepseek_chat_completion",
     "DeepSeek Chat Completion 提供商适配器",
-    prompt_renderer_family="openai",
+    prompt_renderer_family="deepseek",
 )
 class ProviderDeepSeek(ProviderOpenAIOfficial):
     def supports_output_format_test_mode(
@@ -540,6 +540,84 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             if isinstance(message, dict) and message.get("role") == "assistant":
                 message.pop("reasoning_content", None)
 
+    @staticmethod
+    def _log_prompt_cache_usage(
+        completion: ChatCompletion,
+        *,
+        model: str | None,
+        stream: bool,
+        user_id_configured: bool = False,
+    ) -> None:
+        usage = getattr(completion, "usage", None)
+        completion_id = getattr(completion, "id", None)
+        model = model or getattr(completion, "model", None)
+        if usage is None:
+            logger.info(
+                "DeepSeek prompt cache usage unavailable: model=%s completion_id=%s mode=%s "
+                "user_id_configured=%s",
+                model,
+                completion_id,
+                "stream" if stream else "non_stream",
+                user_id_configured,
+            )
+            return
+
+        def usage_value(source: Any, key: str) -> Any:
+            if isinstance(source, dict):
+                return source.get(key)
+            return getattr(source, key, None)
+
+        prompt_value = usage_value(usage, "prompt_tokens")
+        details = usage_value(usage, "prompt_tokens_details")
+        cached_value = usage_value(details, "cached_tokens")
+        cache_usage_source = "prompt_tokens_details.cached_tokens"
+        if cached_value is None:
+            cached_value = usage_value(usage, "prompt_cache_hit_tokens")
+            cache_usage_source = (
+                "prompt_cache_hit_tokens"
+                if cached_value is not None
+                else "unreported"
+            )
+
+        prompt_tokens = (
+            prompt_value
+            if isinstance(prompt_value, int) and not isinstance(prompt_value, bool)
+            else None
+        )
+        cached_tokens = (
+            cached_value
+            if isinstance(cached_value, int) and not isinstance(cached_value, bool)
+            else None
+        )
+        miss_value = usage_value(usage, "prompt_cache_miss_tokens")
+        if miss_value is None and prompt_tokens is not None and cached_tokens is not None:
+            miss_value = max(0, prompt_tokens - cached_tokens)
+        cache_miss_tokens = (
+            miss_value
+            if isinstance(miss_value, int) and not isinstance(miss_value, bool)
+            else None
+        )
+        hit_rate = (
+            f"{cached_tokens / prompt_tokens * 100:.1f}%"
+            if prompt_tokens and cached_tokens is not None
+            else "unknown"
+        )
+
+        logger.info(
+            "DeepSeek prompt cache usage: model=%s completion_id=%s mode=%s "
+            "prompt_tokens=%s cache_hit_tokens=%s cache_miss_tokens=%s "
+            "hit_rate=%s cache_usage_source=%s user_id_configured=%s",
+            model,
+            completion_id,
+            "stream" if stream else "non_stream",
+            prompt_tokens if prompt_tokens is not None else "unknown",
+            cached_tokens if cached_tokens is not None else "unknown",
+            cache_miss_tokens if cache_miss_tokens is not None else "unknown",
+            hit_rate,
+            cache_usage_source,
+            user_id_configured,
+        )
+
     async def _query(
         self,
         payloads: dict,
@@ -567,6 +645,15 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             getattr(completion, "id", None),
             len(getattr(completion, "choices", None) or []),
         )
+        self._log_prompt_cache_usage(
+            completion,
+            model=payloads.get("model"),
+            stream=False,
+            user_id_configured=(
+                payloads.get("user_id") is not None
+                or extra_body.get("user_id") is not None
+            ),
+        )
 
         return await self._parse_openai_completion(completion, tools)
 
@@ -585,7 +672,6 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
             stream=True,
             extra_body=extra_body,
             extra_headers=build_conversation_headers(conversation_id),
-            stream_options={"include_usage": True},
         )
 
         llm_response = LLMResponse("assistant", is_chunk=True)
@@ -632,6 +718,15 @@ class ProviderDeepSeek(ProviderOpenAIOfficial):
 
         try:
             final_completion = state.get_final_completion()
+            self._log_prompt_cache_usage(
+                final_completion,
+                model=payloads.get("model"),
+                stream=True,
+                user_id_configured=(
+                    payloads.get("user_id") is not None
+                    or extra_body.get("user_id") is not None
+                ),
+            )
             llm_response = await self._parse_openai_completion(final_completion, tools)
             yield llm_response
         except Exception as e:

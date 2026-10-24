@@ -20,7 +20,13 @@ def register_provider_adapter(
     prompt_renderer_family: PromptRendererFamily = "base",
 ):
     """用于注册平台适配器的带参装饰器"""
-    allowed_renderer_families = {"base", "openai", "anthropic", "minimax"}
+    allowed_renderer_families = {
+        "base",
+        "openai",
+        "anthropic",
+        "minimax",
+        "deepseek",
+    }
     if prompt_renderer_family not in allowed_renderer_families:
         raise ValueError(
             "Invalid prompt_renderer_family "

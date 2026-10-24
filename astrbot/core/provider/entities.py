@@ -45,7 +45,13 @@ class ProviderType(enum.Enum):
     RERANK = "rerank"
 
 
-PromptRendererFamily = Literal["base", "openai", "anthropic", "minimax"]
+PromptRendererFamily = Literal[
+    "base",
+    "openai",
+    "anthropic",
+    "minimax",
+    "deepseek",
+]
 
 
 @dataclass

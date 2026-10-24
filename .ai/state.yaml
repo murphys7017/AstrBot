@@ -3318,3 +3318,33 @@ prompt_view_aware_plugin_extensions_20261023:
     through deploy_adapter.ps1.
   evidence_gap: >-
     No live Provider request or service restart acceptance.
+
+deepseek_prefix_cache_layout_20261024:
+  date: '2026-10-24'
+  class: feature
+  risk: high
+  status: source_validated_pending_live_acceptance
+  decision: >-
+    Keep DeepSeek on the OpenAI-compatible request protocol while selecting a
+    dedicated renderer that serializes volatile context/runtime facts after
+    stable conversation context as a temporary message. Preserve other provider
+    renderer layouts. Omit redundant stream usage options while retaining final
+    usage parsing. Do not set or rewrite user_id; expose only whether it is
+    configured in cache diagnostics because DeepSeek uses it for KVCache
+    privacy isolation.
+  scope: >-
+    Add the DeepSeek renderer family and a renderer boundary test. Keep its
+    context/runtime facts out of system text and append them after other context
+    messages before current user input. Remove stream_options.include_usage from
+    DeepSeek streaming requests. Add a privacy-safe user_id-configured flag to
+    cache usage logs. Do not change tools, token budgets, saved user config,
+    plugin sources or runtime deployments.
+  validation: >-
+    tests/test_deepseek_source.py and tests/unit/test_prompt_tree_renderer.py:
+    73 passed. Ruff passed for all changed Python files. Official DeepSeek docs
+    confirm automatic prefix caching, final-chunk usage reporting, and user_id
+    KVCache isolation. Scoped git diff --check and state YAML parsing passed.
+  evidence_gap: >-
+    No live DeepSeek API call, warm-cache measurement, service restart or runtime
+    deployment. Verify weighted cache-hit tokens after deploying and restarting.
+    NeuroBrain source/deployment synchronization remains separate.

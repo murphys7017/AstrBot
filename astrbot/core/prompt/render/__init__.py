@@ -5,6 +5,7 @@ from astrbot.core.prompt.targets import PromptTarget
 
 from .anthropic_renderer import AnthropicPromptRenderer
 from .base_renderer import BasePromptRenderer
+from .deepseek_renderer import DeepSeekPromptRenderer
 from .engine import PromptRenderEngine
 from .interfaces import PromptRenderProfile, RenderResult, SerializedRenderValue
 from .layout import DefaultPromptLayout, PromptLayoutInterface
@@ -24,6 +25,7 @@ __all__ = [
     "BasePromptRenderer",
     "DefaultPromptLayout",
     "AnthropicPromptRenderer",
+    "DeepSeekPromptRenderer",
     "MiniMaxPromptRenderer",
     "OpenAIPromptRenderer",
     "NodeRef",

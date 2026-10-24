@@ -24,13 +24,20 @@ from ..targets import (
 )
 from .anthropic_renderer import AnthropicPromptRenderer
 from .base_renderer import BasePromptRenderer
+from .deepseek_renderer import DeepSeekPromptRenderer
 from .interfaces import PromptRenderProfile, RenderResult
 from .layout import DefaultPromptLayout, PromptLayoutInterface
 from .minimax_renderer import MiniMaxPromptRenderer
 from .openai_renderer import OpenAIPromptRenderer
 from .tree_builder import PromptTreeBuilder
 
-_PROMPT_RENDERER_FAMILIES = {"base", "openai", "anthropic", "minimax"}
+_PROMPT_RENDERER_FAMILIES = {
+    "base",
+    "openai",
+    "anthropic",
+    "minimax",
+    "deepseek",
+}
 
 
 class PromptRenderEngine:
@@ -210,6 +217,8 @@ class PromptRenderEngine:
             return AnthropicPromptRenderer()
         if renderer_family == "openai":
             return OpenAIPromptRenderer()
+        if renderer_family == "deepseek":
+            return DeepSeekPromptRenderer()
         if renderer_family == "minimax":
             return MiniMaxPromptRenderer(
                 enable_tool_call=self._resolve_minimax_tool_call_enabled(provider)

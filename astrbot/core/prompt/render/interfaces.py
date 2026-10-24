@@ -74,6 +74,9 @@ class SerializedRenderValue:
 class BasePromptRenderer:
     """Base rule provider for prompt rendering."""
 
+    # Provider-specific renderers may place volatile facts after conversation history.
+    runtime_context_as_message = False
+
     ALL_SLOT_GROUPS: tuple[str, ...] = (
         "system",
         "persona",
@@ -1103,7 +1106,11 @@ class BasePromptRenderer:
 
     def _compile_system_prompt(self, prompt_tree: PromptBuilder) -> str | None:
         system_node = self._find_tag_path(prompt_tree, "system")
-        runtime_node = self._find_tag_path(prompt_tree, "context/runtime")
+        runtime_node = (
+            None
+            if self.runtime_context_as_message
+            else self._find_tag_path(prompt_tree, "context/runtime")
+        )
         rendered_system = (
             self._render_system_prompt_text(prompt_tree, system_node)
             if system_node is not None
@@ -1144,13 +1151,17 @@ class BasePromptRenderer:
                 deepcopy(item) for item in explicit_messages if isinstance(item, dict)
             )
 
-        for context_path in (
+        context_paths = (
             "context/extensions",
             "context/pending_execution_continuity",
             "context/group_recent",
             "context/memory",
             "context/knowledge",
-        ):
+        )
+        if self.runtime_context_as_message:
+            context_paths += ("context/runtime",)
+
+        for context_path in context_paths:
             context_message = self._compile_context_message(
                 prompt_tree,
                 context_path,
