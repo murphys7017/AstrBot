@@ -570,13 +570,13 @@ async def _run_prompt_extension_collectors(
             "prompt_extension_context_views",
             (),
         )
-        if not isinstance(declared_context_views, (list, tuple, set, frozenset)):
-            declared_context_views = ()
         if (
             allowed_context_view is not None
             and allowed_mounts is not None
             and "context" in allowed_mounts
-            and allowed_context_view not in declared_context_views
+            and not extension_visible_in_context_view(
+                "context", {"context_views": declared_context_views}, allowed_context_view,
+            )
         ):
             collector_allowed_mounts = allowed_mounts - {"context"}
         static_cache_key = _prompt_extension_cache_key(collector, plugin_id)

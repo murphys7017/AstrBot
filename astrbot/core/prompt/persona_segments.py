@@ -11,6 +11,16 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
+PERSONA_MOTION_FIELDS: tuple[str, ...] = (
+    "core_persona",
+    "expression_habits",
+    "emotional_continuity",
+    "interaction_reactions",
+    "personality_state_machine",
+    "stable_rules",
+    "unparsed_sections",
+)
+
 _SECTION_ALIASES = {
     "身份": "identity",
     "身份与关系": "identity",
@@ -98,6 +108,9 @@ def _empty_persona_segments() -> dict[str, object]:
         "stable_rules": [],
         "unparsed_sections": [],
     }
+
+
+PERSONA_SUMMARY_FIELDS: tuple[str, ...] = tuple(_empty_persona_segments())
 
 
 def _canonicalize_title(value: str) -> str:
@@ -325,14 +338,11 @@ def build_persona_motion_prompt(prompt: str) -> str:
     text instead of inventing a personality or silently disabling reactions.
     """
     segments = parse_legacy_persona_prompt(prompt)
-    if not segments["core_persona"] or segments["unparsed_sections"]:
+    if not segments["core_persona"]:
         return prompt.strip()
     selected = build_persona_prompt_projection({
         key: segments[key]
-        for key in (
-            "core_persona", "expression_habits", "emotional_continuity",
-            "interaction_reactions", "personality_state_machine", "stable_rules",
-        )
+        for key in PERSONA_MOTION_FIELDS
     })
 
     def lines(value: Any):

@@ -84,7 +84,11 @@ class ProviderOpenAIOfficial(Provider):
     _MAX_RECOVERY_ATTEMPTS = 10
 
     def supports_output_contract_strategy(self, strategy: str) -> bool:
-        return strategy in {"prompt_only", "protocol_tool_call"}
+        if strategy in {"prompt_only", "protocol_tool_call"}:
+            return True
+        return strategy == "protocol_native_json" and self.supports_output_format_test_mode(
+            "json", "provider_native_json_schema"
+        )
 
     def supports_output_format_test_mode(
         self, output_format: str, mode: str

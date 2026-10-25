@@ -50,38 +50,46 @@ class PromptContextViewSpec:
         )
 
 
+_PERSONA_BASE_CONTEXT_SLOTS = frozenset(
+    {
+        "system.global",
+        "system.base",
+        "extension.system",
+        "extension.context",
+        "persona.prompt",
+        "persona.segments",
+        "persona.summary",
+        "persona.begin_dialogs",
+        "input.text",
+        "input.quoted_text",
+        "input.visible_reply_material",
+        "conversation.history",
+        "conversation.group_recent",
+        "memory.persona_state",
+        "session.datetime",
+        "session.user_info",
+    }
+)
+
+_PERSONA_MEDIA_CONTEXT_SLOTS = frozenset(
+    {
+        "input.images",
+        "input.image_captions",
+        "input.quoted_images",
+        "input.quoted_image_captions",
+        "input.media_content_parts",
+        "input.explicit_content_parts",
+        "input.attachment_summary",
+    }
+)
+
+
 _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
     PromptContextView.TURN_PLAN: PromptContextViewSpec(
         name=PromptContextView.TURN_PLAN,
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
-        allowed_slot_names=frozenset(
-            {
-                "system.global",
-                "system.base",
-                "extension.system",
-                "extension.context",
-                "persona.prompt",
-                "persona.segments",
-                "persona.summary",
-                "persona.begin_dialogs",
-                "input.text",
-                "input.images",
-                "input.image_captions",
-                "input.quoted_text",
-                "input.quoted_images",
-                "input.quoted_image_captions",
-                "input.media_content_parts",
-                "input.explicit_content_parts",
-                "input.attachment_summary",
-                "input.visible_reply_material",
-                "conversation.history",
-                "conversation.group_recent",
-                "memory.persona_state",
-                "session.datetime",
-                "session.user_info",
-            }
-        ),
+        allowed_slot_names=_PERSONA_BASE_CONTEXT_SLOTS | _PERSONA_MEDIA_CONTEXT_SLOTS,
         # Direct Persona views inherit the configured candidate window from
         # the render profile. Token budgets still bound the selected history.
         history_max_estimated_tokens=3000,
@@ -90,60 +98,16 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         name=PromptContextView.OLV_STREAM,
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
-        allowed_slot_names=frozenset(
-            {
-                "system.global",
-                "system.base",
-                "extension.system",
-                "extension.context",
-                "persona.prompt",
-                "persona.segments",
-                "persona.summary",
-                "persona.begin_dialogs",
-                "input.text",
-                "input.images",
-                "input.image_captions",
-                "input.quoted_text",
-                "input.quoted_images",
-                "input.quoted_image_captions",
-                "input.media_content_parts",
-                "input.explicit_content_parts",
-                "input.attachment_summary",
-                "input.visible_reply_material",
-                "conversation.history",
-                "conversation.group_recent",
-                "memory.persona_state",
-                "session.datetime",
-                "session.user_info",
-            }
-        ),
+        allowed_slot_names=_PERSONA_BASE_CONTEXT_SLOTS | _PERSONA_MEDIA_CONTEXT_SLOTS,
         history_max_estimated_tokens=1800,
     ),
     PromptContextView.FINAL_RESULT: PromptContextViewSpec(
         name=PromptContextView.FINAL_RESULT,
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.CONFIGURED_PERSONA,
-        allowed_slot_names=frozenset(
-            {
-                "system.global",
-                "system.base",
-                "extension.system",
-                "extension.context",
-                "persona.prompt",
-                "persona.segments",
-                "persona.summary",
-                "persona.begin_dialogs",
-                "input.text",
-                "input.quoted_text",
-                "input.visible_reply_material",
-                "conversation.history",
-                "conversation.group_recent",
-                "memory.topic_state",
-                "memory.short_term",
-                "memory.persona_state",
-                "session.datetime",
-                "session.user_info",
-            }
+        allowed_slot_names=(
+            _PERSONA_BASE_CONTEXT_SLOTS
+            | {"memory.topic_state", "memory.short_term"}
         ),
         history_max_estimated_tokens=3000,
         requires_media_context=False,

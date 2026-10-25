@@ -1020,6 +1020,20 @@ def _supports_persona_output_format(
     output_contract: OutputContract | None = None,
     compiled_output_contract: CompiledOutputContract | None = None,
 ) -> bool:
+    if (
+        compiled_output_contract is not None
+        and compiled_output_contract.strategy == "protocol_native_json"
+    ):
+        ensure_contract = getattr(provider, "ensure_output_contract_supported", None)
+        if callable(ensure_contract):
+            try:
+                ensure_contract(
+                    output_contract=output_contract,
+                    compiled_output_contract=compiled_output_contract,
+                    allow_prompt_only_degrade=False,
+                )
+            except (TypeError, ValueError):
+                return False
     if output_format == "tool_call":
         return supports_strict_tool_call_output_contract(
             provider,

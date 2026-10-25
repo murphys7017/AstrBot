@@ -117,17 +117,7 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
         if session_payload is not None:
             state["session"] = session_payload
 
-        for context_path in (
-            "context/history_recall",
-            "context/extensions",
-            "context/pending_execution_continuity",
-            "context/group_recent",
-            "context/memory",
-            "context/knowledge",
-            "context/core_execution_history",
-            "context/core_execution",
-            "context/runtime",
-        ):
+        for context_path in self.CONTEXT_MESSAGE_PATHS:
             context_node = self._find_tag_path(prompt_tree, context_path)
             context_payload = (
                 self._node_to_json_value(prompt_tree, context_node)

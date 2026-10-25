@@ -204,6 +204,9 @@ def test_motion_persona_projection_accepts_plain_text_and_formatted_headings():
 
 
 def test_native_json_contract_omits_prompt_schema_but_prompt_only_keeps_it():
+    from astrbot.core.provider.sources.deepseek_source import ProviderDeepSeek
+    from astrbot.core.provider.sources.openai_source import ProviderOpenAIOfficial
+
     contract = OutputContract(
         mode="json_object", strict=True,
         schema={"type": "object", "properties": {"answer": {"type": "string"}}},
@@ -224,3 +227,18 @@ def test_native_json_contract_omits_prompt_schema_but_prompt_only_keeps_it():
     assert "输出必须符合以下 JSON 结构" not in native.system_prompt
     assert "输出必须符合以下 JSON 结构" in prompted.system_prompt
     assert native.output_contract.schema == contract.schema
+
+    provider = ProviderOpenAIOfficial.__new__(ProviderOpenAIOfficial)
+    provider.provider_config = {"type": "openai_chat_completion"}
+    assert provider.ensure_output_contract_supported(
+        output_contract=native.output_contract,
+        compiled_output_contract=native.compiled_output_contract,
+    ) is native.compiled_output_contract
+
+    unsupported = ProviderDeepSeek.__new__(ProviderDeepSeek)
+    unsupported.provider_config = {"type": "deepseek_chat_completion"}
+    with pytest.raises(ValueError, match="unsupported_output_contract"):
+        unsupported.ensure_output_contract_supported(
+            output_contract=native.output_contract,
+            compiled_output_contract=native.compiled_output_contract,
+        )

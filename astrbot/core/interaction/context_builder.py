@@ -107,6 +107,22 @@ def get_interaction_prompt_source_request(event) -> ProviderRequest | None:
     return source if isinstance(source, ProviderRequest) else None
 
 
+def get_interaction_persona_prompt_projection(
+    event,
+) -> dict[str, Any] | None:
+    """Snapshot the allowed persona projection owned by the active Interaction."""
+
+    turn_state = get_interaction_turn_state(event)
+    material = turn_state.context_material if turn_state is not None else None
+    pack = material.prompt_context_pack if material is not None else None
+    if pack is None:
+        return None
+    slot = pack.get_slot("persona.summary")
+    if slot is None or slot.llm_exposure != "allowed":
+        return None
+    return deepcopy(slot.value) if isinstance(slot.value, dict) else None
+
+
 def _snapshot_provider_request(source: object) -> ProviderRequest | None:
     if not isinstance(source, ProviderRequest):
         return None

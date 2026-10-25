@@ -25,6 +25,7 @@ from astrbot.core.star.context import Context
 
 from ..context_types import ContextPack, ContextSlot
 from ..input_annotations import SUPPORTED_INPUT_ANNOTATION_FIELDS
+from ..persona_segments import PERSONA_SUMMARY_FIELDS
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -75,8 +76,17 @@ class SerializedRenderValue:
 class BasePromptRenderer:
     """Base rule provider for prompt rendering."""
 
-    # Provider-specific renderers may place volatile facts after conversation history.
-    runtime_context_as_message = True
+    CONTEXT_MESSAGE_PATHS: tuple[str, ...] = (
+        "context/history_recall",
+        "context/extensions",
+        "context/pending_execution_continuity",
+        "context/group_recent",
+        "context/memory",
+        "context/knowledge",
+        "context/core_execution_history",
+        "context/core_execution",
+        "context/runtime",
+    )
 
     ALL_SLOT_GROUPS: tuple[str, ...] = (
         "system",
@@ -272,24 +282,7 @@ class BasePromptRenderer:
                     target,
                     "summary",
                     summary_slot,
-                    body_keys=(
-                        "identity",
-                        "core_persona",
-                        "dialogue_style",
-                        "relationship_layer",
-                        "stable_rules",
-                        "expression_habits",
-                        "emotional_continuity",
-                        "tone_examples",
-                        "interaction_reactions",
-                        "progressive_understanding",
-                        "rational_bias",
-                        "memory_hooks",
-                        "personality_drives",
-                        "personality_state_machine",
-                        "interaction_memory",
-                        "unparsed_sections",
-                    ),
+                    body_keys=PERSONA_SUMMARY_FIELDS,
                 ):
                     rendered_slot_names.append("persona.summary")
 
@@ -1128,30 +1121,12 @@ class BasePromptRenderer:
 
     def _compile_system_prompt(self, prompt_tree: PromptBuilder) -> str | None:
         system_node = self._find_tag_path(prompt_tree, "system")
-        runtime_node = (
-            None
-            if self.runtime_context_as_message
-            else self._find_tag_path(prompt_tree, "context/runtime")
-        )
-        rendered_system = (
+        return (
             self._render_system_prompt_text(prompt_tree, system_node)
             if system_node is not None
             and self._system_prompt_has_visible_content(prompt_tree, system_node)
             else None
         )
-        rendered_runtime = (
-            self._render_subtree_text(
-                prompt_tree,
-                runtime_node,
-                include_root=True,
-                escape_text=True,
-            )
-            if runtime_node is not None
-            else None
-        )
-        return "\n".join(
-            value for value in (rendered_system, rendered_runtime) if value
-        ) or None
 
     def _compile_messages(self, prompt_tree: PromptBuilder) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
@@ -1173,20 +1148,7 @@ class BasePromptRenderer:
                 deepcopy(item) for item in explicit_messages if isinstance(item, dict)
             )
 
-        context_paths = (
-            "context/history_recall",
-            "context/extensions",
-            "context/pending_execution_continuity",
-            "context/group_recent",
-            "context/memory",
-            "context/knowledge",
-            "context/core_execution_history",
-            "context/core_execution",
-        )
-        if self.runtime_context_as_message:
-            context_paths += ("context/runtime",)
-
-        for context_path in context_paths:
+        for context_path in self.CONTEXT_MESSAGE_PATHS:
             context_message = self._compile_context_message(
                 prompt_tree,
                 context_path,

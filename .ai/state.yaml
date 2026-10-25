@@ -3430,3 +3430,30 @@ prompt_projection_repairs_20261025:
     no arbitrary model limit or automatic persona truncation was introduced.
     Older recall excerpts no longer change the recent dialogue prefix, but
     sliding the recent window itself can still change that prefix.
+
+prompt_code_cleanup_20261025:
+  date: '2026-10-25'
+  class: refactor
+  risk: high
+  status: source_validated_pending_restart_and_live_acceptance
+  scope: >-
+    Remove confirmed prompt implementation detours without changing persona,
+    motion mixer, segment scheduling, or provider wire contracts. Align native
+    JSON Schema capability checks with provider adapters; centralize persona
+    projection field declarations; reduce duplicated Persona context-view slot
+    lists; expose the Interaction-owned persona projection through Core for
+    AG99live motion generation; retain only the pre-action snapshot identity
+    fields that participate in context-change validation.
+  validation: >-
+    Prompt persona/view/native-schema smoke cases passed (3 cases), OpenAI
+    output-mode cases passed (1 case), Persona expression contract cases passed
+    (7 cases), scoped Ruff passed, and AG99live source AST parsing passed. The
+    focused independent-motion request test passed after updating its Core
+    boundary stub. The source was synchronized through deploy_adapter.ps1; a
+    managed-file SHA-256 comparison found 165 files and zero differences. The
+    broader AG99live suite remains unrun because its Windows temporary-directory
+    environment rejected pytest tempfile creation. No service restart was
+    performed.
+  evidence_gap: >-
+    No live Provider, pre-action, independent-motion, voice, or Live2D
+    acceptance. Restart or reload AstrBot before runtime testing.
