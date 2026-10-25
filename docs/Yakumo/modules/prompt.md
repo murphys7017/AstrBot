@@ -140,9 +140,24 @@ Provider Renderer 只编译已经形成的树：
 - `OpenAIPromptRenderer`
 - `AnthropicPromptRenderer`
 - `MiniMaxPromptRenderer`
+- `DeepSeekPromptRenderer`
 - `BasePromptRenderer`
 
 它负责 system/messages、content blocks、媒体、工具 schema 和 `OutputContract` 的协议策略。Provider metadata 的 `prompt_renderer_family` 只选择序列化家族，不改变目标投影或 Layout。
+
+### 模型可见字段与缓存布局（2026-10-25）
+
+框架追踪信息保留在运行时、数据库和诊断中，进入模型的投影只携带任务语义：
+
+- Core 当前任务不暴露 `platform_id`、`session_id` 和任意 `metadata`。稳定的 Persona/Core 协作指令保留在 system；任务意图、摘要、执行要求和建议能力位于历史之后、当前输入之前的临时 `context/core_execution` 消息。
+- Core 执行历史位于 `context/core_execution_history`，不再随任务变化改写 system。Ledger 的模型投影省略 execution/task/turn/parent/executor ID 和内部 attempt；保留状态、任务、结果与错误。历史工具证据通过工具名称和参数关联返回值，持久化原始记录及当前工具协议中的调用 ID 不变。
+- Runtime Observation 的模型投影省略 batch/observation/correlation ID，保留来源、时间和业务 payload；不递归删除业务 payload 中的同名字段。过期、取消、Gate 和去重仍使用原始 Observation。
+- Extension 的插件身份仍用于过滤、分组和诊断；序列化统一使用 `extension` 标签，保留标题和内容。Session 请求包装和 MiniMax 的可见 metadata 不再携带会话、用户、群组、conversation ID 或 Python handler 路径。群聊消息内用于区分参与者的业务身份不在本批次删除。
+- Memory 正文继续使用既有字段白名单，关系状态不向模型输出 `persona_id`；MiniMax 不再从 metadata 重新暴露 Memory 的 conversation/UMO。Memory 读取、更新以及原始 debug 数据不变。
+
+AG99live 的配套修改在其源码仓库：Pre-Action 的角色原文和轴能力前置到 system，用户输入及状态留在 user；Independent Motion 的检索示例和最近动作移入当前请求尾部，固定规则与能力保留在 system；Performance Curve 不再接收 turn/message ID。动作仍逐 segment 请求，不合并等待整段回复，不改人格原文、动作语义、历史窗口、混合器或输出契约。
+
+Passive 调度、远程模型护栏和 NeuroBrain 的 `step`/状态结构按用户要求暂缓。以上检查只能证明源码布局和字段边界；实际 DeepSeek 命中率、首包延迟、语音与 Live2D 质量仍需重启后的真实对话验证，不预先承诺命中比例。
 
 ## RenderResult 与 Apply
 

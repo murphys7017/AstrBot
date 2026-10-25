@@ -87,14 +87,18 @@ class CoreExecutionLedger:
 
 def _record_to_prompt_payload(record: CoreExecutionRecord) -> dict[str, Any]:
     return {
-        "execution_id": record.execution_id,
-        "core_task_id": record.core_task_id,
-        "turn_id": record.turn_id,
-        "parent_execution_id": record.parent_execution_id,
-        "attempt": record.attempt,
-        "executor_id": record.executor_id,
         "status": record.status,
-        "task_spec": record.task_spec,
+        "task_spec": {
+            key: record.task_spec[key]
+            for key in (
+                "task_intent",
+                "task_summary",
+                "execution_prompt",
+                "suggested_capabilities",
+                "requires_visual_understanding",
+            )
+            if key in (record.task_spec or {})
+        },
         "tool_evidence": _summarize_execution_messages(record.messages or []),
         "result": _bounded_text(record.result, limit=4000),
         "error": _bounded_text(record.error, limit=2000),
@@ -102,6 +106,17 @@ def _record_to_prompt_payload(record: CoreExecutionRecord) -> dict[str, Any]:
 
 
 def _summarize_execution_messages(messages: list) -> list[dict[str, Any]]:
+    # Resolve identities before trimming history; a result can outlive its call.
+    tool_calls_by_id = {
+        str(call["id"]): _summarize_tool_call(call)
+        for message in messages
+        if isinstance(message, dict)
+        if isinstance(message.get("tool_calls"), list)
+        for call in message["tool_calls"]
+        if isinstance(call, dict)
+        and call.get("id")
+        and isinstance(call.get("function"), dict)
+    }
     evidence: list[dict[str, Any]] = []
     for message in messages[-8:]:
         if not isinstance(message, dict):
@@ -123,8 +138,13 @@ def _summarize_execution_messages(messages: list) -> list[dict[str, Any]]:
                 if isinstance(call, dict)
             ]
         tool_call_id = message.get("tool_call_id")
-        if tool_call_id:
-            item["tool_call_id"] = str(tool_call_id)
+        tool_call = tool_calls_by_id.get(str(tool_call_id))
+        if tool_call is not None:
+            # Include arguments as well: parallel calls to the same tool can
+            # return in any order, so a tool name alone loses result ownership.
+            item.update(tool_call)
+        elif message.get("name"):
+            item["name"] = str(message["name"])
         evidence.append(item)
     return evidence
 
@@ -132,7 +152,7 @@ def _summarize_execution_messages(messages: list) -> list[dict[str, Any]]:
 def _summarize_tool_call(call: dict[str, Any]) -> dict[str, Any]:
     function = call.get("function")
     if not isinstance(function, dict):
-        return {"id": call.get("id"), "type": call.get("type")}
+        return {"type": call.get("type")}
     arguments = function.get("arguments")
     serialized_arguments = (
         arguments
@@ -140,7 +160,6 @@ def _summarize_tool_call(call: dict[str, Any]) -> dict[str, Any]:
         else json.dumps(arguments, ensure_ascii=False, default=str)
     )
     return {
-        "id": call.get("id"),
         "name": function.get("name"),
         "arguments": _bounded_text(serialized_arguments, limit=1000),
     }

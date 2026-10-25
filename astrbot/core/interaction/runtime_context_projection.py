@@ -22,7 +22,6 @@ def project_observation_batch(
     """Return the bounded fact view shared by Policy and Core Planner."""
     observations = batch.observations[-_MAX_OBSERVATIONS:]
     return {
-        "batch_id": batch.batch_id,
         "opened_at": batch.opened_at,
         "closed_at": batch.closed_at,
         "source_counts": project_runtime_value(batch.source_counts),
@@ -41,12 +40,10 @@ def project_observation_batch(
         "truncated": len(observations) != len(batch.observations),
         "observations": [
             {
-                "observation_id": observation.observation_id,
                 "kind": observation.kind,
                 "source": observation.source,
                 "occurred_at": observation.occurred_at,
                 "expires_at": observation.expires_at,
-                "correlation_id": observation.correlation_id,
                 "payload": project_runtime_value(observation.payload),
             }
             for observation in observations

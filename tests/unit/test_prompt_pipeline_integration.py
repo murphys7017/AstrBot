@@ -771,9 +771,10 @@ async def test_collect_and_render_pipeline_includes_prompt_extensions(
 
     assert result.system_prompt is not None
     assert "<extensions>" in result.system_prompt
-    assert "<desktop_sidecar>" in result.system_prompt
-    assert "<plugin_id>" in result.system_prompt
-    assert "desktop.sidecar" in result.system_prompt
+    assert "<extension>" in result.system_prompt
+    assert "<desktop_sidecar>" not in result.system_prompt
+    assert "<plugin_id>" not in result.system_prompt
+    assert "desktop.sidecar" not in result.system_prompt
     assert "<conversation_extensions>" in result.system_prompt
     assert "live desktop assistance" in result.system_prompt
 
@@ -787,7 +788,7 @@ async def test_collect_and_render_pipeline_includes_prompt_extensions(
         if part.get("type") == "text" and "<extensions>" in part.get("text", "")
     ]
     assert extension_text_parts
-    assert "desktop.sidecar" in extension_text_parts[0]
+    assert "desktop.sidecar" not in extension_text_parts[0]
 
 
 def test_prompt_pipeline_replaces_pre_render_request_with_group_context_extension():

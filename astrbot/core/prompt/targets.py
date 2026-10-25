@@ -133,6 +133,8 @@ def project_context_pack(
         budget=budget,
     )
 
+    _remove_prompt_internal_identifiers(projected)
+
     if resolved_target is PromptTarget.PERSONA:
         _remove_persona_diagnostics(projected)
 
@@ -141,6 +143,78 @@ def project_context_pack(
     projected.meta["selected_slot_names"] = sorted(projected.slots)
     projected.meta["slot_count"] = len(projected.slots)
     return projected
+
+
+def _remove_prompt_internal_identifiers(pack: ContextPack) -> None:
+    """Remove framework correlation fields without traversing business payloads."""
+
+    for slot in pack.slots.values():
+        value = slot.value
+        if slot.name == "system.core_execution_context" and isinstance(value, dict):
+            for key in ("metadata", "platform_id", "session_id"):
+                value.pop(key, None)
+        elif slot.name == "conversation.core_execution_history":
+            _sanitize_execution_history_for_prompt(value)
+        elif slot.name == "runtime.observation_batch":
+            _sanitize_observation_batch_for_prompt(value)
+        elif slot.name == "memory.persona_state" and isinstance(value, dict):
+            value.pop("persona_id", None)
+        elif slot.name in {"memory.experiences", "memory.long_term_memories"}:
+            _sanitize_memory_records_for_prompt(value)
+
+
+def _sanitize_execution_history_for_prompt(value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    for record in value.get("records", []):
+        if not isinstance(record, dict):
+            continue
+        for key in (
+            "execution_id",
+            "core_task_id",
+            "turn_id",
+            "parent_execution_id",
+            "executor_id",
+        ):
+            record.pop(key, None)
+        for evidence in record.get("tool_evidence", []):
+            if not isinstance(evidence, dict):
+                continue
+            evidence.pop("tool_call_id", None)
+            for call in evidence.get("tool_calls", []):
+                if isinstance(call, dict):
+                    call.pop("id", None)
+
+
+def _sanitize_observation_batch_for_prompt(value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    value.pop("batch_id", None)
+    for observation in value.get("observations", []):
+        if isinstance(observation, dict):
+            observation.pop("observation_id", None)
+            observation.pop("correlation_id", None)
+
+
+def _sanitize_memory_records_for_prompt(value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    for item in value.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        for key in (
+            "experience_id",
+            "memory_id",
+            "conversation_id",
+            "scope_id",
+            "source_refs",
+            "umo",
+            "event_time",
+            "first_event_at",
+            "last_event_at",
+            "updated_at",
+        ):
+            item.pop(key, None)
 
 
 def _remove_persona_diagnostics(pack: ContextPack) -> None:

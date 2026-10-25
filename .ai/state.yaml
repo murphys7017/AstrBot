@@ -3348,3 +3348,31 @@ deepseek_prefix_cache_layout_20261024:
     No live DeepSeek API call, warm-cache measurement, service restart or runtime
     deployment. Verify weighted cache-hit tokens after deploying and restarting.
     NeuroBrain source/deployment synchronization remains separate.
+
+
+prompt_semantic_boundary_cleanup_20261025:
+  date: '2026-10-25'
+  class: refactor
+  risk: high
+  status: implementation_under_review
+  scope: >-
+    User requested review/commit of the existing AstrBot workspace, then prompt
+    cleanup and stable/dynamic layout improvements. Existing workspace committed
+    as 101ccdc82. New work removes framework correlation IDs at owned prompt
+    projections, preserves business payloads and active tool protocols, moves
+    Core task/evidence out of system, and updates AG99live source prompts for
+    pre-action, independent motion and performance curves.
+  non_goals: >-
+    Preserve personality text, motion semantics, history limits, mixer and
+    per-segment streaming. Defer Passive/NeuroBrain scheduling, remote-provider
+    guards and state/step redesign. No Codex SDK changes, service restart or
+    new-work commit. Never edit the deployed plugin as source.
+  validation: >-
+    Existing-workspace review: changed Python lint and diff checks passed;
+    related batches reported 288 passed and 10 failures. Selected added
+    boundaries passed. The ten failures are not a clean-suite acceptance.
+    New-work lint and scoped boundaries are being checked; update on completion.
+  evidence_gap: >-
+    No live Provider, warm-cache ratio, voice or Live2D acceptance. Source changes
+    require paired runtime reload. Unrelated AG99live untracked design document
+    remains user-owned.

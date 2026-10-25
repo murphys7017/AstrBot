@@ -1894,11 +1894,8 @@ def test_render_engine_includes_session_context_in_current_user_message():
                         "      <source>config.timezone</source>\n"
                         "    </datetime>\n"
                         "    <user_info>\n"
-                        "      <user_id>u1</user_id>\n"
                         "      <nickname>Alice</nickname>\n"
                         "      <platform_name>qq</platform_name>\n"
-                        "      <umo>qq:group:1</umo>\n"
-                        "      <group_id>1</group_id>\n"
                         "      <group_name>AstrBot Dev</group_name>\n"
                         "      <is_group>true</is_group>\n"
                         "    </user_info>\n"
@@ -2330,9 +2327,10 @@ def test_render_engine_renders_extension_slots_to_system_and_input_targets():
 
     assert result.system_prompt is not None
     assert "<extensions>" in result.system_prompt
-    assert "<desktop_sidecar>" in result.system_prompt
-    assert "<plugin_id>" in result.system_prompt
-    assert "desktop.sidecar" in result.system_prompt
+    assert "<extension>" in result.system_prompt
+    assert "<desktop_sidecar>" not in result.system_prompt
+    assert "<plugin_id>" not in result.system_prompt
+    assert "desktop.sidecar" not in result.system_prompt
     assert "{&quot;mode&quot;:&quot;assistant&quot;}" in result.system_prompt
     assert "<conversation_extensions>" in result.system_prompt
     assert "desktop help" in result.system_prompt

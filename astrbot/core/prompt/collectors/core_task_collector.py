@@ -46,8 +46,6 @@ class CoreTaskCollector(ContextCollectorInterface):
                 name="system.core_execution_context",
                 value={
                     "instruction": CORE_PERSONA_COORDINATION_INSTRUCTION,
-                    "platform_id": event.get_platform_id(),
-                    "session_id": event.unified_msg_origin,
                     "task_intent": getattr(task_spec, "task_intent", ""),
                     "task_summary": task_summary,
                     "execution_prompt": execution_prompt,
@@ -56,7 +54,6 @@ class CoreTaskCollector(ContextCollectorInterface):
                         "suggested_capabilities",
                         [],
                     ),
-                    "metadata": getattr(task_spec, "metadata", {}),
                 },
                 category="system",
                 source="interaction_core_task",

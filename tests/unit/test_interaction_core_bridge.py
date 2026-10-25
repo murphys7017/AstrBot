@@ -47,6 +47,7 @@ async def test_core_task_collector_exposes_structured_execution_context():
         task_summary="查询天气",
         execution_prompt="请查询今天的天气。",
         suggested_capabilities=["search"],
+        metadata={"core_task_id": "internal-task-marker"},
     )
     event.set_extra(
         "_interaction_turn_state",
@@ -64,6 +65,7 @@ async def test_core_task_collector_exposes_structured_execution_context():
     assert slots[0].value["execution_prompt"] == "请查询今天的天气。"
     assert slots[0].value["task_summary"] == "查询天气"
     assert slots[0].value["instruction"] == CORE_PERSONA_COORDINATION_INSTRUCTION
+    assert not {"platform_id", "session_id", "metadata"} & slots[0].value.keys()
     assert "immediate_reply_already_sent" not in slots[0].value
     assert "speculative_persona_status" not in slots[0].value
     assert req.system_prompt == "base"
@@ -76,3 +78,4 @@ async def test_core_task_collector_exposes_structured_execution_context():
     assert CORE_PERSONA_COORDINATION_INSTRUCTION in rendered_system_prompt
     assert "immediate_reply_already_sent" not in render_result.system_prompt
     assert "speculative_persona_status" not in render_result.system_prompt
+    assert "internal-task-marker" not in render_result.system_prompt

@@ -44,13 +44,10 @@ def build_core_execution_context_block(
     if not task_spec.execution_prompt and not task_spec.task_summary:
         return None
     payload = {
-        "platform_id": event.get_platform_id(),
-        "session_id": event.unified_msg_origin,
         "task_intent": task_spec.task_intent,
         "task_summary": task_spec.task_summary,
         "execution_prompt": task_spec.execution_prompt,
         "suggested_capabilities": task_spec.suggested_capabilities,
-        "metadata": task_spec.metadata,
     }
     return (
         "\n<interaction_execution_context>\n"

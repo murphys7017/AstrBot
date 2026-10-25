@@ -17,22 +17,16 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
 
     _VISIBLE_META_KEYS = {
         "active",
-        "conversation_id",
         "format",
-        "group_id",
-        "handler_module_path",
         "iso",
         "provider",
         "query",
         "query_source",
-        "reply_id",
         "resolution",
         "source",
         "timezone",
         "transport",
         "turn_count",
-        "umo",
-        "user_id",
     }
 
     def __init__(self, *, enable_tool_call: bool = True) -> None:
@@ -129,6 +123,8 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             "context/group_recent",
             "context/memory",
             "context/knowledge",
+            "context/core_execution_history",
+            "context/core_execution",
             "context/runtime",
         ):
             context_node = self._find_tag_path(prompt_tree, context_path)

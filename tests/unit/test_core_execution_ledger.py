@@ -13,6 +13,13 @@ class _Database:
         self.records.append((record, retain))
         return True
 
+    async def get_recent_core_execution_records(self, conversation_id, *, limit):
+        return [
+            record
+            for record, _ in self.records
+            if record.conversation_id == conversation_id
+        ][-limit:]
+
 
 @pytest.mark.asyncio
 async def test_append_execution_materializes_record_from_spec():
@@ -48,3 +55,57 @@ async def test_append_execution_materializes_record_from_spec():
     assert record.messages == [{"role": "tool", "content": "evidence"}]
     assert record.result == "done"
     assert record.token_usage == {"total": 12}
+
+
+@pytest.mark.asyncio
+async def test_recent_execution_keeps_semantic_tool_pairing_without_tracking_ids():
+    import json
+
+    spec = CoreExecutionSpec.from_context_pack(
+        context_pack=ContextPack(),
+        turn_id="internal-turn",
+        task_spec={
+            "task_summary": "Compare results",
+            "metadata": {"core_task_id": "internal-task"},
+        },
+    )
+    database = _Database()
+    ledger = CoreExecutionLedger(database)
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "internal-call-a",
+                    "function": {"name": "search", "arguments": '{"query":"first"}'},
+                },
+                {
+                    "id": "internal-call-b",
+                    "function": {"name": "search", "arguments": '{"query":"second"}'},
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "internal-call-b",
+            "content": {"session_id": "business-session", "result": "second result"},
+        },
+        {"role": "tool", "tool_call_id": "internal-call-a", "content": "first result"},
+    ]
+    await ledger.append_execution(
+        execution_spec=spec,
+        conversation_id="internal-conversation",
+        executor_id="internal-executor",
+        status="completed",
+        messages=messages,
+        result="Compared results",
+    )
+
+    records = await ledger.recent("internal-conversation")
+
+    serialized = json.dumps(records)
+    assert "internal-" not in serialized
+    assert "business-session" in serialized
+    assert records[0]["tool_evidence"][1]["arguments"] == '{"query":"second"}'
+    assert records[0]["tool_evidence"][2]["arguments"] == '{"query":"first"}'
+    assert database.records[0][0].messages == messages
