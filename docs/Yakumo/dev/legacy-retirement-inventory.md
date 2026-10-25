@@ -32,6 +32,13 @@
 - **处理**：2026-10-25 删除。AstrBot 源码、Dashboard、`data/plugins` 部署插件、AG99live 源码和公开文档均未发现导入。
 - **验证**：全仓搜索和部署插件搜索均无消费者；规范模块 `astrbot.core.provider.entities` 保留。
 
+### 待外部确认：`filter_llm_exposed_context_pack`
+
+- **类型**：显式 `PromptTarget.CORE` 投影的兼容包装。
+- **当前证据**：AstrBot Core、Dashboard、`data/plugins` 部署插件和 AG99live 源码均未发现生产调用；函数仍通过 `astrbot.core.prompt.targets.__all__` 导出。
+- **处理策略**：暂时保留公开兼容入口；完成外部插件/发布包导入确认并经过弃用周期后，再删除包装和对应导出。
+- **验证**：仓内调用扫描已完成；外部消费者确认仍未完成。
+
 ### 仓库内部及公开兼容边界的 `MessageSesion` 使用
 
 - **类型**：`MessageSession` 的历史拼写别名。
