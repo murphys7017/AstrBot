@@ -25,9 +25,7 @@ from astrbot.core.output_contract import CompiledOutputContract, OutputContract
 from astrbot.core.provider.entities import LLMResponse, TokenUsage
 from astrbot.core.provider.func_tool_manager import ToolSet
 from astrbot.core.provider.output_contract_tools import (
-    build_single_tool_set_from_compiled_contract,
-    build_single_tool_set_from_contract,
-    merge_output_contract_tool_set,
+    resolve_output_contract_binding,
 )
 from astrbot.core.utils.image_materializer import (
     ImageMaterializationError,
@@ -73,40 +71,9 @@ class ProviderAnthropic(Provider):
         func_tool: ToolSet | None,
         tool_choice: Literal["auto", "any", "tool", "none", "required"] | dict[str, str],
     ) -> tuple[ToolSet | None, Literal["auto", "any", "tool", "none", "required"] | dict[str, str]]:
-        if isinstance(compiled_output_contract, CompiledOutputContract):
-            func_tool = merge_output_contract_tool_set(
-                func_tool,
-                build_single_tool_set_from_compiled_contract(
-                    compiled_output_contract,
-                    description="Return structured output.",
-                ),
-            )
-            if compiled_output_contract.strategy == "protocol_tool_call":
-                tool_choice = "required"
-            return func_tool, tool_choice
-        if not isinstance(output_contract, OutputContract):
-            return func_tool, tool_choice
-        # Compatibility path for legacy callers without compiled bindings. Delete after migration.
-        normalized_contract = output_contract
-        if output_contract.mode == "json_object" and output_contract.strict:
-            normalized_contract = OutputContract(
-                mode="tool_call",
-                strict=True,
-                schema=output_contract.schema,
-                preferred_tool_name=output_contract.preferred_tool_name,
-                allow_text_fallback=output_contract.allow_text_fallback,
-            )
-        if normalized_contract.mode == "tool_call":
-            func_tool = merge_output_contract_tool_set(
-                func_tool,
-                build_single_tool_set_from_contract(
-                    normalized_contract,
-                    description="Return structured output.",
-                ),
-            )
-            if normalized_contract.strict:
-                tool_choice = "required"
-        return func_tool, tool_choice
+        return resolve_output_contract_binding(
+            output_contract, compiled_output_contract, func_tool, tool_choice,
+        )
 
     @staticmethod
     def _ensure_usable_response(

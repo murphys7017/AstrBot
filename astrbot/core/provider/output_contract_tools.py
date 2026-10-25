@@ -85,6 +85,49 @@ def merge_output_contract_tool_set(
     return merged
 
 
+def resolve_output_contract_binding(
+    output_contract: OutputContract | None,
+    compiled_output_contract: CompiledOutputContract | None,
+    func_tool: ToolSet | None,
+    tool_choice: Any,
+) -> tuple[ToolSet | None, Any]:
+    """Attach the protocol output tool without duplicating provider adapters."""
+    if isinstance(compiled_output_contract, CompiledOutputContract):
+        func_tool = merge_output_contract_tool_set(
+            func_tool,
+            build_single_tool_set_from_compiled_contract(
+                compiled_output_contract,
+                description="Return structured output.",
+            ),
+        )
+        if compiled_output_contract.strategy == "protocol_tool_call":
+            tool_choice = "required"
+        return func_tool, tool_choice
+    if not isinstance(output_contract, OutputContract):
+        return func_tool, tool_choice
+
+    normalized_contract = output_contract
+    if output_contract.mode == "json_object" and output_contract.strict:
+        normalized_contract = OutputContract(
+            mode="tool_call",
+            strict=True,
+            schema=output_contract.schema,
+            preferred_tool_name=output_contract.preferred_tool_name,
+            allow_text_fallback=output_contract.allow_text_fallback,
+        )
+    if normalized_contract.mode == "tool_call":
+        func_tool = merge_output_contract_tool_set(
+            func_tool,
+            build_single_tool_set_from_contract(
+                normalized_contract,
+                description="Return structured output.",
+            ),
+        )
+        if normalized_contract.strict:
+            tool_choice = "required"
+    return func_tool, tool_choice
+
+
 def _build_tool_parameters_from_contract(contract: OutputContract) -> dict[str, Any]:
     schema = contract.schema if isinstance(contract.schema, dict) else None
     return _normalize_tool_schema(schema)
@@ -109,4 +152,5 @@ __all__ = [
     "build_single_tool_set_from_compiled_contract",
     "build_single_tool_set_from_contract",
     "merge_output_contract_tool_set",
+    "resolve_output_contract_binding",
 ]

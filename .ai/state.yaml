@@ -3457,3 +3457,26 @@ prompt_code_cleanup_20261025:
   evidence_gap: >-
     No live Provider, pre-action, independent-motion, voice, or Live2D
     acceptance. Restart or reload AstrBot before runtime testing.
+
+overall_code_cleanup_batch_20261025:
+  date: '2026-10-25'
+  class: refactor
+  risk: medium
+  status: committed_pending_restart_and_live_acceptance
+  scope: >-
+    Remove confirmed duplicate Provider output-contract binding logic and make
+    AG99live enhanced-interaction availability state explicit. Preserve public
+    Provider helper entry points, output protocols, fallback behavior, motion
+    scheduling, parameter mixing, and the existing compatibility boundary.
+    Larger OutputController, TurnState, Event extra, and AG99live hook-coordinator
+    cleanup remains a separately gated batch.
+  validation: >-
+    Provider output-contract and renderer boundary checks passed except for one
+    pre-existing MiniMax renderer selection test using an unregistered RequestStub;
+    scoped Ruff, Core compileall, and diff checks passed. AG99live source Ruff
+    passed; its compile check was blocked by locked __pycache__ files, so source
+    AST parsing was used instead. No runtime deployment or service restart was
+    performed for this batch.
+  evidence_gap: >-
+    No live Provider, streaming, TTS, motion, or Live2D acceptance. The existing
+    untracked AG99live design document remains user-owned and untouched.
