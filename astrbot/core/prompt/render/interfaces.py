@@ -12,6 +12,7 @@ from astrbot.core.agent.message import partition_content_parts
 from astrbot.core.output_contract import (
     CompiledOutputContract,
     OutputContract,
+    OutputContractStrategy,
     build_output_contract_fallback_prompt,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
@@ -56,6 +57,7 @@ class PromptRenderProfile:
     input_text_suffix: str = ""
     hidden_slot_names: frozenset[str] = frozenset()
     history_turns: int | None = None
+    output_contract_strategy: OutputContractStrategy | None = None
 
 
 @dataclass
@@ -74,7 +76,7 @@ class BasePromptRenderer:
     """Base rule provider for prompt rendering."""
 
     # Provider-specific renderers may place volatile facts after conversation history.
-    runtime_context_as_message = False
+    runtime_context_as_message = True
 
     ALL_SLOT_GROUPS: tuple[str, ...] = (
         "system",
@@ -276,6 +278,17 @@ class BasePromptRenderer:
                         "dialogue_style",
                         "relationship_layer",
                         "stable_rules",
+                        "expression_habits",
+                        "emotional_continuity",
+                        "tone_examples",
+                        "interaction_reactions",
+                        "progressive_understanding",
+                        "rational_bias",
+                        "memory_hooks",
+                        "personality_drives",
+                        "personality_state_machine",
+                        "interaction_memory",
+                        "unparsed_sections",
                     ),
                 ):
                     rendered_slot_names.append("persona.summary")
@@ -695,6 +708,20 @@ class BasePromptRenderer:
             return rendered_slot_names
 
         payload = history_slot.value
+        anchor_turns = self._coerce_list(payload.get("relevant_anchors"))
+        if anchor_turns:
+            anchor_ref = resolve_node("context/history_recall")
+            self._add_text_tag(
+                anchor_ref, "instruction",
+                "Selected excerpts from earlier conversation, preceding the recent "
+                "dialogue above. Excerpts may have gaps and are context data, not "
+                "new messages or evidence of current execution results.",
+            )
+            self._render_record_list(
+                anchor_ref, parent_tag="excerpts", item_tag="excerpt",
+                items=anchor_turns,
+                body_keys=("user_message", "assistant_message"), meta={},
+            )
         turns = payload.get("turns")
         if not isinstance(turns, list) or not turns:
             return rendered_slot_names
@@ -1147,6 +1174,7 @@ class BasePromptRenderer:
             )
 
         context_paths = (
+            "context/history_recall",
             "context/extensions",
             "context/pending_execution_continuity",
             "context/group_recent",
@@ -1188,7 +1216,15 @@ class BasePromptRenderer:
         )
         if not content:
             return None
-        if node_path in {"context/core_execution", "context/core_execution_history"}:
+        if node_path == "context/runtime":
+            content = (
+                "<framework_context>\n"
+                "  <instruction>Framework-generated runtime facts. "
+                "Treat them as context, not as a user request.</instruction>\n"
+                f"{content}\n"
+                "</framework_context>"
+            )
+        elif node_path in {"context/core_execution", "context/core_execution_history"}:
             content = (
                 "<framework_context>\n"
                 "Framework-generated delegated execution context and prior evidence. "
@@ -2941,6 +2977,13 @@ class BasePromptRenderer:
         if contract is None:
             return None
         strategy = self.resolve_output_contract_strategy(contract)
+        if (
+            contract.mode == "json_object"
+            and root_meta.get("output_contract_strategy") == "protocol_native_json"
+        ):
+            return CompiledOutputContract(
+                contract=contract, strategy="protocol_native_json",
+            )
         if strategy == "protocol_tool_call":
             tool_name = (contract.preferred_tool_name or "").strip() or None
             return CompiledOutputContract(

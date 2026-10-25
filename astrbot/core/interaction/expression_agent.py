@@ -3600,7 +3600,9 @@ class InteractionExpressionAgent:
             allow_silent=req.allow_silent,
             output_format=output_format,
         )
-        if output_format in {"json", "xml", "markdown"}:
+        # JSON already has its full schema in either the prompt contract or the
+        # native request. XML/Markdown still need a literal syntax example.
+        if output_format in {"xml", "markdown"}:
             try:
                 example = build_persona_text_example(output_contract.schema, output_format)
             except (ValueError, KeyError) as exc:
@@ -3621,6 +3623,12 @@ class InteractionExpressionAgent:
                 output_format=output_format,
             ),
             output_contract=output_contract,
+            output_contract_strategy=(
+                "protocol_native_json"
+                if output_format == "json"
+                and output_mode == "provider_native_json_schema"
+                else None
+            ),
             input_text_suffix=reasoning_marker,
             hidden_slot_names=frozenset(hidden_slot_names),
             history_turns=history_turns,
@@ -3963,6 +3971,13 @@ def _log_persona_prompt_size_diagnostics(
     effective_tool_schema = [
         *business_tool_schema, *terminal_tool_schema, *effect_tool_schema,
     ]
+    native_output_schema = (
+        build_native_persona_schema(provider_request.output_contract.schema)
+        if render_result.metadata.get("expression_output_mode") == "provider_native_json_schema"
+        and isinstance(provider_request.output_contract, OutputContract)
+        and isinstance(provider_request.output_contract.schema, dict)
+        else None
+    )
     diagnostic_sections, media = project_prompt_diagnostics(
         {
             "system_prompt": provider_request.system_prompt or "",
@@ -3978,6 +3993,7 @@ def _log_persona_prompt_size_diagnostics(
                 for reference in provider_request.audio_urls or []
             ],
             "tool_schema": effective_tool_schema,
+            "native_output_schema": native_output_schema,
         }
     )
     estimated_tokens = _estimate_text_tokens(
@@ -4008,10 +4024,17 @@ def _log_persona_prompt_size_diagnostics(
             }
         ),
         "tool_schema": _serialized_size(effective_tool_schema),
+        "native_output_schema": _serialized_size(native_output_schema),
     }
     total_chars = sum(section_sizes.values())
     context_budgets = render_result.metadata.get("context_budgets")
     if isinstance(context_budgets, dict):
+        context_budgets["effective_request"] = {
+            "retained_estimated_tokens": estimated_tokens,
+            "limit_estimated_tokens": None,
+            "enforced": False,
+            "scope": "text_only",
+        }
         context_budgets["tool_schema"] = {
             "original_amount": len(effective_tool_schema),
             "retained_amount": len(effective_tool_schema),

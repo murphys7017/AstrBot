@@ -195,6 +195,8 @@ class PromptRenderEngine:
 
         if profile.output_contract is not None:
             selected.meta["output_contract"] = profile.output_contract.to_dict()
+        if profile.output_contract_strategy is not None:
+            selected.meta["output_contract_strategy"] = profile.output_contract_strategy
         selected.meta["render_profile"] = profile.name
         selected.meta["slot_count"] = len(selected.slots)
         return selected

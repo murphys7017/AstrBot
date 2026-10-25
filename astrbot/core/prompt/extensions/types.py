@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -30,6 +31,16 @@ PROMPT_EXTENSION_VALUE_KINDS: tuple[PromptExtensionValueKind, ...] = (
     "mapping",
     "sequence",
 )
+
+
+def extension_visible_in_context_view(
+    mount: str, meta: Mapping[str, Any], context_view: str | None,
+) -> bool:
+    """Apply the same context opt-in at collection and rendering boundaries."""
+    if context_view is None or mount != "context":
+        return True
+    views = meta.get("context_views", ())
+    return isinstance(views, (list, tuple, set, frozenset)) and context_view in views
 
 
 @dataclass(slots=True)

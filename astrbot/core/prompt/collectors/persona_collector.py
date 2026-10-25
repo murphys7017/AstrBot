@@ -23,7 +23,10 @@ from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
-from ..persona_segments import parse_legacy_persona_prompt
+from ..persona_segments import (
+    build_persona_prompt_projection,
+    parse_legacy_persona_prompt,
+)
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -163,7 +166,7 @@ class PersonaCollector(ContextCollectorInterface):
             slots.append(
                 ContextSlot(
                     name="persona.summary",
-                    value=_build_persona_summary(persona_segments),
+                    value=build_persona_prompt_projection(persona_segments),
                     category="persona",
                     source="persona_parser",
                     meta={
@@ -261,28 +264,3 @@ def _store_resolution_slots(
         event.set_extra(_PERSONA_RESOLUTION_CACHE_EXTRA_KEY, cache)
     except Exception:  # noqa: BLE001
         logger.debug("Failed to cache resolved persona slots", exc_info=True)
-
-
-def _build_persona_summary(segments: dict[str, object]) -> dict[str, list[str]]:
-    """Keep only stable identity cues needed by lightweight consumers."""
-
-    summary: dict[str, list[str]] = {}
-    for key in ("identity", "core_persona", "dialogue_style", "stable_rules"):
-        value = segments.get(key)
-        if not isinstance(value, list):
-            continue
-        normalized = [str(item).strip() for item in value if str(item).strip()]
-        if normalized:
-            summary[key] = normalized[:6]
-    relationship = segments.get("relationship_layer")
-    if isinstance(relationship, dict):
-        traits = relationship.get("traits")
-        if isinstance(traits, list):
-            identity = set(summary.get("identity", []))
-            normalized = [
-                str(item).strip() for item in traits
-                if str(item).strip() and str(item).strip() not in identity
-            ]
-            if normalized:
-                summary["relationship_layer"] = normalized[:6]
-    return summary

@@ -83,6 +83,10 @@ class PromptTreeBuilder:
             prompt_tree._root_node.meta["output_contract"] = pack.meta[
                 "output_contract"
             ]
+        if "output_contract_strategy" in pack.meta:
+            prompt_tree._root_node.meta["output_contract_strategy"] = pack.meta[
+                "output_contract_strategy"
+            ]
         return prompt_tree
 
     @staticmethod

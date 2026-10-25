@@ -65,7 +65,7 @@ Collector 只返回事实：
 
 跨阶段新增或替换事实必须经过 Builder。`ContextPack` 数据类型本身仍然可变，供收集和渲染内部使用；业务模块不得把直接 `add_slot()`、`slots.pop()` 或原地改值当作跨阶段 API。进入 `CoreExecutionSpec` 时，slots、meta、TaskSpec、执行历史和可序列化 capability 描述会被深拷贝，避免后续构建侧变更影响已经准备的执行事实；Native `ToolSet` 是唯一明确保留的实时执行句柄。
 
-Interaction 使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。需要完整插件上下文的调用才启动并复用唯一的 `interaction_plugin_context` task；Core 等待它，普通 Persona 即时计划按既有策略尽力使用或等待它。`progress` 与 `proactive` 等轻量 Persona 调用不等待完整 plugin context pack，但 Persona 表达构建仍可收集面向 `persona` 的 Prompt Extension；View 白名单只允许其中的 `extension.system` 进入 Prompt，不会因此把 `extension.context` 或插件执行能力带入。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
+Interaction 使用两层 single-flight。`interaction_base` 收集 system、persona、input、session、memory、history、附件摘要和官方群聊上下文等可信控制面事实；Personal 与 Core Planner 的首个请求在这一层完成后即可渲染。需要完整插件上下文的调用才启动并复用唯一的 `interaction_plugin_context` task；Core 等待它，普通 Persona 即时计划按既有策略尽力使用或等待它。`progress` 与 `proactive` 等轻量 Persona 调用不等待完整 plugin context pack，但 Persona 表达构建仍可收集面向 `persona` 的 Prompt Extension；稳定扩展可进入 `extension.system`；动态 `extension.context` 必须逐条显式声明适用的 `context_views`，并在采集及 View 投影两处复核。插件执行能力不因此进入轻量 View。两层都来自同一基础事实源，业务模块不得重新查询历史、memory、输入或 session，也不得把插件扩展重新塞回 Planner。
 
 媒体事实遵循同一边界：基础 `InputCollector` 只记录原始图片、引用图片、媒体内容块和文件记录，不调用图片转述或文件提取服务。非视觉 Personal、Planner 或 Core 在绑定实际 Provider 后，才通过 `PromptContextBuilder(base=...)` 派生本地媒体事实；视觉 Provider 直接消费原始图片。Provider 调用前的模态门同时检查上下文消息和额外内容块，避免只清理 `image_urls` 造成绕过。
 
@@ -79,7 +79,7 @@ Interaction 使用两层 single-flight。`interaction_base` 收集 system、pers
 | Persona | 完整人格、官方历史、群聊上下文、memory/persona state、当前输入、待表达材料和 Core 结果；普通即时轮额外输出 `turn_action` | policy、knowledge、执行能力、Core 私有执行上下文 |
 | Core | 官方历史、群聊上下文、当前输入和附件、system/policy、tools、skills、knowledge、subagent、插件执行上下文、`CoreTaskSpec`、有限 Core Execution History | 完整人格、persona state、待表达材料、effect 语义 |
 
-Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享模型 Prompt、决策或输出。投影中的历史长度、字段清理和诊断移除属于确定性安全边界，不是“让模型自己忽略”。Persona 的历史先保留最近连续片段，再从最多 300 个候选回合中选取与当前输入、引用文本、topic state 或 short-term memory 相关的较早锚点，并受 token 预算约束。
+Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享模型 Prompt、决策或输出。投影中的历史长度、字段清理和诊断移除属于确定性安全边界，不是“让模型自己忽略”。Persona 的历史先保留最近连续片段，再从最多 300 个候选回合中选取与当前输入、引用文本、topic state 或 short-term memory 相关的较早锚点；锚点通过尾部历史摘录提供，两部分共同受既有 token 预算约束。
 
 ## Context View
 
@@ -90,8 +90,8 @@ Persona 的普通即时计划与 Core Planner 只共享事实来源，不共享�
 - `turn_plan`：使用基础事实、官方历史、Persona 状态和 Persona 专属的 system 扩展，保留既有历史预算；不自动带入话题/短期摘要或完整 plugin context pack。构建时会把当前 View 允许的挂载类型和消费目标告知支持该钩子的 Collector，避免生成 Persona/Core 不会消费的扩展；最终 slot 白名单仍由 Renderer 强制执行。
 - `olv_stream`：沿用同一基础事实边界，使用更紧的历史预算；不会自动带入话题/短期摘要，并且只请求该 View 允许的插件扩展挂载。
 - `final_result`：保留既有来源和质量预算，`source_text` 仍由请求指令定义为权威结果。
-- `progress`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、`extension.context`、旧结果或媒体派生；本阶段的职责指令仍由 Profile 显式写入。
-- `proactive`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入、`extension.context` 或媒体派生。
+- `progress`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、本轮已截断的进度材料和已发送的单条确认，不继承旧目标局部 `system.base`、历史、memory、旧结果或媒体派生；`extension.context` 仅接收显式声明适用于 `progress` 的条目；本阶段的职责指令仍由 Profile 显式写入。
+- `proactive`：使用基础事实，不等待完整 plugin context pack；允许稳定的 `system.global`、人格摘要、Persona 专属的 `extension.system`、已截断的 Observation 材料、最多两轮历史（最多约 1200 token）和有限的 topic/short-term/persona memory，不带当前用户输入或媒体派生；`extension.context` 仅接收显式声明适用于 `proactive` 的条目。
 
 ### Persona 上下文使用规则
 
@@ -154,6 +154,11 @@ Provider Renderer 只编译已经形成的树：
 - Runtime Observation 的模型投影省略 batch/observation/correlation ID，保留来源、时间和业务 payload；不递归删除业务 payload 中的同名字段。过期、取消、Gate 和去重仍使用原始 Observation。
 - Extension 的插件身份仍用于过滤、分组和诊断；序列化统一使用 `extension` 标签，保留标题和内容。Session 请求包装和 MiniMax 的可见 metadata 不再携带会话、用户、群组、conversation ID 或 Python handler 路径。群聊消息内用于区分参与者的业务身份不在本批次删除。
 - Memory 正文继续使用既有字段白名单，关系状态不向模型输出 `persona_id`；MiniMax 不再从 metadata 重新暴露 Memory 的 conversation/UMO。Memory 读取、更新以及原始 debug 数据不变。
+- Persona 的轻量 View 使用同一份确定性人格投影，不再只依赖少数固定标题；无法识别的作者原文仍保留在投影中。动作请求复用 `persona.summary`，不另起一套人格摘要模型。
+- Persona 历史保持近期连续回合作为前缀；相关的较早回合放进 `context/history_recall` 尾部消息，并明确标记为有间隔的历史摘录。历史不再仅凭报错关键词整条删除用户或助手文本；私有 reasoning/thinking/tool_calls 字段仍不进入对话历史。近期窗口本身滚动时仍可能改变前缀，本轮未引入跨回合缓存状态。
+- `extension.context` 的 `context_views` 在采集和已有 Pack 投影两处都校验，避免复用 Pack 时把只属于其他 View 的动态扩展带入模型。
+- Provider-neutral renderer 默认把 `context/runtime` 放在消息尾部；原生 JSON Schema 模式由请求协议承载 schema，避免把完整 schema 再复制进 system 文本。
+- JSON 表达保留 schema，移除重复的完整 JSON 示例；XML/Markdown 仍保留各自语法示例。完整请求的文本估算补上原生输出 schema，`effective_request` 明确标记 `enforced=false`，不代表已经实施总请求硬预算，也不估算图像/音频 token。
 
 AG99live 的配套修改在其源码仓库：Pre-Action 的角色原文和轴能力前置到 system，用户输入及状态留在 user；Independent Motion 的检索示例和最近动作移入当前请求尾部，固定规则与能力保留在 system；Performance Curve 不再接收 turn/message ID。动作仍逐 segment 请求，不合并等待整段回复，不改人格原文、动作语义、历史窗口、混合器或输出契约。
 
@@ -178,7 +183,7 @@ Passive 调度、远程模型护栏和 NeuroBrain 的 `step`/状态结构按用�
 
 ### Interaction
 
-Interaction 每轮先建立基础 Pack，并立即后台预取唯一的插件扩展 Pack；Personal 从 Persona 投影渲染回复。Persona 不等待完整插件扩展 Pack，已就绪时消费该 Pack，否则从基础 Pack 派生待表达材料；表达 Prompt 会另行收集目标为 Persona 的 Prompt Extension，并由 View 白名单限制可见 mount。Core Router 与 Personal 并行工作，Router 只读取独立的有限上下文；路由到 Core 后，Planner 从基础 Pack 整理 `CoreTaskSpec`，随后 Main Agent 等待同一插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
+Interaction 每轮先建立基础 Pack；Personal 按 View 选择基础事实，只有需要插件富化的消费者才启动对应目标与 View 的 single-flight 任务。普通即时表达不等待完整插件 Pack，而是在基础事实之上收集允许的 Persona 扩展；表达 Prompt 会另行收集目标为 Persona 的 Prompt Extension，并由 View 白名单限制可见 mount。Core Router 与 Personal 并行工作，Router 只读取独立的有限上下文；路由到 Core 后，Planner 从基础 Pack 整理 `CoreTaskSpec`，随后 Main Agent 等待 Core 目标的插件扩展 task，再加入阶段性的任务规格、工具、知识和执行历史并渲染 Core 目标。
 
 ### 非 Interaction Core
 

@@ -161,16 +161,14 @@ def _project_history(
                 original_content,
                 max_chars=budget.history_max_message_chars,
             )
-            if full_content == "[runtime diagnostic omitted]":
-                reasons.append("runtime_diagnostic_omitted")
-            elif len(full_content) > budget.history_max_message_chars:
+            if len(full_content) > budget.history_max_message_chars:
                 reasons.append("message_char_limit")
             message.pop("tool_calls", None)
             message.pop("reasoning_content", None)
             message.pop("thinking", None)
 
     if target == "persona":
-        selected_turns, projection_meta = _select_persona_history_turns(
+        selected_turns, anchor_turns, projection_meta = _select_persona_history_turns(
             candidate_turns,
             budget=budget,
             relevance_terms=relevance_terms,
@@ -185,6 +183,7 @@ def _project_history(
             reasons.append("persona_recent_token_budget")
     else:
         selected_turns = candidate_turns
+        anchor_turns = []
 
     while (
         len(selected_turns) > 1
@@ -193,10 +192,15 @@ def _project_history(
     ):
         selected_turns.pop(0)
         reasons.append("history_estimated_token_limit")
-    if _estimate_value_tokens(selected_turns) > budget.history_max_estimated_tokens:
+    if (
+        _estimate_value_tokens(selected_turns)
+        + _estimate_value_tokens(anchor_turns)
+        > budget.history_max_estimated_tokens
+    ):
         reasons.append("history_budget_exceeded_minimum_turn")
 
     slot.value["turns"] = selected_turns
+    slot.value["relevant_anchors"] = anchor_turns
     slot.value["turn_count"] = len(selected_turns)
     slot.meta["target_truncated"] = bool(reasons)
     slot.meta["turn_count"] = len(selected_turns)
@@ -208,12 +212,12 @@ def _select_persona_history_turns(
     *,
     budget: PromptTargetBudget,
     relevance_terms: set[str],
-) -> tuple[list[object], dict[str, int]]:
+) -> tuple[list[object], list[object], dict[str, int]]:
     """Keep a recent dialogue run, then add a few relevant older anchors."""
 
     normalized_turns = [turn for turn in turns if isinstance(turn, dict)]
     if not normalized_turns:
-        return [], {
+        return [], [], {
             "candidate_turn_count": len(turns),
             "recent_turn_count": 0,
             "anchor_turn_count": 0,
@@ -261,19 +265,24 @@ def _select_persona_history_turns(
         used_tokens += turn_tokens
         anchor_count += 1
 
-    selected = [
+    recent_turns = [
         normalized_turns[index]
-        for index in sorted(selected_indexes)
+        for index in sorted(selected_indexes) if index >= retained_recent_start
     ]
+    anchor_indexes = sorted(
+        index for index in selected_indexes if index < retained_recent_start
+    )
+    anchor_turns = [normalized_turns[index] for index in anchor_indexes]
     recent_count = sum(
         index >= retained_recent_start for index in selected_indexes
     )
-    return selected, {
+    return recent_turns, anchor_turns, {
         "candidate_turn_count": len(normalized_turns),
         "recent_turn_count": recent_count,
         "anchor_turn_count": anchor_count,
-        "retained_turn_count": len(selected),
-        "estimated_tokens": _estimate_value_tokens(selected),
+        "retained_turn_count": len(recent_turns) + len(anchor_turns),
+        "estimated_tokens": _estimate_value_tokens(recent_turns)
+        + _estimate_value_tokens(anchor_turns),
     }
 
 
@@ -546,7 +555,10 @@ def _slot_value(slot: ContextSlot | None) -> object:
 def _history_turn_count(slot: ContextSlot | None) -> int:
     value = _slot_value(slot)
     turns = value.get("turns") if isinstance(value, dict) else None
-    return len(turns) if isinstance(turns, list) else 0
+    anchors = value.get("relevant_anchors") if isinstance(value, dict) else None
+    return (len(turns) if isinstance(turns, list) else 0) + (
+        len(anchors) if isinstance(anchors, list) else 0
+    )
 
 
 def _persona_history_projection_diagnostics(
@@ -569,9 +581,10 @@ def _history_message_count(slot: ContextSlot | None) -> int:
     turns = value.get("turns") if isinstance(value, dict) else None
     if not isinstance(turns, list):
         return 0
+    anchors = value.get("relevant_anchors", [])
     return sum(
         1
-        for turn in turns
+        for turn in [*turns, *anchors]
         if isinstance(turn, dict)
         for key in ("user_message", "assistant_message")
         if isinstance(turn.get(key), dict) and turn[key]
@@ -680,7 +693,11 @@ def _format_projected_group_record(record: dict[str, Any]) -> str:
     return f"[{sender}/{occurred_at}]: {record.get('content', '')}"
 
 
-def _sanitize_context_content(value: Any, *, max_chars: int) -> str:
+def _sanitize_context_content(
+    value: Any,
+    *,
+    max_chars: int,
+) -> str:
     if isinstance(value, str):
         return _sanitize_context_text(value, max_chars=max_chars)
     if not isinstance(value, list):
@@ -693,22 +710,18 @@ def _sanitize_context_content(value: Any, *, max_chars: int) -> str:
             text = item.get("text")
             if isinstance(text, str):
                 text_parts.append(text)
-    return _sanitize_context_text("\n".join(text_parts), max_chars=max_chars)
-
-
-def _sanitize_context_text(value: str, *, max_chars: int) -> str:
-    text = value.strip()
-    lowered = text.lower()
-    diagnostic_markers = (
-        "traceback (most recent call last)",
-        "[erro]",
-        "error code:",
-        "no such file or directory",
-        "invalid image input",
-        "获取图片描述失败",
+    return _sanitize_context_text(
+        "\n".join(text_parts),
+        max_chars=max_chars,
     )
-    if any(marker in lowered for marker in diagnostic_markers):
-        return "[runtime diagnostic omitted]"
+
+
+def _sanitize_context_text(
+    value: str,
+    *,
+    max_chars: int,
+) -> str:
+    text = value.strip()
     if len(text) <= max_chars:
         return text
     return f"{text[:max_chars].rstrip()}..."

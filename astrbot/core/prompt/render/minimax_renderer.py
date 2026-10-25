@@ -118,6 +118,7 @@ class MiniMaxPromptRenderer(BasePromptRenderer):
             state["session"] = session_payload
 
         for context_path in (
+            "context/history_recall",
             "context/extensions",
             "context/pending_execution_continuity",
             "context/group_recent",

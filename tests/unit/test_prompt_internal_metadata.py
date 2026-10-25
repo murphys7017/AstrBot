@@ -11,9 +11,19 @@ from astrbot.core.interaction.observation_inbox import ObservationBatch
 from astrbot.core.interaction.runtime_context_projection import (
     project_observation_batch,
 )
+from astrbot.core.output_contract import OutputContract
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
-from astrbot.core.prompt.render import MiniMaxPromptRenderer, PromptRenderEngine
+from astrbot.core.prompt.persona_segments import (
+    build_persona_motion_prompt,
+    build_persona_prompt_projection,
+    parse_legacy_persona_prompt,
+)
+from astrbot.core.prompt.render import (
+    MiniMaxPromptRenderer,
+    PromptRenderEngine,
+    PromptRenderProfile,
+)
 from astrbot.core.prompt.render.deepseek_renderer import DeepSeekPromptRenderer
 
 
@@ -157,3 +167,60 @@ def test_core_task_changes_only_temporary_context(renderer):
     assert "internal-" not in wire
     assert "current user message" in str(second.messages[-1]["content"])
     assert all(message.get("_no_save") for message in second.messages[:-1])
+
+
+def test_lightweight_view_keeps_authored_persona_and_checks_extension_view():
+    authored = "你是星河，冷静且不爱闲聊。\n## 独有约束\n绝不使用昵称小太阳。"
+    segments = parse_legacy_persona_prompt(authored)
+    pack = ContextPack(slots={
+        "persona.summary": ContextSlot(
+            "persona.summary", build_persona_prompt_projection(segments), "persona", "test",
+        ),
+        "extension.context": ContextSlot(
+            "extension.context", {"items": [{
+                "plugin_id": "test", "value_kind": "text", "value": "PLAN_ONLY",
+                "meta": {"targets": ["persona"], "context_views": ["turn_plan"]},
+            }]}, "extension", "test",
+        ),
+    })
+    original = deepcopy(pack)
+    engine = PromptRenderEngine(default_renderer=DeepSeekPromptRenderer())
+    progress = engine.render(pack, target="persona", context_view="progress")
+    plan = engine.render(pack, target="persona", context_view="turn_plan")
+    rendered = json.dumps([progress.system_prompt, progress.messages], ensure_ascii=False)
+    assert "冷静且不爱闲聊" in rendered and "绝不使用昵称小太阳" in rendered
+    assert "PLAN_ONLY" not in rendered
+    assert "PLAN_ONLY" in json.dumps(plan.messages)
+    assert pack == original
+
+
+def test_motion_persona_projection_accepts_plain_text_and_formatted_headings():
+    authored = "## **核心人格**\n理性、冷静，遇到问题先观察。\n## 表现习惯\n害羞时轻轻偏头。"
+    projected = build_persona_motion_prompt(authored)
+    assert "理性、冷静，遇到问题先观察。" in projected
+    assert "害羞时轻轻偏头。" in projected
+    freeform = "你是星河，冷静且不爱闲聊。"
+    assert build_persona_motion_prompt(freeform) == freeform
+
+
+def test_native_json_contract_omits_prompt_schema_but_prompt_only_keeps_it():
+    contract = OutputContract(
+        mode="json_object", strict=True,
+        schema={"type": "object", "properties": {"answer": {"type": "string"}}},
+    )
+    engine = PromptRenderEngine(default_renderer=DeepSeekPromptRenderer())
+    pack = ContextPack(slots={
+        "input.text": ContextSlot("input.text", "hello", "input", "test"),
+    })
+    native = engine.render(pack, profile=PromptRenderProfile(
+        name="native", system_prompt="Stable instructions", output_contract=contract,
+        output_contract_strategy="protocol_native_json",
+    ))
+    prompted = engine.render(pack, profile=PromptRenderProfile(
+        name="prompted", system_prompt="Stable instructions", output_contract=contract,
+    ))
+    assert native.compiled_output_contract.strategy == "protocol_native_json"
+    assert "Stable instructions" in native.system_prompt
+    assert "输出必须符合以下 JSON 结构" not in native.system_prompt
+    assert "输出必须符合以下 JSON 结构" in prompted.system_prompt
+    assert native.output_contract.schema == contract.schema

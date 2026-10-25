@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .context_types import ContextPack
+from .extensions.types import extension_visible_in_context_view
 from .targets import PromptTarget
 
 
@@ -214,7 +215,27 @@ def project_prompt_context_view(
     )
     for slot in pack.slots.values():
         if spec.allows_slot(slot.name):
-            projected.add_slot(slot)
+            selected = slot
+            if slot.name == "extension.context":
+                selected = deepcopy(slot)
+                if not isinstance(selected.value, dict):
+                    continue
+                items = selected.value.get("items")
+                if not isinstance(items, list):
+                    continue
+                selected.value["items"] = [
+                    item for item in items
+                    if isinstance(item, dict)
+                    and extension_visible_in_context_view(
+                        "context",
+                        item.get("meta") if isinstance(item.get("meta"), dict) else {},
+                        spec.name.value,
+                    )
+                ]
+                if not selected.value["items"]:
+                    continue
+                selected.meta["item_count"] = len(selected.value["items"])
+            projected.add_slot(selected)
 
     projected.meta["context_view"] = spec.name.value
     projected.meta["context_view_source_requirement"] = spec.source_requirement.value

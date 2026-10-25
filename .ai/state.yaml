@@ -3387,3 +3387,36 @@ prompt_semantic_boundary_cleanup_20261025:
     not restarted; restart it to load the Core and plugin changes together
     before live testing. Unrelated AG99live untracked design document remains
     user-owned and was not modified or committed.
+
+prompt_projection_repairs_20261025:
+  date: '2026-10-25'
+  class: bugfix
+  risk: high
+  status: implementation_under_review
+  scope: >-
+    Repair four confirmed Prompt boundary defects and improve cache layout:
+    preserve user/assistant reported error text while excluding private
+    reasoning/thinking/tool_calls, retain authored persona material in lightweight Views, enforce
+    extension context_views during both collection and Pack projection, move
+    older relevant Persona history into a tail history_recall message, move
+    runtime context out of provider-neutral system text, and avoid duplicating
+    native JSON Schema in system prompts. AG99live pre-action now uses the
+    paired Core persona parser and independent motion reuses the current
+    allowed persona.summary projection. Preserve personality semantics, motion
+    mixer, segment scheduling, output protocols, NeuroBrain and Passive scope.
+  validation: >-
+    Scoped checks passed in overlapping batches: 3 persona/view/output-contract cases, 8 target
+    projection cases, 5 metadata/renderer cases, 74 expression-agent cases,
+    20 renderer cases, 3 additional target/history cases, and paired AG99live
+    pre-action and independent-motion cases. Scoped Ruff, compileall and diff
+    checks passed; plugin structure check has zero errors and warnings.
+    Broader prompt pipeline reported four failures and target suite one failure;
+    a clean-HEAD loader reproduced those same failures, so they are retained as
+    baseline gaps rather than attributed to this patch.
+  evidence_gap: >-
+    No live Provider or warm-cache measurement, restart, voice, or Live2D
+    acceptance. The paired Core and AG99live sources must be deployed/reloaded
+    together. Runtime context is now tail-positioned for all provider-neutral
+    renderers; actual provider-specific cache behavior still requires live
+    weighted cache-hit observation. Existing unrelated AG99live user document
+    remains untracked and untouched.

@@ -7,12 +7,25 @@ This module parses the legacy free-form persona prompt into structured segments.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from copy import deepcopy
+from typing import Any
 
 _SECTION_ALIASES = {
     "身份": "identity",
     "身份与关系": "identity",
     "核心人格": "core_persona",
+    "核心性格": "core_persona",
+    "性格": "core_persona",
+    "性格特征": "core_persona",
+    "性格倾向": "core_persona",
+    "personality": "core_persona",
+    "personalitytraits": "core_persona",
+    "表现习惯": "expression_habits",
+    "动作偏好": "expression_habits",
+    "肢体表现": "expression_habits",
+    "expressionhabits": "expression_habits",
+    "情绪表达": "emotional_continuity",
     "情绪与连续性": "emotional_continuity",
     "示例语气": "tone_examples",
     "对话风格": "dialogue_style",
@@ -53,6 +66,7 @@ def _empty_persona_segments() -> dict[str, object]:
     return {
         "identity": [],
         "core_persona": [],
+        "expression_habits": [],
         "emotional_continuity": [],
         "tone_examples": [],
         "dialogue_style": [],
@@ -245,6 +259,7 @@ def parse_legacy_persona_prompt(prompt: str) -> dict[str, object]:
         if current_section in {
             "identity",
             "core_persona",
+            "expression_habits",
             "emotional_continuity",
             "tone_examples",
             "dialogue_style",
@@ -279,3 +294,56 @@ def finalize_persona_segments(parsed: dict[str, object]) -> dict[str, object]:
             merged[key] = value
 
     return merged
+
+
+def build_persona_prompt_projection(segments: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep authored persona rules intact, removing only empty structure.
+
+    Lightweight calls save context through their history/material views. A fixed
+    line limit or a heading whitelist must not silently change their persona.
+    """
+    def compact(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                key: cleaned for key, item in value.items()
+                if (cleaned := compact(item)) not in (None, "", [], {})
+            }
+        if isinstance(value, (list, tuple)):
+            return [
+                cleaned for item in value
+                if (cleaned := compact(item)) not in (None, "", [], {})
+            ]
+        return deepcopy(value)
+
+    return compact(segments)
+
+
+def build_persona_motion_prompt(prompt: str) -> str:
+    """Project authored personality and performance rules with the shared parser.
+
+    Free-form personas have no separately identifiable core; keep their original
+    text instead of inventing a personality or silently disabling reactions.
+    """
+    segments = parse_legacy_persona_prompt(prompt)
+    if not segments["core_persona"] or segments["unparsed_sections"]:
+        return prompt.strip()
+    selected = build_persona_prompt_projection({
+        key: segments[key]
+        for key in (
+            "core_persona", "expression_habits", "emotional_continuity",
+            "interaction_reactions", "personality_state_machine", "stable_rules",
+        )
+    })
+
+    def lines(value: Any):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                yield f"{key}:"
+                yield from lines(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from lines(item)
+        else:
+            yield str(value)
+
+    return "\n".join(lines(selected))

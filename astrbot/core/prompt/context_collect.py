@@ -44,6 +44,7 @@ from .extensions.types import (
     PROMPT_EXTENSION_MOUNTS,
     PROMPT_EXTENSION_VALUE_KINDS,
     PromptExtension,
+    extension_visible_in_context_view,
 )
 from .interfaces.context_collector_inferface import ContextCollectorInterface
 from .interfaces.prompt_extension_collector_interface import (
@@ -628,8 +629,8 @@ async def _run_prompt_extension_collectors(
                     extension,
                     allow_control_plane_targets=allow_control_plane_targets,
                 )
-                if normalized is None or not _prompt_extension_allowed_for_view(
-                    normalized,
+                if normalized is None or not extension_visible_in_context_view(
+                    normalized.mount, normalized.meta,
                     allowed_context_view,
                 ):
                     continue
@@ -711,8 +712,8 @@ async def _run_prompt_extension_collectors(
                 extension,
                 allow_control_plane_targets=allow_control_plane_targets,
             )
-            if normalized is not None and _prompt_extension_allowed_for_view(
-                normalized,
+            if normalized is not None and extension_visible_in_context_view(
+                normalized.mount, normalized.meta,
                 allowed_context_view,
             ):
                 accepted.append(normalized)
@@ -772,19 +773,6 @@ async def _run_prompt_extension_collectors(
         )
     record_prompt_timings(event, "plugin_collectors", sorted(timings, key=lambda row: row["stage"]))
     return outcomes
-
-
-def _prompt_extension_allowed_for_view(
-    extension: PromptExtension,
-    context_view: str | None,
-) -> bool:
-    """Require context-mounted extensions to opt in to view-limited prompts."""
-    if context_view is None or extension.mount != "context":
-        return True
-    declared_views = extension.meta.get("context_views", [])
-    if not isinstance(declared_views, (list, tuple, set, frozenset)):
-        return False
-    return context_view in declared_views
 
 
 def _safe_task_result(task: asyncio.Future) -> Any:

@@ -864,11 +864,14 @@ def test_direct_slot_with_malformed_targets_is_hidden():
         assert project_context_pack(pack, target).get_slot("input.text") is None
 
 
-def test_planner_view_removes_runtime_diagnostics_without_mutating_source():
+def test_planner_preserves_reported_errors_without_private_reasoning_or_calls():
     source = _canonical_pack()
     history = source.get_slot("conversation.history")
     history.value["turns"][-1] = {
-        "user_message": {"role": "user", "content": "请继续"},
+        "user_message": {
+            "role": "user",
+            "content": "请修复 Error code: 400，失败时保留原始配置。",
+        },
         "assistant_message": {
             "role": "assistant",
             "content": "Traceback (most recent call last): failed",
@@ -890,11 +893,12 @@ def test_planner_view_removes_runtime_diagnostics_without_mutating_source():
     assistant = planner.get_slot("conversation.history").value["turns"][-1][
         "assistant_message"
     ]
-    assert assistant["content"] == "[runtime diagnostic omitted]"
+    assert assistant["content"] == "Traceback (most recent call last): failed"
+    assert "保留原始配置" in planner.get_slot("conversation.history").value["turns"][-1]["user_message"]["content"]
     assert "reasoning_content" not in assistant
     assert "tool_calls" not in assistant
     assert planner.get_slot("conversation.group_recent").value["records"][-1] == {
-        "content": "[runtime diagnostic omitted]"
+        "content": "bot: 获取图片描述失败: invalid image input"
     }
     assert "Traceback" in history.value["turns"][-1]["assistant_message"]["content"]
 
@@ -999,15 +1003,16 @@ def test_persona_history_keeps_relevant_old_anchor_after_recent_compaction():
     turns = []
     for index in range(60):
         topic = "星图计划" if index == 4 else "日常闲聊"
+        message_length = 80 if index == 4 else 900
         turns.append(
             {
                 "user_message": {
                     "role": "user",
-                    "content": topic + "甲" * 900,
+                    "content": topic + "甲" * message_length,
                 },
                 "assistant_message": {
                     "role": "assistant",
-                    "content": topic + "乙" * 900,
+                    "content": topic + "乙" * message_length,
                 },
             }
         )
@@ -1029,7 +1034,7 @@ def test_persona_history_keeps_relevant_old_anchor_after_recent_compaction():
     )
 
     history = persona.get_slot("conversation.history")
-    retained_turns = history.value["turns"]
+    retained_turns = history.value["relevant_anchors"]
     projection = history.meta["persona_history_projection"]
 
     assert projection["candidate_turn_count"] == 60
@@ -1038,6 +1043,17 @@ def test_persona_history_keeps_relevant_old_anchor_after_recent_compaction():
     assert any(
         turn["user_message"]["content"].startswith("星图计划")
         for turn in retained_turns
+    )
+    first = PromptRenderEngine().render(pack, target="persona", context_view="turn_plan")
+    pack.get_slot("input.text").value = "只聊日常"
+    second = PromptRenderEngine().render(pack, target="persona", context_view="turn_plan")
+    first_recent = [message for message in first.messages[:-1] if not message.get("_no_save")]
+    second_recent = [message for message in second.messages[:-1] if not message.get("_no_save")]
+    assert first_recent == second_recent
+    assert "星图计划" in str(first.messages)
+    assert any(
+        message.get("_no_save") and "Selected excerpts" in str(message["content"])
+        for message in first.messages
     )
     assert len(pack.get_slot("conversation.history").value["turns"]) == 60
 
