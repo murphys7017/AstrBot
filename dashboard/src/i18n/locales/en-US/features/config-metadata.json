@@ -1232,15 +1232,25 @@
       "description": "Core Router and Planner",
       "hint": "The independent Router decides whether a request enters Core; the Planner builds CoreTaskSpec only for routed requests. Personal does not route.",
       "interaction_middleware": {
+        "router_provider_id": {
+          "description": "Core Router Model Provider",
+          "hint": "Empty reuses the Planner provider; if Planner is also empty, the Persona provider is used."
+        },
+        "router_temperature": {
+          "description": "Core Router Temperature"
+        },
+        "router_timeout": {
+          "description": "Core Router Timeout Seconds"
+        },
         "planner_provider_id": {
-          "description": "Core Router and Planner Model Provider",
-          "hint": "The Router and Planner share this model; empty uses the Persona expression model."
+          "description": "Core Planner Model Provider",
+          "hint": "The Planner uses strict Prompt-only JSON; empty uses the Persona expression model."
         },
         "planner_temperature": {
-          "description": "Core Router and Planner Temperature"
+          "description": "Core Planner Temperature"
         },
         "planner_timeout": {
-          "description": "Core Router and Planner Timeout Seconds"
+          "description": "Core Planner Timeout Seconds"
         }
       }
     },

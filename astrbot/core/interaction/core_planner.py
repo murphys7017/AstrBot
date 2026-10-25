@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from astrbot import logger
 from astrbot.core.deadline import TurnDeadlineExceeded
@@ -10,8 +11,8 @@ from astrbot.core.prompt.render import (
     PromptRenderProfile,
     PromptTarget,
 )
-from astrbot.core.prompt.structured_json import extract_json_object
-from astrbot.core.provider import Provider, supports_strict_tool_call_output_contract
+from astrbot.core.provider import Provider
+from astrbot.core.provider.entities import LLMResponse
 from astrbot.core.star.context import Context
 
 from .context_builder import (
@@ -58,7 +59,7 @@ def build_core_planner_system_prompt() -> str:
 
 
 def build_core_planner_prompt() -> str:
-    return "为 Router 已路由的当前请求生成 CoreTaskSpec，并按输出契约返回 execute。"
+    return "为 Router 已路由的当前请求生成 CoreTaskSpec，仅输出符合决策结构的 JSON 对象，decision 必须为 execute。"
 
 
 def build_core_planner_output_contract() -> OutputContract:
@@ -84,7 +85,7 @@ def build_core_planner_output_contract() -> OutputContract:
         ],
     }
     return OutputContract(
-        mode="tool_call",
+        mode="json_object",
         strict=True,
         schema={
             "type": "object",
@@ -98,38 +99,21 @@ def build_core_planner_output_contract() -> OutputContract:
             },
             "required": ["decision", "core_task_spec"],
         },
-        preferred_tool_name="core_execution_plan",
-        allow_text_fallback=False,
     )
 
 
-def extract_core_planning_decision(
-    text: object,
-    *,
-    llm_response,
-    output_contract: OutputContract,
-    compiled_output_contract: CompiledOutputContract,
-) -> CorePlanningDecision:
-    preferred_name = output_contract.preferred_tool_name
-    for tool_name, tool_arg in zip(
-        list(getattr(llm_response, "tools_call_name", []) or []),
-        list(getattr(llm_response, "tools_call_args", []) or []),
-        strict=False,
+def extract_core_planning_decision(llm_response: LLMResponse) -> CorePlanningDecision:
+    if llm_response.tools_call_name or llm_response.tools_call_args:
+        raise CorePlannerError("unexpected_core_planner_tool_call")
+    try:
+        payload = json.loads(llm_response.completion_text)
+    except (TypeError, ValueError) as exc:
+        raise CorePlannerError("invalid_core_planner_payload") from exc
+    decision = CorePlanningDecision.from_mapping(payload)
+    if (
+        decision is None
+        or "requires_visual_understanding" not in payload["core_task_spec"]
     ):
-        if preferred_name and tool_name != preferred_name:
-            continue
-        payload = tool_arg if isinstance(tool_arg, dict) else extract_json_object(tool_arg)
-        decision = CorePlanningDecision.from_mapping(payload)
-        if decision is not None:
-            return decision
-
-    if compiled_output_contract.strategy != "prompt_only":
-        raise CorePlannerError(
-            "missing_core_planner_tool_call",
-            "core_execution_plan tool call missing",
-        )
-    decision = CorePlanningDecision.from_mapping(extract_json_object(text))
-    if decision is None:
         raise CorePlannerError(
             "invalid_core_planner_payload",
             "Core Planner returned an invalid structured result",
@@ -138,6 +122,38 @@ def extract_core_planning_decision(
 
 
 class CorePlannerAgent:
+    async def ensure_available(
+        self,
+        event,
+        plugin_context: Context,
+        interaction_config: InteractionAgentConfig,
+    ) -> str:
+        """Validate the configured Planner before Router can delegate a turn."""
+
+        try:
+            provider, provider_id = await resolve_interaction_chat_provider(
+                event,
+                plugin_context,
+                interaction_config.planner_provider_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise CorePlannerError("provider_resolution_error", str(exc)) from exc
+        self._validate_provider(provider, provider_id)
+        return provider_id
+
+    @staticmethod
+    def _validate_provider(provider: object, provider_id: str) -> None:
+        if not isinstance(provider, Provider):
+            raise CorePlannerError(
+                "provider_unavailable",
+                f"provider unavailable: provider_id={provider_id}",
+            )
+        if not provider.supports_output_contract_strategy("prompt_only"):
+            raise CorePlannerError(
+                "unsupported_output_contract",
+                "Core Planner requires a provider with prompt_only support",
+            )
+
     async def plan(
         self,
         event,
@@ -149,17 +165,7 @@ class CorePlannerAgent:
             plugin_context,
             interaction_config.planner_provider_id,
         )
-        if not isinstance(provider, Provider):
-            raise CorePlannerError(
-                "provider_unavailable",
-                f"provider unavailable: provider_id={provider_id}",
-            )
-        required_contract = build_core_planner_output_contract()
-        if not supports_strict_tool_call_output_contract(provider, required_contract):
-            raise CorePlannerError(
-                "unsupported_output_contract",
-                "Core Planner requires a provider with protocol_tool_call support",
-            )
+        self._validate_provider(provider, provider_id)
         render_result = await self._prepare_render_result(
             event,
             plugin_context,
@@ -173,10 +179,10 @@ class CorePlannerAgent:
             CompiledOutputContract,
         ):
             raise CorePlannerError("unsupported_output_contract")
-        if not supports_strict_tool_call_output_contract(provider, contract, compiled):
+        if contract.mode != "json_object" or compiled.strategy != "prompt_only":
             raise CorePlannerError(
                 "unsupported_output_contract",
-                "Core Planner requires a provider with protocol_tool_call support",
+                "Core Planner requires a prompt-only JSON output contract",
             )
         deadline = get_interaction_turn_deadline(event)
         try:
@@ -197,7 +203,6 @@ class CorePlannerAgent:
                     ),
                     system_prompt=render_result.system_prompt or "",
                     temperature=interaction_config.planner_temperature,
-                    tool_choice="required",
                     output_contract=contract,
                     compiled_output_contract=compiled,
                 )
@@ -207,13 +212,11 @@ class CorePlannerAgent:
             raise CorePlannerError("timeout") from None
         except Exception as exc:
             raise CorePlannerError("model_error", str(exc)) from exc
-        decision = extract_core_planning_decision(
-            response.completion_text,
-            llm_response=response,
-            output_contract=contract,
-            compiled_output_contract=compiled,
-        )
-        if decision.action is not CorePlanningAction.EXECUTE or decision.task_spec is None:
+        decision = extract_core_planning_decision(response)
+        if (
+            decision.action is not CorePlanningAction.EXECUTE
+            or decision.task_spec is None
+        ):
             raise CorePlannerError(
                 "delegated_task_not_executable",
                 "Core Planner must return execute for a Router-routed task",

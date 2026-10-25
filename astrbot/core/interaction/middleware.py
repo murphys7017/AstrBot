@@ -79,6 +79,7 @@ from .turn_state import (
     mark_interaction_turn_cancelled,
     mark_interaction_turn_completed,
     mark_interaction_turn_core_delegated,
+    mark_interaction_turn_core_planner_recovered_via_persona,
     mark_interaction_turn_failed,
     mark_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_postprocess_dispatched,
@@ -916,11 +917,51 @@ class InteractionMiddleware:
         try:
             if self.plugin_context is None:
                 raise CoreRouterError("plugin_context_unavailable")
-            router_decision = await self.core_router.route(
-                event,
-                self.plugin_context,
-                interaction_config,
+            planner_preflight_required = bool(
+                interaction_config.expression_provider_id
+                or interaction_config.planner_provider_id
+                or interaction_config.router_provider_id
             )
+            if planner_preflight_required:
+                try:
+                    await self.core_planner.ensure_available(
+                        event,
+                        self.plugin_context,
+                        interaction_config,
+                    )
+                except CorePlannerError as exc:
+                    record_interaction_turn_core_planner_failure(event, exc.reason)
+                    mark_interaction_turn_core_planner_recovered_via_persona(event)
+                    logger.warning(
+                        "Core Router skipped because Planner is unavailable: "
+                        "turn_id=%s platform_id=%s reason=%s",
+                        turn_state.turn_id,
+                        event.get_platform_id(),
+                        exc.reason,
+                    )
+                    route = InteractionRouteDecision(
+                        route_mode=InteractionRouteMode.PERSONA,
+                        reason=f"core_planner_unavailable:{exc.reason}",
+                    )
+                    router_decision = None
+                else:
+                    router_decision = await self.core_router.route(
+                        event,
+                        self.plugin_context,
+                        interaction_config,
+                    )
+                    route = InteractionRouteDecision.from_core_router_decision(
+                        router_decision
+                    )
+            else:
+                router_decision = await self.core_router.route(
+                    event,
+                    self.plugin_context,
+                    interaction_config,
+                )
+                route = InteractionRouteDecision.from_core_router_decision(
+                    router_decision
+                )
         except asyncio.CancelledError:
             raise
         except TurnDeadlineExceeded:
@@ -950,9 +991,10 @@ class InteractionMiddleware:
             )
         else:
             turn_state.core_router_decision = router_decision
-            route = InteractionRouteDecision.from_core_router_decision(
-                router_decision
-            )
+            if router_decision is not None:
+                route = InteractionRouteDecision.from_core_router_decision(
+                    router_decision
+                )
         turn_state.core_router_completed_monotonic = (
             asyncio.get_running_loop().time()
         )

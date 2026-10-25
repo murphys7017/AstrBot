@@ -439,12 +439,15 @@ and plugin tools while still allowing compatible module-path keys to be entered 
 
 - `enabled`: Enable Interaction Middleware. Omit it to use the default; set it to
   `false` to retain Core-only behavior.
-- `expression_provider_id` and `planner_provider_id`:
+- `expression_provider_id`, `router_provider_id`, and `planner_provider_id`:
   Optional per-stage model overrides. Leave a field empty to reuse the current
   session's configured chat provider; an explicit ID takes precedence.
-- `planner_provider_id`, `planner_temperature`, and `planner_timeout` are shared
-  by the independent Core Router and Core Planner. The Router runs alongside
-  Personal and only invokes the Planner when it routes a request to Core.
+- `router_provider_id`, `router_temperature`, and `router_timeout` configure the
+  independent Core Router. `planner_provider_id`, `planner_temperature`, and
+  `planner_timeout` configure the Core Planner. An empty Router provider reuses
+  the Planner provider; an empty Planner provider reuses the Persona provider.
+  The Router runs alongside Personal and only invokes the Planner after routing
+  a request to Core.
 - `parallel_plugin_runtime_enabled`: Enable the concurrent Personal and Official
   Plugin Job path. It defaults to `false` and applies to the complete
   plugin path, not individual plugins. Disabled keeps the Handler-first

@@ -342,6 +342,9 @@ class InteractionAgentConfig:
     #: Prompt Extension collectors, not a per-plugin timeout; it can only shorten
     #: the turn's own deadline budget.
     plugin_enrichment_timeout: float = 3.0
+    router_provider_id: str = ""
+    router_temperature: float = 0.1
+    router_timeout: float = 8.0
 
 
 @dataclass(slots=True)

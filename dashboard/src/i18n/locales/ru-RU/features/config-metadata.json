@@ -1231,15 +1231,25 @@
             "description": "Core Router и Planner",
             "hint": "Независимый Router решает, передавать ли запрос в Core; Planner формирует CoreTaskSpec только для переданных запросов. Personal не выбирает маршрут.",
             "interaction_middleware": {
+                "router_provider_id": {
+                    "description": "Провайдер модели Core Router",
+                    "hint": "Если поле пусто, используется провайдер Planner; если Planner также пуст, используется модель выражения Persona."
+                },
+                "router_temperature": {
+                    "description": "Температура Core Router"
+                },
+                "router_timeout": {
+                    "description": "Таймаут Core Router (сек)"
+                },
                 "planner_provider_id": {
-                    "description": "Провайдер модели Core Router и Planner",
-                    "hint": "Router и Planner используют эту модель; если поле пусто, используется модель выражения Persona."
+                    "description": "Провайдер модели Core Planner",
+                    "hint": "Planner использует строгий Prompt-only JSON; если поле пусто, используется модель выражения Persona."
                 },
                 "planner_temperature": {
-                    "description": "Температура Core Router и Planner"
+                    "description": "Температура Core Planner"
                 },
                 "planner_timeout": {
-                    "description": "Таймаут Core Router и Planner (сек)"
+                    "description": "Таймаут Core Planner (сек)"
                 }
             }
         },

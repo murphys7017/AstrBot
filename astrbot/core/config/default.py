@@ -263,6 +263,9 @@ DEFAULT_CONFIG = {
         "persona_segment_stream_enabled": False,
         "expression_temperature": 0.6,
         "expression_timeout": 8.0,
+        "router_provider_id": "",
+        "router_temperature": 0.1,
+        "router_timeout": 8.0,
         "planner_provider_id": "",
         "planner_temperature": 0.1,
         "planner_timeout": 8.0,
@@ -4619,19 +4622,34 @@ CONFIG_METADATA_3 = {
                 "type": "object",
                 "hint": "独立 Router 判断当前请求是否进入 Core；Planner 只为已路由请求生成 CoreTaskSpec。Personal 不决定路由。",
                 "items": {
-                    "interaction_middleware.planner_provider_id": {
-                        "description": "Core 路由与规划模型提供商",
+                    "interaction_middleware.router_provider_id": {
+                        "description": "Core Router 模型提供商",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "Router 与 Planner 共用此模型；留空时使用 Persona 表达模型。",
+                        "hint": "留空时复用 Planner 模型；Planner 也留空时使用 Persona 表达模型。",
+                    },
+                    "interaction_middleware.router_temperature": {
+                        "description": "Core Router 温度",
+                        "type": "float",
+                        "slider": {"min": 0, "max": 2, "step": 0.05},
+                    },
+                    "interaction_middleware.router_timeout": {
+                        "description": "Core Router 超时秒数",
+                        "type": "float",
+                    },
+                    "interaction_middleware.planner_provider_id": {
+                        "description": "Core Planner 模型提供商",
+                        "type": "string",
+                        "_special": "select_provider",
+                        "hint": "Planner 使用严格 Prompt-only JSON；留空时使用 Persona 表达模型。",
                     },
                     "interaction_middleware.planner_temperature": {
-                        "description": "Core 路由与规划温度",
+                        "description": "Core Planner 温度",
                         "type": "float",
                         "slider": {"min": 0, "max": 2, "step": 0.05},
                     },
                     "interaction_middleware.planner_timeout": {
-                        "description": "Core 路由与规划超时秒数",
+                        "description": "Core Planner 超时秒数",
                         "type": "float",
                     },
                 },

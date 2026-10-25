@@ -56,6 +56,25 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
     planner_provider_id = str(
         interaction_config.get("planner_provider_id", "") or ""
     ) or expression_provider_id
+    planner_temperature = _float_or_default(
+        interaction_config.get("planner_temperature", 0.1),
+        0.1,
+    )
+    planner_timeout = _float_or_default(
+        interaction_config.get("planner_timeout", 8.0),
+        8.0,
+    )
+    router_provider_id = str(
+        interaction_config.get("router_provider_id", "") or ""
+    ) or planner_provider_id
+    router_temperature = _float_or_default(
+        interaction_config.get("router_temperature", planner_temperature),
+        planner_temperature,
+    )
+    router_timeout = _float_or_default(
+        interaction_config.get("router_timeout", planner_timeout),
+        planner_timeout,
+    )
     quiet_hours_enabled = bool(
         interaction_config.get("personal_runtime_quiet_hours_enabled", False)
     )
@@ -103,15 +122,12 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
             interaction_config.get("expression_timeout", 8.0),
             8.0,
         ),
+        router_provider_id=router_provider_id,
+        router_temperature=router_temperature,
+        router_timeout=router_timeout,
         planner_provider_id=planner_provider_id,
-        planner_temperature=_float_or_default(
-            interaction_config.get("planner_temperature", 0.1),
-            0.1,
-        ),
-        planner_timeout=_float_or_default(
-            interaction_config.get("planner_timeout", 8.0),
-            8.0,
-        ),
+        planner_temperature=planner_temperature,
+        planner_timeout=planner_timeout,
         personal_policy_enabled=bool(
             interaction_config.get("personal_policy_enabled", False)
         ),

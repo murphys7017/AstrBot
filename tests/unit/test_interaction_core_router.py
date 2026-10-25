@@ -106,21 +106,25 @@ async def test_core_router_calls_selected_provider_with_structured_json_contract
         )
     )
     monkeypatch.setattr("astrbot.core.interaction.core_router.Provider", Provider)
+    resolve_provider = AsyncMock(return_value=(provider, "router"))
     monkeypatch.setattr(
         "astrbot.core.interaction.core_router.resolve_interaction_chat_provider",
-        AsyncMock(return_value=(provider, "router")),
+        resolve_provider,
     )
 
     decision = await agent.route(
         Event(),
         object(),
         InteractionAgentConfig(
-            planner_provider_id="router",
-            planner_timeout=2.0,
+            router_provider_id="router",
+            router_temperature=0.2,
+            router_timeout=2.0,
+            planner_provider_id="planner",
         ),
     )
 
     assert decision.should_route_to_core is True
     assert provider.calls[0]["output_contract"].mode == "json_object"
     assert provider.calls[0]["system_prompt"] == "router policy"
+    assert resolve_provider.await_args.args[2] == "router"
     agent._prepare_render_result.assert_awaited_once()

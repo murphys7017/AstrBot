@@ -185,6 +185,7 @@ class BotProfileConfig:
         model_policy = {
             "chat_provider_id": provider_settings.get("default_provider_id", ""),
             "expression_provider_id": interaction.get("expression_provider_id", ""),
+            "router_provider_id": interaction.get("router_provider_id", ""),
             "planner_provider_id": interaction.get("planner_provider_id", ""),
             "image_caption_provider_id": provider_settings.get(
                 "default_image_caption_provider_id", ""

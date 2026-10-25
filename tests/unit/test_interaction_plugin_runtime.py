@@ -268,6 +268,9 @@ def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
     default_config = load_interaction_agent_config({})
     assert default_config.enabled is True
     assert default_config.persona_history_window_size == 300
+    assert default_config.router_provider_id == default_config.planner_provider_id
+    assert default_config.router_temperature == default_config.planner_temperature
+    assert default_config.router_timeout == default_config.planner_timeout
     assert default_config.parallel_plugin_runtime_enabled is False
     assert default_config.plugin_parallel_window_seconds == 3.0
     assert default_config.persona_plugin_context_mode == "wait_complete"
@@ -286,6 +289,27 @@ def test_personal_runtime_is_enabled_by_default_but_respects_explicit_disable():
     assert is_middleware_enabled({"interaction_middleware": {"enabled": False}}) is False
 
 
+def test_router_and_planner_model_settings_are_independently_loaded():
+    config = load_interaction_agent_config(
+        {
+            "interaction_middleware": {
+                "expression_provider_id": "persona",
+                "router_provider_id": "router",
+                "router_temperature": 0.0,
+                "router_timeout": 2,
+                "planner_provider_id": "planner",
+                "planner_temperature": 0.2,
+                "planner_timeout": 11,
+            }
+        }
+    )
+
+    assert config.router_provider_id == "router"
+    assert config.router_temperature == 0.0
+    assert config.router_timeout == 2.0
+    assert config.planner_provider_id == "planner"
+    assert config.planner_temperature == 0.2
+    assert config.planner_timeout == 11.0
 def test_expression_output_mode_is_only_native_for_json():
     config = load_interaction_agent_config(
         {

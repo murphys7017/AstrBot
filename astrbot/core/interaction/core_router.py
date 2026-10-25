@@ -132,7 +132,7 @@ class CoreRouterAgent:
         provider, provider_id = await resolve_interaction_chat_provider(
             event,
             plugin_context,
-            interaction_config.planner_provider_id,
+            interaction_config.router_provider_id,
         )
         if not isinstance(provider, Provider):
             raise CoreRouterError(
@@ -159,10 +159,10 @@ class CoreRouterAgent:
             timeout_context = (
                 deadline.enforce(
                     "core_router",
-                    interaction_config.planner_timeout,
+                    interaction_config.router_timeout,
                 )
                 if deadline is not None
-                else asyncio.timeout(interaction_config.planner_timeout)
+                else asyncio.timeout(interaction_config.router_timeout)
             )
             async with timeout_context:
                 response = await provider.text_chat(
@@ -172,7 +172,7 @@ class CoreRouterAgent:
                         provider=provider,
                     ),
                     system_prompt=render_result.system_prompt or "",
-                    temperature=interaction_config.planner_temperature,
+                    temperature=interaction_config.router_temperature,
                     output_contract=contract,
                     compiled_output_contract=compiled,
                 )
