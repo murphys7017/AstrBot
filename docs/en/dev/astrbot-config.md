@@ -431,7 +431,9 @@ Settings for Interaction Middleware and Personal Runtime. `enabled` defaults to
 expression remains disabled by default. An actionable Observation is evaluated only
 when `personal_policy_enabled` is enabled and
 `personal_policy_provider_id` is explicitly selected. Policy can only decide
-`ignore`, `observe`, `express`, or `defer`; it cannot call Core or tools.
+`ignore`, `observe`, `express`, or `defer` through ordinary JSON text; it cannot call
+Core or tools and does not require Provider tool-call support. Code validates the
+output structure and action constraints; invalid output keeps the runtime in `observe`.
 
 The Dashboard exposes the lifecycle and tool target maps under **Config Files →
 Interaction Middleware → General**. Its structured editor suggests installed plugins
@@ -655,6 +657,9 @@ Arguments for `pip install`. E.g., `-i https://mirrors.tuna.tsinghua.edu.cn/pypi
 PyPI index URL. Default is `https://mirrors.aliyun.com/pypi/simple/`.
 
 ### `timezone`
+
+Personal Runtime daily quotas and Policy time context also use this timezone,
+regardless of whether quiet hours are enabled.
 
 Timezone setting. Please fill in an IANA timezone name, such as Asia/Shanghai. If empty, the system default timezone is used. See all timezones at: [IANA Time Zone Database](https://data.iana.org/time-zones/tzdb-2021a/zone1970.tab).
 

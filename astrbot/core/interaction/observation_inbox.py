@@ -86,9 +86,7 @@ class ObservationBatch:
             and item.revision > 0
         }
         normalized_held_since = (
-            min(float(held_since), float(closed_at))
-            if held_since is not None
-            else None
+            min(float(held_since), float(closed_at)) if held_since is not None else None
         )
         return cls(
             batch_id=uuid.uuid4().hex,
@@ -137,7 +135,7 @@ class ObservationInbox:
         self._opened_at: float | None = None
         self._held_since: float | None = None
         self._release_reason: str | None = None
-        self._discarded_material_revision = 0
+        self._discarded_material_revisions: set[int] = set()
         self.overflow_drop_count = 0
         self.expired_drop_count = 0
         self.cancelled_drop_count = 0
@@ -219,13 +217,13 @@ class ObservationInbox:
                 if material is None:
                     material = replaced.material
                 elif material.revision != replaced.material.revision:
-                    self._discard_item_material(replaced)
+                    self._discard_material(replaced.material)
 
         if self.pending_count >= self._max_pending:
             oldest_id = next(iter(self._items))
             dropped = self._remove(oldest_id)
             if dropped is not None:
-                self._discard_item_material(dropped)
+                self._discard_material(dropped.material)
             self.overflow_drop_count += 1
             dropped_ids.append(oldest_id)
             reason_codes.append("inbox_overflow_drop_oldest")
@@ -297,10 +295,16 @@ class ObservationInbox:
             )
             for observation in batch.observations
             if not (
-                observation.cancel_event is not None and observation.cancel_event.is_set()
+                observation.cancel_event is not None
+                and observation.cancel_event.is_set()
             )
         )
         self.cancelled_drop_count += len(batch.observations) - len(restored)
+        for observation in batch.observations:
+            if observation.observation_id not in restored:
+                self._discard_material(
+                    batch.material_by_observation_id.get(observation.observation_id)
+                )
         for observation_id, item in self._items.items():
             replaced = restored.pop(observation_id, None)
             item = self._merge_replacement_material(replaced, item)
@@ -320,7 +324,7 @@ class ObservationInbox:
         overflow = max(0, len(restored) - self._max_pending)
         for _ in range(overflow):
             _, dropped = restored.popitem(last=False)
-            self._discard_item_material(dropped)
+            self._discard_material(dropped.material)
         self.overflow_drop_count += overflow
         self._items = restored
         self._coalesced_ids = {
@@ -331,9 +335,7 @@ class ObservationInbox:
         if restored:
             opened_at = self._opened_at
             self._opened_at = min(
-                value
-                for value in (batch.opened_at, opened_at)
-                if value is not None
+                value for value in (batch.opened_at, opened_at) if value is not None
             )
             self._held_since = batch.held_since or batch.closed_at
             self._release_reason = str(hold_reason or "").strip() or None
@@ -348,12 +350,12 @@ class ObservationInbox:
         self._opened_at = None
         self._held_since = None
         self._release_reason = None
-        self._discarded_material_revision = 0
+        self._discarded_material_revisions.clear()
 
-    def take_discarded_material_revision(self) -> int:
-        revision = self._discarded_material_revision
-        self._discarded_material_revision = 0
-        return revision
+    def take_discarded_material_revisions(self) -> set[int]:
+        revisions = self._discarded_material_revisions
+        self._discarded_material_revisions = set()
+        return revisions
 
     def _remove_stale(self, *, now: float | None) -> list[str]:
         expired_ids = [
@@ -362,13 +364,14 @@ class ObservationInbox:
             if (
                 item.observation.cancel_event is not None
                 and item.observation.cancel_event.is_set()
-                or now is not None and not item.observation.is_current(now)
+                or now is not None
+                and not item.observation.is_current(now)
             )
         ]
         for observation_id in expired_ids:
             removed = self._remove(observation_id)
             if removed is not None:
-                self._discard_item_material(removed)
+                self._discard_material(removed.material)
                 if (
                     removed.observation.cancel_event is not None
                     and removed.observation.cancel_event.is_set()
@@ -392,27 +395,21 @@ class ObservationInbox:
         if item.material is None:
             return _InboxItem(observation=item.observation, material=replaced.material)
         if item.material.revision != replaced.material.revision:
-            self._discard_item_material(replaced)
+            self._discard_material(replaced.material)
         return item
-
-    def _discard_item_material(self, item: _InboxItem) -> None:
-        # Discarding a transient source must not settle older, unrelated pending
-        # material through the shared revision watermark, including replacement.
-        if item.observation.cancel_event is None:
-            self._discard_material(item.material)
 
     def _discard_material(self, material: ObservationMaterial | None) -> None:
         if material is not None:
-            self._discarded_material_revision = max(
-                self._discarded_material_revision,
-                material.revision,
-            )
+            self._discarded_material_revisions.add(material.revision)
 
     def _remove(self, observation_id: str) -> _InboxItem | None:
         item = self._items.pop(observation_id, None)
         if item is None or item.observation.coalesce_identity is None:
             return item
-        if self._coalesced_ids.get(item.observation.coalesce_identity) == observation_id:
+        if (
+            self._coalesced_ids.get(item.observation.coalesce_identity)
+            == observation_id
+        ):
             self._coalesced_ids.pop(item.observation.coalesce_identity, None)
         return item
 

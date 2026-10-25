@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -79,6 +80,9 @@ class PersonalState:
     daily_proactive_outputs: int = 0
     last_gate_reason: str | None = None
     last_policy_action: str | None = None
+    _unsettled_material_revisions: set[int] = field(
+        default_factory=set, init=False, repr=False
+    )
 
     def mark_turn_active(
         self,
@@ -129,9 +133,7 @@ class PersonalState:
                 self.reply_cooldown_until or cooldown_until,
             )
             if feedback.visible_reply_fingerprint:
-                self.last_expression_fingerprint = (
-                    feedback.visible_reply_fingerprint
-                )
+                self.last_expression_fingerprint = feedback.visible_reply_fingerprint
         if (
             feedback.action_id
             and feedback.delivery_status is PersonalDeliveryStatus.DELIVERED
@@ -159,13 +161,17 @@ class PersonalState:
 
     def record_material_change(self) -> int:
         self.material_revision += 1
+        self._unsettled_material_revisions.add(self.material_revision)
         return self.material_revision
 
-    def settle_material_revision(self, material_revision: int) -> int:
-        revision = min(self.material_revision, max(0, int(material_revision)))
-        self.last_settled_material_revision = max(
-            self.last_settled_material_revision,
-            revision,
+    def settle_material_revisions(self, material_revisions: Iterable[int]) -> int:
+        self._unsettled_material_revisions.difference_update(material_revisions)
+        # A later fact can expire while an earlier fact is still queued or being
+        # evaluated. Only advance past revisions that have all been settled.
+        self.last_settled_material_revision = (
+            min(self._unsettled_material_revisions) - 1
+            if self._unsettled_material_revisions
+            else self.material_revision
         )
         return self.last_settled_material_revision
 
@@ -201,9 +207,7 @@ class PersonalState:
 
     def restore_persistent(self, state: PersonalPersistentState) -> None:
         self.last_user_activity_at = state.last_user_activity_at
-        self.last_idle_initiation_activity_at = (
-            state.last_idle_initiation_activity_at
-        )
+        self.last_idle_initiation_activity_at = state.last_idle_initiation_activity_at
         self.last_expression_at = state.last_expression_at
         self.last_expression_fingerprint = state.last_expression_fingerprint
         self.reply_cooldown_until = state.reply_cooldown_until

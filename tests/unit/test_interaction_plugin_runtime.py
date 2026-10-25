@@ -310,6 +310,22 @@ def test_router_and_planner_model_settings_are_independently_loaded():
     assert config.planner_provider_id == "planner"
     assert config.planner_temperature == 0.2
     assert config.planner_timeout == 11.0
+
+
+def test_runtime_timezone_applies_without_quiet_hours():
+    from astrbot.core.interaction.personal_gate import ObservationGateSettings
+
+    config = load_interaction_agent_config(
+        {
+            "timezone": "UTC",
+            "interaction_middleware": {"personal_runtime_quiet_hours_enabled": False},
+        }
+    )
+    assert config.personal_runtime_timezone == "UTC"
+    settings = ObservationGateSettings(timezone_name=config.personal_runtime_timezone)
+    assert settings.local_datetime(0).isoformat() == "1970-01-01T00:00:00+00:00"
+
+
 def test_expression_output_mode_is_only_native_for_json():
     config = load_interaction_agent_config(
         {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -25,9 +26,8 @@ from astrbot.core.prompt.render import (
     PromptRenderProfile,
     PromptTarget,
 )
-from astrbot.core.prompt.structured_json import extract_json_object
-from astrbot.core.provider import Provider, supports_strict_tool_call_output_contract
-from astrbot.core.provider.entities import ProviderRequest
+from astrbot.core.provider import Provider
+from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
 from .observation_inbox import ObservationBatch
 from .persona_domain import (
@@ -208,9 +208,7 @@ def build_personal_policy_system_prompt() -> str:
         "express 的 reply_intent 必须非空且 defer_seconds=0；"
         "defer 的 reply_intent 必须为空且 defer_seconds>0。"
         "不要使用 reply_intent 解释 ignore、observe 或 defer 的理由。\n"
-        "reason_code 只能从以下值选择："
-        + ", ".join(_MODEL_REASON_CODES)
-        + "。\n"
+        "reason_code 只能从以下值选择：" + ", ".join(_MODEL_REASON_CODES) + "。\n"
         "人格摘要只用于判断表达边界，不要进入角色扮演。"
         "判断表达价值时不要只衡量外部事件的重要性：情绪连续性、关系温度、自然关心、"
         "轻量陪伴和未尽话题的承接，本身也可以构成表达价值；express 不必总是提供任务性信息。"
@@ -233,12 +231,12 @@ def build_personal_policy_system_prompt() -> str:
 
 
 def build_personal_policy_prompt() -> str:
-    return "评估当前运行时事实，并严格按 personal_policy_decision 输出契约返回。"
+    return "评估当前运行时事实，仅输出符合决策结构的 JSON 对象。"
 
 
 def build_personal_policy_output_contract() -> OutputContract:
     return OutputContract(
-        mode="tool_call",
+        mode="json_object",
         strict=True,
         schema={
             "type": "object",
@@ -272,38 +270,24 @@ def build_personal_policy_output_contract() -> OutputContract:
                 "defer_seconds",
             ],
         },
-        preferred_tool_name="personal_policy_decision",
-        allow_text_fallback=False,
     )
 
 
 def extract_personal_policy_decision(
-    llm_response,
-    output_contract: OutputContract,
-    compiled_output_contract: CompiledOutputContract,
+    llm_response: LLMResponse,
 ) -> PersonalPolicyDecision:
-    if (
-        compiled_output_contract.strategy != "protocol_tool_call"
-        or compiled_output_contract.degraded
+    if getattr(llm_response, "tools_call_name", None) or getattr(
+        llm_response, "tools_call_args", None
     ):
-        raise PersonalPolicyError("unsupported_policy_tool_call")
-    preferred_name = output_contract.preferred_tool_name
-    matched_tool_call = False
-    for tool_name, tool_arg in zip(
-        list(getattr(llm_response, "tools_call_name", []) or []),
-        list(getattr(llm_response, "tools_call_args", []) or []),
-        strict=False,
-    ):
-        if preferred_name and tool_name != preferred_name:
-            continue
-        matched_tool_call = True
-        payload = tool_arg if isinstance(tool_arg, dict) else extract_json_object(tool_arg)
-        decision = PersonalPolicyDecision.from_mapping(payload)
-        if decision is not None:
-            return decision
-    if matched_tool_call:
-        raise PersonalPolicyError("invalid_policy_tool_call")
-    raise PersonalPolicyError("missing_policy_tool_call")
+        raise PersonalPolicyError("unexpected_policy_tool_call")
+    try:
+        payload = json.loads(llm_response.completion_text)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise PersonalPolicyError("invalid_policy_payload") from exc
+    decision = PersonalPolicyDecision.from_mapping(payload)
+    if decision is None:
+        raise PersonalPolicyError("invalid_policy_payload")
+    return decision
 
 
 class PersonalPolicyAgent:
@@ -341,15 +325,6 @@ class PersonalPolicyAgent:
                 provider_id=provider_id,
                 failure_code="provider_unavailable",
             )
-        required_contract = build_personal_policy_output_contract()
-        if not supports_strict_tool_call_output_contract(provider, required_contract):
-            return PersonalPolicyEvaluation.fail_closed(
-                batch_id=batch.batch_id,
-                evaluated_at=gate_result.evaluated_at,
-                provider_id=provider_id,
-                failure_code="unsupported_policy_tool_call",
-            )
-
         try:
             render_result = await self._prepare_render_result(
                 runtime_key=runtime_key,
@@ -392,22 +367,19 @@ class PersonalPolicyAgent:
                 batch_id=batch.batch_id,
                 evaluated_at=gate_result.evaluated_at,
                 provider_id=provider_id,
-                failure_code="unsupported_policy_tool_call",
+                failure_code="unsupported_output_contract",
                 selected_slot_names=slot_names,
             )
         if (
             not isinstance(validated_contract, CompiledOutputContract)
-            or not supports_strict_tool_call_output_contract(
-                provider,
-                contract,
-                validated_contract,
-            )
+            or contract.mode != "json_object"
+            or validated_contract.strategy != "prompt_only"
         ):
             return PersonalPolicyEvaluation.fail_closed(
                 batch_id=batch.batch_id,
                 evaluated_at=gate_result.evaluated_at,
                 provider_id=provider_id,
-                failure_code="unsupported_policy_tool_call",
+                failure_code="unsupported_output_contract",
                 selected_slot_names=slot_names,
             )
         compiled = validated_contract
@@ -434,7 +406,6 @@ class PersonalPolicyAgent:
                     ),
                     system_prompt=render_result.system_prompt or "",
                     temperature=interaction_config.personal_policy_temperature,
-                    tool_choice="required",
                     output_contract=contract,
                     compiled_output_contract=compiled,
                 ),
@@ -462,8 +433,6 @@ class PersonalPolicyAgent:
         try:
             decision = extract_personal_policy_decision(
                 llm_response=response,
-                output_contract=contract,
-                compiled_output_contract=compiled,
             )
         except PersonalPolicyError as exc:
             return PersonalPolicyEvaluation.fail_closed(
@@ -563,14 +532,16 @@ class PersonalPolicyAgent:
         )
         definition = adapt_persona_collector_slots(tuple(pack.slots.values()))
         if definition is not None:
-            render_result.metadata["effective_persona_context"] = build_effective_persona_context(
-                definition=definition,
-                memory_snapshot=get_cached_prompt_memory_snapshot(
-                    event,
-                    provider_request=request,
-                ),
-                runtime_snapshot=state,
-            ).to_dict()
+            render_result.metadata["effective_persona_context"] = (
+                build_effective_persona_context(
+                    definition=definition,
+                    memory_snapshot=get_cached_prompt_memory_snapshot(
+                        event,
+                        provider_request=request,
+                    ),
+                    runtime_snapshot=state,
+                ).to_dict()
+            )
         return render_result
 
 

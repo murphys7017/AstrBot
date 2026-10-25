@@ -426,7 +426,8 @@ Personal、人格层和 Core，不会把群成员消息当作系统指令。
 Interaction Middleware 与 Personal Runtime 的设置。`enabled` 默认是 `true`；已有配置若明确写了
 `false`，该显式关闭值仍然优先。后台自主表达仍默认关闭，必须同时开启
 `personal_policy_enabled` 并显式选择 `personal_policy_provider_id` 才会评估可行动的 Observation。
-Policy 只决定 `ignore`、`observe`、`express` 或 `defer`，不会调用 Core 或工具。
+Policy 通过普通 JSON 文本决定 `ignore`、`observe`、`express` 或 `defer`，不会调用 Core 或工具，
+也不要求 Provider 支持工具调用。代码校验输出结构和动作约束；格式非法时保持 `observe`。
 
 Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑插件生命周期和工具目标映射。结构化
 编辑器会提供已安装插件和插件工具建议，同时保留手工输入兼容模块路径的能力。
@@ -622,6 +623,8 @@ AstrBot WebUI 配置。
 PyPI 镜像源地址。默认为 `https://mirrors.aliyun.com/pypi/simple/`。
 
 ### `timezone`
+
+Personal Runtime 的每日配额与 Policy 时间上下文也使用此时区，不受静默时段开关影响。
 
 时区设置。请填写 IANA 时区名称, 如 Asia/Shanghai, 为空时使用系统默认时区。所有时区请查看: [IANA Time Zone Database](https://data.iana.org/time-zones/tzdb-2021a/zone1970.tab)。
 

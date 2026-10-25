@@ -3480,3 +3480,58 @@ overall_code_cleanup_batch_20261025:
   evidence_gap: >-
     No live Provider, streaming, TTS, motion, or Live2D acceptance. The existing
     untracked AG99live design document remains user-owned and untouched.
+
+personal_policy_json_text_fix_20261025:
+  date: '2026-10-25'
+  class: bugfix
+  risk: medium
+  status: reviewed_pending_restart_and_live_acceptance
+  scope: >-
+    Replace the forced Personal Policy decision tool with prompt-only JSON text.
+    Remove strict-tool capability rejection and required tool choice. Parse the
+    complete JSON response and retain existing decision validation and fail-closed
+    observe behavior. Update current documentation and mark the initial tool-call
+    design as historical. Concurrent Router/Planner/config and NeuroBrain edits
+    belong to other work and were preserved.
+  validation: >-
+    Six Policy checks passed after correcting missing role fields in test inputs;
+    three MiniMax capability checks also passed. The real renderer and MiniMax
+    M3.1 adapter reached a stubbed SDK transport with no tools or tool_choice and
+    parsed a text response into an express decision. Scoped Ruff, format and diff
+    checks passed. No live Provider call, service restart or commit was performed.
+  evidence_gap: >-
+    Restart AstrBot to load the source correction. Online JSON compliance and
+    actual autonomous expression still require runtime acceptance; the offline
+    transport check does not establish either.
+
+observation_timezone_planner_fixes_20261025:
+  date: '2026-10-25'
+  class: bugfix
+  risk: high
+  status: reviewed_pending_restart_and_live_acceptance
+  scope: >-
+    Fix the three reviewed issues authorized by the user: settle Observation
+    material by exact revisions while preserving a contiguous settled watermark;
+    honor the configured Runtime timezone independently of quiet hours; replace
+    the Core Planner forced decision tool with prompt-only JSON text and strict
+    parsing of the complete execution specification. Preserve concurrent
+    Router/Planner provider selection and preflight changes, unrelated config,
+    Dashboard and NeuroBrain work, and the Core execution/tool boundary.
+  validation: >-
+    Thirty targeted cases passed across scoped runs: nineteen Planner cases,
+    eight related Runtime cases including the reproduced mixed-expiry regression,
+    and three configuration cases including the UTC quiet-hours-disabled boundary.
+    Corrected legacy test inputs to serialize booleans as JSON. The MiniMax M3.1
+    adapter with stubbed SDK transport sent no tools or tool_choice and parsed a
+    text execution plan. A public Inbox/State smoke check also preserved older
+    and concurrently queued facts when a mixed batch's source was cancelled.
+    Scoped Ruff, formatting, source AST and diff checks passed. Final review found
+    no additional blocking issues; unchanged test suites were not rerun. The
+    Planner JSON source and its tests were included in concurrent commit
+    a32aedebe; this review commits the remaining Policy, material and timezone
+    repairs with their documentation and tests.
+  evidence_gap: >-
+    No live Provider request, full-suite run, service restart or deployment.
+    Restart AstrBot before online acceptance of Planner execution and
+    autonomous expression. JSON text compliance still depends on the model;
+    malformed or incomplete plans remain explicit failures.

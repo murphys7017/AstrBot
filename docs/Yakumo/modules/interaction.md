@@ -284,8 +284,8 @@ RuntimeObservation
 最新项，第一条事实创建唯一的 1.5 秒固定聚合窗口，后续事实不延长截止时间，窗口结束后关闭为
 一个不可变 batch。Gate 只根据结构化 features 和 Runtime state 判断 `evaluate / hold / reject`，
 不执行语义决策；hold batch 会返回 Inbox，busy hold 在 turn settle 后重新评估。只有 `evaluate`
-可以进入显式启用的 Personal Policy。Policy 通过统一 Prompt 管线读取受限事实，以严格
-tool-call 契约返回 `ignore / observe / express / defer`。`express` 被转换为内部
+可以进入显式启用的 Personal Policy。Policy 通过统一 Prompt 管线读取受限事实，以 JSON 文本
+返回 `ignore / observe / express / defer`，由代码校验，不调用工具。`express` 被转换为内部
 `ActionIntent` 后才进入已经决定发送的输出适配链；`defer` 保留 batch 并写入无动作截止时间，
 由 Wake Scheduler 到期后重新评估。通用 Intake 本身不经过 EventBus、Pipeline、Personal、Planner、
 Core、Persona 或 Output；
@@ -387,7 +387,7 @@ Input Runtime / Observation
 - Prompt Collectors：一次收集本轮输入、人格、session、官方对话历史、统一 Memory、执行能力和插件贡献，生成规范 `ContextPack`
 - Personal Expression：普通显式唤醒和合格群聊候选生成自然语言与（适用时）effect；`turn_action` 只选择 `reply` 或允许场景下的 `silent`，不拆解任务、不执行 Core 工具，也不决定是否进入 Core。
 - Core Router：与 Personal 并行运行，使用独立 PromptTarget 判断是否进入 Core；上下文不含 Persona 提示或人格记忆。
-- Core Planner：只在 Router 路由到 Core 后生成固定的 `execute + CoreTaskSpec`，不拥有用户可见表达权限。
+- Core Planner：只在 Router 路由到 Core 后通过普通 JSON 文本生成固定的 `execute + CoreTaskSpec`，由代码校验，不要求 Provider 支持工具调用，不拥有用户可见表达权限。
 - Personal/Core 协同：Personal 可并行交付回复；Core 路由不改变已提交表达。`silent` 只能在未提交时形成零输出，不能撤回已经提交或送达的表达。
 - Runtime 所有权：ProcessStage 在插件 Handler 前完成 admission 并取得 session lease；
   `TurnExecutionScope` 持有 Personal、Context Material 和 Stream Observation task，

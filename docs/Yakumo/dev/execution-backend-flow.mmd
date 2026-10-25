@@ -107,7 +107,7 @@ flowchart LR
         ROUTER["Core Router<br/>CORE_ROUTER Projection<br/>与 Personal 并行判断是否进入 Core"]
         ROUTE{"Core route decision<br/>personal_only / route_to_core"}
         PERSONA_ONLY["等待 Persona<br/>完成 visible turn + Finalized Material<br/>停止事件"]
-        PLANNER["Core Planner<br/>仅整理已委派任务的 CoreTaskSpec"]
+        PLANNER["Core Planner<br/>JSON 文本 + 代码校验<br/>仅整理已委派任务的 CoreTaskSpec"]
         PLAN{"execute（已委派任务必须可执行）"}
         TASK["保存 CoreTaskSpec<br/>生命周期 delegated"]
         PSTATE{"Turn lock 原子预留输出槽<br/>immediate / final 谁先取得所有权?"}
@@ -311,7 +311,7 @@ flowchart LR
         OBS_GATE_CONFIG["Gate 配置<br/>mute / quiet hours + 全局时区<br/>policy + output budget"]
         OBS_GATE["Deterministic Gate<br/>features + PersonalState + runtime busy<br/>零模型调用 / 零输出"]
         OBS_GATE_RESULT{"evaluate / hold / reject<br/>稳定 reason + diagnostics"}
-        OBS_POLICY["Personal Policy（默认关闭）<br/>独立 Provider / 严格 tool-call<br/>fail-closed observe"]
+        OBS_POLICY["Personal Policy（默认关闭）<br/>独立 Provider / JSON 文本 + 代码校验<br/>fail-closed observe"]
         OBS_ACTION["Action Coordinator<br/>express -> ActionIntent<br/>defer -> no-action deadline"]
         OBS_WAKE["Wake Scheduler<br/>defer / quiet-hours / cooldown 到期重评"]
         OBS_HOLD["restore batch to Inbox<br/>busy turn settle 后重评"]

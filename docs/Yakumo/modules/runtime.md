@@ -136,7 +136,7 @@ RuntimeObservation
 通用 Observation Intake 不创建平台事件、不取得 turn lease，也不要求目标支持主动发送。Gate
 只读取 batch、PersonalState、Runtime 忙闲和目标能力，返回稳定 disposition、reason 与 features；
 `reject` 和 `hold` 零 Provider 调用。`evaluate` 在 Personal Policy 显式启用时通过规范 Prompt target
-调用独立 Provider，严格要求协议级 tool-call，失败统一记录为 `observe`。Policy 不持有工具、
+调用独立 Provider，要求直接输出 JSON 文本，由代码校验完整对象及动作约束，失败统一记录为 `observe`。Policy 不持有工具、
 Skills、知识库或输出能力；`express` 只形成 `ActionIntent` 并交回 Runtime，最终可见内容始终由
 Persona Expression 生成。`defer` 写入无动作截止时间并保留 batch；生命周期托管的 Wake Scheduler
 会在 defer、quiet hours 或冷却到期后重新评估。`hold` 会恢复 batch；busy hold 在当前 turn settle 后
@@ -149,7 +149,9 @@ handle 只能向同一通用 Intake 提交带目标会话、类别、过期时�
 `submit(cancel_event=asyncio.Event())` 可为短暂来源附带进程内撤销信号，不写入payload或模型上下文。
 来源设置该信号后，Inbox准入、取批与恢复会剔除该事实；正在等待的Policy/表达工作取消，
 Action继承信号与原始期限，RuntimeObservationEvent在输出边界复核有效性。
-混合批次中的其他未撤销事实保留，且撤销的瞬时事实不结清它们的材料版本。未使用撤销信号的来源保持既有行为。
+混合批次中的其他有效事实保留。材料按具体版本逐项结清；过期、撤销、替换和容量淘汰只结清被丢弃项，
+全局已处理进度停在最早未结清材料之前，不跳过仍排队或正在评估的事实。
+每日调用与主动输出配额、Policy 时间上下文始终使用配置时区，独立于静默时段开关。
 生命周期装配器负责把它交给既有 `PersonalRuntimeManager`，因此插件不会拿到 Runtime、EventBus、
 Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module prefix 自动删除，旧 handle 随即失效。
 

@@ -1,5 +1,8 @@
 # 自主人格运行时实施计划
 
+> 2026-10-25 输出契约修正：Personal Policy 直接输出 JSON 文本，由代码校验决策字段与动作约束，
+> 不使用工具调用，失败保持 `observe`。下文严格 tool-call 的 Policy 描述保留为历史记录。
+
 > 2026-10-23 架构更新：本初始计划中的 `reply / delegate / silent` 路由描述属于历史设计。
 > 当前 Personal 只选择 `reply / silent`，独立 Core Router 并行判断是否进入 Core；下文关于
 > 旧 Router 与委派动作的描述仅保留为历史记录。

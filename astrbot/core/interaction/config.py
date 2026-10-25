@@ -178,9 +178,7 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
         ),
         personal_runtime_timezone=(
             str(config.get("timezone", "") or "").strip() or None
-        )
-        if quiet_hours_enabled
-        else None,
+        ),
         personal_runtime_reply_cooldown_seconds=max(
             0.0,
             _float_or_default(

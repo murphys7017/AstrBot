@@ -84,11 +84,11 @@ from astrbot.core.interaction.turn_state import (
     set_interaction_turn_configuration_selection,
 )
 from astrbot.core.interaction.types import (
+    CorePlanningAction,
+    CorePlanningDecision,
     CoreRouterAction,
     CoreRouterDecision,
     CoreRouterReason,
-    CorePlanningAction,
-    CorePlanningDecision,
     CoreTaskSpec,
     InteractionRouteDecision,
     InteractionRouteMode,
@@ -1782,6 +1782,55 @@ async def test_heartbeat_only_wakes_unsettled_material():
 
         await submit("sensor_state", payload={"value": 2}, coalesce_key="state")
         assert len(policy_batches) == 2
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_expiring_newer_fact_preserves_older_pending_material(monkeypatch):
+    clock = SimpleNamespace(now=time.time())
+    monkeypatch.setattr(
+        "astrbot.core.interaction.personal_runtime.time",
+        SimpleNamespace(time=lambda: clock.now),
+    )
+    metadata = _metadata(support_personal_runtime=True)
+    context = _RuntimeContext(metadata)
+    manager = PersonalRuntimeManager(observation_debounce_seconds=0)
+    target = RuntimeObservationTarget(
+        platform_id=metadata.id,
+        platform_name=metadata.name,
+        message_type=MessageType.FRIEND_MESSAGE,
+        session_id="target",
+        support_proactive_message=True,
+        support_personal_runtime=True,
+    )
+    try:
+        for kind, lifetime in (("retained_fact", 60), ("short_fact", 1)):
+            result = await manager.submit_observation(
+                RuntimeObservation(
+                    kind=kind,
+                    source="test",
+                    occurred_at=clock.now,
+                    expires_at=clock.now + lifetime,
+                    target_session=target,
+                    payload={"changed": True},
+                ),
+                config_id="default",
+                plugin_context=context,
+                runtime_config={},
+            )
+            assert result.status is ObservationAdmissionStatus.ADMITTED
+        clock.now += 2
+        await _wait_for_observation_evaluation(manager)
+
+        runtime = manager.snapshot_diagnostics().sessions[0]
+        assert [o.kind for o in runtime.last_observation_batch.observations] == [
+            "retained_fact"
+        ]
+        assert runtime.last_observation_gate_result.disposition is (
+            ObservationGateDisposition.EVALUATE
+        )
+        assert runtime.state.last_settled_material_revision == 2
     finally:
         await manager.shutdown()
 

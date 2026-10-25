@@ -982,12 +982,14 @@ class PersonalSessionRuntime:
             self._coalesced_material_fingerprints.popitem(last=False)
 
     def _settle_discarded_observation_material(self) -> None:
-        revision = self.observation_inbox.take_discarded_material_revision()
-        if revision:
-            self.state.settle_material_revision(revision)
+        revisions = self.observation_inbox.take_discarded_material_revisions()
+        if revisions:
+            self.state.settle_material_revisions(revisions)
 
     def _settle_observation_batch(self, batch: ObservationBatch) -> int:
-        return self.state.settle_material_revision(batch.material_revision)
+        return self.state.settle_material_revisions(
+            material.revision for material in batch.material_by_observation_id.values()
+        )
 
     def _ensure_observation_evaluation_task(
         self,

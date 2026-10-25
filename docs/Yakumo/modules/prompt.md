@@ -205,9 +205,9 @@ OutputContract
   -> response parser
 ```
 
-Core Planner 使用独立的 `core_execution_plan` 契约，且 Core Router 路由到 Core 后 Planner 必须返回 `execute`。Persona 默认要求 JSON 文本 + Prompt-only 约束，JSON/XML/Markdown parser 校验后均转换为同一 Canonical 结果；严格 `persona_expression` tool call 仅在配置显式选择时使用。每个结果包含 `turn_action` 和 `segments`；segment 含用户可见 speech、动作词数组 actions 和 Plutchik 八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将表达与 effect 聚合为内部 Persona 结果。`turn_action` 只按调用场景选择 `reply` 或 `silent`，Core 路由不由 Persona 输出决定。两个 Persona 输出通道都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。Provider 页面 10 次格式测试仅提供稳定性参考，不自动保存结果或切换 Persona 设置。
+Core Planner 使用独立的 prompt-only JSON 文本契约，且 Core Router 路由到 Core 后 Planner 必须返回 `execute + CoreTaskSpec`；不注册规划工具或强制 `tool_choice`，完整 JSON 与任务字段由代码校验，非法输出或意外工具调用会明确失败。Persona 默认要求 JSON 文本 + Prompt-only 约束，JSON/XML/Markdown parser 校验后均转换为同一 Canonical 结果；严格 `persona_expression` tool call 仅在配置显式选择时使用。每个结果包含 `turn_action` 和 `segments`；segment 含用户可见 speech、动作词数组 actions 和 Plutchik 八维情绪 tendency。当前事件存在已注册且适用的 Persona Effect 时，同一模型响应还通过独立 `persona_effect_batch` tool call 返回 `effect_calls`；无适用 effect 时不提供该工具。Core 将表达与 effect 聚合为内部 Persona 结果。`turn_action` 只按调用场景选择 `reply` 或 `silent`，Core 路由不由 Persona 输出决定。两个 Persona 输出通道都不是业务工具；业务 `FunctionTool` 只按 `plugin_capability_targets.<plugin>.tools` 的显式授权进入 Persona 或 Core。具体 Motion、Live2D 或设备协议属于插件，不属于 Prompt 主流程。Provider 页面 10 次格式测试仅提供稳定性参考，不自动保存结果或切换 Persona 设置。
 
-Personal Policy 的 `personal_policy_decision` 同样是严格协议 tool call，不接受 prompt-only JSON 降级；不支持 `protocol_tool_call` 的 Provider 必须在渲染和模型调用前 fail-closed。轻量 Persona View 仍可保留当前事件允许的 Persona Effect 注册事实，因为 effect schema 会作为条件性独立 terminal tool 提供，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
+Personal Policy 使用 JSON 文本与 prompt-only 输出契约，不注册决策工具，也不强制 `tool_choice`。代码严格解析完整 JSON 对象并校验决策字段与动作约束；输出非法或意外返回工具调用时 fail-closed 为 `observe`。Policy Provider 无需支持 `protocol_tool_call`。轻量 Persona View 仍可保留当前事件允许的 Persona Effect 注册事实，因为 effect schema 会作为条件性独立 terminal tool 提供，而不是可自由带入的输入插件上下文；其 schema 成本应由完整请求大小诊断单独观测。
 
 ## 当前限制
 
