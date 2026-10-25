@@ -3354,25 +3354,36 @@ prompt_semantic_boundary_cleanup_20261025:
   date: '2026-10-25'
   class: refactor
   risk: high
-  status: implementation_under_review
+  status: source_validated_pending_restart_and_live_acceptance
   scope: >-
     User requested review/commit of the existing AstrBot workspace, then prompt
     cleanup and stable/dynamic layout improvements. Existing workspace committed
     as 101ccdc82. New work removes framework correlation IDs at owned prompt
     projections, preserves business payloads and active tool protocols, moves
     Core task/evidence out of system, and updates AG99live source prompts for
-    pre-action, independent motion and performance curves.
+    pre-action, independent motion and performance curves. AstrBot implementation
+    committed as 1c983d518; AG99live implementation committed as 1375946.
   non_goals: >-
     Preserve personality text, motion semantics, history limits, mixer and
     per-segment streaming. Defer Passive/NeuroBrain scheduling, remote-provider
-    guards and state/step redesign. No Codex SDK changes, service restart or
-    new-work commit. Never edit the deployed plugin as source.
+    guards and state/step redesign. No Codex SDK changes, service restart or live
+    Provider requests. Never edit the deployed plugin as source.
   validation: >-
     Existing-workspace review: changed Python lint and diff checks passed;
     related batches reported 288 passed and 10 failures. Selected added
-    boundaries passed. The ten failures are not a clean-suite acceptance.
-    New-work lint and scoped boundaries are being checked; update on completion.
+    boundaries passed. The ten failures are not a clean-suite acceptance, and
+    no clean-HEAD comparison run established their complete attribution.
+    New-work checks: 12 scoped AstrBot cases passed (76 deselected), covering
+    execution evidence, Core context layout, extensions and prompt ID boundaries;
+    three AG99live boundary cases passed for performance-curve ID removal,
+    pre-action emission before EOF and independent-motion request layout.
+    Scoped Ruff, Python compilation and diff checks passed. Plugin structure
+    check reported zero errors and warnings, with three informational items.
+    AG99live post-commit hook deployed via deploy_adapter.ps1; read-only SHA-256
+    comparison found all 164 managed source/deployment files identical, with no
+    missing or extra managed files. Deployment preservation rules remain intact.
   evidence_gap: >-
-    No live Provider, warm-cache ratio, voice or Live2D acceptance. Source changes
-    require paired runtime reload. Unrelated AG99live untracked design document
-    remains user-owned.
+    No live Provider, warm-cache ratio, voice or Live2D acceptance. AstrBot was
+    not restarted; restart it to load the Core and plugin changes together
+    before live testing. Unrelated AG99live untracked design document remains
+    user-owned and was not modified or committed.
