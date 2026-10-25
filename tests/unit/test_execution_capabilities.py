@@ -49,6 +49,23 @@ def test_admission_only_snapshot_preserves_selection_and_rejects_inventory():
         admission.serialized_inventory()
 
 
+def test_capability_snapshot_serializes_tools_in_stable_name_order():
+    from astrbot.core.capabilities import CapabilitySnapshot
+
+    snapshot = CapabilitySnapshot(
+        target="core",
+        persona_id=None,
+        selection_mode="test",
+        tools=(_tool("zeta"), _tool("alpha")),
+    )
+
+    assert snapshot.names() == ["zeta", "alpha"]
+    assert [item["name"] for item in snapshot.serialized_tools()] == [
+        "alpha",
+        "zeta",
+    ]
+
+
 def test_web_research_capability_supports_action_level_declarations():
     bindings = collect_semantic_capability_bindings(
         [

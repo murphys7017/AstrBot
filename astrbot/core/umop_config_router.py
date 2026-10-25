@@ -129,8 +129,9 @@ class UmopConfigRouter:
         """
         self.validate_routing_data(new_routing)
 
-        self.umop_to_conf_id = new_routing
-        await self.sp.global_put("umop_config_routing", self.umop_to_conf_id)
+        persisted_routing = dict(new_routing)
+        await self.sp.global_put("umop_config_routing", persisted_routing)
+        self.umop_to_conf_id = persisted_routing
 
     async def update_route(self, umo: str, conf_id: str) -> None:
         """更新一条路由
@@ -145,8 +146,10 @@ class UmopConfigRouter:
         """
         self.validate_route(umo)
 
-        self.umop_to_conf_id[umo] = conf_id
-        await self.sp.global_put("umop_config_routing", self.umop_to_conf_id)
+        updated_routing = dict(self.umop_to_conf_id)
+        updated_routing[umo] = conf_id
+        await self.sp.global_put("umop_config_routing", updated_routing)
+        self.umop_to_conf_id = updated_routing
 
     def validate_routing_data(self, routing: dict[str, str]) -> None:
         """Validate a complete route table without changing persisted state."""
@@ -176,5 +179,7 @@ class UmopConfigRouter:
             )
 
         if umo in self.umop_to_conf_id:
-            del self.umop_to_conf_id[umo]
-            await self.sp.global_put("umop_config_routing", self.umop_to_conf_id)
+            updated_routing = dict(self.umop_to_conf_id)
+            del updated_routing[umo]
+            await self.sp.global_put("umop_config_routing", updated_routing)
+            self.umop_to_conf_id = updated_routing

@@ -29,9 +29,8 @@
 ### `astrbot/core/provider/entites.py`
 
 - **类型**：拼写错误兼容转发模块。
-- **当前证据**：仓库内未发现生产调用者。
-- **删除条件**：确认 `data` 目录插件、已安装插件和公开文档没有导入 `provider.entites`。
-- **验证**：全仓搜索、插件目录搜索、启动导入检查。
+- **处理**：2026-10-25 删除。AstrBot 源码、Dashboard、`data/plugins` 部署插件、AG99live 源码和公开文档均未发现导入。
+- **验证**：全仓搜索和部署插件搜索均无消费者；规范模块 `astrbot.core.provider.entities` 保留。
 
 ### 仓库内部及公开兼容边界的 `MessageSesion` 使用
 

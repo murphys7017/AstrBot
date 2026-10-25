@@ -428,9 +428,13 @@ class ConfigService(DashboardService):
         profile["adapter_binding_ids"] = [*binding_ids, adapter_id]
         profile.save_config()
 
-    def _bind_registered_route_adapters(self, routing: dict[str, str]) -> None:
+    def _bind_registered_route_adapters(
+        self,
+        routing: dict[str, str],
+    ) -> dict[str, tuple[Any, bool, Any]]:
         """Persist Profile Adapter admission for all explicit route targets."""
         normalized_routes: list[tuple[str, str, str]] = []
+        snapshots: dict[str, tuple[Any, bool, Any]] = {}
         for umo, config_id in routing.items():
             if not isinstance(config_id, str) or not config_id.strip():
                 raise ValueError(f"路由 {umo!r} 缺少配置文件 ID")
@@ -444,12 +448,53 @@ class ConfigService(DashboardService):
                     umo.split(":", 1)[0].strip(),
                 )
             )
+            profile = self.acm.confs[normalized_config_id]
+            if normalized_config_id not in snapshots:
+                snapshots[normalized_config_id] = (
+                    profile,
+                    "adapter_binding_ids" in profile,
+                    copy.deepcopy(profile.get("adapter_binding_ids")),
+                )
 
-        for _, config_id, adapter_id in normalized_routes:
-            self._bind_registered_adapter_to_profile(
-                config_id=config_id,
-                adapter_id=adapter_id,
-            )
+        try:
+            for _, config_id, adapter_id in normalized_routes:
+                self._bind_registered_adapter_to_profile(
+                    config_id=config_id,
+                    adapter_id=adapter_id,
+                )
+        except Exception as exc:
+            if not self._restore_route_adapter_bindings(snapshots):
+                raise RuntimeError(
+                    f"{exc!s}; Profile Adapter admission rollback was not fully persisted"
+                ) from exc
+            raise
+        return snapshots
+
+    @staticmethod
+    def _restore_route_adapter_bindings(
+        snapshots: dict[str, tuple[Any, bool, Any]],
+    ) -> bool:
+        """Restore Profile admission after a route persistence failure."""
+        restored = True
+        for profile, had_binding_ids, previous_binding_ids in snapshots.values():
+            current_binding_ids = profile.get("adapter_binding_ids")
+            if had_binding_ids:
+                restored_binding_ids = copy.deepcopy(previous_binding_ids)
+                if current_binding_ids == restored_binding_ids:
+                    continue
+                profile["adapter_binding_ids"] = restored_binding_ids
+            else:
+                if "adapter_binding_ids" not in profile:
+                    continue
+                profile.pop("adapter_binding_ids", None)
+            try:
+                profile.save_config()
+            except Exception:
+                restored = False
+                logger.exception(
+                    "Failed to persist rollback of Profile adapter admission"
+                )
+        return restored
 
     def _remove_adapter_binding_from_profiles(self, adapter_id: str) -> None:
         """Remove a deleted Adapter from every Profile's explicit admission list."""
@@ -628,17 +673,51 @@ class ConfigService(DashboardService):
 
         new_routing = post_data.get("routing", None)
 
-        if not new_routing or not isinstance(new_routing, dict):
+        if not isinstance(new_routing, dict):
             return Response().error("缺少或错误的路由表数据").__dict__
 
+        binding_snapshots: dict[str, tuple[Any, bool, Any]] = {}
         try:
             self.ucr.validate_routing_data(new_routing)
-            self._bind_registered_route_adapters(new_routing)
-            await self.ucr.update_routing_data(new_routing)
-            return Response().ok(message="更新成功").__dict__
+            normalized_routing: dict[str, str] = {}
+            removed_stale_routes = 0
+            for umo, config_id in new_routing.items():
+                if not isinstance(config_id, str) or not config_id.strip():
+                    raise ValueError(f"路由 {umo!r} 缺少配置文件 ID")
+                normalized_config_id = config_id.strip()
+                if normalized_config_id not in self.acm.confs:
+                    current_config_id = self.ucr.umop_to_conf_id.get(umo)
+                    if (
+                        isinstance(current_config_id, str)
+                        and current_config_id.strip() == normalized_config_id
+                    ):
+                        removed_stale_routes += 1
+                        continue
+                    raise ValueError(f"配置文件 {normalized_config_id} 不存在")
+                normalized_routing[umo] = normalized_config_id
+
+            binding_snapshots = self._bind_registered_route_adapters(normalized_routing)
+            await self.ucr.update_routing_data(normalized_routing)
+            if removed_stale_routes:
+                logger.warning(
+                    "Removed %s stale UMO route(s) to missing config profiles",
+                    removed_stale_routes,
+                )
+                message = (
+                    f"更新成功，已清理 {removed_stale_routes} 条指向不存在配置的旧路由"
+                )
+            else:
+                message = "更新成功"
+            return Response().ok(message=message).__dict__
         except Exception as e:
+            rollback_succeeded = self._restore_route_adapter_bindings(
+                binding_snapshots
+            )
             logger.error(traceback.format_exc())
-            return Response().error(f"更新路由表失败: {e!s}").__dict__
+            message = f"更新路由表失败: {e!s}"
+            if not rollback_succeeded:
+                message += "；Profile Adapter 准入回滚未完全持久化"
+            return Response().error(message).__dict__
 
     async def update_ucr(self):
         """更新 UMOP 配置路由表"""
@@ -649,17 +728,27 @@ class ConfigService(DashboardService):
         umo = post_data.get("umo", None)
         conf_id = post_data.get("conf_id", None)
 
-        if not umo or not conf_id:
+        if not umo or not isinstance(conf_id, str) or not conf_id.strip():
             return Response().error("缺少 UMO 或配置文件 ID").__dict__
 
+        normalized_conf_id = conf_id.strip()
+        binding_snapshots: dict[str, tuple[Any, bool, Any]] = {}
         try:
             self.ucr.validate_route(umo)
-            self._bind_registered_route_adapters({umo: conf_id})
-            await self.ucr.update_route(umo, conf_id)
+            binding_snapshots = self._bind_registered_route_adapters(
+                {umo: normalized_conf_id}
+            )
+            await self.ucr.update_route(umo, normalized_conf_id)
             return Response().ok(message="更新成功").__dict__
         except Exception as e:
+            rollback_succeeded = self._restore_route_adapter_bindings(
+                binding_snapshots
+            )
             logger.error(traceback.format_exc())
-            return Response().error(f"更新路由表失败: {e!s}").__dict__
+            message = f"更新路由表失败: {e!s}"
+            if not rollback_succeeded:
+                message += "；Profile Adapter 准入回滚未完全持久化"
+            return Response().error(message).__dict__
 
     async def delete_ucr(self):
         """删除 UMOP 配置路由表中的一项"""
@@ -674,8 +763,9 @@ class ConfigService(DashboardService):
 
         try:
             if umo in self.ucr.umop_to_conf_id:
-                del self.ucr.umop_to_conf_id[umo]
-                await self.ucr.update_routing_data(self.ucr.umop_to_conf_id)
+                remaining_routing = dict(self.ucr.umop_to_conf_id)
+                del remaining_routing[umo]
+                await self.ucr.update_routing_data(remaining_routing)
             return Response().ok(message="删除成功").__dict__
         except Exception as e:
             logger.error(traceback.format_exc())
@@ -727,7 +817,7 @@ class ConfigService(DashboardService):
                 return Response().ok({"config": abconf, "metadata": metadata}).__dict__
             if abconf_id is None:
                 raise ValueError("abconf_id cannot be None")
-            abconf = copy.deepcopy(self.acm.confs[abconf_id])
+            abconf = copy.deepcopy(dict(self.acm.confs[abconf_id]))
             abconf.pop("core_executor", None)
             metadata = ConfigMetadataI18n.convert_to_i18n_keys(CONFIG_METADATA_3)
             return Response().ok({"config": abconf, "metadata": metadata}).__dict__
@@ -741,16 +831,86 @@ class ConfigService(DashboardService):
             return Response().error("缺少配置数据").__dict__
 
         conf_id = post_data.get("id")
-        if not conf_id:
+        if not isinstance(conf_id, str) or not conf_id.strip():
             return Response().error("缺少配置文件 ID").__dict__
 
         try:
-            success = self.acm.delete_conf(conf_id)
+            normalized_conf_id = conf_id.strip()
+            profile_metadata = self.acm.abconf_data
+            profile_exists = normalized_conf_id in self.acm.confs or (
+                isinstance(profile_metadata, dict)
+                and normalized_conf_id in profile_metadata
+            )
+            current_routing = dict(self.ucr.umop_to_conf_id)
+            remaining_routing = (
+                {
+                    umo: routed_config_id
+                    for umo, routed_config_id in current_routing.items()
+                    if not (
+                        isinstance(routed_config_id, str)
+                        and routed_config_id.strip() == normalized_conf_id
+                    )
+                }
+                if normalized_conf_id != "default"
+                else current_routing
+            )
+            removed_routes = len(current_routing) - len(remaining_routing)
+
+            success = self.acm.delete_conf(normalized_conf_id)
             if success:
-                self.core_lifecycle.pipeline_scheduler_mapping.pop(conf_id, None)
-                await self.core_lifecycle.reload_subagent_orchestrator_profile(conf_id)
-                return Response().ok(message="删除成功").__dict__
-            return Response().error("删除失败").__dict__
+                self.core_lifecycle.pipeline_scheduler_mapping.pop(
+                    normalized_conf_id,
+                    None,
+                )
+                message = "删除成功"
+                partial = False
+                if removed_routes:
+                    try:
+                        await self.ucr.update_routing_data(remaining_routing)
+                        logger.info(
+                            "Removed %s UMO route(s) for deleted config profile",
+                            removed_routes,
+                        )
+                        message += f"，已清理 {removed_routes} 条配置路由"
+                    except Exception:
+                        logger.error(
+                            "Profile %s was deleted, but its UMO routes could not "
+                            "be fully cleaned",
+                            normalized_conf_id,
+                            exc_info=True,
+                        )
+                        message += "，但路由清理未完成；指向该 Profile 的请求将明确失败"
+                        partial = True
+                try:
+                    await self.core_lifecycle.reload_subagent_orchestrator_profile(
+                        normalized_conf_id
+                    )
+                except Exception:
+                    logger.error(
+                        "Profile %s was deleted, but its subagent configuration "
+                        "could not be reloaded",
+                        normalized_conf_id,
+                        exc_info=True,
+                    )
+                    message += "，但子代理配置刷新失败"
+                    partial = True
+                return Response().ok(
+                    data={"partial": partial},
+                    message=message,
+                ).__dict__
+
+            if not profile_exists and removed_routes:
+                await self.ucr.update_routing_data(remaining_routing)
+                logger.info(
+                    "Removed %s orphaned UMO route(s) for missing config profile",
+                    removed_routes,
+                )
+                return Response().ok(
+                    message=f"配置文件已不存在，已清理 {removed_routes} 条配置路由"
+                ).__dict__
+            if not profile_exists:
+                return Response().error("配置文件不存在").__dict__
+            return Response().error("删除失败，配置路由未修改").__dict__
         except ValueError as e:
             return Response().error(str(e)).__dict__
         except Exception as e:

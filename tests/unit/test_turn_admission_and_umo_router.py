@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -199,3 +199,33 @@ def test_umo_router_does_not_count_character_class_contents_as_fixed_text():
         "aki:FriendMessage:ab*": "prefix",
     }
     assert router.get_conf_id_for_umop("aki:FriendMessage:abc") == "prefix"
+
+
+@pytest.mark.asyncio
+async def test_umo_router_keeps_memory_state_when_persistence_fails():
+    sp = MagicMock()
+    sp.global_put = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+    router = UmopConfigRouter(sp)
+    router.umop_to_conf_id = {"aki:*:*": "profile"}
+
+    with pytest.raises(RuntimeError, match="storage unavailable"):
+        await router.update_routing_data({})
+
+    assert router.umop_to_conf_id == {"aki:*:*": "profile"}
+
+
+@pytest.mark.parametrize("operation", ["update", "delete"])
+@pytest.mark.asyncio
+async def test_umo_router_single_route_mutation_is_atomic(operation):
+    sp = MagicMock()
+    sp.global_put = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+    router = UmopConfigRouter(sp)
+    router.umop_to_conf_id = {"aki:*:*": "profile"}
+
+    with pytest.raises(RuntimeError, match="storage unavailable"):
+        if operation == "update":
+            await router.update_route("aki:*:*", "other")
+        else:
+            await router.delete_route("aki:*:*")
+
+    assert router.umop_to_conf_id == {"aki:*:*": "profile"}

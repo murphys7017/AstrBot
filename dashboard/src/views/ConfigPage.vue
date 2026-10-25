@@ -857,7 +857,7 @@ export default {
         if (res.data.status === "ok") {
           this.save_message = res.data.message;
           this.save_message_snack = true;
-          this.save_message_success = "success";
+          this.save_message_success = res.data.data?.partial ? "warning" : "success";
           this.cancelConfigForm();
           // 删除成功后，更新配置列表
           this.getConfigInfoList("default");

@@ -231,9 +231,13 @@ async def get_or_build_interaction_persona_context_pack(
 
     allowed_prompt_extension_mounts = _allowed_prompt_extension_mounts(view_spec)
     allowed_prompt_extension_targets = _allowed_prompt_extension_targets(view_spec)
+    allowed_prompt_extension_context_view = (
+        _allowed_prompt_extension_context_view(view_spec)
+    )
     plugin_cache_key = _plugin_context_cache_key(
         allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view,
     )
 
     cached = material.target_context_packs.get(plugin_cache_key)
@@ -262,6 +266,7 @@ async def get_or_build_interaction_persona_context_pack(
                 material=material,
                 allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
                 allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+                allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
             )
         if not build_task.done():
             _log_persona_context_selection(
@@ -306,6 +311,7 @@ async def get_or_build_interaction_persona_context_pack(
         material=material,
         allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
     )
 
     _log_persona_context_selection(
@@ -337,6 +343,9 @@ def start_interaction_persona_context_prefetch(
         return
     allowed_prompt_extension_mounts = _allowed_prompt_extension_mounts(view_spec)
     allowed_prompt_extension_targets = _allowed_prompt_extension_targets(view_spec)
+    allowed_prompt_extension_context_view = (
+        _allowed_prompt_extension_context_view(view_spec)
+    )
     _ensure_interaction_plugin_context_pack_task(
         event=event,
         plugin_context=plugin_context,
@@ -344,6 +353,7 @@ def start_interaction_persona_context_prefetch(
         material=material,
         allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
     )
 
 
@@ -377,10 +387,12 @@ async def _get_or_build_interaction_plugin_context_pack(
     material: InteractionContextMaterial,
     allowed_prompt_extension_mounts: frozenset[str] | None = None,
     allowed_prompt_extension_targets: frozenset[str] | None = None,
+    allowed_prompt_extension_context_view: str | None = None,
 ) -> ContextPack:
     plugin_cache_key = _plugin_context_cache_key(
         allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view,
     )
     cached = material.target_context_packs.get(plugin_cache_key)
     if cached is not None:
@@ -395,6 +407,7 @@ async def _get_or_build_interaction_plugin_context_pack(
             material=material,
             allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
             allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+            allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
         )
 
     build_task = _ensure_interaction_plugin_context_pack_task(
@@ -404,6 +417,7 @@ async def _get_or_build_interaction_plugin_context_pack(
         material=material,
         allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
     )
     return await asyncio.shield(build_task)
 
@@ -416,10 +430,12 @@ def _ensure_interaction_plugin_context_pack_task(
     material: InteractionContextMaterial,
     allowed_prompt_extension_mounts: frozenset[str] | None = None,
     allowed_prompt_extension_targets: frozenset[str] | None = None,
+    allowed_prompt_extension_context_view: str | None = None,
 ) -> asyncio.Task[ContextPack]:
     plugin_cache_key = _plugin_context_cache_key(
         allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view,
     )
     build_task = material.target_context_tasks.get(plugin_cache_key)
     if build_task is None:
@@ -435,6 +451,7 @@ def _ensure_interaction_plugin_context_pack_task(
             material=material,
             allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
             allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+            allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
         )
         build_task = turn_state.execution_scope.create_task(
             awaitable,
@@ -475,13 +492,21 @@ def _allowed_prompt_extension_targets(
     return frozenset({view_spec.target.value})
 
 
+def _allowed_prompt_extension_context_view(view_spec) -> str | None:
+    if view_spec is None or not view_spec.allows_slot("extension.context"):
+        return None
+    return view_spec.name.value
+
+
 def _plugin_context_cache_key(
     allowed_prompt_extension_mounts: frozenset[str] | None,
     allowed_prompt_extension_targets: frozenset[str] | None,
+    allowed_prompt_extension_context_view: str | None = None,
 ) -> str:
     if (
         allowed_prompt_extension_mounts is None
         and allowed_prompt_extension_targets is None
+        and allowed_prompt_extension_context_view is None
     ):
         return "plugin"
     suffix = "plugin"
@@ -491,6 +516,8 @@ def _plugin_context_cache_key(
     if allowed_prompt_extension_targets is not None:
         targets = ",".join(sorted(allowed_prompt_extension_targets))
         suffix += f":targets={targets}"
+    if allowed_prompt_extension_context_view is not None:
+        suffix += f":view={allowed_prompt_extension_context_view}"
     return suffix
 
 
@@ -605,6 +632,7 @@ async def _build_interaction_plugin_context_pack(
     material: InteractionContextMaterial,
     allowed_prompt_extension_mounts: frozenset[str] | None = None,
     allowed_prompt_extension_targets: frozenset[str] | None = None,
+    allowed_prompt_extension_context_view: str | None = None,
 ) -> ContextPack:
     started_at = time.monotonic()
     base_extension_collectors = set(
@@ -621,12 +649,14 @@ async def _build_interaction_plugin_context_pack(
         prompt_extension_collector_scope="plugin",
         allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
         base=material.prompt_context_pack,
         scope="interaction_plugin_context",
     )
     plugin_cache_key = _plugin_context_cache_key(
         allowed_prompt_extension_mounts,
         allowed_prompt_extension_targets,
+        allowed_prompt_extension_context_view,
     )
     material.target_context_packs[plugin_cache_key] = prompt_context_pack
     plugin_extension_collectors = [

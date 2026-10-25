@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from hashlib import sha1
 from typing import TYPE_CHECKING, Any
 
+from astrbot.core.agent.message import partition_content_parts
 from astrbot.core.output_contract import (
     CompiledOutputContract,
     OutputContract,
@@ -1433,10 +1434,14 @@ class BasePromptRenderer:
             content_parts.append(self._build_text_content_part(file_annotations_text))
         if file_extracts_text:
             content_parts.append(self._build_text_content_part(file_extracts_text))
+        content_parts.extend(file_text_parts)
+        explicit_text_parts, explicit_media_parts = partition_content_parts(
+            explicit_content_parts
+        )
+        content_parts.extend(explicit_text_parts)
         content_parts.extend(quoted_image_parts)
         content_parts.extend(attachment_image_parts)
-        content_parts.extend(file_text_parts)
-        content_parts.extend(explicit_content_parts)
+        content_parts.extend(explicit_media_parts)
 
         if not content_parts:
             fallback_content = self._render_subtree_text(

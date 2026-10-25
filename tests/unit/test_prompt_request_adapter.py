@@ -486,3 +486,23 @@ async def test_request_adapter_reconstructs_rendered_user_message_order():
             },
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_provider_request_assemble_context_places_extra_text_before_media():
+    request = ProviderRequest(
+        prompt="Current request",
+        extra_user_content_parts=[
+            ImageURLPart(
+                image_url=ImageURLPart.ImageURL(url="file:///tmp/plugin.png")
+            ),
+            TextPart(text="Plugin context"),
+        ],
+    )
+
+    assembled_message = await request.assemble_context()
+
+    assert [
+        part["type"] for part in assembled_message["content"]
+    ] == ["text", "text", "image_url"]
+    assert assembled_message["content"][1]["text"] == "Plugin context"

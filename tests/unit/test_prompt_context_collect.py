@@ -50,6 +50,10 @@ from astrbot.core.prompt.context_collect import (
     log_context_pack,
 )
 from astrbot.core.prompt.context_types import ContextSlot, PromptContextConflictError
+from astrbot.core.prompt.context_views import (
+    PromptContextView,
+    resolve_prompt_context_view,
+)
 from astrbot.core.prompt.extensions import PromptExtension
 from astrbot.core.prompt.input_annotations import (
     INPUT_ITEM_ANNOTATIONS_EXTRA_KEY,
@@ -3744,6 +3748,99 @@ class _DynamicExtensionCollector(PromptExtensionCollectorInterface):
         ]
 
 
+class _ViewScopedContextExtensionCollector(PromptExtensionCollectorInterface):
+    calls = 0
+    prompt_extension_context_views = frozenset({"olv_stream", "turn_plan"})
+
+    @property
+    def plugin_id(self) -> str:
+        return "view_scoped.plugin"
+
+    @property
+    def lifecycle(self) -> str:
+        return "static"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        type(self).calls += 1
+        return [
+            PromptExtension(
+                plugin_id="neurobrain_current_state",
+                mount="context",
+                title="Current state",
+                value="state",
+                value_kind="text",
+                meta={
+                    "targets": ["persona"],
+                    "context_views": ["olv_stream", "turn_plan"],
+                },
+            ),
+            PromptExtension(
+                plugin_id="ag99live.motion.prompt",
+                mount="context",
+                title="Previous motion",
+                value="motion",
+                value_kind="text",
+                meta={"targets": ["persona"]},
+            ),
+        ]
+
+
+class _MountAwareMotionCollector(PromptExtensionCollectorInterface):
+    def __init__(self):
+        self.allowed_mounts_seen = []
+
+    @property
+    def plugin_id(self) -> str:
+        return "ag99live.motion.prompt"
+
+    async def collect(self, event, plugin_context, config, provider_request=None):
+        return await self.collect_for_prompt_context(
+            event,
+            plugin_context,
+            config,
+            provider_request=provider_request,
+            allowed_mounts=None,
+            allowed_targets=None,
+        )
+
+    async def collect_for_prompt_context(
+        self,
+        event,
+        plugin_context,
+        config,
+        *,
+        provider_request=None,
+        allowed_mounts=None,
+        allowed_targets=None,
+    ):
+        del event, plugin_context, config, provider_request, allowed_targets
+        self.allowed_mounts_seen.append(allowed_mounts)
+        extensions = []
+        if allowed_mounts is None or "system" in allowed_mounts:
+            extensions.append(
+                PromptExtension(
+                    plugin_id=self.plugin_id,
+                    mount="system",
+                    title="Motion static",
+                    value="static contract",
+                    value_kind="text",
+                    meta={"targets": ["persona"]},
+                )
+            )
+        if allowed_mounts is None or "context" in allowed_mounts:
+            extensions.append(
+                PromptExtension(
+                    plugin_id=self.plugin_id,
+                    mount="context",
+                    title="Motion runtime context",
+                    value="previous motion",
+                    value_kind="text",
+                    meta={"targets": ["persona"]},
+                )
+            )
+        return extensions
+
+
 class _StaticContextCollector(ContextCollectorInterface):
     calls = 0
 
@@ -3848,6 +3945,89 @@ async def test_collect_context_pack_collects_prompt_extensions_into_extension_sl
     assert pack.get_slot("capability.plugin_directory") is None
 
     assert pack.get_slot("extension.memory") is None
+
+
+@pytest.mark.asyncio
+async def test_context_view_filters_context_extensions_without_view_opt_in():
+    event, _ = _make_event()
+    context = _make_context()
+    motion_collector = _MountAwareMotionCollector()
+    context.list_prompt_extension_collectors.return_value = [
+        _ViewScopedContextExtensionCollector(),
+        motion_collector,
+    ]
+    _ViewScopedContextExtensionCollector.calls = 0
+    config = ama.MainAgentBuildConfig(tool_call_timeout=60)
+
+    unfiltered_pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"system", "context"}),
+        allowed_prompt_extension_targets=frozenset({"persona"}),
+    )
+    unfiltered_slot = unfiltered_pack.get_slot("extension.context")
+    assert unfiltered_slot is not None
+    assert {
+        item["plugin_id"] for item in unfiltered_slot.value["items"]
+    } == {
+        "neurobrain_current_state",
+        "ag99live.motion.prompt",
+    }
+
+    pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"system", "context"}),
+        allowed_prompt_extension_targets=frozenset({"persona"}),
+        allowed_prompt_extension_context_view="olv_stream",
+    )
+
+    context_slot = pack.get_slot("extension.context")
+    assert context_slot is not None
+    assert [item["plugin_id"] for item in context_slot.value["items"]] == [
+        "neurobrain_current_state",
+    ]
+    assert motion_collector.allowed_mounts_seen[-1] == frozenset({"system"})
+    rendered = PromptRenderEngine(default_renderer=MiniMaxPromptRenderer()).render(
+        pack,
+        target="persona",
+        context_view="olv_stream",
+    )
+    assert "Current state" not in (rendered.system_prompt or "")
+    rendered_messages = json.dumps(rendered.messages, ensure_ascii=False)
+    assert "Current state" in rendered_messages
+    assert "Previous motion" not in rendered_messages
+    assert "Motion static" in (rendered.system_prompt or "")
+
+    restored_pack = await collect_context_pack(
+        event=event,
+        plugin_context=context,
+        config=config,
+        collectors=[],
+        allowed_prompt_extension_mounts=frozenset({"system", "context"}),
+        allowed_prompt_extension_targets=frozenset({"persona"}),
+    )
+    restored_slot = restored_pack.get_slot("extension.context")
+    assert restored_slot is not None
+    assert {
+        item["plugin_id"] for item in restored_slot.value["items"]
+    } == {
+        "neurobrain_current_state",
+        "ag99live.motion.prompt",
+    }
+    assert _ViewScopedContextExtensionCollector.calls == 1
+    assert motion_collector.allowed_mounts_seen[-1] == frozenset({"system", "context"})
+
+
+def test_all_persona_views_allow_scoped_context_extensions():
+    for view in PromptContextView:
+        spec = resolve_prompt_context_view(view)
+        assert spec is not None
+        assert spec.allows_slot("extension.context")
 
 
 def test_build_prompt_extension_slots_keeps_only_execution_targets():

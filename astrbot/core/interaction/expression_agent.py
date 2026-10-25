@@ -1122,7 +1122,11 @@ def _coerce_tool_call_payload(tool_arg: object) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _validated_persona_segment(payload: object) -> PersonaExpressionSegment:
+def _validated_persona_segment(
+    payload: object,
+    *,
+    discard_invalid_actions: bool = False,
+) -> PersonaExpressionSegment:
     if not isinstance(payload, dict):
         raise InteractionExpressionError("invalid_persona_segment")
     if set(payload) != {"speech", "actions", "tendency"}:
@@ -1134,7 +1138,12 @@ def _validated_persona_segment(payload: object) -> PersonaExpressionSegment:
     if not isinstance(actions, list) or any(
         not isinstance(action, str) or not action.strip() for action in actions
     ):
-        raise InteractionExpressionError("invalid_persona_actions")
+        if not discard_invalid_actions:
+            raise InteractionExpressionError("invalid_persona_actions")
+        logger.warning(
+            "Persona segment action hints rejected; ignoring malformed actions"
+        )
+        actions = []
     return PersonaExpressionSegment(
         speech=speech,
         actions=[action.strip() for action in actions],
@@ -1382,7 +1391,8 @@ class PersonaSegmentStreamParser:
                     "speech": "",
                     "actions": record.get("actions"),
                     "tendency": record.get("tendency"),
-                }
+                },
+                discard_invalid_actions=True,
             )
             return {
                 "type": "segment_start",
@@ -1412,7 +1422,10 @@ class PersonaSegmentStreamParser:
                 raise InteractionExpressionError("persona_stream_end_without_segment")
             if set(record) != {"v", "record"}:
                 raise InteractionExpressionError("persona_stream_invalid_segment_end")
-            segment = _validated_persona_segment(self._current_segment.to_mapping())
+            segment = _validated_persona_segment(
+                self._current_segment.to_mapping(),
+                discard_invalid_actions=True,
+            )
             self._segments.append(segment)
             self._current_segment = None
             self._delta_index = 0
@@ -3277,7 +3290,10 @@ class InteractionExpressionAgent:
                             PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
                         ),
                     )
-                segment = _validated_persona_segment(record["segment"])
+                segment = _validated_persona_segment(
+                    record["segment"],
+                    discard_invalid_actions=True,
+                )
                 record["segment"] = segment.to_mapping()
                 logger.info(
                     "DIAG latency.persona_segment_ready turn_id=%s "
@@ -3330,6 +3346,12 @@ class InteractionExpressionAgent:
                 )
             raise
         except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Persona segment stream aborted: turn_id=%s error_type=%s error=%s",
+                event.get_extra("_turn_id", ""),
+                type(exc).__name__,
+                exc,
+            )
             raise InteractionExpressionError(
                 "model_error",
                 str(exc),
@@ -3502,6 +3524,12 @@ class InteractionExpressionAgent:
             if view_spec is not None
             else None
         )
+        allowed_prompt_extension_context_view = (
+            view_spec.name.value
+            if view_spec is not None
+            and view_spec.allows_slot("extension.context")
+            else None
+        )
         if view_spec is None or view_spec.requires_media_context:
             persona_context_pack = await get_or_build_interaction_media_context_pack(
                 event=event,
@@ -3528,6 +3556,7 @@ class InteractionExpressionAgent:
             prompt_extension_collector_scope="plugin",
             allowed_prompt_extension_mounts=allowed_prompt_extension_mounts,
             allowed_prompt_extension_targets=allowed_prompt_extension_targets,
+            allowed_prompt_extension_context_view=allowed_prompt_extension_context_view,
             base=persona_context_pack,
             scope="persona_expression",
         )

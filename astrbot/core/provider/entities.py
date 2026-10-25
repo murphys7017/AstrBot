@@ -23,6 +23,7 @@ from astrbot.core.agent.message import (
     ToolCall,
     ToolCallMessageSegment,
     is_checkpoint_message,
+    partition_content_parts,
 )
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.db.po import Conversation
@@ -233,7 +234,10 @@ class ProviderRequest:
 
         # 2. 额外的内容块（系统提醒、指令等）
         if self.extra_user_content_parts:
-            for part in self.extra_user_content_parts:
+            text_parts, media_parts = partition_content_parts(
+                list(self.extra_user_content_parts)
+            )
+            for part in [*text_parts, *media_parts]:
                 content_blocks.append(part.model_dump_for_context())
 
         # 3. 图片内容

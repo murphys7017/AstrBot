@@ -104,6 +104,7 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 - `prompt-development-plan.md`
 - `dev/cost-context-runtime-plan.md`
 - `dev/desktop-application-and-body-integration-plan.md`
+- `dev/architecture-cleanup-roadmap-2026-10.md`
 
 Memory 子系统：
 

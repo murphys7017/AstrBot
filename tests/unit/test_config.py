@@ -2071,6 +2071,31 @@ class TestConfigRouteAdapterAdmission:
         route.ucr.update_routing_data.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_route_write_rolls_back_profile_admission_when_persistence_fails(self):
+        route = object.__new__(ConfigRoute)
+        profile = PersistedConfig({"adapter_binding_ids": []})
+        route.acm = SimpleNamespace(
+            default_conf={"platform": [{"id": "adapter-a", "type": "aiocqhttp"}]},
+            confs={"profile-a": profile},
+        )
+        route.ucr = SimpleNamespace(
+            validate_route=Mock(),
+            update_route=AsyncMock(side_effect=RuntimeError("storage unavailable")),
+        )
+
+        with patch(
+            "astrbot.dashboard.routes.config.request",
+            new=AwaitableJsonRequest(
+                {"umo": "adapter-a:*:*", "conf_id": "profile-a"}
+            ),
+        ):
+            response = await route.update_ucr()
+
+        assert response["status"] == "error"
+        assert profile["adapter_binding_ids"] == []
+        assert profile.save_config.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_adapter_delete_removes_profile_admission(self):
         route = object.__new__(ConfigRoute)
         profile = PersistedConfig({"adapter_binding_ids": ["adapter-a", "adapter-b"]})

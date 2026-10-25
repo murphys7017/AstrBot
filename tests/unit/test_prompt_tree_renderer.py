@@ -1396,12 +1396,12 @@ def test_render_engine_compiles_user_input_and_merged_tool_schema():
             "text": "<user_input>\n  <text>Look at this</text>\n</user_input>",
         },
         {
-            "type": "image_url",
-            "image_url": {"url": "file:///tmp/demo.png"},
-        },
-        {
             "type": "text",
             "text": "[File Attachment: name spec.txt, path /tmp/spec.txt]",
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "file:///tmp/demo.png"},
         },
     ]
     assert result.tool_schema == [
@@ -1594,6 +1594,44 @@ def test_render_engine_compiles_caption_and_file_extract_blocks_in_user_message(
         {"type": "image_url", "image_url": {"url": "https://example.com/quoted.png"}},
         {"type": "image_url", "image_url": {"url": "file:///tmp/demo.png"}},
     ]
+
+
+def test_render_engine_places_explicit_text_before_media_blocks():
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="Look at this",
+                category="input",
+                source="test",
+            ),
+            "input.images": ContextSlot(
+                name="input.images",
+                value=[{"ref": "file:///tmp/screenshot.png"}],
+                category="input",
+                source="test",
+            ),
+            "input.explicit_content_parts": ContextSlot(
+                name="input.explicit_content_parts",
+                value=[
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "file:///tmp/plugin.png"},
+                    },
+                    {"type": "text", "text": "Plugin context"},
+                ],
+                category="input",
+                source="test",
+            ),
+        }
+    )
+
+    result = PromptRenderEngine().render(pack, target="persona")
+
+    assert [
+        part["type"] for part in result.messages[-1]["content"]
+    ] == ["text", "text", "image_url", "image_url"]
+    assert result.messages[-1]["content"][1]["text"] == "Plugin context"
 
 
 def test_render_engine_keeps_text_only_user_input_as_plain_string_message():

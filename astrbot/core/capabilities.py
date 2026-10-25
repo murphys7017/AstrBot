@@ -79,11 +79,15 @@ class CapabilitySnapshot:
         tools = tuple(self.tools)
         object.__setattr__(self, "tools", tools)
         object.__setattr__(self, "decisions", tuple(self.decisions))
-        object.__setattr__(
-            self,
-            "_serialized_tools",
-            tuple(_serialize_tool(tool) for tool in tools) if self.include_tool_schema else (),
+        serialized_tools = (
+            sorted(
+                (_serialize_tool(tool) for tool in tools),
+                key=lambda item: str(item.get("name", "")),
+            )
+            if self.include_tool_schema
+            else ()
         )
+        object.__setattr__(self, "_serialized_tools", tuple(serialized_tools))
 
     @classmethod
     def empty(

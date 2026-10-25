@@ -456,6 +456,7 @@ async def _collect_prompt_extension_slots(
     collector_scope: PromptExtensionCollectorScope = "all",
     allowed_mounts: frozenset[str] | None = None,
     allowed_targets: frozenset[str] | None = None,
+    allowed_context_view: str | None = None,
 ) -> tuple[list[ContextSlot], list[str]]:
     list_collectors = getattr(plugin_context, "list_prompt_extension_collectors", None)
     if not callable(list_collectors):
@@ -495,6 +496,7 @@ async def _collect_prompt_extension_slots(
         static_cache=static_cache,
         allowed_mounts=allowed_mounts,
         allowed_targets=allowed_targets,
+        allowed_context_view=allowed_context_view,
     )
 
     # Reassemble in the original priority order so slot content stays
@@ -549,6 +551,7 @@ async def _run_prompt_extension_collectors(
     static_cache: dict,
     allowed_mounts: frozenset[str] | None = None,
     allowed_targets: frozenset[str] | None = None,
+    allowed_context_view: str | None = None,
 ) -> list[_PromptExtensionCollectionOutcome]:
     """Run every prompt extension collector concurrently under one stage budget."""
 
@@ -560,6 +563,21 @@ async def _run_prompt_extension_collectors(
         allow_control_plane_targets = _collector_allows_control_plane_targets(collector)
         lifecycle = _collector_lifecycle(collector)
         plugin_id = str(getattr(collector, "plugin_id", "") or "").strip()
+        collector_allowed_mounts = allowed_mounts
+        declared_context_views = getattr(
+            collector,
+            "prompt_extension_context_views",
+            (),
+        )
+        if not isinstance(declared_context_views, (list, tuple, set, frozenset)):
+            declared_context_views = ()
+        if (
+            allowed_context_view is not None
+            and allowed_mounts is not None
+            and "context" in allowed_mounts
+            and allowed_context_view not in declared_context_views
+        ):
+            collector_allowed_mounts = allowed_mounts - {"context"}
         static_cache_key = _prompt_extension_cache_key(collector, plugin_id)
         collect_for_context = getattr(collector, "collect_for_prompt_context", None)
         collect_for_mounts = getattr(collector, "collect_for_prompt_mounts", None)
@@ -573,8 +591,10 @@ async def _run_prompt_extension_collectors(
             mount_hook
             is not PromptExtensionCollectorInterface.collect_for_prompt_mounts
         )
-        if allowed_mounts is not None and (specializes_context or specializes_mounts):
-            mount_key = ",".join(sorted(allowed_mounts))
+        if collector_allowed_mounts is not None and (
+            specializes_context or specializes_mounts
+        ):
+            mount_key = ",".join(sorted(collector_allowed_mounts))
             static_cache_key = f"{static_cache_key}:mounts={mount_key}"
         if specializes_context and allowed_targets is not None:
             target_key = ",".join(sorted(allowed_targets))
@@ -602,19 +622,19 @@ async def _run_prompt_extension_collectors(
             cached_extensions = _normalize_prompt_extension_items(
                 deepcopy(cached_items)
             )
-            return outcome(
-                [
-                    normalized
-                    for extension in cached_extensions
-                    if (
-                        normalized := _normalize_plugin_prompt_extension(
-                            extension,
-                            allow_control_plane_targets=allow_control_plane_targets,
-                        )
-                    )
-                    is not None
-                ],
-            )
+            accepted_cached = []
+            for extension in cached_extensions:
+                normalized = _normalize_plugin_prompt_extension(
+                    extension,
+                    allow_control_plane_targets=allow_control_plane_targets,
+                )
+                if normalized is None or not _prompt_extension_allowed_for_view(
+                    normalized,
+                    allowed_context_view,
+                ):
+                    continue
+                accepted_cached.append(normalized)
+            return outcome(accepted_cached, raw=cached_extensions)
 
         try:
             if callable(collect_for_context) and (
@@ -625,16 +645,16 @@ async def _run_prompt_extension_collectors(
                     plugin_context,
                     config,
                     provider_request=provider_request,
-                    allowed_mounts=allowed_mounts,
+                    allowed_mounts=collector_allowed_mounts,
                     allowed_targets=allowed_targets,
                 )
-            elif allowed_mounts is not None and callable(collect_for_mounts):
+            elif collector_allowed_mounts is not None and callable(collect_for_mounts):
                 raw_extensions = await collect_for_mounts(
                     event,
                     plugin_context,
                     config,
                     provider_request=provider_request,
-                    allowed_mounts=allowed_mounts,
+                    allowed_mounts=collector_allowed_mounts,
                 )
             else:
                 raw_extensions = await collector.collect(
@@ -691,7 +711,10 @@ async def _run_prompt_extension_collectors(
                 extension,
                 allow_control_plane_targets=allow_control_plane_targets,
             )
-            if normalized is not None:
+            if normalized is not None and _prompt_extension_allowed_for_view(
+                normalized,
+                allowed_context_view,
+            ):
                 accepted.append(normalized)
 
         return outcome(accepted, raw=extensions)
@@ -749,6 +772,19 @@ async def _run_prompt_extension_collectors(
         )
     record_prompt_timings(event, "plugin_collectors", sorted(timings, key=lambda row: row["stage"]))
     return outcomes
+
+
+def _prompt_extension_allowed_for_view(
+    extension: PromptExtension,
+    context_view: str | None,
+) -> bool:
+    """Require context-mounted extensions to opt in to view-limited prompts."""
+    if context_view is None or extension.mount != "context":
+        return True
+    declared_views = extension.meta.get("context_views", [])
+    if not isinstance(declared_views, (list, tuple, set, frozenset)):
+        return False
+    return context_view in declared_views
 
 
 def _safe_task_result(task: asyncio.Future) -> Any:
@@ -890,6 +926,7 @@ async def collect_context_pack(
     prompt_extension_collector_scope: PromptExtensionCollectorScope = "all",
     allowed_prompt_extension_mounts: frozenset[str] | None = None,
     allowed_prompt_extension_targets: frozenset[str] | None = None,
+    allowed_prompt_extension_context_view: str | None = None,
 ) -> ContextPack:
     """
     Collect prompt context into a single pack.
@@ -1137,6 +1174,7 @@ async def collect_context_pack(
                 collector_scope=prompt_extension_collector_scope,
                 allowed_mounts=allowed_prompt_extension_mounts,
                 allowed_targets=allowed_prompt_extension_targets,
+                allowed_context_view=allowed_prompt_extension_context_view,
             )
             metric["slot_count"] = len(extension_slots)
         pack.meta["extension_collectors"] = extension_collectors

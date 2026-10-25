@@ -1446,6 +1446,14 @@ class InteractionMiddleware:
                 reason=outcome.failure_reason,
                 user_visible_action="none",
             )
+            logger.warning(
+                "Interaction Persona segment stream failed: "
+                "platform_id=%s session_id=%s turn_id=%s reason=%s",
+                event.get_platform_id(),
+                event.session_id,
+                event.get_extra("_turn_id"),
+                outcome.failure_reason,
+            )
         self._set_speculative_persona_status(
             event,
             (

@@ -116,3 +116,9 @@ duplicate suppression 和 disposition；TurnState receipt 只记录可见投递�
 Output Controller 可以作为长期逻辑输出 owner，但还不能直接改名为完整
 `OutputRuntime`：物理组件完成、artifact、delayed delivery 和 turn completion 的
 身份关系尚未完全收口。下一批应先建立 receipt/identity 表，不做大规模类合并。
+
+## 2026-10-24 状态校准
+
+上文“尚未形成 `DeliveryReceipt`/`OutputSegmentReceipt` 契约”和“下一步先画 receipt/identity 表”记录的是 2026-09-19 的审计基线，不代表当前实现状态。当前代码已有 `InteractionTurnState.output_delivery_receipts`、`begin_interaction_turn_delivery_receipt()` 和 `finish_interaction_turn_delivery_receipt()`；跨组件方案 B1 也已扩展物理投递、完成通知和取消未知状态。
+
+后续工作应审计各输出来源是否都使用这套既有 receipt/identity，并完成 Artifact、Delayed Delivery、整轮完成和真实平台路径的验收。只有代码证据证明现有结构无法表达某个缺口时，才新增最小字段；不另建平行 receipt 或 delivery ledger。

@@ -30,6 +30,7 @@ from astrbot.core.agent.message import (
     ImageURLPart,
     Message,
     TextPart,
+    partition_content_parts,
 )
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.exceptions import EmptyModelOutputError
@@ -1579,7 +1580,10 @@ class ProviderOpenAIOfficial(Provider):
 
         # 2. 额外的内容块（系统提醒、指令等）
         if extra_user_content_parts:
-            for part in extra_user_content_parts:
+            text_parts, media_parts = partition_content_parts(
+                list(extra_user_content_parts)
+            )
+            for part in [*text_parts, *media_parts]:
                 if isinstance(part, TextPart):
                     content_blocks.append({"type": "text", "text": part.text})
                 elif isinstance(part, ImageURLPart):

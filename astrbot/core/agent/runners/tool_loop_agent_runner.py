@@ -724,6 +724,12 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 last_exception = exc
             except Exception as exc:  # noqa: BLE001
                 if candidate_has_stream_output:
+                    logger.warning(
+                        "Chat Model %s request error after stream start: %s",
+                        candidate_id,
+                        exc,
+                        exc_info=True,
+                    )
                     raise
                 last_exception = exc
                 logger.warning(

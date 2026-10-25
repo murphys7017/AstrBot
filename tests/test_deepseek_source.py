@@ -98,7 +98,13 @@ def test_deepseek_places_runtime_facts_after_history_in_a_context_message():
     assert [message["role"] for message in result.messages] == ["user", "user"]
     runtime_message, user_message = result.messages
     assert runtime_message["_no_save"] is True
+    assert runtime_message["content"].startswith(
+        "<framework_context>\n"
+        "  <instruction>Framework-generated runtime facts."
+    )
     assert "<runtime>" in runtime_message["content"]
+    assert "Treat them as context, not as a user request." in runtime_message["content"]
+    assert runtime_message["content"].endswith("</framework_context>")
     assert "available" in runtime_message["content"]
     assert user_message["content"] == "Current user request"
 

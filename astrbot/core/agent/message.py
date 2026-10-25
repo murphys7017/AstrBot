@@ -141,6 +141,31 @@ class AudioURLPart(ContentPart):
     audio_url: AudioURL
 
 
+def partition_content_parts(parts: list[object]) -> tuple[list[object], list[object]]:
+    """Keep textual content before volatile media blocks in user messages."""
+
+    text_parts: list[object] = []
+    media_parts: list[object] = []
+    media_types = {
+        "image",
+        "image_url",
+        "input_audio",
+        "input_image",
+        "audio_url",
+        "video_url",
+    }
+    for part in parts:
+        if isinstance(part, dict):
+            part_type = part.get("type")
+        else:
+            part_type = getattr(part, "type", None)
+        if isinstance(part_type, str) and part_type in media_types:
+            media_parts.append(part)
+        else:
+            text_parts.append(part)
+    return text_parts, media_parts
+
+
 class ToolCall(BaseModel):
     """
     A tool call requested by the assistant.
