@@ -3392,11 +3392,12 @@ prompt_projection_repairs_20261025:
   date: '2026-10-25'
   class: bugfix
   risk: high
-  status: implementation_under_review
+  status: source_validated_pending_paired_restart_and_live_acceptance
   scope: >-
     Repair four confirmed Prompt boundary defects and improve cache layout:
     preserve user/assistant reported error text while excluding private
-    reasoning/thinking/tool_calls, retain authored persona material in lightweight Views, enforce
+    reasoning/thinking/tool_calls, retain authored persona material in lightweight
+    Views, enforce
     extension context_views during both collection and Pack projection, move
     older relevant Persona history into a tail history_recall message, move
     runtime context out of provider-neutral system text, and avoid duplicating
@@ -3404,8 +3405,10 @@ prompt_projection_repairs_20261025:
     paired Core persona parser and independent motion reuses the current
     allowed persona.summary projection. Preserve personality semantics, motion
     mixer, segment scheduling, output protocols, NeuroBrain and Passive scope.
+    Core source committed as 9df474122 and AG99live source as cb0366a.
   validation: >-
-    Scoped checks passed in overlapping batches: 3 persona/view/output-contract cases, 8 target
+    Scoped checks passed in overlapping batches: 3 persona/view/output-contract
+    cases, 8 target
     projection cases, 5 metadata/renderer cases, 74 expression-agent cases,
     20 renderer cases, 3 additional target/history cases, and paired AG99live
     pre-action and independent-motion cases. Scoped Ruff, compileall and diff
@@ -3413,10 +3416,17 @@ prompt_projection_repairs_20261025:
     Broader prompt pipeline reported four failures and target suite one failure;
     a clean-HEAD loader reproduced those same failures, so they are retained as
     baseline gaps rather than attributed to this patch.
+    AG99live post-commit deployment completed through deploy_adapter.ps1;
+    SHA-256 comparison found all 164 managed files equal with no missing or extra
+    managed files. No runtime deployment was edited as source.
   evidence_gap: >-
     No live Provider or warm-cache measurement, restart, voice, or Live2D
-    acceptance. The paired Core and AG99live sources must be deployed/reloaded
-    together. Runtime context is now tail-positioned for all provider-neutral
+    acceptance. Fully restart AstrBot to load the paired Core and deployed
+    Adapter together. Runtime context is now tail-positioned for all provider-neutral
     renderers; actual provider-specific cache behavior still requires live
     weighted cache-hit observation. Existing unrelated AG99live user document
     remains untracked and untouched.
+    Whole-request budget is diagnostic only, including native output schema;
+    no arbitrary model limit or automatic persona truncation was introduced.
+    Older recall excerpts no longer change the recent dialogue prefix, but
+    sliding the recent window itself can still change that prefix.
