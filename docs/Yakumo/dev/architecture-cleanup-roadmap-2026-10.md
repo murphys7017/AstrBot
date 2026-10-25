@@ -26,7 +26,7 @@
 2. `AstrMessageEvent` 同时保存 typed Interaction state、平台输出 hook 和 legacy `extra` 投影。兼容边界存在合理原因，但内部读取面尚未完全收口。
 3. `AstrBotCoreLifecycle` 既是组合根，又修改进程级代理环境、初始化组件、启动后台任务并执行关闭编排。
 4. Handler-first、Interaction/Personal、Core、Cron/主动任务和平台适配器仍需要用同一套运行证据证明终态与完成回执一致。
-5. `astrbot/core/provider/entites.py` 是仓库内未发现引用的纯转发模块，但外部插件使用情况未知。
+5. 历史兼容转发模块 `astrbot/core/provider/entites.py` 已于 2026-10-25 在提交 `101ccdc82` 删除；规范模块 `astrbot.core.provider.entities` 保留，仓库与部署插件未发现导入。
 6. Dashboard Profile 删除必须避免“路由已删除、Profile 仍存在”的失败状态，并区分 Profile 删除与孤立路由清理。
 7. 前端多个消息视图有相似的数据转换逻辑；`MessageListDEPRECATED.vue` 已完成静态、动态、插件和构建源码核验并于 2026-10-25 删除。旧知识库路由仍有页面链接。
 8. `dashboard/routes` 导入别名和 `dashboard/api` 路由注册属于 Dashboard 迁移兼容边界；迁移切换和调用者核验前不按重复业务实现删除。
@@ -172,7 +172,7 @@ ConfigRouteTable
 
 候选顺序：
 
-1. `astrbot/core/provider/entites.py`：先查已安装插件、发布包和外部导入，再删除或进入正式弃用周期。
+1. `filter_llm_exposed_context_pack`：当前无仓内生产调用，但仍是公开导出；先查已安装插件、发布包和外部导入，再删除或进入正式弃用周期。
 2. 已经由 typed owner 完全替代、且无外部消费者的 Event extra 投影。
 3. 已被新输出回执完全替代的旧完成标记。
 4. `MessageListDEPRECATED.vue`：2026-10-25 已删除；保留仍被页面显式链接的旧知识库路由。

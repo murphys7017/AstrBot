@@ -24,9 +24,9 @@
 - **未完成**：无 owner 的旧注册仍无法按插件自动撤销；完整插件 reload 仍需运行时验收。
 - **验证**：静态检查、Dashboard 动态路由测试、owner 回收 smoke 通过。
 
-## 低风险候选
+## 已完成与低风险候选
 
-### `astrbot/core/provider/entites.py`
+### 已删除：`astrbot/core/provider/entites.py`
 
 - **类型**：拼写错误兼容转发模块。
 - **处理**：2026-10-25 删除。AstrBot 源码、Dashboard、`data/plugins` 部署插件、AG99live 源码和公开文档均未发现导入。

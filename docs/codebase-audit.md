@@ -222,7 +222,7 @@ Canonical owner: boundary-specific contract validators. Change risk: Medium. Val
 
 ### Evidence
 
-- `astrbot/core/provider/entites.py` is a 407-byte misspelled re-export of `entities.py`; no in-repository textual references were found.
+- `astrbot/core/provider/entites.py` was removed in commit `101ccdc82` after repository and deployed-plugin import scans found no consumers. The canonical module remains `entities.py`.
 - `astrbot/core/platform/message_session.py` retains `MessageSesion = MessageSession` backward compatibility; Core-owned imports now use the canonical `MessageSession` name.
 - `Context.registered_web_apis` is now instance-owned, and registrations made inside an explicit plugin owner scope are removed during owner teardown. Ownerless legacy routes remain compatible but are not automatically attributable.
 - `AstrMessageEvent` documents legacy output hook and extra-key compatibility (`astrbot/core/platform/astr_message_event.py:76-80`, `:372-429`, `:514+`).
@@ -263,7 +263,7 @@ Canonical owner: a compatibility retirement register maintained with public-inte
 
 ## Likely removable
 
-- `astrbot/core/provider/entites.py`: misspelled forwarding module. Deletion confidence: **Medium**. No repository references were found; raise to High only after packaged/external plugin import analysis and a deprecation window.
+- `filter_llm_exposed_context_pack` has no in-repository production caller, but remains an exported compatibility wrapper for targetless prompt callers. Deletion confidence: **Low** until public-plugin import evidence is available.
 - `MessageSesion` alias in `astrbot/core/platform/message_session.py`. Deletion confidence: **Low**; it is public-facing and external imports are unknown.
 
 ## Needs confirmation
@@ -290,7 +290,7 @@ Canonical owner: a compatibility retirement register maintained with public-inte
 
 | Candidate | Evidence | Deletion confidence | Future validation |
 | --- | --- | --- | --- |
-| `astrbot/core/provider/entites.py` | Pure re-export of `entities.py`; no in-repo references found. | Medium | Search installed/data-directory plugins, package consumers, release history. |
+| `filter_llm_exposed_context_pack` | Exported wrapper that delegates to the explicit Core projection; no in-repo production callers found. | Low | Search installed/data-directory plugins and published API consumers before removal. |
 | `MessageSesion` alias | Explicit backward-compatibility alias. | Low | Public API search and deprecation cycle. |
 | Provider uncompiled-binding compatibility paths | Explicit comments say delete after migration. | Low | Provider contract/version inventory and integration checks. |
 | Event extra compatibility mirrors | Explicitly described as legacy in `AstrMessageEvent`. | Low | Inventory every writer/reader including external plugins and copied event paths. |
@@ -311,7 +311,7 @@ Canonical owner: a compatibility retirement register maintained with public-inte
 
 # Architectural Simplification Opportunities
 
-1. **Delete:** Remove `provider/entites.py` only after external-import confirmation.
+1. **Retain temporarily:** Keep `filter_llm_exposed_context_pack` as a public compatibility wrapper until external-import evidence and a deprecation window are available.
 2. **Converge:** Designate existing typed per-turn owners and retire Core/output/config event extras one named key at a time; do not introduce an aggregate context that duplicates `InteractionTurnState` or a late-created `CoreExecutionSpec`.
 3. **Merge:** Route all output origins through a small typed intent and retain `PreOutputProcessor` and `TurnDeliveryCoordinator` as distinct policy/settlement services.
 4. **Converge:** Prove or disprove duplicate terminal writes, then remove only the redundant lifecycle path while retaining distinct Pipeline traversal, Personal admission, Core execution, and transport responsibilities.
@@ -322,7 +322,7 @@ Canonical owner: a compatibility retirement register maintained with public-inte
 
 # Potential Delete List
 
-- `astrbot/core/provider/entites.py` forwarding module, pending external usage confirmation.
+- `filter_llm_exposed_context_pack` compatibility wrapper, pending external usage confirmation.
 - `MessageSesion` compatibility alias, pending public API deprecation.
 - Legacy Event extra mirrors and original-method output hooks, after every internal/external consumer has moved to typed output intent.
 - Uncompiled provider binding compatibility branches in OpenAI/Anthropic sources, after caller/version evidence.

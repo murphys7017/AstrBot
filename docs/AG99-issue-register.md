@@ -166,8 +166,8 @@
 
 | 编号 | 复核 | 问题（压缩表述） | 处理 |
 |---|---|---|---|
-| I1 | ✓/△ | `provider/entites.py` 存在且未发现调用；原报告行数已过时。 | open |
-| I2 | ✓ confirmed | `filter_llm_exposed_context_pack` 当前未发现生产调用方。 | open |
+| I1 | ✓ resolved | `provider/entites.py` 已在提交 `101ccdc82` 删除；规范模块 `provider/entities.py` 保留，仓库与部署插件均未发现导入。 | resolved |
+| I2 | ✓/△ | `filter_llm_exposed_context_pack` 当前未发现生产调用方，但仍是公开导出兼容包装，需外部消费者证据后再退役。 | open |
 | I3 | ✓ resolved | `_encode_image_bs64` 私有兼容包装已删除；当前图片组装路径直接使用 `materialize_image_ref()`，仓内无调用方。 | resolved |
 | I4 | △ partial | Persona runtime 三个方法未发现调用方，需排除反射/插件调用。 | open |
 | I5 | ✗ stale/incorrect | `session_controller/`、`web_searcher/` 当前都不存在，也没有受跟踪源码；原“目录只含 pycache”不适用于当前工作区。 | open |

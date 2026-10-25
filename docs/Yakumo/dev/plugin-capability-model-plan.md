@@ -920,7 +920,7 @@ def register_remote_operator_interaction_contributors(context: Any) -> None:
 `middleware/__init__.py::register_ag99live_interaction_contributors()` 中、
 且**已通过 `supports_interaction_contributors(context)` 检查之后**才被调用。
 也就是说旧 Core 根本走不到这里（旧 Core 由 `main.py` 的
-`_official_core_compatibility` 分支改用 `<@anim>` inline motion）。
+`_enhanced_interaction_unavailable` 分支改用 `<@anim>` inline motion）。
 所以这次注册从来不是"兼容旧 Core 的路径"，而只是**同一份内容在增强链路上的第二个生产者**：
 
 - Contributor 经 `build_prompt_extension_slots(source="interaction_prompt_contributors")`
