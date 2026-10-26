@@ -307,6 +307,9 @@ class AstrBotCoreLifecycle:
             ucr=self.umop_config_router,
             sp=sp,
         )
+        self.personal_runtime_manager.bind_configuration_resolver(
+            self.astrbot_config_mgr.resolve_configuration_selection
+        )
         self.core_executor_selector = build_core_executor_selector(
             self.astrbot_config_mgr
         )

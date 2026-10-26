@@ -38,6 +38,26 @@
     "selectedPluginsLabel": "已选择的插件：",
     "allPluginsLabel": "所有插件"
   },
+  "runtimeTargetEditor": {
+    "configure": "配置目标",
+    "targetLabel": "目标对话",
+    "targetCore": "Core 工作链路",
+    "targetPersona": "Personal 人格回复",
+    "add": "添加规则",
+    "remove": "移除规则",
+    "cancel": "取消",
+    "save": "应用",
+    "scopeRequired": "请选择或输入插件",
+    "scopeDuplicate": "同一插件的同一类型只能配置一次",
+    "targetInvalid": "请选择有效目标",
+    "loadFailed": "无法完整加载插件或工具列表；仍可手动输入配置名称。",
+    "capabilityEmpty": "未配置覆盖项",
+    "capabilityTitle": "插件目标路由",
+    "pluginLabel": "插件",
+    "kindLabel": "目标类型",
+    "promptExtensions": "Prompt Extension",
+    "toolLabel": "工具名称（* 表示全部）"
+  },
   "providerSelector": {
     "allSources": "全部源",
     "filterSource": "筛选提供商源",

@@ -148,6 +148,21 @@ class ObservationInbox:
     def pending_material_count(self) -> int:
         return sum(item.material is not None for item in self._items.values())
 
+    @property
+    def pending_observations(self) -> tuple[RuntimeObservation, ...]:
+        return tuple(item.observation for item in self._items.values())
+
+    def discard(self, observation_ids: Sequence[str]) -> None:
+        for observation_id in observation_ids:
+            item = self._remove(observation_id)
+            if item is not None:
+                self._discard_material(item.material)
+                self.cancelled_drop_count += 1
+        if not self._items:
+            self._opened_at = None
+            self._held_since = None
+            self._release_reason = None
+
     def admit(
         self,
         observation: RuntimeObservation,

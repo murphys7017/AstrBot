@@ -21,6 +21,22 @@ from astrbot.core.star.star import star_map
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
 _PLUGIN_EXECUTION_RUNTIME_EXTRA_KEY = "_plugin_execution_runtime"
+_REQUEST_PROMPT_MUTATION_FIELDS = (
+    "prompt",
+    "contexts",
+    "system_prompt",
+    "extra_user_content_parts",
+)
+
+
+def _snapshot_request_prompt_mutation_fields(request: object) -> dict[str, T.Any]:
+    snapshot: dict[str, T.Any] = {}
+    for field_name in _REQUEST_PROMPT_MUTATION_FIELDS:
+        if not hasattr(request, field_name):
+            continue
+        value = getattr(request, field_name)
+        snapshot[field_name] = list(value) if isinstance(value, list) else value
+    return snapshot
 
 
 async def call_handler(
@@ -114,6 +130,10 @@ async def call_event_hook(
     *args,
     execution_surface: str | None = None,
     plugin_execution_runtime: T.Any = None,
+    _request_mutation_observer: T.Callable[
+        [T.Any, dict[str, T.Any], dict[str, T.Any]], None
+    ]
+    | None = None,
     **kwargs,
 ) -> bool:
     """调用事件钩子函数
@@ -156,6 +176,13 @@ async def call_event_hook(
             plugin_owner_module_path(handler.handler_module_path)
             or handler.handler_module_path
         )
+        request = args[0] if hook_type is EventType.OnLLMRequestEvent and args else None
+        request_before = (
+            _snapshot_request_prompt_mutation_fields(request)
+            if _request_mutation_observer is not None and request is not None
+            else None
+        )
+        handler_succeeded = False
         try:
             assert inspect.iscoroutinefunction(handler.handler)
             plugin = star_map.get(owner_module_path)
@@ -185,8 +212,23 @@ async def call_event_hook(
                     continue
             else:
                 await handler.handler(event, *args, **kwargs)
+            handler_succeeded = True
         except Exception:
             logger.error(traceback.format_exc())
+        finally:
+            if handler_succeeded and request_before is not None:
+                try:
+                    _request_mutation_observer(
+                        handler,
+                        request_before,
+                        _snapshot_request_prompt_mutation_fields(request),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to observe OnLLMRequestEvent prompt mutation: "
+                        "handler=%s",
+                        handler.handler_name,
+                    )
 
         if event.is_stopped():
             plugin = star_map.get(owner_module_path)

@@ -3535,3 +3535,58 @@ observation_timezone_planner_fixes_20261025:
     Restart AstrBot before online acceptance of Planner execution and
     autonomous expression. JSON text compliance still depends on the model;
     malformed or incomplete plans remain explicit failures.
+
+personal_runtime_recovery_guards_20261025:
+  date: '2026-10-25'
+  class: bugfix
+  risk: high
+  status: source_validated_pending_restart_and_runtime_acceptance
+  scope: >-
+    Hold autonomous evaluation while persisted Personal State cannot be read,
+    retry restoration without overwriting unread state, and revalidate current
+    profile routing, policy configuration, runtime identity, target platform
+    permissions, and plugin Sensor admission before waking retained batches.
+    Isolate Heartbeat failures per target with a 60-second retry. Preserve
+    ordinary conversation processing, related NeuroBrain user changes, and
+    already committed fixes.
+  validation: >-
+    Sixteen targeted Heartbeat and Personal Runtime tests passed, covering state
+    restore/retry, disabled policy and idle-initiation revocation, profile and
+    platform changes, allowed wake, per-target Heartbeat isolation and recovery,
+    and existing idle-initiation and Observation paths. Scoped Ruff passed.
+    The complete three-file related suite ran: 57 passed and 4 failed. Those
+    failures are outside touched behavior: one Planner test passes a None config
+    to routing preflight, two tests expect the legacy None return instead of
+    False for suppressed output, and one plugin handler fixture is rejected as
+    stale. No full repository suite, service restart, live adapter failure or
+    runtime acceptance.
+  evidence_gap: >-
+    Recovery is source-validated only. Restart AstrBot and observe the persisted
+    database retry, Deferred batch wake, and target-specific Heartbeat diagnostics
+    under the normal service lifecycle.
+
+neurobrain_transient_prompt_review_20261026:
+  date: '2026-10-26'
+  class: review
+  risk: high
+  status: reviewed_pending_restart_and_live_acceptance
+  scope: >-
+    Review the current AstrBot and NeuroBrain integration for request-local live
+    state injection. Keep NeuroBrain as one independent model thread with one
+    input boundary and one immediate read boundary; inject only the latest state
+    into Persona requests without placing it in the canonical ContextPack or
+    conversation history. Preserve the existing broader dirty workspace.
+  validation: >-
+    Added fail-open handling for malformed transient message content and refresh
+    callback failures, excluded transient messages from context compression, and
+    made stopped NeuroBrain runtimes unreadable to prompt consumers. Source and
+    deployment plugin copies were synchronized through deploy_neurobrain.ps1 and
+    main.py/runtime.py SHA-256 checks matched. Tool loop tests passed 48 cases;
+    prompt adapter passed 20 cases with one known baseline user_id assertion;
+    plugin structure, Ruff, compileall, and git diff checks passed. The focused
+    expression/prompt pipeline batch retained four baseline failures reproduced
+    independently of this change.
+  evidence_gap: >-
+    No AstrBot restart or live Persona provider request was performed. Verify
+    latest-state refresh, no history persistence, provider fallback/tool-loop
+    refresh, and stopped-runtime behavior after restarting AstrBot.

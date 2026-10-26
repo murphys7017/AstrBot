@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.provider.entities import ProviderRequest
@@ -42,6 +42,17 @@ class PromptExtensionCollectorInterface(ABC):
         collection. `dynamic` collectors are evaluated on every prompt build.
         """
         return "dynamic"
+
+    @property
+    def prompt_message_targets(self) -> frozenset[str]:
+        """Return model targets allowed to receive transient messages.
+
+        The default is empty so an existing Prompt Extension collector cannot
+        inject request messages accidentally. Plugin targets are limited to the
+        same public surfaces as ordinary plugin prompt facts: ``persona`` and
+        ``core``.
+        """
+        return frozenset()
 
     @abstractmethod
     async def collect(
@@ -92,3 +103,22 @@ class PromptExtensionCollectorInterface(ABC):
             provider_request=provider_request,
             allowed_mounts=allowed_mounts,
         )
+
+    def collect_prompt_messages(
+        self,
+        event: AstrMessageEvent,
+        plugin_context: Context,
+        *,
+        target: str,
+        context_view: str | None = None,
+        provider_request: ProviderRequest | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return transient messages for this rendered model request.
+
+        These messages are evaluated after the canonical ContextPack has been
+        selected, so fast-changing state does not become part of a cached pack.
+        The default implementation keeps existing collectors unchanged. Only
+        ``user`` role messages are accepted by the core renderer.
+        """
+        del event, plugin_context, target, context_view, provider_request
+        return []

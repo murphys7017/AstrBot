@@ -42,13 +42,14 @@
         "cancel": "Отмена",
         "save": "Применить",
         "scopeRequired": "Выберите или введите плагин",
-        "scopeDuplicate": "Каждая область может быть настроена только один раз",
+        "scopeDuplicate": "Для каждого плагина и типа цели можно задать только одно правило",
         "targetInvalid": "Выберите допустимую цель",
         "loadFailed": "Не удалось загрузить полный список плагинов или инструментов. Ключ можно ввести вручную.",
         "capabilityEmpty": "Нет переопределений",
-        "capabilityTitle": "Цели возможностей плагина",
+        "capabilityTitle": "Маршрутизация целей плагинов",
         "pluginLabel": "Плагин",
-        "kindLabel": "Возможность",
+        "kindLabel": "Тип цели",
+        "promptExtensions": "Prompt Extension",
         "toolLabel": "Инструмент (* для всех)"
     },
     "providerSelector": {

@@ -58,7 +58,10 @@ from astrbot.core.interaction.personal_runtime import (
     PersonalRuntimeManager,
     PersonalSessionRuntime,
 )
-from astrbot.core.interaction.personal_state import PersonalDeliveryStatus
+from astrbot.core.interaction.personal_state import (
+    PersonalDeliveryStatus,
+    PersonalState,
+)
 from astrbot.core.interaction.personal_state_repository import PersonalStateRepository
 from astrbot.core.interaction.plugin_execution_runtime import (
     PluginExecutionRuntime,
@@ -114,7 +117,11 @@ from astrbot.core.platform.platform_metadata import PlatformMetadata
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 from astrbot.core.star.star import StarMetadata, star_map
-from astrbot.core.star.star_handler import EventType, StarHandlerMetadata
+from astrbot.core.star.star_handler import (
+    EventType,
+    StarHandlerMetadata,
+    star_handlers_registry,
+)
 
 
 class _Platform:
@@ -1484,7 +1491,7 @@ async def test_duplicate_autonomous_expression_is_suppressed_without_accounting(
     runtime = manager.snapshot_diagnostics().sessions[0]
     feedback = runtime.last_completion_feedback
     turn_state = get_interaction_turn_state(event)
-    assert result is None
+    assert result is False
     assert platform.sent == []
     assert expression_requests[0][0].avoid_previous_reply is True
     assert expression_requests[0][1] is False
@@ -1571,7 +1578,7 @@ async def test_autonomous_expression_deduplicates_after_runtime_state_restore(tm
         )
 
         runtime = restored_manager.snapshot_diagnostics().sessions[0]
-        assert result is None
+        assert result is False
         assert platform.sent == []
         assert event.get_extra("_interaction_runtime_observation_skipped_reason") == (
             "duplicate_previous_expression"
@@ -1831,6 +1838,191 @@ async def test_expiring_newer_fact_preserves_older_pending_material(monkeypatch)
             ObservationGateDisposition.EVALUATE
         )
         assert runtime.state.last_settled_material_revision == 2
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_state_read_failure_holds_autonomy_until_recovery():
+    now = time.time()
+    stored = PersonalState(
+        last_user_activity_at=now - 100,
+        mute_until=now + 600,
+        usage_day="2026-10-25",
+        daily_policy_calls=17,
+        daily_proactive_outputs=2,
+    ).persistent_snapshot()
+
+    class Repository:
+        fail = True
+
+        def __init__(self):
+            self.saved = []
+
+        async def load(self, _key):
+            if self.fail:
+                raise OSError("temporary read failure")
+            return stored
+
+        async def save(self, _key, state):
+            self.saved.append(state)
+
+    metadata = _metadata(support_personal_runtime=True)
+    context = _RuntimeContext(metadata)
+    repository = Repository()
+    config = {"interaction_middleware": {"personal_policy_enabled": True}}
+    manager = PersonalRuntimeManager(
+        observation_debounce_seconds=0, state_repository=repository
+    )
+    manager.bind_configuration_resolver(
+        lambda _umo: SimpleNamespace(config_id="default", runtime_config=config)
+    )
+    try:
+        await manager.submit_observation(
+            RuntimeObservation(
+                kind="sensor_state", source="test", occurred_at=now,
+                target_session=RuntimeObservationTarget(
+                    metadata.id, metadata.name, MessageType.FRIEND_MESSAGE, "target",
+                    support_proactive_message=True, support_personal_runtime=True,
+                ),
+                payload={"changed": True},
+            ),
+            config_id="default", plugin_context=context, runtime_config=config,
+        )
+        await _wait_for_observation_evaluation(manager)
+        held = manager.snapshot_diagnostics().sessions[0]
+        assert held.last_observation_gate_result.reason_code is (
+            ObservationGateReason.STATE_RESTORE_PENDING
+        )
+        assert held.state.pending_observation_count == 1
+        assert held.next_observation_wake_at is not None
+
+        async with manager.submit_platform_event(
+            _DirectEvent(metadata), "default", context, config
+        ) as submission:
+            admission = await submission.admit(allow_follow_up=False)
+            assert admission.lease is not None
+            await admission.lease.release()
+        assert repository.saved == []
+
+        repository.fail = False
+        await manager.wake_observations(held.key)
+        await _wait_for_observation_evaluation(manager)
+        restored = manager.snapshot_diagnostics().sessions[0]
+        assert restored.last_observation_gate_result.reason_code is ObservationGateReason.MUTED
+        assert restored.state.mute_until == stored.mute_until
+        assert restored.state.daily_policy_calls == 17
+        assert restored.state.daily_proactive_outputs == 2
+        assert restored.state.last_user_activity_at > stored.last_user_activity_at
+    finally:
+        await manager.shutdown()
+    assert repository.saved[-1].mute_until == stored.mute_until
+    assert repository.saved[-1].daily_policy_calls == 17
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    ["disabled", "profile_changed", "target_revoked", "allowed"],
+)
+async def test_wake_rechecks_current_admission(change, monkeypatch):
+    clock = SimpleNamespace(now=12 * 3600.0)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.personal_runtime.time",
+        SimpleNamespace(time=lambda: clock.now),
+    )
+    metadata = _metadata(support_personal_runtime=True)
+    context = _RuntimeContext(metadata)
+    config = {"timezone": "UTC", "interaction_middleware": {
+        "personal_policy_enabled": True,
+        "personal_runtime_quiet_hours_enabled": True,
+        "personal_runtime_quiet_hours_start": 0,
+        "personal_runtime_quiet_hours_end": 23,
+    }}
+    selection = SimpleNamespace(config_id="default", runtime_config=config)
+    manager = PersonalRuntimeManager(observation_debounce_seconds=0)
+    manager.bind_configuration_resolver(lambda _umo: selection)
+    try:
+        await manager.submit_observation(
+            RuntimeObservation(
+                kind="sensor_state", source="test", occurred_at=clock.now,
+                target_session=RuntimeObservationTarget(
+                    metadata.id, metadata.name, MessageType.FRIEND_MESSAGE, "target",
+                    support_proactive_message=True, support_personal_runtime=True,
+                ), payload={"changed": True},
+            ), config_id="default", plugin_context=context, runtime_config=config,
+        )
+        await _wait_for_observation_evaluation(manager)
+        held = manager.snapshot_diagnostics().sessions[0]
+        assert held.last_observation_gate_result.disposition is ObservationGateDisposition.HOLD
+        if change == "disabled":
+            config["interaction_middleware"]["personal_policy_enabled"] = False
+        elif change == "profile_changed":
+            selection.config_id = "another-profile"
+        elif change == "target_revoked":
+            context._platform = _Platform(_metadata(support_personal_runtime=False))
+        clock.now = 23 * 3600.0
+        await manager.wake_observations(held.key)
+        await _wait_for_observation_evaluation(manager)
+        after = manager.snapshot_diagnostics().sessions[0]
+        assert after.state.pending_observation_count == 0
+        if change == "allowed":
+            assert after.last_observation_gate_result.disposition is ObservationGateDisposition.EVALUATE
+        else:
+            assert after.state.last_gate_reason == "wake_admission_revoked"
+        assert after.next_observation_wake_at is None
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_wake_discards_disabled_idle_initiation_only(monkeypatch):
+    clock = SimpleNamespace(now=12 * 3600.0)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.personal_runtime.time",
+        SimpleNamespace(time=lambda: clock.now),
+    )
+    metadata = _metadata(support_personal_runtime=True)
+    context = _RuntimeContext(metadata)
+    config = {"timezone": "UTC", "interaction_middleware": {
+        "personal_policy_enabled": True,
+        "personal_idle_initiation_enabled": True,
+        "personal_runtime_quiet_hours_enabled": True,
+        "personal_runtime_quiet_hours_start": 0,
+        "personal_runtime_quiet_hours_end": 23,
+    }}
+    selection = SimpleNamespace(config_id="default", runtime_config=config)
+    manager = PersonalRuntimeManager(observation_debounce_seconds=0)
+    manager.bind_configuration_resolver(lambda _umo: selection)
+    target = RuntimeObservationTarget(
+        metadata.id, metadata.name, MessageType.FRIEND_MESSAGE, "target",
+        support_proactive_message=True, support_personal_runtime=True,
+    )
+    try:
+        await manager.submit_observation(
+            RuntimeObservation(
+                kind="sensor_state", source="test", occurred_at=clock.now,
+                target_session=target, payload={"changed": True},
+            ), config_id="default", plugin_context=context, runtime_config=config,
+        )
+        await _wait_for_observation_evaluation(manager)
+        await manager.submit_observation(
+            RuntimeObservation(
+                kind="idle_initiation", source="personal_runtime.idle_initiation",
+                occurred_at=clock.now, expires_at=clock.now + 300,
+                target_session=target, payload={"user_activity_at": clock.now - 2000},
+            ), config_id="default", plugin_context=context, runtime_config=config,
+        )
+        pending = manager.snapshot_diagnostics().sessions[0]
+        config["interaction_middleware"]["personal_idle_initiation_enabled"] = False
+        clock.now = 23 * 3600.0
+        await manager.wake_observations(pending.key)
+        await _wait_for_observation_evaluation(manager)
+        after = manager.snapshot_diagnostics().sessions[0]
+        assert [o.kind for o in after.last_observation_batch.observations] == [
+            "sensor_state"
+        ]
+        assert after.last_observation_gate_result.disposition is ObservationGateDisposition.EVALUATE
     finally:
         await manager.shutdown()
 
@@ -2392,6 +2584,12 @@ async def test_late_provider_request_closes_only_its_handler(monkeypatch):
         star_map,
         "test.later_plugin",
         StarMetadata(name="later-plugin"),
+    )
+    handlers_by_name = {handler.handler_full_name: handler for handler in handlers}
+    monkeypatch.setattr(
+        star_handlers_registry,
+        "get_handler_by_full_name",
+        lambda name: handlers_by_name.get(name),
     )
     event.set_extra("activated_handlers", handlers)
     event.set_extra("handlers_parsed_params", {})

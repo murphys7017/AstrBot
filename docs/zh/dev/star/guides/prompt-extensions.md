@@ -4,7 +4,7 @@ outline: deep
 
 # Prompt Extension
 
-Prompt Extension 是 AG99（作者 YakumoAki）向统一 Prompt 事实管线贡献模型可见上下文的插件接口。它适合提供业务状态、平台能力摘要或当前事件相关资料，不适合注册可执行工具、修改路由结果或发送消息。
+Prompt Extension 是 AG99（作者 YakumoAki）向统一 Prompt 事实管线贡献模型可见上下文的插件接口。它适合提供业务状态、平台能力摘要或当前事件相关资料，不适合注册可执行工具、修改路由结果或发送平台消息。
 
 ## 它处于哪里
 
@@ -16,6 +16,40 @@ Plugin Collector
   -> layout / renderer
   -> ProviderRequest
 ```
+
+对于每次请求都会变化、不能进入缓存 ContextPack 的状态，可以在同一个 Collector
+上实现同步的 `collect_prompt_messages(...)`。AstrBot 会在目标 ContextPack 选定并完成渲染后，
+把返回的临时消息插入当前请求；消息默认标记为 `_no_save=True`，不会写入对话历史。这个接口
+适合实时状态，不应替代稳定事实的 Prompt Extension：
+
+Collector 必须显式声明 `prompt_message_targets`。插件临时消息只允许进入 `persona` 和 `core`，
+不能注入 `core_router`、`core_planner` 或 `personal_policy`。
+`plugin_capability_targets.<插件名>.prompt_extensions` 可以为该插件选择 `persona` 或 `core`。
+它只会在 Collector 的 `prompt_message_targets` 或扩展 `meta.targets` 已声明该目标时生效；未配置时保留插件声明的全部目标，配置目标未被声明时则不注入。`llm_hooks`、`tools` 和 `prompt_extensions` 是彼此独立的设置。
+
+```python
+prompt_message_targets = frozenset({"persona"})
+
+def collect_prompt_messages(
+    self,
+    event,
+    plugin_context,
+    *,
+    target: str,
+    context_view: str | None = None,
+    provider_request=None,
+) -> list[dict[str, object]]:
+    return [{
+        "role": "user",
+        "content": "<runtime_state>latest value</runtime_state>",
+    }]
+```
+
+插件只允许返回 `user` 角色消息；`system` 和 `assistant` 角色仍由核心渲染器管理。
+
+该方法在每次 Prompt 渲染以及每次 Persona/Core provider 请求前执行，不会修改规范 ContextPack。
+所有请求级临时注入共享最多 4096 个估算 token，并受已配置模型剩余上下文限制；预算不足时会跳过本轮临时注入。
+返回消息应是模型可读的上下文，不能发送到用户平台，也不能执行副作用操作。
 
 Collector 在目标投影前运行，因此同一份插件事实可以通过 `meta.targets` 授权给 Persona 或 Core。Core Planner 不挂载插件扩展，也不读取插件能力目录；它只消费核心维护的任务事实。Collector 不会拿到控制决策，也不能修改规范 Pack。
 

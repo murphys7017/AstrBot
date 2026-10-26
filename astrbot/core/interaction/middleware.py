@@ -1016,10 +1016,12 @@ class InteractionMiddleware:
     async def complete_routed_turn(
         self,
         event: AstrMessageEvent,
-        interaction_config: InteractionAgentConfig,
+        interaction_config: InteractionAgentConfig | None,
         persona_task: asyncio.Task[PersonaExpressionResult | None],
         route: InteractionRouteDecision,
     ) -> None:
+        if interaction_config is None:
+            interaction_config = get_interaction_turn_config(event) or self.interaction_config
         turn_state = ensure_interaction_turn_state(event)
         if route.route_mode == InteractionRouteMode.SILENT:
             expression = await self._suppress_or_await_speculative_persona(

@@ -451,6 +451,48 @@ class _PreparedPersonaExpression:
     expression_correction_attempted: bool = False
 
 
+class _PromptRefreshHooks(BaseAgentRunHooks):
+    """Refresh request-local prompt facts without dispatching other hooks."""
+
+    def __init__(self, callback: Callable[[ContextWrapper], Awaitable[None]]) -> None:
+        self._callback = callback
+
+    async def on_before_llm_request(self, run_context: ContextWrapper) -> None:
+        try:
+            await self._callback(run_context)
+        except Exception:
+            logger.warning(
+                "Request-local prompt refresh failed; continuing without the refresh",
+                exc_info=True,
+            )
+
+
+def _build_transient_prompt_refresh_callback(
+    event,
+    prepared: _PreparedPersonaExpression,
+    provider_request: ProviderRequest | None = None,
+) -> Callable[[ContextWrapper], Awaitable[None]]:
+    engine = PromptRenderEngine()
+    request = provider_request or prepared.provider_request
+    context_view = prepared.render_result.metadata.get("context_view")
+    context_view = str(context_view) if context_view else None
+
+    async def refresh(run_context: ContextWrapper) -> None:
+        plugin_context = run_context.context.context
+        engine.refresh_transient_prompt_messages(
+            provider_request=request,
+            run_context_messages=run_context.messages,
+            event=event,
+            plugin_context=plugin_context,
+            target="persona",
+            context_view=context_view,
+            legacy_prompt_mutations=prepared.lifecycle.legacy_prompt_mutations,
+            base_system_prompt=prepared.render_result.system_prompt,
+        )
+
+    return refresh
+
+
 def _build_persona_hook_run_context(
     plugin_context: Context,
     event,
@@ -2399,6 +2441,8 @@ class InteractionExpressionAgent:
             candidate_render = PromptRenderEngine().recompile_for_provider(
                 render_result,
                 provider_request=render_request,
+                event=event,
+                plugin_context=plugin_context,
             )
             if not _supports_persona_output_format(
                 provider,
@@ -2849,12 +2893,15 @@ class InteractionExpressionAgent:
         )
         runner = ToolLoopAgentRunner[AstrAgentContext]()
         provider_kwargs = {"tool_choice": "required"}
+        refresh_prompt = _build_transient_prompt_refresh_callback(
+            event, prepared, request
+        )
         await runner.reset(
             provider=provider,
             request=request,
             run_context=prepared.run_context,
             tool_executor=FunctionToolExecutor(),
-            agent_hooks=BaseAgentRunHooks(),
+            agent_hooks=_PromptRefreshHooks(refresh_prompt),
             streaming=False,
             terminal_tool_names={PERSONA_EFFECT_BATCH_TOOL_NAME},
             provider_kwargs=provider_kwargs,
@@ -3086,12 +3133,15 @@ class InteractionExpressionAgent:
             {PERSONA_EXPRESSION_TOOL_NAME} if output_format == "tool_call" else set()
         )
         runner = ToolLoopAgentRunner[AstrAgentContext]()
+        refresh_prompt = _build_transient_prompt_refresh_callback(
+            event, prepared, request
+        )
         await runner.reset(
             provider=provider,
             request=request,
             run_context=prepared.run_context,
             tool_executor=FunctionToolExecutor(),
-            agent_hooks=BaseAgentRunHooks(),
+            agent_hooks=_PromptRefreshHooks(refresh_prompt),
             streaming=False,
             terminal_tool_names=terminal_tool_names,
             provider_kwargs=provider_kwargs,
@@ -3244,6 +3294,7 @@ class InteractionExpressionAgent:
             else None
         )
         stream_turn_action: PersonalResponseAction | None = None
+        refresh_prompt = _build_transient_prompt_refresh_callback(event, prepared)
         await runner.reset(
             provider=provider,
             request=provider_request,
@@ -3252,6 +3303,7 @@ class InteractionExpressionAgent:
             agent_hooks=AgentRequestLifecycleHooks(
                 prepared.lifecycle,
                 dispatch_agent_stages=False,
+                before_llm_request=refresh_prompt,
             ),
             streaming=segment_parser is not None,
             buffer_streaming_tool_steps=segment_parser is not None,

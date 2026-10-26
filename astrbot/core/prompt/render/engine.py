@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from copy import deepcopy
+from html import escape
+from time import perf_counter
 
+from astrbot import logger
+from astrbot.core.agent.message import Message, TextPart
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.plugin_runtime import resolve_plugin_prompt_extension_target
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.provider.register import provider_cls_map
+from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 from astrbot.core.star.context import Context
 from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
@@ -29,6 +36,12 @@ from .interfaces import PromptRenderProfile, RenderResult
 from .layout import DefaultPromptLayout, PromptLayoutInterface
 from .minimax_renderer import MiniMaxPromptRenderer
 from .openai_renderer import OpenAIPromptRenderer
+from .request_adapter import (
+    PROMPT_TRANSIENT_MESSAGE_INDICES_KEY,
+    PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY,
+    PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY,
+    PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY,
+)
 from .tree_builder import PromptTreeBuilder
 
 _PROMPT_RENDERER_FAMILIES = {
@@ -38,6 +51,8 @@ _PROMPT_RENDERER_FAMILIES = {
     "minimax",
     "deepseek",
 }
+_PLUGIN_TRANSIENT_PROMPT_TARGETS = frozenset({"persona", "core"})
+_TRANSIENT_PROMPT_MESSAGE_WARN_SECONDS = 0.05
 
 
 class PromptRenderEngine:
@@ -121,6 +136,14 @@ class PromptRenderEngine:
         )
         result.metadata["prompt_target"] = resolved_target.value
         result.metadata["render_timings"] = timings
+        self._inject_transient_prompt_messages(
+            result,
+            event=event,
+            plugin_context=plugin_context,
+            target=resolved_target.value,
+            context_view=view_spec.name.value if view_spec is not None else None,
+            provider_request=provider_request,
+        )
         record_prompt_timings(event, f"render:{resolved_target.value}", timings)
         self._log_render_result(
             result,
@@ -136,6 +159,8 @@ class PromptRenderEngine:
         source: RenderResult,
         *,
         provider_request: ProviderRequest,
+        event: AstrMessageEvent | None = None,
+        plugin_context: Context | None = None,
     ) -> RenderResult:
         """Serialize an already-projected prompt tree for another provider."""
         if source.prompt_tree is None:
@@ -153,8 +178,503 @@ class PromptRenderEngine:
             "renderer_name": renderer.get_name(),
             "render_timings": timings,
         }
+        if plugin_context is not None:
+            self._inject_transient_prompt_messages(
+                result,
+                event=event,
+                plugin_context=plugin_context,
+                target=str(source.metadata.get("prompt_target", "core")),
+                context_view=(
+                    str(source.metadata["context_view"])
+                    if source.metadata.get("context_view")
+                    else None
+                ),
+                provider_request=provider_request,
+            )
         record_prompt_timings(None, "provider_recompile", timings)
         return result
+
+    def _inject_transient_prompt_messages(
+        self,
+        result: RenderResult,
+        *,
+        event: AstrMessageEvent | None,
+        plugin_context: Context | None,
+        target: str,
+        context_view: str | None,
+        provider_request: ProviderRequest | None,
+        legacy_prompt_mutations: Sequence[object] = (),
+    ) -> None:
+        """Add request-local messages after ContextPack projection.
+
+        These messages intentionally live in the rendered request rather than
+        the canonical ContextPack. A plugin can therefore expose fast-changing
+        state without poisoning the per-turn context-pack cache.
+        """
+        collector_iter = ()
+        list_collectors = (
+            getattr(plugin_context, "list_prompt_extension_collectors", None)
+            if plugin_context is not None
+            else None
+        )
+        if callable(list_collectors):
+            try:
+                try:
+                    collectors = list_collectors(event=event)
+                except TypeError:
+                    collectors = list_collectors()
+            except Exception:
+                logger.exception("Failed to list transient prompt message providers")
+            else:
+                try:
+                    collector_iter = iter(collectors or ())
+                except TypeError:
+                    logger.warning(
+                        "Transient prompt message provider registry returned "
+                        "invalid value: type=%s",
+                        type(collectors).__name__,
+                    )
+
+        transient_messages: list[dict[str, object]] = []
+        transient_timings: list[dict[str, object]] = []
+        transient_sources: set[str] = set()
+        runtime_config = (
+            resolve_event_runtime_configuration(event)[0] if event is not None else None
+        )
+        get_owner_name = getattr(
+            plugin_context, "get_prompt_extension_collector_owner_name", None
+        )
+        for collector in collector_iter:
+            collect_messages = getattr(collector, "collect_prompt_messages", None)
+            if not callable(collect_messages):
+                continue
+            plugin_id = str(getattr(collector, "plugin_id", "") or "").strip()
+            if not plugin_id:
+                continue
+            raw_targets = getattr(collector, "prompt_message_targets", frozenset())
+            if not isinstance(raw_targets, (list, tuple, set, frozenset)):
+                continue
+            declared_targets = {
+                str(value).strip() for value in raw_targets if str(value).strip()
+            }
+            allowed_targets = declared_targets & _PLUGIN_TRANSIENT_PROMPT_TARGETS
+            owner_name = get_owner_name(collector) if callable(get_owner_name) else None
+            target_override = resolve_plugin_prompt_extension_target(
+                runtime_config, owner_name
+            )
+            if target_override is not None:
+                allowed_targets.intersection_update({target_override})
+            if target not in allowed_targets:
+                continue
+            started_at = perf_counter()
+            try:
+                messages = collect_messages(
+                    event,
+                    plugin_context,
+                    target=target,
+                    context_view=context_view,
+                    provider_request=provider_request,
+                )
+            except Exception:
+                elapsed_ms = round((perf_counter() - started_at) * 1000, 3)
+                transient_timings.append(
+                    {
+                        "plugin_id": plugin_id,
+                        "duration_ms": elapsed_ms,
+                        "status": "failed",
+                    }
+                )
+                logger.exception(
+                    "Transient prompt message provider failed: plugin_id=%s",
+                    plugin_id,
+                )
+                continue
+            elapsed_ms = round((perf_counter() - started_at) * 1000, 3)
+            transient_timings.append(
+                {
+                    "plugin_id": plugin_id,
+                    "duration_ms": elapsed_ms,
+                    "status": "completed",
+                }
+            )
+            if elapsed_ms >= _TRANSIENT_PROMPT_MESSAGE_WARN_SECONDS * 1000:
+                logger.warning(
+                    "Transient prompt message provider is slow: plugin_id=%s "
+                    "target=%s duration_ms=%.3f",
+                    plugin_id,
+                    target,
+                    elapsed_ms,
+                )
+            if not isinstance(messages, list):
+                logger.warning(
+                    "Transient prompt message provider returned invalid value: "
+                    "plugin_id=%s type=%s",
+                    plugin_id,
+                    type(messages).__name__,
+                )
+                continue
+            for message in messages:
+                normalized = self._normalize_transient_prompt_message(message)
+                if normalized is not None:
+                    transient_messages.append(normalized)
+                    transient_sources.add(plugin_id)
+
+        for mutation in legacy_prompt_mutations:
+            source = str(getattr(mutation, "source", "plugin") or "plugin")
+            for message in getattr(mutation, "context_messages", ()) or ():
+                normalized = self._normalize_transient_prompt_message(message)
+                if normalized is not None:
+                    transient_messages.append(normalized)
+                    transient_sources.add(source)
+
+        if transient_timings:
+            result.metadata["transient_prompt_message_timings"] = transient_timings
+        if not transient_messages:
+            return
+
+        existing_messages = list(result.messages)
+        insertion_index = len(existing_messages)
+        if existing_messages and existing_messages[-1].get("role") == "user":
+            insertion_index -= 1
+        result.messages = (
+            existing_messages[:insertion_index]
+            + transient_messages
+            + existing_messages[insertion_index:]
+        )
+        result.metadata["transient_prompt_message_count"] = len(transient_messages)
+        result.metadata["transient_prompt_message_providers"] = sorted(
+            transient_sources
+        )
+
+    def refresh_transient_prompt_messages(
+        self,
+        *,
+        provider_request: ProviderRequest,
+        run_context_messages: list[Message],
+        event: AstrMessageEvent | None,
+        plugin_context: Context | None,
+        target: str,
+        context_view: str | None = None,
+        legacy_prompt_mutations: Sequence[object] = (),
+        base_system_prompt: str | None = None,
+    ) -> None:
+        """Refresh request-local messages immediately before a provider call."""
+        scratch = RenderResult()
+        self._inject_transient_prompt_messages(
+            scratch,
+            event=event,
+            plugin_context=plugin_context,
+            target=target,
+            context_view=context_view,
+            provider_request=provider_request,
+            legacy_prompt_mutations=legacy_prompt_mutations,
+        )
+        system_prompt_updated = self._refresh_legacy_system_prompt(
+            provider_request,
+            base_system_prompt=base_system_prompt,
+            legacy_prompt_mutations=legacy_prompt_mutations,
+        )
+        if system_prompt_updated:
+            system_message = next(
+                (
+                    message
+                    for message in run_context_messages
+                    if message.role == "system"
+                ),
+                None,
+            )
+            if system_message is None:
+                run_context_messages.insert(
+                    0,
+                    Message(role="system", content=provider_request.system_prompt),
+                )
+            else:
+                system_message.content = provider_request.system_prompt
+
+        retained_messages = [
+            message
+            for message in run_context_messages
+            if not getattr(message, "_prompt_transient", False)
+        ]
+        for message in retained_messages:
+            if not isinstance(message.content, list):
+                continue
+            message.content = [
+                part
+                for part in message.content
+                if not getattr(part, "_prompt_transient", False)
+            ]
+
+        fresh_messages: list[dict[str, object]] = []
+        fresh_models: list[Message] = []
+        for message in scratch.messages:
+            normalized = self._normalize_transient_prompt_message(message)
+            if normalized is None:
+                continue
+            normalized.pop("_prompt_transient", None)
+            model = Message.model_validate(normalized)
+            model._no_save = True
+            model._prompt_transient = True
+            fresh_messages.append(normalized)
+            fresh_models.append(model)
+
+        legacy_extra_parts = [
+            deepcopy(part)
+            for mutation in legacy_prompt_mutations
+            for part in getattr(mutation, "extra_user_content_parts", ()) or ()
+            if isinstance(part, dict)
+        ]
+        self._refresh_legacy_extra_user_content_parts(
+            retained_messages,
+            legacy_extra_parts,
+        )
+        prompt_prefix = ""
+        prompt_suffix = ""
+        for mutation in legacy_prompt_mutations:
+            for placement, text in getattr(
+                mutation, "prompt_text_operations", ()
+            ) or ():
+                if placement == "prefix":
+                    prompt_prefix = text + prompt_prefix
+                elif placement == "suffix":
+                    prompt_suffix += text
+        self._refresh_legacy_prompt_text_parts(
+            retained_messages,
+            base_prompt=provider_request.prompt,
+            prefix=prompt_prefix,
+            suffix=prompt_suffix,
+        )
+
+        request_metadata = dict(provider_request.metadata or {})
+        old_indices = {
+            int(index)
+            for index in request_metadata.get(
+                PROMPT_TRANSIENT_MESSAGE_INDICES_KEY,
+                [],
+            )
+            if isinstance(index, int) and index >= 0
+        }
+        existing_contexts = list(provider_request.contexts or [])
+        insertion_index = min(old_indices) if old_indices else len(existing_contexts)
+        retained_contexts = [
+            message
+            for index, message in enumerate(existing_contexts)
+            if index not in old_indices
+        ]
+        insertion_index = min(insertion_index, len(retained_contexts))
+        provider_request.contexts = (
+            retained_contexts[:insertion_index]
+            + fresh_messages
+            + retained_contexts[insertion_index:]
+        )
+        if fresh_messages:
+            request_metadata[PROMPT_TRANSIENT_MESSAGE_INDICES_KEY] = list(
+                range(insertion_index, insertion_index + len(fresh_messages))
+            )
+        else:
+            request_metadata.pop(PROMPT_TRANSIENT_MESSAGE_INDICES_KEY, None)
+        provider_request.metadata = request_metadata
+
+        last_user_index = next(
+            (
+                index
+                for index in range(len(retained_messages) - 1, -1, -1)
+                if retained_messages[index].role == "user"
+            ),
+            None,
+        )
+        has_follow_up = last_user_index is not None and any(
+            message.role in {"assistant", "tool"}
+            for message in retained_messages[last_user_index + 1 :]
+        )
+        if last_user_index is not None and not has_follow_up:
+            retained_messages[last_user_index:last_user_index] = fresh_models
+        else:
+            retained_messages.extend(fresh_models)
+        run_context_messages[:] = retained_messages
+
+    @staticmethod
+    def _refresh_legacy_extra_user_content_parts(
+        run_context_messages: list[Message],
+        serialized_parts: list[dict[str, object]],
+    ) -> None:
+        if not serialized_parts:
+            return
+        last_user = next(
+            (
+                message
+                for message in reversed(run_context_messages)
+                if message.role == "user"
+            ),
+            None,
+        )
+        if last_user is None:
+            return
+        try:
+            parsed = Message.model_validate(
+                {"role": "user", "content": serialized_parts}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Legacy plugin extra user content rejected (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+            return
+        if not isinstance(parsed.content, list):
+            return
+        for part in parsed.content:
+            part._no_save = True
+            part._prompt_transient = True
+
+        if isinstance(last_user.content, str):
+            existing_content = (
+                [TextPart(text=last_user.content)] if last_user.content else []
+            )
+            last_user.content = [*existing_content, *parsed.content]
+        elif isinstance(last_user.content, list):
+            last_user.content.extend(parsed.content)
+        else:
+            last_user.content = list(parsed.content)
+
+    @staticmethod
+    def _refresh_legacy_prompt_text_parts(
+        run_context_messages: list[Message],
+        *,
+        base_prompt: str | None,
+        prefix: str,
+        suffix: str,
+    ) -> None:
+        if not prefix and not suffix:
+            return
+        last_user = next(
+            (
+                message
+                for message in reversed(run_context_messages)
+                if message.role == "user"
+            ),
+            None,
+        )
+        if last_user is None:
+            return
+
+        prefix_part = TextPart(text=prefix) if prefix else None
+        suffix_part = TextPart(text=suffix) if suffix else None
+        for part in (prefix_part, suffix_part):
+            if part is not None:
+                part._no_save = True
+                part._prompt_transient = True
+
+        if isinstance(last_user.content, str):
+            content = [TextPart(text=last_user.content)] if last_user.content else []
+            last_user.content = [
+                *([prefix_part] if prefix_part is not None else []),
+                *content,
+                *([suffix_part] if suffix_part is not None else []),
+            ]
+            return
+
+        if not isinstance(last_user.content, list):
+            last_user.content = []
+        prompt_part_index = next(
+            (
+                index
+                for index, part in enumerate(last_user.content)
+                if getattr(part, "type", None) == "text"
+            ),
+            None,
+        )
+        if prompt_part_index is None or not base_prompt:
+            last_user.content[0:0] = [
+                part
+                for part in (prefix_part, suffix_part)
+                if part is not None
+            ]
+            return
+        if prefix_part is not None:
+            last_user.content.insert(prompt_part_index, prefix_part)
+            prompt_part_index += 1
+        if suffix_part is not None:
+            last_user.content.insert(prompt_part_index + 1, suffix_part)
+
+    @staticmethod
+    def _refresh_legacy_system_prompt(
+        provider_request: ProviderRequest,
+        *,
+        base_system_prompt: str | None,
+        legacy_prompt_mutations: Sequence[object],
+    ) -> bool:
+        request_metadata = dict(provider_request.metadata or {})
+        stored_base = request_metadata.get(PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY)
+        if isinstance(base_system_prompt, str):
+            base = base_system_prompt
+        elif isinstance(stored_base, str):
+            base = stored_base
+        else:
+            base = str(provider_request.system_prompt or "")
+        if request_metadata.get(PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY) is True:
+            provider_request.system_prompt = base
+            return True
+
+        extensions = []
+        for mutation in legacy_prompt_mutations:
+            content = str(getattr(mutation, "system_prompt_text", "") or "")
+            if not content.strip():
+                continue
+            source = escape(str(getattr(mutation, "source", "plugin") or "plugin"))
+            extensions.append(
+                f'<extension source="{source}">{escape(content, quote=False)}</extension>'
+            )
+        if not extensions:
+            return False
+
+        extension_block = (
+            "<legacy_plugin_system_extensions>\n"
+            + "\n".join(extensions)
+            + "\n</legacy_plugin_system_extensions>"
+        )
+        if not base or base.endswith("\n\n"):
+            separator = ""
+        elif base.endswith("\n"):
+            separator = "\n"
+        else:
+            separator = "\n\n"
+        request_metadata[PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY] = base
+        request_metadata[PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY] = extension_block
+        provider_request.metadata = request_metadata
+        provider_request.system_prompt = base + separator + extension_block
+        return True
+
+    @staticmethod
+    def _normalize_transient_prompt_message(
+        message: object,
+    ) -> dict[str, object] | None:
+        if not isinstance(message, dict):
+            return None
+        role = message.get("role")
+        content = message.get("content")
+        if (
+            not isinstance(role, str)
+            or role.strip().lower() != "user"
+            or not isinstance(content, (str, list))
+        ):
+            return None
+        normalized = {
+            "role": "user",
+            "content": deepcopy(content),
+            "_no_save": True,
+            "_prompt_transient": True,
+        }
+        try:
+            Message.model_validate(normalized)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Transient prompt message rejected: invalid message payload (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+            return None
+        return normalized
 
     @staticmethod
     def _apply_render_profile(

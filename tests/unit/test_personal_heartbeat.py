@@ -8,6 +8,55 @@ from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.platform_metadata import PlatformMetadata
 
 
+@pytest.mark.asyncio
+async def test_heartbeat_isolates_failed_target_and_recovers_after_backoff(monkeypatch):
+    clock = SimpleNamespace(now=1000.0)
+    monkeypatch.setattr(
+        "astrbot.core.interaction.personal_heartbeat.time",
+        SimpleNamespace(time=lambda: clock.now),
+    )
+    bad = MessageSesion.from_str("bad:FriendMessage:target")
+    good = MessageSesion.from_str("good:FriendMessage:target")
+    failing = True
+
+    def metadata(platform_id):
+        if platform_id == "bad" and failing:
+            raise RuntimeError("adapter metadata unavailable")
+        return PlatformMetadata(
+            id=platform_id, name=platform_id, description="test",
+            support_proactive_message=True, support_personal_runtime=True,
+        )
+
+    context = SimpleNamespace(
+        get_runtime_observation_targets=lambda: (bad, good),
+        get_platform_inst=lambda platform_id: SimpleNamespace(
+            meta=lambda: metadata(platform_id)
+        ),
+    )
+    manager = _RuntimeManager()
+    source = PersonalHeartbeatSource(
+        context=context,
+        config_manager=_ConfigManager({"interaction_middleware": {
+            "personal_heartbeat_enabled": True,
+            "personal_heartbeat_interval_seconds": 30,
+        }}),
+        runtime_manager=manager,
+    )
+    await source.tick()
+    assert [o.target_session.platform_id for o in manager.observations] == ["good"]
+    failed = source.diagnostics_view()["targets"][0]
+    assert failed["last_submission_status"] == "failed"
+    assert failed["next_tick_at"] == 1060.0
+    clock.now = 1030.0
+    await source.tick()
+    assert [o.target_session.platform_id for o in manager.observations] == ["good", "good"]
+    failing = False
+    clock.now = 1060.0
+    await source.tick()
+    assert {o.target_session.platform_id for o in manager.observations} == {"bad", "good"}
+    assert source.diagnostics_view()["targets"][0]["last_submission_status"] == "ignored"
+
+
 class _Context:
     def __init__(self, session, metadata):
         self._session = session

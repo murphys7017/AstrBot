@@ -798,6 +798,9 @@ async def _build_native_main_agent(
         request_lifecycle = AgentRequestLifecycle(
             event,
             execution_surface=TOOL_TARGET_CORE,
+            protected_request_fields=frozenset(
+                {"prompt", "contexts", "system_prompt", "extra_user_content_parts"}
+            ),
             record_reasoning=True,
             dispatch_response_postprocess=True,
         )
@@ -808,6 +811,22 @@ async def _build_native_main_agent(
     _modalities_fix(provider, req)
     _sanitize_context_by_modalities(config, provider, req)
 
+    prompt_engine = PromptRenderEngine()
+    core_context_view = render_result.metadata.get("context_view")
+    core_context_view = str(core_context_view) if core_context_view else None
+
+    async def refresh_core_prompt(run_context) -> None:
+        prompt_engine.refresh_transient_prompt_messages(
+            provider_request=req,
+            run_context_messages=run_context.messages,
+            event=event,
+            plugin_context=plugin_context,
+            target=PromptTarget.CORE.value,
+            context_view=core_context_view,
+            legacy_prompt_mutations=request_lifecycle.legacy_prompt_mutations,
+            base_system_prompt=render_result.system_prompt,
+        )
+
     agent_runner = AgentRunner()
     reset_coro = agent_runner.reset(
         provider=provider,
@@ -817,7 +836,10 @@ async def _build_native_main_agent(
             tool_call_timeout=config.tool_call_timeout,
         ),
         tool_executor=FunctionToolExecutor(),
-        agent_hooks=AgentRequestLifecycleHooks(request_lifecycle),
+        agent_hooks=AgentRequestLifecycleHooks(
+            request_lifecycle,
+            before_llm_request=refresh_core_prompt,
+        ),
         streaming=config.streaming_response,
         llm_compress_instruction=config.llm_compress_instruction,
         llm_compress_keep_recent_ratio=config.llm_compress_keep_recent_ratio,

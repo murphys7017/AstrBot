@@ -18,6 +18,7 @@ from astrbot.core.platform.astr_message_event import (
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
     AstrMessageEvent,
 )
+from astrbot.core.utils.error_redaction import sanitize_control_chars
 
 from ..context import PipelineContext
 from ..runtime_config import get_pipeline_turn_runtime_config
@@ -151,7 +152,8 @@ class RespondStage(Stage):
             return
 
         logger.debug(
-            f"Prepare to send - {event.get_sender_name()}/{event.get_sender_id()}: {event._outline_chain(result.chain)}",
+            f"Prepare to send - {sanitize_control_chars(event.get_sender_name())}/{sanitize_control_chars(event.get_sender_id())}: "
+            f"{sanitize_control_chars(event._outline_chain(result.chain))}",
         )
 
         sent_any = False

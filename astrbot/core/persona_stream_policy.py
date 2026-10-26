@@ -6,8 +6,17 @@ from collections.abc import Mapping
 from typing import Any
 
 from astrbot.core import logger
+from astrbot.core.plugin_admission import resolve_owner_metadata
+from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 
 SKIPPED_CAPABILITIES_EXTRA_KEY = "_interaction_persona_stream_skipped_capabilities"
+PERSONA_STREAM_SAFE_PLUGINS_CONFIG_KEY = "persona_stream_safe_plugins"
+DEFAULT_PERSONA_STREAM_SAFE_PLUGINS = frozenset(
+    {
+        "astrbot_plugin_livingmemory",
+        "astrbot_plugin_self_learning",
+    }
+)
 
 
 def is_olv_persona_stream(event: Any, *, include_finished: bool = False) -> bool:
@@ -74,6 +83,30 @@ def skip_incompatible_stream_capability(
     return True
 
 
+def _configured_persona_stream_safe_plugins(event: Any) -> set[str]:
+    """Resolve plugin names explicitly allowed to run during Persona streaming."""
+    config, _ = resolve_event_runtime_configuration(event)
+    if not isinstance(config, Mapping):
+        return set(DEFAULT_PERSONA_STREAM_SAFE_PLUGINS)
+    interaction_config = config.get("interaction_middleware", {})
+    if not isinstance(interaction_config, Mapping):
+        return set(DEFAULT_PERSONA_STREAM_SAFE_PLUGINS)
+
+    configured = interaction_config.get(PERSONA_STREAM_SAFE_PLUGINS_CONFIG_KEY)
+    if configured is None:
+        return set(DEFAULT_PERSONA_STREAM_SAFE_PLUGINS)
+    if isinstance(configured, str):
+        configured = configured.replace(";", ",").replace("\n", ",").split(",")
+    if not isinstance(configured, (list, tuple, set, frozenset)):
+        return set()
+    return {str(name).strip().casefold() for name in configured if str(name).strip()}
+
+
+def _handler_plugin_name(handler: Any) -> str:
+    metadata = resolve_owner_metadata(getattr(handler, "handler_module_path", None))
+    return str(getattr(metadata, "name", "") or "").strip().casefold()
+
+
 def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
     # Import at dispatch time: Star Context also consumes this policy.
     from astrbot.core.star.star_handler import (
@@ -109,11 +142,16 @@ def persona_stream_hook_allowed(event: Any, handler: Any) -> bool:
     extras_configs = getattr(handler, "extras_configs", {})
     if not isinstance(extras_configs, Mapping):
         extras_configs = {}
+    compatible = extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is True
+    if not compatible:
+        compatible = _handler_plugin_name(
+            handler
+        ) in _configured_persona_stream_safe_plugins(event)
     return not skip_incompatible_stream_capability(
         event,
         kind=getattr(event_type, "name", str(event_type)),
         name=getattr(handler, "handler_full_name", getattr(handler, "handler_name", "<unknown>")),
-        compatible=extras_configs.get(PERSONA_SEGMENT_STREAM_SAFE_KEY) is True,
+        compatible=compatible,
         include_finished=include_finished,
         include_requested=True,
     )

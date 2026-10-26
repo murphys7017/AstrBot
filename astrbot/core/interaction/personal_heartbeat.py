@@ -202,6 +202,7 @@ class PersonalHeartbeatSource:
                 await self.tick()
             except Exception:
                 logger.exception("Personal Runtime heartbeat tick failed")
+                await asyncio.sleep(self._DISABLED_POLL_SECONDS)
 
     async def tick(self) -> tuple[ObservationAdmissionResult, ...]:
         occurred_at = time.time()
@@ -210,175 +211,196 @@ class PersonalHeartbeatSource:
         for session in self._context.get_runtime_observation_targets():
             target_key = str(session)
             active_targets.add(target_key)
+            if self._next_tick_at.get(target_key, occurred_at) > occurred_at:
+                continue
             try:
-                configuration_selection = self._resolve_configuration_selection(session)
+                await self._tick_target(session, occurred_at=occurred_at, results=results)
             except Exception:
                 logger.exception(
-                    "Personal Runtime heartbeat configuration selection failed for target %s",
-                    target_key,
+                    "Personal Runtime heartbeat target failed: target=%s", target_key
                 )
                 self._record_submission(
-                    target_key=target_key,
-                    occurred_at=occurred_at,
-                    status="failed",
-                    reason_codes=("configuration_selection_failed",),
+                    target_key=target_key, occurred_at=occurred_at,
+                    status="failed", reason_codes=("target_evaluation_failed",),
                 )
                 self._next_tick_at[target_key] = (
                     occurred_at + self._DISABLED_POLL_SECONDS
                 )
-                continue
-            runtime_config = configuration_selection.runtime_config
-            runtime_settings = load_interaction_agent_config(runtime_config)
-            if not runtime_settings.personal_heartbeat_enabled:
-                self._next_tick_at.pop(target_key, None)
-                self._last_idle_initiation_submissions.pop(target_key, None)
-                self._idle_initiation_stats.pop(target_key, None)
-                continue
-            interval = runtime_settings.personal_heartbeat_interval_seconds
-            due_at = self._next_tick_at.get(target_key, occurred_at)
-            if due_at > occurred_at:
-                continue
+        self._prune_inactive_targets(active_targets)
+        return tuple(results)
 
-            platform = self._context.get_platform_inst(session.platform_id)
-            if platform is None:
-                self._next_tick_at[target_key] = occurred_at + min(
-                    interval,
-                    self._DISABLED_POLL_SECONDS,
-                )
-                continue
-            metadata = platform.meta()
-            if not supports_personal_runtime(metadata):
-                self._next_tick_at[target_key] = occurred_at + min(
-                    interval,
-                    self._DISABLED_POLL_SECONDS,
-                )
-                continue
-
-            target = RuntimeObservationTarget(
-                platform_id=session.platform_id,
-                platform_name=metadata.name,
-                message_type=session.message_type,
-                session_id=session.session_id,
-                support_proactive_message=metadata.support_proactive_message,
-                support_personal_runtime=True,
-                group_id=(
-                    session.session_id
-                    if session.message_type is MessageType.GROUP_MESSAGE
-                    else None
-                ),
+    async def _tick_target(
+        self, session, *, occurred_at: float,
+        results: list[ObservationAdmissionResult],
+    ) -> None:
+        target_key = str(session)
+        try:
+            configuration_selection = self._resolve_configuration_selection(session)
+        except Exception:
+            logger.exception(
+                "Personal Runtime heartbeat configuration selection failed for target %s",
+                target_key,
             )
-            observation = RuntimeObservation(
-                kind="heartbeat",
-                source="personal_runtime.heartbeat",
-                occurred_at=occurred_at,
-                expires_at=occurred_at + interval * 2,
-                coalesce_key="heartbeat",
-                target_session=target,
-            )
-            try:
-                result = await self._runtime_manager.submit_observation(
-                    observation,
-                    config_id=configuration_selection.config_id,
-                    plugin_context=self._context,
-                    runtime_config=runtime_config,
-                )
-            except Exception:
-                logger.exception(
-                    "Personal Runtime heartbeat submission failed for target %s",
-                    target_key,
-                )
-                self._record_submission(
-                    target_key=target_key,
-                    occurred_at=occurred_at,
-                    status="failed",
-                    reason_codes=("submission_failed",),
-                )
-                self._next_tick_at[target_key] = occurred_at + min(
-                    interval,
-                    self._DISABLED_POLL_SECONDS,
-                )
-                continue
             self._record_submission(
                 target_key=target_key,
                 occurred_at=occurred_at,
-                status=result.status.value,
-                reason_codes=result.reason_codes,
+                status="failed",
+                reason_codes=("configuration_selection_failed",),
             )
-            if not (
-                result.status.value == "ignored"
-                and result.reason_codes == ("heartbeat_without_material",)
-            ) and not (
-                result.status.value == "coalesced"
-                and result.reason_codes == ("inbox_coalesced_replaced",)
-            ):
-                logger.debug(
-                    "Personal Runtime heartbeat submitted: target=%s status=%s "
-                    "reasons=%s",
-                    target_key,
-                    result.status.value,
-                    ",".join(result.reason_codes),
-                )
-            self._next_tick_at[target_key] = occurred_at + interval
-            results.append(result)
-            if not runtime_settings.personal_idle_initiation_enabled:
-                self._last_idle_initiation_submissions.pop(target_key, None)
-                self._idle_initiation_stats.pop(target_key, None)
-                continue
-            try:
-                initiation_attempt_id = uuid.uuid4().hex
-                idle_result = await self._runtime_manager.submit_idle_initiation(
-                    target,
-                    config_id=configuration_selection.config_id,
-                    plugin_context=self._context,
-                    runtime_config=runtime_config,
-                    occurred_at=occurred_at,
-                    minimum_idle_seconds=(
-                        runtime_settings.personal_idle_initiation_after_seconds
-                    ),
-                )
-            except Exception:
-                logger.exception(
-                    "Personal Runtime idle-initiation submission failed for target %s",
-                    target_key,
-                )
-                self._record_idle_initiation_submission(
-                    target_key=target_key,
-                    occurred_at=occurred_at,
-                    status="failed",
-                    reason_codes=("submission_failed",),
-                    attempt_id=initiation_attempt_id,
-                )
-                continue
-            observation_id = (
-                str(getattr(idle_result, "observation_id", "") or "") or None
+            self._next_tick_at[target_key] = (
+                occurred_at + self._DISABLED_POLL_SECONDS
+            )
+            return
+        runtime_config = configuration_selection.runtime_config
+        runtime_settings = load_interaction_agent_config(runtime_config)
+        if not runtime_settings.personal_heartbeat_enabled:
+            self._next_tick_at.pop(target_key, None)
+            self._last_idle_initiation_submissions.pop(target_key, None)
+            self._idle_initiation_stats.pop(target_key, None)
+            return
+        interval = runtime_settings.personal_heartbeat_interval_seconds
+        due_at = self._next_tick_at.get(target_key, occurred_at)
+        if due_at > occurred_at:
+            return
+
+        platform = self._context.get_platform_inst(session.platform_id)
+        if platform is None:
+            self._next_tick_at[target_key] = occurred_at + min(
+                interval,
+                self._DISABLED_POLL_SECONDS,
+            )
+            return
+        metadata = platform.meta()
+        if not supports_personal_runtime(metadata):
+            self._next_tick_at[target_key] = occurred_at + min(
+                interval,
+                self._DISABLED_POLL_SECONDS,
+            )
+            return
+
+        target = RuntimeObservationTarget(
+            platform_id=session.platform_id,
+            platform_name=metadata.name,
+            message_type=session.message_type,
+            session_id=session.session_id,
+            support_proactive_message=metadata.support_proactive_message,
+            support_personal_runtime=True,
+            group_id=(
+                session.session_id
+                if session.message_type is MessageType.GROUP_MESSAGE
+                else None
+            ),
+        )
+        observation = RuntimeObservation(
+            kind="heartbeat",
+            source="personal_runtime.heartbeat",
+            occurred_at=occurred_at,
+            expires_at=occurred_at + interval * 2,
+            coalesce_key="heartbeat",
+            target_session=target,
+        )
+        try:
+            result = await self._runtime_manager.submit_observation(
+                observation,
+                config_id=configuration_selection.config_id,
+                plugin_context=self._context,
+                runtime_config=runtime_config,
+            )
+        except Exception:
+            logger.exception(
+                "Personal Runtime heartbeat submission failed for target %s",
+                target_key,
+            )
+            self._record_submission(
+                target_key=target_key,
+                occurred_at=occurred_at,
+                status="failed",
+                reason_codes=("submission_failed",),
+            )
+            self._next_tick_at[target_key] = occurred_at + min(
+                interval,
+                self._DISABLED_POLL_SECONDS,
+            )
+            return
+        self._record_submission(
+            target_key=target_key,
+            occurred_at=occurred_at,
+            status=result.status.value,
+            reason_codes=result.reason_codes,
+        )
+        if not (
+            result.status.value == "ignored"
+            and result.reason_codes == ("heartbeat_without_material",)
+        ) and not (
+            result.status.value == "coalesced"
+            and result.reason_codes == ("inbox_coalesced_replaced",)
+        ):
+            logger.debug(
+                "Personal Runtime heartbeat submitted: target=%s status=%s "
+                "reasons=%s",
+                target_key,
+                result.status.value,
+                ",".join(result.reason_codes),
+            )
+        self._next_tick_at[target_key] = occurred_at + interval
+        results.append(result)
+        if not runtime_settings.personal_idle_initiation_enabled:
+            self._last_idle_initiation_submissions.pop(target_key, None)
+            self._idle_initiation_stats.pop(target_key, None)
+            return
+        try:
+            initiation_attempt_id = uuid.uuid4().hex
+            idle_result = await self._runtime_manager.submit_idle_initiation(
+                target,
+                config_id=configuration_selection.config_id,
+                plugin_context=self._context,
+                runtime_config=runtime_config,
+                occurred_at=occurred_at,
+                minimum_idle_seconds=(
+                    runtime_settings.personal_idle_initiation_after_seconds
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "Personal Runtime idle-initiation submission failed for target %s",
+                target_key,
             )
             self._record_idle_initiation_submission(
                 target_key=target_key,
                 occurred_at=occurred_at,
-                status=idle_result.status.value,
-                reason_codes=idle_result.reason_codes,
+                status="failed",
+                reason_codes=("submission_failed",),
                 attempt_id=initiation_attempt_id,
-                observation_id=observation_id,
             )
-            if not (
-                idle_result.status.value == "ignored"
-                and idle_result.reason_codes
-                and set(idle_result.reason_codes).issubset(
-                    _QUIET_IDLE_INITIATION_REASONS
-                )
-            ):
-                logger.debug(
-                    "Personal Runtime initiation checked: runtime_key_hash=%s "
-                    "attempt_id=%s status=%s observation_id=%s reasons=%s",
-                    _runtime_key_hash(idle_result.runtime_key),
-                    initiation_attempt_id,
-                    idle_result.status.value,
-                    observation_id or "",
-                    ",".join(idle_result.reason_codes),
-                )
-            results.append(idle_result)
-        self._prune_inactive_targets(active_targets)
-        return tuple(results)
+            return
+        observation_id = (
+            str(getattr(idle_result, "observation_id", "") or "") or None
+        )
+        self._record_idle_initiation_submission(
+            target_key=target_key,
+            occurred_at=occurred_at,
+            status=idle_result.status.value,
+            reason_codes=idle_result.reason_codes,
+            attempt_id=initiation_attempt_id,
+            observation_id=observation_id,
+        )
+        if not (
+            idle_result.status.value == "ignored"
+            and idle_result.reason_codes
+            and set(idle_result.reason_codes).issubset(
+                _QUIET_IDLE_INITIATION_REASONS
+            )
+        ):
+            logger.debug(
+                "Personal Runtime initiation checked: runtime_key_hash=%s "
+                "attempt_id=%s status=%s observation_id=%s reasons=%s",
+                _runtime_key_hash(idle_result.runtime_key),
+                initiation_attempt_id,
+                idle_result.status.value,
+                observation_id or "",
+                ",".join(idle_result.reason_codes),
+            )
+        results.append(idle_result)
 
     def _next_poll_seconds(self) -> float:
         now = time.time()
@@ -387,9 +409,30 @@ class PersonalHeartbeatSource:
         for session in self._context.get_runtime_observation_targets():
             target_key = str(session)
             active_targets.add(target_key)
-            settings = load_interaction_agent_config(
-                self._resolve_configuration_selection(session).runtime_config
-            )
+            due_at = self._next_tick_at.get(target_key)
+            last = self._last_submissions.get(target_key)
+            if (
+                last is not None and last.status == "failed"
+                and due_at is not None and due_at > now
+            ):
+                active_due_at.append(due_at)
+                continue
+            try:
+                settings = load_interaction_agent_config(
+                    self._resolve_configuration_selection(session).runtime_config
+                )
+            except Exception:
+                logger.exception(
+                    "Personal Runtime heartbeat configuration failed: target=%s", target_key
+                )
+                self._record_submission(
+                    target_key=target_key, occurred_at=now, status="failed",
+                    reason_codes=("configuration_selection_failed",),
+                )
+                due_at = now + self._DISABLED_POLL_SECONDS
+                self._next_tick_at[target_key] = due_at
+                active_due_at.append(due_at)
+                continue
             if not settings.personal_heartbeat_enabled:
                 self._next_tick_at.pop(target_key, None)
                 self._last_idle_initiation_submissions.pop(target_key, None)

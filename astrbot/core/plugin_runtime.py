@@ -24,6 +24,7 @@ PluginRuntimeTarget = Literal["core", "personal_expression"]
 PLUGIN_RUNTIME_TARGET_CORE: PluginRuntimeTarget = "core"
 PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION: PluginRuntimeTarget = "personal_expression"
 PLUGIN_CAPABILITY_TARGETS_CONFIG_KEY = "plugin_capability_targets"
+PROMPT_EXTENSION_TARGETS = frozenset({"core", "persona"})
 # A per-turn plugin target override for modes that change the active LLM path.
 PLUGIN_RUNTIME_TARGET_OVERRIDES_EXTRA_KEY = (
     "_interaction_plugin_runtime_target_overrides"
@@ -57,6 +58,12 @@ def _target(value) -> PluginRuntimeTarget | None:
     return value if value in ("core", "personal_expression") else None
 
 
+def _prompt_extension_target(value: object) -> str | None:
+    return (
+        value if isinstance(value, str) and value in PROMPT_EXTENSION_TARGETS else None
+    )
+
+
 def validate_plugin_capability_targets(value: object) -> None:
     """Reject malformed or ambiguous target configuration before saving."""
     if not isinstance(value, dict):
@@ -68,16 +75,41 @@ def validate_plugin_capability_targets(value: object) -> None:
             or not isinstance(binding, dict)
         ):
             raise ValueError("plugin_capability_targets requires plugin-name objects")
-        if set(binding) - {"llm_hooks", "tools"}:
+        if set(binding) - {"llm_hooks", "tools", "prompt_extensions"}:
             raise ValueError(f"Unknown capability target field for {name}")
         if "llm_hooks" in binding and _target(binding["llm_hooks"]) is None:
             raise ValueError(f"Invalid llm_hooks target for {name}")
+        if (
+            "prompt_extensions" in binding
+            and _prompt_extension_target(binding["prompt_extensions"]) is None
+        ):
+            raise ValueError(f"Invalid prompt_extensions target for {name}")
         tools = binding.get("tools", {})
         if not isinstance(tools, dict) or any(
             not isinstance(key, str) or not key.strip() or _target(target) is None
             for key, target in tools.items()
         ):
             raise ValueError(f"Invalid tools target map for {name}")
+
+
+def resolve_plugin_prompt_extension_target(
+    runtime_config: object, plugin_name: str | None
+) -> str | None:
+    """Return the configured prompt target for one registered plugin."""
+    if not isinstance(plugin_name, str) or not plugin_name.strip():
+        return None
+    if not isinstance(runtime_config, Mapping):
+        return None
+    interaction = runtime_config.get("interaction_middleware", {})
+    if not isinstance(interaction, Mapping):
+        return None
+    bindings = interaction.get(PLUGIN_CAPABILITY_TARGETS_CONFIG_KEY, {})
+    if not isinstance(bindings, Mapping):
+        return None
+    binding = bindings.get(plugin_name)
+    if not isinstance(binding, Mapping):
+        return None
+    return _prompt_extension_target(binding.get("prompt_extensions"))
 
 
 def resolve_plugin_runtime_target(

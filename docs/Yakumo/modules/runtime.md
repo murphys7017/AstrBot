@@ -152,6 +152,10 @@ Action继承信号与原始期限，RuntimeObservationEvent在输出边界复核
 混合批次中的其他有效事实保留。材料按具体版本逐项结清；过期、撤销、替换和容量淘汰只结清被丢弃项，
 全局已处理进度停在最早未结清材料之前，不跳过仍排队或正在评估的事实。
 每日调用与主动输出配额、Policy 时间上下文始终使用配置时区，独立于静默时段开关。
+Personal State 初次读取失败时，普通对话仍可继续，但自主 Observation 会保留并等待状态恢复；
+恢复前不执行 Policy，也不允许空状态覆盖持久化数据。Deferred batch 唤醒时重新校验当前配置、
+配置路由、目标平台能力及插件 Sensor 准入；已撤销的来源会被丢弃。Heartbeat 按目标隔离异常，
+单个目标失败不会阻断其他目标，并在 60 秒后重试。
 生命周期装配器负责把它交给既有 `PersonalRuntimeManager`，因此插件不会拿到 Runtime、EventBus、
 Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module prefix 自动删除，旧 handle 随即失效。
 

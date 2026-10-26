@@ -15,6 +15,14 @@ from .interfaces import RenderResult
 
 PROMPT_RENDER_RESULT_EXTRA_KEY = "prompt_render_result"
 PROMPT_APPLY_RESULT_EXTRA_KEY = "prompt_apply_result"
+PROMPT_TRANSIENT_MESSAGE_INDICES_KEY = "_prompt_transient_message_indices"
+PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY = "_prompt_transient_system_prompt_base"
+PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY = (
+    "_prompt_transient_system_prompt_extension"
+)
+PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY = (
+    "_prompt_transient_system_prompt_dropped"
+)
 
 
 @dataclass
@@ -56,7 +64,19 @@ class ProviderRequestAdapter:
         else:
             history_messages = self._clone_messages(result.messages)
             user_message = None
+        transient_indices = [
+            index
+            for index, message in enumerate(history_messages)
+            if isinstance(message, dict) and message.get("_prompt_transient") is True
+        ]
         request.contexts = self._clone_messages(history_messages)
+        for message in request.contexts:
+            message.pop("_prompt_transient", None)
+        request.metadata = dict(request.metadata or {})
+        if transient_indices:
+            request.metadata[PROMPT_TRANSIENT_MESSAGE_INDICES_KEY] = transient_indices
+        else:
+            request.metadata.pop(PROMPT_TRANSIENT_MESSAGE_INDICES_KEY, None)
         request.prompt = result.request_prompt
         request.extra_user_content_parts = []
         request.image_urls = []
@@ -277,6 +297,10 @@ def apply_render_result_to_request(
 __all__ = [
     "PROMPT_APPLY_RESULT_EXTRA_KEY",
     "PROMPT_RENDER_RESULT_EXTRA_KEY",
+    "PROMPT_TRANSIENT_MESSAGE_INDICES_KEY",
+    "PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY",
+    "PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY",
+    "PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY",
     "PromptApplyResult",
     "ProviderRequestAdapter",
     "apply_render_result_to_request",

@@ -1137,13 +1137,13 @@
         },
         "plugin_capability_targets": {
           "description": "Plugin capability targets",
-          "hint": "llm_hooks: core | personal_expression; tools: { tool_name | *: core | personal_expression }"
+          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. prompt_extensions selects persona or core only when that target is declared by the plugin."
         }
       }
     },
     "plugin": {
-      "description": "Plugin Enrichment and Capability Targets",
-      "hint": "Controls parallel execution for ordinary-turn plugins, Prompt/Result Contributor timeouts, and whether plugin hooks or FunctionTools target Personal or Core. Commands, message handlers, and event listeners are unaffected.",
+      "description": "Plugin Enrichment and Target Routing",
+      "hint": "Controls parallel execution for ordinary-turn plugins, Prompt/Result Contributor timeouts, and the targets for plugin hooks, Prompt Extensions, and FunctionTools. Commands, message handlers, and event listeners are unaffected.",
       "interaction_middleware": {
         "parallel_plugin_runtime_enabled": {
           "description": "Enable Parallel Plugin Runtime",
@@ -1171,7 +1171,7 @@
         },
         "plugin_capability_targets": {
           "description": "Plugin capability targets",
-          "hint": "llm_hooks: core | personal_expression; tools: { tool_name | *: core | personal_expression }"
+          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. prompt_extensions selects persona or core only when that target is declared by the plugin."
         }
       }
     },

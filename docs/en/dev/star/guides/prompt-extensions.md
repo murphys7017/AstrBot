@@ -4,7 +4,7 @@ outline: deep
 
 # Prompt Extensions
 
-Prompt Extensions are the AG99 API, created by YakumoAki, for contributing model-visible facts to the unified Prompt pipeline. Use them for business state, concise platform capabilities, or event-scoped context. Do not use them to register executable tools, alter routing decisions, or send messages.
+Prompt Extensions are the AG99 API, created by YakumoAki, for contributing model-visible facts to the unified Prompt pipeline. Use them for business state, concise platform capabilities, or event-scoped context. Do not use them to register executable tools, alter routing decisions, or send platform messages.
 
 ## Pipeline Position
 
@@ -16,6 +16,47 @@ Plugin Collector
   -> layout / renderer
   -> ProviderRequest
 ```
+
+For state that changes on every request and must not enter a cached ContextPack, a collector may also
+implement synchronous `collect_prompt_messages(...)`. AstrBot runs it after selecting and rendering
+the target ContextPack, then inserts the returned messages into that request. Messages are marked
+`_no_save=True` and are not written to conversation history:
+
+The collector must explicitly declare `prompt_message_targets`. Plugin transient messages are accepted
+only for `persona` and `core`; they cannot inject into `core_router`, `core_planner`, or
+`personal_policy`.
+`plugin_capability_targets.<plugin-name>.prompt_extensions` can select `persona` or `core` for
+that plugin. It only takes effect when the collector's `prompt_message_targets` or an extension's
+`meta.targets` already declares the selected target. With no override, the plugin's declared
+targets remain unchanged; an undeclared configured target is omitted. `llm_hooks`, `tools`, and
+`prompt_extensions` are independent settings.
+
+```python
+prompt_message_targets = frozenset({"persona"})
+
+def collect_prompt_messages(
+    self,
+    event,
+    plugin_context,
+    *,
+    target: str,
+    context_view: str | None = None,
+    provider_request=None,
+) -> list[dict[str, object]]:
+    return [{
+        "role": "user",
+        "content": "<runtime_state>latest value</runtime_state>",
+    }]
+```
+
+Only `user` role messages are accepted from plugins; system and assistant roles
+remain owned by the core renderer.
+
+This hook runs for every prompt render and each Persona/Core provider request without mutating the
+canonical ContextPack. All request-local transient additions share a 4,096 estimated-token limit and
+must also fit the configured model's remaining context budget; otherwise they are skipped for that
+request. Returned messages are model-visible context only; they must not send platform messages or
+perform side effects.
 
 Collectors run before target projection. A plugin fact can therefore be explicitly exposed to Persona or Core through `meta.targets`. Core Planner does not mount plugin extensions or plugin capability directories; it consumes only core-owned task facts. Collectors never receive control decisions and cannot mutate the canonical pack.
 

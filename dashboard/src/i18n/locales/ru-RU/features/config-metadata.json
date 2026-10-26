@@ -1136,13 +1136,13 @@
                 },
                 "plugin_capability_targets": {
                     "description": "Цели возможностей плагина",
-                    "hint": "llm_hooks: core | personal_expression; tools: { tool_name | *: core | personal_expression }"
+                    "hint": "Независимые цели llm_hooks, prompt_extensions и tools для каждого плагина. prompt_extensions выбирает persona или core только среди целей, объявленных плагином."
                 }
             }
         },
         "plugin": {
-            "description": "Обогащение плагинами и цели возможностей",
-            "hint": "Управляет параллельным выполнением плагинов обычного хода, тайм-аутами Prompt/Result Contributor и тем, направляются ли хуки и FunctionTool плагинов в Personal или Core. Команды, обработчики сообщений и слушатели событий не затрагиваются.",
+            "description": "Обогащение плагинами и маршрутизация целей",
+            "hint": "Управляет параллельным выполнением плагинов обычного хода, тайм-аутами Prompt/Result Contributor и целями хуков, Prompt Extension и FunctionTool. Команды, обработчики сообщений и слушатели событий не затрагиваются.",
             "interaction_middleware": {
                 "parallel_plugin_runtime_enabled": {
                     "description": "Включить параллельный runtime плагинов",
@@ -1170,7 +1170,7 @@
                 },
                 "plugin_capability_targets": {
                     "description": "Цели возможностей плагина",
-                    "hint": "llm_hooks: core | personal_expression; tools: { tool_name | *: core | personal_expression }"
+                    "hint": "Независимые цели llm_hooks, prompt_extensions и tools для каждого плагина. prompt_extensions выбирает persona или core только среди целей, объявленных плагином."
                 }
             }
         },

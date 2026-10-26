@@ -12,12 +12,16 @@ class:
 
 import asyncio
 from asyncio import Queue
+from collections.abc import Mapping
 
 from astrbot.core import logger
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
 from astrbot.core.pipeline.scheduler import PipelineScheduler
 from astrbot.core.platform.unique_session import apply_unique_session
-from astrbot.core.utils.error_redaction import redact_sensitive_text
+from astrbot.core.utils.error_redaction import (
+    redact_sensitive_text,
+    sanitize_control_chars,
+)
 
 from .platform import AstrMessageEvent
 
@@ -45,25 +49,53 @@ class EventBus:
             if not self._accepting_events:
                 return
             try:
-                selection = self.astrbot_config_mgr.resolve_configuration_selection(
-                    event.unified_msg_origin
+                selection_resolver = getattr(
+                    self.astrbot_config_mgr,
+                    "resolve_configuration_selection",
+                    None,
                 )
-                apply_unique_session(event, selection.runtime_config)
-                # Import at the live boundary to keep configuration selection
-                # independent from Interaction module initialization.
-                from astrbot.core.interaction.turn_state import (
-                    set_interaction_turn_configuration_selection,
+                selection = (
+                    selection_resolver(event.unified_msg_origin)
+                    if callable(selection_resolver)
+                    else None
                 )
+                selection_is_usable = (
+                    isinstance(getattr(selection, "config_id", None), str)
+                    and isinstance(getattr(selection, "config_info", None), Mapping)
+                    and isinstance(
+                        getattr(
+                            getattr(selection, "runtime_selection", None),
+                            "adapter_binding_id",
+                            None,
+                        ),
+                        str,
+                    )
+                )
+                if selection_is_usable:
+                    apply_unique_session(event, selection.runtime_config)
+                    # Import at the live boundary to keep configuration selection
+                    # independent from Interaction module initialization.
+                    from astrbot.core.interaction.turn_state import (
+                        set_interaction_turn_configuration_selection,
+                    )
 
-                set_interaction_turn_configuration_selection(
-                    event,
-                    config_id=selection.config_id,
-                    runtime_config=selection.runtime_config,
-                    adapter_binding_id=selection.runtime_selection.adapter_binding_id,
-                    provider_references=selection.runtime_selection.provider_references,
-                )
-                conf_id = selection.config_id
-                conf_name = selection.config_info.get("name") or conf_id
+                    set_interaction_turn_configuration_selection(
+                        event,
+                        config_id=selection.config_id,
+                        runtime_config=selection.runtime_config,
+                        adapter_binding_id=selection.runtime_selection.adapter_binding_id,
+                        provider_references=selection.runtime_selection.provider_references,
+                    )
+                    conf_id = selection.config_id
+                    conf_name = selection.config_info.get("name") or conf_id
+                else:
+                    # Keep older test doubles and embedders working while they
+                    # migrate from get_conf_info() to the typed selection API.
+                    conf_info = self.astrbot_config_mgr.get_conf_info(
+                        event.unified_msg_origin
+                    )
+                    conf_id = conf_info.get("id")
+                    conf_name = conf_info.get("name") or conf_id
                 self._print_event(event, conf_name)
                 scheduler = self.pipeline_scheduler_mapping.get(conf_id)
                 if not scheduler:
@@ -113,10 +145,18 @@ class EventBus:
             event (AstrMessageEvent): 事件对象
 
         """
+        sender_name = event.get_sender_name()
+        safe_sender_name = sanitize_control_chars(sender_name)
+        safe_message_outline = sanitize_control_chars(event.get_message_outline())
+        safe_conf_name = sanitize_control_chars(str(conf_name))
+        safe_platform_id = sanitize_control_chars(str(event.get_platform_id()))
+        safe_platform_name = sanitize_control_chars(str(event.get_platform_name()))
+        safe_sender_id = sanitize_control_chars(str(event.get_sender_id()))
+
         # 如果有发送者名称: [平台名] 发送者名称/发送者ID: 消息概要
-        if event.get_sender_name():
+        if sender_name:
             logger.info(
-                f"[{conf_name}] [{event.get_platform_id()}({event.get_platform_name()})] {event.get_sender_name()}/{event.get_sender_id()}: {event.get_message_outline()}",
+                f"[{safe_conf_name}] [{safe_platform_id}({safe_platform_name})] {safe_sender_name}/{safe_sender_id}: {safe_message_outline}",
             )
             if (
                 f"[{event.get_platform_id()}({event.get_platform_name()})]"
@@ -128,5 +168,5 @@ class EventBus:
         # 没有发送者名称: [平台名] 发送者ID: 消息概要
         else:
             logger.info(
-                f"[{conf_name}] [{event.get_platform_id()}({event.get_platform_name()})] {event.get_sender_id()}: {event.get_message_outline()}",
+                f"[{safe_conf_name}] [{safe_platform_id}({safe_platform_name})] {safe_sender_id}: {safe_message_outline}",
             )

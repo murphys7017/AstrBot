@@ -1,7 +1,7 @@
 """Tests for send_message_to_user session handling."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -87,6 +87,41 @@ def _make_respond_stage() -> RespondStage:
         }
     )
     return stage
+
+
+@pytest.mark.asyncio
+async def test_respond_stage_escapes_terminal_control_sequences_before_logging():
+    payload = (
+        "\x07\x1b[2J"
+        "\x1b]8;;https://example.invalid\x1b\\click\x1b]8;;\x1b\\"
+        "\x1b]52;c;Y21k\x07\x9d52;c;Y21k\x9c\r\nforged"
+    )
+    event = _DummyRespondEvent(payload, [])
+    event.clear_result = MagicMock()
+    stage = _make_respond_stage()
+
+    with (
+        patch(
+            "astrbot.core.pipeline.respond.stage.get_pipeline_turn_runtime_config",
+            return_value={},
+        ),
+        patch(
+            "astrbot.core.pipeline.respond.stage.deliver_message_chain",
+            new=AsyncMock(return_value=SimpleNamespace(sent_any=False)),
+        ),
+        patch("astrbot.core.pipeline.respond.stage.logger") as mock_logger,
+    ):
+        await stage.process(event)
+
+    logged = mock_logger.debug.call_args.args[0]
+    assert r"\x07" in logged
+    assert r"\x1b[2J" in logged
+    assert r"\x1b]8;;https://example.invalid" in logged
+    assert r"\x1b]52;c;Y21k\x07" in logged
+    assert r"\x9d52;c;Y21k\x9c" in logged
+    assert r"\x0d\x0a" in logged
+    assert "forged" in logged
+    assert not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in logged)
 
 
 @pytest.mark.asyncio

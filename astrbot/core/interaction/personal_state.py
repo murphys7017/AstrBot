@@ -206,12 +206,26 @@ class PersonalState:
             self.daily_proactive_outputs = 0
 
     def restore_persistent(self, state: PersonalPersistentState) -> None:
-        self.last_user_activity_at = state.last_user_activity_at
+        # Ordinary dialogue may have completed while the initial read failed.
+        # Preserve that activity while restoring authoritative autonomous limits.
+        local_expression_is_newer = (
+            self.last_expression_at is not None
+            and (
+                state.last_expression_at is None
+                or self.last_expression_at >= state.last_expression_at
+            )
+        )
+        for name in (
+            "last_user_activity_at",
+            "last_expression_at",
+            "reply_cooldown_until",
+            "no_action_cooldown_until",
+        ):
+            values = (getattr(self, name), getattr(state, name))
+            setattr(self, name, max((v for v in values if v is not None), default=None))
         self.last_idle_initiation_activity_at = state.last_idle_initiation_activity_at
-        self.last_expression_at = state.last_expression_at
-        self.last_expression_fingerprint = state.last_expression_fingerprint
-        self.reply_cooldown_until = state.reply_cooldown_until
-        self.no_action_cooldown_until = state.no_action_cooldown_until
+        if not local_expression_is_newer:
+            self.last_expression_fingerprint = state.last_expression_fingerprint
         self.mute_until = state.mute_until
         self.usage_day = str(state.usage_day or "").strip() or None
         self.daily_policy_calls = max(0, int(state.daily_policy_calls))

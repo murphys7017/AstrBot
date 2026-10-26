@@ -60,7 +60,8 @@
           </v-col>
           <v-col cols="12" md="3">
             <v-select
-              v-model="entry.kind"
+              :model-value="entry.kind"
+              @update:model-value="value => onKindChange(entry, value)"
               :items="kindOptions"
               :label="tm('runtimeTargetEditor.kindLabel')"
               density="compact"
@@ -81,7 +82,7 @@
           <v-col cols="10" md="2">
             <v-select
               v-model="entry.target"
-              :items="targetOptions"
+              :items="targetOptionsFor(entry)"
               item-title="title"
               item-value="value"
               :label="tm('runtimeTargetEditor.targetLabel')"
@@ -154,28 +155,35 @@ const normalizedModelValue = computed(() => {
 function bindingEntries(value) {
   return Object.entries(value).flatMap(([scope, binding]) => [
     ...(binding.llm_hooks ? [newEntry(scope, binding.llm_hooks, 'llm_hooks')] : []),
+    ...(binding.prompt_extensions
+      ? [newEntry(scope, binding.prompt_extensions, 'prompt_extensions')]
+      : []),
     ...Object.entries(binding.tools || {}).map(
       ([tool, target]) => newEntry(scope, target, 'tools', tool)
     )
   ])
 }
 const summaryEntries = computed(() => bindingEntries(normalizedModelValue.value).map(
-  entry => [`${entry.scope} / ${entry.kind === 'tools' ? entry.tool : 'LLM Hook'}`, entry.target]
+  entry => [
+    `${entry.scope} / ${entry.kind === 'tools'
+      ? entry.tool
+      : entry.kind === 'prompt_extensions'
+        ? tm('runtimeTargetEditor.promptExtensions')
+        : 'LLM Hook'}`,
+    entry.target
+  ]
 ))
-const targetOptions = computed(() => [
-  { title: 'Core', value: 'core' },
-  { title: 'Personal', value: 'personal_expression' }
-])
 const emptyText = computed(() => tm('runtimeTargetEditor.capabilityEmpty'))
 const dialogTitle = computed(() => tm('runtimeTargetEditor.capabilityTitle'))
 const kindOptions = computed(() => [
   { title: 'LLM Hook', value: 'llm_hooks' },
+  { title: tm('runtimeTargetEditor.promptExtensions'), value: 'prompt_extensions' },
   { title: 'FunctionTool', value: 'tools' }
 ])
 const hasErrors = computed(() => draftEntries.value.some((_, index) => Boolean(entryError(index))))
 
 function targetLabel(target) {
-  if (target === 'personal_expression') {
+  if (target === 'personal_expression' || target === 'persona') {
     return 'Personal'
   }
   if (target === 'core') {
@@ -195,6 +203,25 @@ function newEntry(scope = '', target = 'core', kind = 'llm_hooks', tool = '*') {
   }
 }
 
+function targetOptionsFor(entry) {
+  return [
+    { title: tm('runtimeTargetEditor.targetCore'), value: 'core' },
+    {
+      title: tm('runtimeTargetEditor.targetPersona'),
+      value: entry.kind === 'prompt_extensions' ? 'persona' : 'personal_expression'
+    }
+  ]
+}
+
+function onKindChange(entry, kind) {
+  entry.kind = kind
+  if (kind === 'prompt_extensions' && entry.target === 'personal_expression') {
+    entry.target = 'persona'
+  } else if (kind !== 'prompt_extensions' && entry.target === 'persona') {
+    entry.target = 'personal_expression'
+  }
+}
+
 function entryError(index) {
   const scope = String(draftEntries.value[index]?.scope || '').trim()
   const target = draftEntries.value[index]?.target
@@ -209,7 +236,10 @@ function entryError(index) {
   if (duplicateCount > 1) {
     return tm('runtimeTargetEditor.scopeDuplicate')
   }
-  if (!validTargets.has(target)) {
+  const allowedTargets = kind === 'prompt_extensions'
+    ? new Set(['core', 'persona'])
+    : validTargets
+  if (!allowedTargets.has(target)) {
     return tm('runtimeTargetEditor.targetInvalid')
   }
   return ''
@@ -275,6 +305,8 @@ function saveEntries() {
     const binding = value[String(entry.scope).trim()] ||= {}
     if (entry.kind === 'llm_hooks') {
       binding.llm_hooks = entry.target
+    } else if (entry.kind === 'prompt_extensions') {
+      binding.prompt_extensions = entry.target
     } else {
       binding.tools ||= {}
       binding.tools[String(entry.tool).trim()] = entry.target

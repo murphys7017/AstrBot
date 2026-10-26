@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from astrbot.core.cron.manager import CronJobManager
     from astrbot.core.execution_ledger import CoreExecutionLedger
     from astrbot.core.interaction.effects import PersonaEffectSpec
+    from astrbot.core.interaction.observation import RuntimeObservation
     from astrbot.core.interaction.runtime_sensor import RuntimeObservationSensorHandle
 
 WebApiHandler = Callable[..., Awaitable[Any]]
@@ -1119,6 +1120,23 @@ class Context:
             raise RuntimeError("Runtime Observation dispatcher is unavailable")
         return await dispatcher(observation)
 
+    async def is_runtime_observation_source_admitted(
+        self, observation: RuntimeObservation
+    ) -> bool:
+        """Revalidate a retained sensor fact without creating a platform event."""
+        for registration in self._runtime_observation_sensors:
+            if observation.source != (
+                f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"
+            ):
+                continue
+            return self._is_runtime_observation_sensor_active(registration) and (
+                await self._runtime_sensor_admitted(
+                    registration,
+                    MessageSession.from_str(observation.target_session.unified_msg_origin),
+                )
+            )
+        return False
+
     async def _runtime_sensor_admitted(
         self,
         registration: _RuntimeObservationSensorRegistration,
@@ -1285,6 +1303,13 @@ class Context:
             )
         )
         return [registration.collector for registration in active_registrations]
+
+    def get_prompt_extension_collector_owner_name(self, collector: Any) -> str | None:
+        """Return the registered plugin name that owns a prompt collector."""
+        for registration in self._prompt_extension_collectors:
+            if registration.collector is collector:
+                return registration.owner_plugin_name
+        return None
 
     def remove_prompt_extension_collectors_by_module_prefix(
         self, module_prefix: str

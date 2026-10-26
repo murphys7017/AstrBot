@@ -342,6 +342,32 @@ class TestPrintEvent:
         assert "user123" in call_args
         assert "Hello" in call_args
 
+    def test_print_event_escapes_terminal_control_sequences(self, event_bus):
+        payload = (
+            "\x07\x1b[2J"
+            "\x1b]8;;https://example.invalid\x1b\\click\x1b]8;;\x1b\\"
+            "\x1b]52;c;Y21k\x07\x9d52;c;Y21k\x9c\r\nforged"
+        )
+        mock_event = MagicMock()
+        mock_event.get_platform_id.return_value = "test-platform"
+        mock_event.get_platform_name.return_value = "Test Platform"
+        mock_event.get_sender_name.return_value = f"user-{payload}"
+        mock_event.get_sender_id.return_value = "user123"
+        mock_event.get_message_outline.return_value = payload
+
+        with patch("astrbot.core.event_bus.logger") as mock_logger:
+            event_bus._print_event(mock_event, "TestConfig")
+
+        logged = mock_logger.info.call_args.args[0]
+        assert r"\x07" in logged
+        assert r"\x1b[2J" in logged
+        assert r"\x1b]8;;https://example.invalid" in logged
+        assert r"\x1b]52;c;Y21k\x07" in logged
+        assert r"\x9d52;c;Y21k\x9c" in logged
+        assert r"\x0d\x0a" in logged
+        assert "forged" in logged
+        assert not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in logged)
+
     def test_print_event_without_sender_name(self, event_bus):
         """Test printing event without sender name."""
         mock_event = MagicMock()

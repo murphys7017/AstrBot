@@ -253,6 +253,9 @@ DEFAULT_CONFIG = {
         "contributor_timeout": 1.0,
         "plugin_enrichment_timeout": 3.0,
         "plugin_capability_targets": {},
+        "persona_stream_safe_plugins": (
+            "astrbot_plugin_livingmemory,astrbot_plugin_self_learning"
+        ),
         "memory_window_size": 8,
         "persona_history_window_size": 300,
         "json_repair_provider_id": "",
@@ -4544,7 +4547,12 @@ CONFIG_METADATA_3 = {
                         "type": "object",
                         "items": {},
                         "_special": "plugin_capability_target_map",
-                        "hint": "按插件注册名称分别配置 llm_hooks 与 tools。tools 内具体工具名优先于 *；只影响 LLM Hook 和 FunctionTool，不改变 Handler、Prompt 或人格 Effect 的消费方。",
+                        "hint": "按插件注册名称分别配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 可选 persona 或 core，且受插件声明目标限制；tools 内具体工具名优先于 *。",
+                    },
+                    "interaction_middleware.persona_stream_safe_plugins": {
+                        "description": "Persona 流式安全插件",
+                        "type": "string",
+                        "hint": "仅允许列出的插件参与 OLV Persona 流式请求前、响应后和生命周期钩子。用逗号或换行分隔插件注册名；默认放行 LivingMemory 与 Self-Learning；留空可关闭默认放行。",
                     },
                 },
             },
@@ -4604,7 +4612,7 @@ CONFIG_METADATA_3 = {
                     "interaction_middleware.persona_segment_stream_enabled": {
                         "description": "启用受支持平台的 Persona 分段流式输出（实验）",
                         "type": "bool",
-                        "hint": "默认关闭。WebChat 和 OLV 使用 segment_stream_v1；OLV 还需开启桌面流式设置及独立动作逐 speech 段模式。OLV 会跳过未适配的插件 Hook、完整结果贡献者和 effect，继续核心对话；WebChat 仍受原有插件兼容限制。Core 输出格式、Provider 能力、内容安全和交付校验继续生效。",
+                        "hint": "默认关闭。WebChat 和 OLV 使用 segment_stream_v1；OLV 还需开启桌面流式设置及独立动作逐 speech 段模式。OLV 会跳过未声明安全且未列入白名单的插件 Hook、完整结果贡献者和 effect，继续核心对话；WebChat 仍受原有插件兼容限制。Core 输出格式、Provider 能力、内容安全和交付校验继续生效。",
                     },
                     "interaction_middleware.expression_temperature": {
                         "description": "表达温度",

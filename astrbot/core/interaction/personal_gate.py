@@ -33,6 +33,7 @@ class ObservationGateReason(str, Enum):
     POLICY_BUDGET_EXHAUSTED = "policy_budget_exhausted"
     OUTPUT_BUDGET_EXHAUSTED = "output_budget_exhausted"
     TARGET_UNAVAILABLE = "target_unavailable"
+    STATE_RESTORE_PENDING = "state_restore_pending"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,7 @@ class ObservationGateSettings:
     timezone_name: str | None = None
     daily_policy_call_limit: int | None = None
     daily_proactive_output_limit: int | None = None
+    state_available: bool = True
 
     def __post_init__(self) -> None:
         if self.minimum_observation_count <= 0:
@@ -310,6 +312,9 @@ class DeterministicObservationGate:
         elif batch.material_revision <= state.last_settled_material_revision:
             disposition = ObservationGateDisposition.REJECT
             reason = ObservationGateReason.NO_MATERIAL_CHANGE
+        elif not settings.state_available:
+            disposition = ObservationGateDisposition.HOLD
+            reason = ObservationGateReason.STATE_RESTORE_PENDING
         elif any(
             item.kind == "idle_initiation"
             and not DeterministicObservationGate._idle_initiation_is_current(

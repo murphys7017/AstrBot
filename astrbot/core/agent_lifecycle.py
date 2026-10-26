@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Any
 
 from astrbot import logger
@@ -31,6 +32,200 @@ from astrbot.core.star.star_handler import EventType
 from astrbot.core.utils.runtime_diagnostics import measure_runtime_stage
 
 _MISSING = object()
+_LEGACY_PROMPT_MUTATION_CHAR_LIMIT = 16_000
+
+
+@dataclass(slots=True)
+class LegacyPromptMutation:
+    source: str
+    system_prompt_text: str = ""
+    context_messages: list[dict[str, Any]] = field(default_factory=list)
+    extra_user_content_parts: list[dict[str, Any]] = field(default_factory=list)
+    prompt_text_operations: list[tuple[str, str]] = field(default_factory=list)
+    fields: set[str] = field(default_factory=set)
+
+
+def _append_only_string_delta(before: object, after: object) -> str:
+    if (
+        not isinstance(before, str)
+        or not isinstance(after, str)
+        or before == after
+    ):
+        return ""
+    if after.startswith(before):
+        return after[len(before) :]
+    return ""
+
+
+def _prompt_string_delta(before: object, after: object) -> str:
+    suffix = _append_only_string_delta(before, after)
+    if suffix:
+        return suffix
+    if (
+        isinstance(before, str)
+        and isinstance(after, str)
+        and after != before
+        and after.endswith(before)
+    ):
+        return after[: -len(before)]
+    return ""
+
+
+def _prompt_text_operation(before: object, after: object) -> tuple[str, str] | None:
+    if not isinstance(before, str) or not isinstance(after, str) or before == after:
+        return None
+    if after.startswith(before):
+        suffix = after[len(before) :]
+        return ("suffix", suffix) if suffix.strip() else None
+    if before and after.endswith(before):
+        prefix = after[: -len(before)]
+        return ("prefix", prefix) if prefix.strip() else None
+    return None
+
+
+def _appended_list_items(before: object, after: object) -> list[Any]:
+    if not isinstance(before, list) or not isinstance(after, list):
+        return []
+    if len(after) < len(before):
+        return []
+    if any(current is not original for original, current in zip(before, after)):
+        return []
+    return deepcopy(after[len(before) :])
+
+
+def _serialize_prompt_content_part(value: object) -> Any | None:
+    if isinstance(value, str):
+        return {"type": "text", "text": value}
+    if isinstance(value, dict):
+        return deepcopy(value)
+    dump_for_context = getattr(value, "model_dump_for_context", None)
+    if callable(dump_for_context):
+        try:
+            result = dump_for_context()
+        except Exception:  # noqa: BLE001 - reject malformed legacy content.
+            return None
+        return deepcopy(result) if isinstance(result, dict) else None
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            result = model_dump(exclude_none=True)
+        except Exception:  # noqa: BLE001 - reject malformed legacy content.
+            return None
+        return deepcopy(result) if isinstance(result, dict) else None
+    return None
+
+
+def _normalize_prompt_message_content(value: object) -> str | list[Any] | None:
+    if isinstance(value, str):
+        return value if value else None
+    if not isinstance(value, list):
+        return None
+    parts = [
+        serialized
+        for part in value
+        if (serialized := _serialize_prompt_content_part(part)) is not None
+    ]
+    return parts or None
+
+
+def _capture_legacy_prompt_mutation(
+    handler: object,
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> LegacyPromptMutation | None:
+    source_module = str(getattr(handler, "handler_module_path", "") or "").strip()
+    source_handler = str(getattr(handler, "handler_name", "") or "").strip()
+    source = ":".join(value for value in (source_module, source_handler) if value)
+    mutation = LegacyPromptMutation(source=source or "plugin")
+
+    system_suffix = _prompt_string_delta(
+        before.get("system_prompt"), after.get("system_prompt")
+    )
+    if system_suffix.strip():
+        mutation.system_prompt_text = system_suffix
+        mutation.fields.add("system_prompt")
+
+    for field_name in ("contexts", "extra_user_content_parts"):
+        additions = _appended_list_items(before.get(field_name), after.get(field_name))
+        if not additions:
+            continue
+        message_count = len(mutation.context_messages)
+        captured_extra_parts = False
+        if field_name == "contexts":
+            for item in additions:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("role", "")).strip().lower() != "user":
+                    continue
+                content = _normalize_prompt_message_content(item.get("content"))
+                if content is not None:
+                    mutation.context_messages.append(
+                        {"role": "user", "content": content}
+                    )
+        else:
+            content_parts = [
+                serialized
+                for part in additions
+                if (serialized := _serialize_prompt_content_part(part)) is not None
+            ]
+            if content_parts:
+                for part in content_parts:
+                    part["_no_save"] = True
+                mutation.extra_user_content_parts.extend(content_parts)
+                captured_extra_parts = True
+        if (
+            len(mutation.context_messages) > message_count
+            or captured_extra_parts
+        ):
+            mutation.fields.add(field_name)
+
+    prompt_before = before.get("prompt")
+    prompt_operation = _prompt_text_operation(
+        prompt_before if isinstance(prompt_before, str) else "",
+        after.get("prompt"),
+    )
+    if prompt_operation is not None:
+        mutation.prompt_text_operations.append(prompt_operation)
+        mutation.fields.add("prompt")
+
+    return mutation if mutation.fields else None
+
+
+def _legacy_prompt_mutation_size(mutation: LegacyPromptMutation) -> int:
+    return _bounded_prompt_value_size(
+        {
+            "system_prompt_text": mutation.system_prompt_text,
+            "context_messages": mutation.context_messages,
+            "extra_user_content_parts": mutation.extra_user_content_parts,
+            "prompt_text_operations": mutation.prompt_text_operations,
+        },
+        _LEGACY_PROMPT_MUTATION_CHAR_LIMIT,
+    )
+
+
+def _bounded_prompt_value_size(value: object, limit: int, *, depth: int = 0) -> int:
+    if depth > 12:
+        return limit + 1
+    if isinstance(value, str):
+        return min(len(value), limit + 1)
+    if isinstance(value, dict):
+        total = 2
+        for key, item in value.items():
+            total += len(str(key))
+            if total > limit:
+                return limit + 1
+            total += _bounded_prompt_value_size(item, limit - total, depth=depth + 1)
+            if total > limit:
+                return limit + 1
+        return total
+    if isinstance(value, list | tuple):
+        total = 2
+        for item in value:
+            total += _bounded_prompt_value_size(item, limit - total, depth=depth + 1)
+            if total > limit:
+                return limit + 1
+        return total
+    return 0
 
 
 class AgentRequestLifecycle:
@@ -58,6 +253,7 @@ class AgentRequestLifecycle:
         self.protected_request_fields = protected_request_fields
         self.lifecycle_id = uuid.uuid4().hex
         self.tool_execution_count = 0
+        self.legacy_prompt_mutations: list[LegacyPromptMutation] = []
         self._waiting_dispatched = False
         self._request_dispatched = False
         self._agent_begin_dispatched = False
@@ -137,23 +333,83 @@ class AgentRequestLifecycle:
             for field_name in self.protected_request_fields
             if hasattr(self.provider_request, field_name)
         }
+        captured_mutations: list[LegacyPromptMutation] = []
+        captured_prompt_chars = 0
+
+        def observe_request_mutation(
+            handler: object,
+            before: dict[str, Any],
+            after: dict[str, Any],
+        ) -> None:
+            nonlocal captured_prompt_chars
+            mutation = _capture_legacy_prompt_mutation(handler, before, after)
+            if mutation is not None and mutation.fields.intersection(
+                self.protected_request_fields
+            ):
+                mutation_size = _legacy_prompt_mutation_size(mutation)
+                if (
+                    mutation_size
+                    > _LEGACY_PROMPT_MUTATION_CHAR_LIMIT - captured_prompt_chars
+                ):
+                    logger.warning(
+                        "Skipping legacy plugin prompt injection over the request "
+                        "limit: source=%s size=%s remaining=%s",
+                        mutation.source,
+                        mutation_size,
+                        max(
+                            0,
+                            _LEGACY_PROMPT_MUTATION_CHAR_LIMIT
+                            - captured_prompt_chars,
+                        ),
+                    )
+                    return
+                captured_prompt_chars += mutation_size
+                captured_mutations.append(mutation)
+
+        dispatch_kwargs: dict[str, Any] = {
+            "execution_surface": self.execution_surface,
+        }
+        if self.hook_dispatcher is call_event_hook and self.protected_request_fields:
+            dispatch_kwargs["_request_mutation_observer"] = observe_request_mutation
         with self.expose_request():
             self._request_stopped = bool(
                 await self.hook_dispatcher(
                     self.event,
                     EventType.OnLLMRequestEvent,
                     self.provider_request,
-                    execution_surface=self.execution_surface,
+                    **dispatch_kwargs,
                 )
             )
         for field_name, value in protected_fields.items():
             if getattr(self.provider_request, field_name) != value:
-                logger.warning(
-                    "Ignoring OnLLMRequestEvent mutation of protected %s field on %s",
-                    field_name,
-                    self.execution_surface,
-                )
+                if not self._request_stopped and any(
+                    field_name in mutation.fields for mutation in captured_mutations
+                ):
+                    logger.debug(
+                        "Adapting append-only OnLLMRequestEvent mutation of protected "
+                        "%s field on %s",
+                        field_name,
+                        self.execution_surface,
+                    )
+                else:
+                    logger.warning(
+                        "Ignoring unsupported or oversized OnLLMRequestEvent mutation "
+                        "of protected "
+                        "%s field on %s",
+                        field_name,
+                        self.execution_surface,
+                    )
                 setattr(self.provider_request, field_name, value)
+        if not self._request_stopped:
+            self.legacy_prompt_mutations.extend(captured_mutations)
+            for mutation in captured_mutations:
+                logger.info(
+                    "DIAG prompt.legacy_plugin_injection_adapted: "
+                    "source=%s fields=%s context_message_count=%s",
+                    mutation.source,
+                    sorted(mutation.fields),
+                    len(mutation.context_messages),
+                )
         return self._request_stopped
 
     async def dispatch_agent_begin(self, run_context: ContextWrapper) -> bool:
@@ -370,13 +626,19 @@ class AgentRequestLifecycleHooks(BaseAgentRunHooks):
         lifecycle: AgentRequestLifecycle,
         *,
         dispatch_agent_stages: bool = True,
+        before_llm_request: Callable[[ContextWrapper], Awaitable[None]] | None = None,
     ) -> None:
         self.lifecycle = lifecycle
         self.dispatch_agent_stages = dispatch_agent_stages
+        self.before_llm_request = before_llm_request
 
     async def on_agent_begin(self, run_context: ContextWrapper) -> None:
         if self.dispatch_agent_stages:
             await self.lifecycle.dispatch_agent_begin(run_context)
+
+    async def on_before_llm_request(self, run_context: ContextWrapper) -> None:
+        if self.before_llm_request is not None:
+            await self.before_llm_request(run_context)
 
     async def on_agent_done(
         self,

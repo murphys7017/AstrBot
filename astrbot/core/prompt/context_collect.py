@@ -16,6 +16,8 @@ from astrbot.core import logger
 from astrbot.core.capabilities import CapabilitySnapshot
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.plugin_admission import build_plugin_admission_snapshot
+from astrbot.core.plugin_runtime import resolve_plugin_prompt_extension_target
+from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 from astrbot.core.star.context import Context
 from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 
@@ -377,6 +379,7 @@ def _normalize_plugin_prompt_extension(
     extension: PromptExtension,
     *,
     allow_control_plane_targets: bool = False,
+    target_override: str | None = None,
 ) -> PromptExtension | None:
     """Keep third-party prompt contributions off Core Planner."""
     normalized = deepcopy(extension)
@@ -392,6 +395,10 @@ def _normalize_plugin_prompt_extension(
         targets.intersection_update(allowed_targets)
     else:
         return None
+    if target_override is not None:
+        if target_override not in targets:
+            return None
+        targets = {target_override}
     if not targets:
         return None
     meta["targets"] = sorted(targets)
@@ -558,10 +565,20 @@ async def _run_prompt_extension_collectors(
 
     timings = []
     active_metrics = {}
+    runtime_config, _ = resolve_event_runtime_configuration(event)
+    get_owner_name = getattr(
+        plugin_context, "get_prompt_extension_collector_owner_name", None
+    )
 
     async def collect_one(collector: Any) -> _PromptExtensionCollectionOutcome:
         collector_name = collector.__class__.__name__
         allow_control_plane_targets = _collector_allows_control_plane_targets(collector)
+        owner_name = get_owner_name(collector) if callable(get_owner_name) else None
+        target_override = (
+            None
+            if allow_control_plane_targets
+            else resolve_plugin_prompt_extension_target(runtime_config, owner_name)
+        )
         lifecycle = _collector_lifecycle(collector)
         plugin_id = str(getattr(collector, "plugin_id", "") or "").strip()
         collector_allowed_mounts = allowed_mounts
@@ -628,6 +645,7 @@ async def _run_prompt_extension_collectors(
                 normalized = _normalize_plugin_prompt_extension(
                     extension,
                     allow_control_plane_targets=allow_control_plane_targets,
+                    target_override=target_override,
                 )
                 if normalized is None or not extension_visible_in_context_view(
                     normalized.mount, normalized.meta,
@@ -711,6 +729,7 @@ async def _run_prompt_extension_collectors(
             normalized = _normalize_plugin_prompt_extension(
                 extension,
                 allow_control_plane_targets=allow_control_plane_targets,
+                target_override=target_override,
             )
             if normalized is not None and extension_visible_in_context_view(
                 normalized.mount, normalized.meta,

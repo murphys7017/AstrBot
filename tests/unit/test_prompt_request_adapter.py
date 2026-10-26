@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from astrbot.core.agent.message import AudioURLPart, ImageURLPart, TextPart
+from astrbot.core.agent.message import (
+    AudioURLPart,
+    ImageURLPart,
+    Message,
+    TextPart,
+    bind_checkpoint_messages,
+)
 from astrbot.core.agent.tool import ToolSet
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.render import (
@@ -125,6 +131,165 @@ def test_request_adapter_applies_system_prompt_history_and_text_user_message():
     assert apply_result.user_content_part_count == 0
     assert apply_result.tool_schema_count == 1
     assert apply_result.warnings == []
+
+
+def test_transient_prompt_message_is_near_current_input_and_not_cached_in_pack():
+    class TransientCollector:
+        plugin_id = "transient_state"
+        prompt_message_targets = frozenset({"persona"})
+
+        def collect_prompt_messages(
+            self,
+            event,
+            plugin_context,
+            *,
+            target,
+            context_view=None,
+            provider_request=None,
+        ):
+            del event, plugin_context, context_view, provider_request
+            if target != "persona":
+                return []
+            return [{"role": "user", "content": "latest state"}]
+
+    class PluginContext:
+        def list_prompt_extension_collectors(self, event=None):
+            del event
+            return [TransientCollector()]
+
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="current input",
+                category="input",
+                source="test",
+            )
+        }
+    )
+    result = PromptRenderEngine().render(
+        pack,
+        target="persona",
+        plugin_context=PluginContext(),
+    )
+
+    assert result.messages[-1] == {"role": "user", "content": "current input"}
+    assert result.messages[-2]["content"] == "latest state"
+    assert result.messages[-2]["_no_save"] is True
+    assert result.metadata["transient_prompt_message_count"] == 1
+
+    request = ProviderRequest()
+    apply_render_result_to_request(result, request)
+    assert request.prompt == "current input"
+    assert request.contexts[-1]["content"] == "latest state"
+    assert "_prompt_message_injector" not in request.contexts[-1]
+
+    core_result = PromptRenderEngine().render(
+        pack,
+        target="core_planner",
+        plugin_context=PluginContext(),
+    )
+    assert core_result.metadata.get("transient_prompt_message_count", 0) == 0
+    assert all(
+        message.get("content") != "latest state"
+        for message in core_result.messages
+    )
+
+
+def test_transient_prompt_message_drops_provider_unknown_fields():
+    class TransientCollector:
+        plugin_id = "transient_state"
+        prompt_message_targets = frozenset({"persona"})
+
+        def collect_prompt_messages(self, *args, **kwargs):
+            del args, kwargs
+            return [
+                {
+                    "role": "user",
+                    "content": "latest state",
+                    "custom_field": "must not reach provider",
+                }
+            ]
+
+    class PluginContext:
+        def list_prompt_extension_collectors(self, event=None):
+            del event
+            return [TransientCollector()]
+
+    result = PromptRenderEngine().render(
+        ContextPack(
+            slots={
+                "input.text": ContextSlot(
+                    name="input.text",
+                    value="current input",
+                    category="input",
+                    source="test",
+                )
+            }
+        ),
+        target="persona",
+        plugin_context=PluginContext(),
+    )
+    request = ProviderRequest()
+    apply_render_result_to_request(result, request)
+
+    assert request.contexts[-1] == {
+        "role": "user",
+        "content": "latest state",
+        "_no_save": True,
+    }
+
+
+def test_refresh_transient_prompt_message_replaces_old_state():
+    values = iter(("state-1", "state-2"))
+
+    class TransientCollector:
+        plugin_id = "transient_state"
+        prompt_message_targets = frozenset({"persona"})
+
+        def collect_prompt_messages(self, *args, **kwargs):
+            del args, kwargs
+            return [{"role": "user", "content": next(values)}]
+
+    class PluginContext:
+        def list_prompt_extension_collectors(self, event=None):
+            del event
+            return [TransientCollector()]
+
+    pack = ContextPack(
+        slots={
+            "input.text": ContextSlot(
+                name="input.text",
+                value="current input",
+                category="input",
+                source="test",
+            )
+        }
+    )
+    plugin_context = PluginContext()
+    engine = PromptRenderEngine()
+    result = engine.render(pack, target="persona", plugin_context=plugin_context)
+    request = ProviderRequest()
+    apply_render_result_to_request(result, request)
+    run_messages = bind_checkpoint_messages(request.contexts)
+    for index in request.metadata["_prompt_transient_message_indices"]:
+        run_messages[index]._prompt_transient = True
+    run_messages.append(Message(role="user", content=request.prompt))
+
+    engine.refresh_transient_prompt_messages(
+        provider_request=request,
+        run_context_messages=run_messages,
+        event=None,
+        plugin_context=plugin_context,
+        target="persona",
+    )
+
+    assert request.contexts[0]["content"] == "state-2"
+    assert [
+        message.content
+        for message in run_messages
+        if getattr(message, "_prompt_transient", False)
+    ] == ["state-2"]
 
 
 def test_request_adapter_preserves_internal_context_messages():
@@ -464,11 +629,8 @@ async def test_request_adapter_reconstructs_rendered_user_message_order():
                     "<request_context>\n"
                     "  <session>\n"
                     "    <user_info>\n"
-                    "      <user_id>u1</user_id>\n"
                     "      <nickname>Alice</nickname>\n"
                     "      <platform_name>qq</platform_name>\n"
-                    "      <umo>qq:group:1</umo>\n"
-                    "      <group_id>1</group_id>\n"
                     "      <group_name>AstrBot Dev</group_name>\n"
                     "      <is_group>true</is_group>\n"
                     "    </user_info>\n"

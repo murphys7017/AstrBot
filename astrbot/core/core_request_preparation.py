@@ -32,6 +32,9 @@ async def begin_core_request_lifecycle(
         event,
         execution_surface=PLUGIN_RUNTIME_TARGET_CORE,
         hook_dispatcher=hook_dispatcher,
+        protected_request_fields=frozenset(
+            {"prompt", "contexts", "system_prompt", "extra_user_content_parts"}
+        ),
         record_reasoning=True,
         dispatch_response_postprocess=True,
     )

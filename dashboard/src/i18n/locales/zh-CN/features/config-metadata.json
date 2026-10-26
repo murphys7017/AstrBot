@@ -1548,13 +1548,13 @@
         },
         "plugin_capability_targets": {
           "description": "插件能力生效链路",
-          "hint": "按插件注册名称分别配置 llm_hooks 与 tools。tools 中具体工具名优先于 *；目标可设为 core 或 personal_expression。"
+          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 可选 persona 或 core，且必须是插件已声明的目标。"
         }
       }
     },
     "plugin": {
-      "description": "插件富化与能力目标",
-      "hint": "控制普通对话插件的并行执行、Prompt/结果贡献者超时，以及插件钩子和插件 FunctionTool 进入 Personal 或 Core 的目标。命令、消息 Handler 和事件监听器不受这些配置影响。",
+      "description": "插件富化与目标路由",
+      "hint": "控制普通对话插件的并行执行、Prompt/结果贡献者超时，以及插件钩子、Prompt Extension 和 FunctionTool 的目标。命令、消息 Handler 和事件监听器不受这些配置影响。",
       "interaction_middleware": {
         "parallel_plugin_runtime_enabled": {
           "description": "启用插件三线并行运行时",
@@ -1582,7 +1582,7 @@
         },
         "plugin_capability_targets": {
           "description": "插件能力生效链路",
-          "hint": "按插件注册名称分别配置 llm_hooks 与 tools。tools 内具体工具名优先于 *；只影响 LLM Hook 和 FunctionTool，不改变 Handler、Prompt 或人格 Effect 的消费方。"
+          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 选择 persona 或 core 时，必须是扩展或 Collector 已声明的目标。"
         }
       }
     },

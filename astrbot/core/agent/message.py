@@ -23,6 +23,7 @@ class ContentPart(BaseModel):
 
     type: Literal["text", "think", "image_url", "audio_url"]
     _no_save: bool = PrivateAttr(default=False)
+    _prompt_transient: bool = PrivateAttr(default=False)
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -241,6 +242,7 @@ class Message(BaseModel):
     """Exact Anthropic assistant blocks retained for the immediate tool continuation."""
 
     _no_save: bool = PrivateAttr(default=False)
+    _prompt_transient: bool = PrivateAttr(default=False)
     _checkpoint_after: CheckpointData | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")

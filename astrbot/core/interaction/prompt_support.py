@@ -74,6 +74,7 @@ def build_model_context_messages(
             continue
         context_message = deepcopy(message)
         context_message.pop("_no_save", None)
+        context_message.pop("_prompt_transient", None)
         contexts.append(context_message)
     provider_config = getattr(provider, "provider_config", None)
     modalities = provider_config.get("modalities") if isinstance(provider_config, dict) else None

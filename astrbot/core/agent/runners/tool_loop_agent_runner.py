@@ -81,6 +81,9 @@ else:
     from typing_extensions import override
 
 
+_PROMPT_TRANSIENT_TOKEN_BUDGET = 4_096
+
+
 @dataclass(slots=True)
 class _HandleFunctionToolsResult:
     kind: T.Literal["message_chain", "tool_call_result_blocks", "cached_image"]
@@ -359,7 +362,20 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 self.req.func_tool = light_set
 
         # append existing messages in the run context
-        messages = bind_checkpoint_messages(request.contexts or [])
+        raw_contexts = request.contexts or []
+        messages = bind_checkpoint_messages(raw_contexts)
+        transient_indices = set(
+            request.metadata.get("_prompt_transient_message_indices", [])
+            if isinstance(request.metadata, dict)
+            else []
+        )
+        bound_index = 0
+        for raw_index, raw_message in enumerate(raw_contexts):
+            if isinstance(raw_message, dict) and raw_message.get("role") == "_checkpoint":
+                continue
+            if bound_index < len(messages) and raw_index in transient_indices:
+                messages[bound_index]._prompt_transient = True
+            bound_index += 1
         if (
             request.prompt is not None
             or request.image_urls
@@ -561,6 +577,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         include_model: bool = True,
     ) -> T.AsyncGenerator[LLMResponse, None]:
         """Yields chunks *and* a final LLMResponse."""
+        await self._refresh_prompt_before_provider()
         if not self.run_context.messages:
             logger.warning(
                 "Skipping LLM request because no messages remain after agent/request "
@@ -597,6 +614,155 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 yield resp
         else:
             yield await self._call_provider_text_chat(**payload)
+
+    async def _refresh_prompt_before_provider(self) -> None:
+        await self.agent_hooks.on_before_llm_request(self.run_context)
+        self._fit_transient_prompt_context()
+
+    def _fit_transient_prompt_context(self) -> None:
+        if self.req is None or self.context_manager is None:
+            return
+        from astrbot.core.prompt.render.request_adapter import (
+            PROMPT_TRANSIENT_MESSAGE_INDICES_KEY,
+            PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY,
+            PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY,
+            PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY,
+        )
+
+        request_metadata = dict(self.req.metadata or {})
+        system_base = request_metadata.get(PROMPT_TRANSIENT_SYSTEM_PROMPT_BASE_KEY)
+        system_extension = request_metadata.get(
+            PROMPT_TRANSIENT_SYSTEM_PROMPT_EXTENSION_KEY
+        )
+        system_extension_active = (
+            isinstance(system_base, str)
+            and isinstance(system_extension, str)
+            and bool(system_extension)
+            and request_metadata.get(PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY)
+            is not True
+        )
+
+        base_messages: list[Message] = []
+        transient_messages: list[Message] = []
+        transient_parts = []
+        for message in self.run_context.messages:
+            if getattr(message, "_prompt_transient", False):
+                transient_messages.append(copy.deepcopy(message))
+                continue
+            base_message = copy.deepcopy(message)
+            if isinstance(message.content, list):
+                transient_parts.extend(
+                    copy.deepcopy(part)
+                    for part in message.content
+                    if getattr(part, "_prompt_transient", False)
+                )
+                base_message.content = [
+                    part
+                    for part in base_message.content
+                    if not getattr(part, "_prompt_transient", False)
+                ]
+            if (
+                system_extension_active
+                and base_message.role == "system"
+                and isinstance(system_base, str)
+            ):
+                base_message.content = system_base
+            base_messages.append(base_message)
+
+        if system_extension_active:
+            transient_messages.append(
+                Message(role="user", content=system_extension)
+            )
+        if transient_parts:
+            transient_messages.append(
+                Message(role="user", content=transient_parts)
+            )
+        if not transient_messages:
+            return
+
+        token_counter = self.context_manager.token_counter
+        try:
+            base_tokens = token_counter.count_tokens(base_messages)
+            transient_tokens = token_counter.count_tokens(transient_messages)
+        except Exception:
+            logger.warning(
+                "Prompt transient token counting failed; using the built-in estimator",
+                exc_info=True,
+            )
+            token_counter = EstimateTokenCounter()
+            base_tokens = token_counter.count_tokens(base_messages)
+            transient_tokens = token_counter.count_tokens(transient_messages)
+
+        configured_limits = []
+        for candidate in [self.provider, *self.fallback_providers]:
+            provider_config = getattr(candidate, "provider_config", None)
+            raw_limit = (
+                provider_config.get("max_context_tokens", 0)
+                if isinstance(provider_config, dict)
+                else 0
+            )
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError):
+                continue
+            if limit > 0:
+                configured_limits.append(limit)
+        configured_limit = min(configured_limits) if configured_limits else 0
+        remaining = (
+            max(0, configured_limit - base_tokens)
+            if configured_limit > 0
+            else _PROMPT_TRANSIENT_TOKEN_BUDGET
+        )
+        allowed_tokens = min(_PROMPT_TRANSIENT_TOKEN_BUDGET, remaining)
+        if transient_tokens <= allowed_tokens:
+            return
+
+        retained_messages = []
+        for message in self.run_context.messages:
+            if getattr(message, "_prompt_transient", False):
+                continue
+            if isinstance(message.content, list):
+                message.content = [
+                    part
+                    for part in message.content
+                    if not getattr(part, "_prompt_transient", False)
+                ]
+            if (
+                system_extension_active
+                and message.role == "system"
+                and isinstance(system_base, str)
+            ):
+                message.content = system_base
+            retained_messages.append(message)
+        self.run_context.messages[:] = retained_messages
+
+        if system_extension_active and isinstance(system_base, str):
+            self.req.system_prompt = system_base
+            request_metadata[PROMPT_TRANSIENT_SYSTEM_PROMPT_DROPPED_KEY] = True
+
+        transient_indices = {
+            index
+            for index in request_metadata.get(
+                PROMPT_TRANSIENT_MESSAGE_INDICES_KEY,
+                [],
+            )
+            if isinstance(index, int) and index >= 0
+        }
+        if transient_indices:
+            self.req.contexts = [
+                message
+                for index, message in enumerate(self.req.contexts or [])
+                if index not in transient_indices
+            ]
+            request_metadata.pop(PROMPT_TRANSIENT_MESSAGE_INDICES_KEY, None)
+        self.req.metadata = request_metadata
+        logger.warning(
+            "Skipping transient prompt additions over the request token budget: "
+            "estimated_tokens=%s allowed_tokens=%s configured_context_tokens=%s",
+            transient_tokens,
+            allowed_tokens,
+            configured_limit or None,
+        )
 
     async def _call_provider_text_chat(self, **payload: T.Any) -> LLMResponse:
         if self.deadline is None:
@@ -935,6 +1101,15 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
 
         # do truncate and compress
         token_usage = self.req.conversation.token_usage if self.req.conversation else 0
+        # Request-local prompt facts are deliberately excluded from context
+        # compression. They must never be summarized or truncated into durable
+        # conversation material; the before-request hook refreshes them after
+        # this step using the latest value.
+        self.run_context.messages = [
+            message
+            for message in self.run_context.messages
+            if not getattr(message, "_prompt_transient", False)
+        ]
         self.run_context.messages = await self.context_manager.process(
             self.run_context.messages, trusted_token_usage=token_usage
         )
@@ -1742,6 +1917,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                 self._tool_schema_param_set, tool_names
             )
             if param_subset.tools and tool_names:
+                await self._refresh_prompt_before_provider()
                 contexts = self._build_tool_requery_context(tool_names)
                 requery_resp = await self._call_provider_text_chat(
                     contexts=self._sanitize_contexts_for_provider(contexts),
@@ -1771,6 +1947,7 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     logger.warning(
                         "skills_like tool re-query returned no tool calls and no explanation; retrying with stronger instruction."
                     )
+                    await self._refresh_prompt_before_provider()
                     repair_contexts = self._build_tool_requery_context(
                         tool_names,
                         extra_instruction=self.SKILLS_LIKE_REQUERY_REPAIR_INSTRUCTION,

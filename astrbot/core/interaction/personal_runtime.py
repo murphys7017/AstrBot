@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from astrbot import logger
 from astrbot.core.deadline import TurnDeadlineBudget, TurnDeadlineExceeded
@@ -83,6 +83,9 @@ from .turn_state import (
 )
 from .types import InteractionAgentConfig
 
+if TYPE_CHECKING:
+    from astrbot.core.astrbot_config_mgr import ConfigurationSelection
+
 _ACTIVE_PERSONAL_TURN: contextvars.ContextVar[PersonalTurnContext | None] = (
     contextvars.ContextVar("active_personal_turn", default=None)
 )
@@ -93,6 +96,7 @@ DEFAULT_MAX_PENDING_OBSERVATIONS = 64
 DEFAULT_OBSERVATION_DEBOUNCE_SECONDS = 1.5
 IDLE_INITIATION_TTL_SECONDS = 5 * 60
 MAX_COALESCED_MATERIAL_FINGERPRINTS = 512
+OBSERVATION_RECOVERY_RETRY_SECONDS = 30.0
 
 
 class _ObservationWorkCancelled(Exception):
@@ -632,6 +636,7 @@ class PersonalSessionRuntime:
         observation_gate_settings: ObservationGateSettings | None = None,
         state_repository: PersonalStateRepository | None = None,
         persistent_state: PersonalPersistentState | None = None,
+        state_restore_pending: bool = False,
     ) -> None:
         now = time.time()
         self.key = key
@@ -651,6 +656,7 @@ class PersonalSessionRuntime:
             self.state.restore_persistent(persistent_state)
             self.state.mark_idle(now=now)
         self._state_repository = state_repository
+        self._state_restore_pending = state_restore_pending
         self._state_persistence_lock = asyncio.Lock()
         self._persistent_state_dirty = False
         self.last_completion_feedback: CompletionFeedback | None = None
@@ -662,6 +668,10 @@ class PersonalSessionRuntime:
         self.observation_gate_settings = (
             observation_gate_settings or ObservationGateSettings()
         )
+        if state_restore_pending:
+            self.observation_gate_settings = replace(
+                self.observation_gate_settings, state_available=False
+            )
         self.observation_evaluation_task: asyncio.Task[None] | None = None
         self.last_observation_batch: ObservationBatch | None = None
         self.last_observation_gate_result: ObservationGateResult | None = None
@@ -879,6 +889,8 @@ class PersonalSessionRuntime:
         minimum_idle_seconds: float,
     ) -> ObservationAdmissionResult:
         """Submit one configured idle fact for the current user-activity epoch."""
+        if self._state_restore_pending:
+            return self._ignored_idle_initiation("state_restore_pending")
         user_activity_at = self.state.last_user_activity_at
         if user_activity_at is None:
             return self._ignored_idle_initiation("idle_initiation_no_user_activity")
@@ -1358,6 +1370,8 @@ class PersonalSessionRuntime:
         state_snapshot: PersonalStateSnapshot,
     ) -> float | None:
         reason = gate_result.reason_code
+        if reason is ObservationGateReason.STATE_RESTORE_PENDING:
+            return gate_result.evaluated_at + OBSERVATION_RECOVERY_RETRY_SECONDS
         if reason is ObservationGateReason.QUIET_HOURS:
             return self.observation_gate_settings.quiet_hours_end_at(
                 gate_result.evaluated_at
@@ -1397,10 +1411,28 @@ class PersonalSessionRuntime:
                 self.key.audience_key,
             )
 
+    async def ensure_state_restored(self) -> None:
+        if not self._state_restore_pending:
+            return
+        async with self._state_persistence_lock:
+            if not self._state_restore_pending:
+                return
+            if self._state_repository is None:
+                raise RuntimeError("Personal Runtime state repository is unavailable")
+            stored = await self._state_repository.load(self.key)
+            if stored is not None:
+                self.state.restore_persistent(stored)
+            self._state_restore_pending = False
+            self.observation_gate_settings = replace(
+                self.observation_gate_settings, state_available=True
+            )
+
     async def _persist_state(self) -> None:
         if self._state_repository is None:
             self._persistent_state_dirty = False
             return
+        # Never replace an unread persisted state with an empty local snapshot.
+        await self.ensure_state_restored()
         async with self._state_persistence_lock:
             while self._persistent_state_dirty:
                 snapshot = self.state.persistent_snapshot()
@@ -1747,6 +1779,7 @@ class PersonalRuntimeManager:
         ) = None
         self._observation_wake_scheduler: ObservationWakeScheduler | None = None
         self._state_repository = state_repository
+        self._configuration_resolver: Callable[[str], ConfigurationSelection] | None = None
         self._runtime_creation_lock = asyncio.Lock()
         self._group_conversation_owners: dict[
             _GroupConversationOwnerKey, _GroupConversationOwnerState
@@ -1756,6 +1789,11 @@ class PersonalRuntimeManager:
 
     def bind_plugin_context(self, plugin_context: Any) -> None:
         self._plugin_context = plugin_context
+
+    def bind_configuration_resolver(
+        self, resolver: Callable[[str], ConfigurationSelection]
+    ) -> None:
+        self._configuration_resolver = resolver
 
     def bind_personal_expression_handler(
         self,
@@ -1930,6 +1968,69 @@ class PersonalRuntimeManager:
             return
         runtime = self._sessions.get(key)
         if runtime is None:
+            return
+        runtime._clear_observation_wake()
+        observations = runtime.observation_inbox.pending_observations
+        if not observations:
+            return
+        context = self._plugin_context or runtime._plugin_context
+        try:
+            if context is None or self._configuration_resolver is None:
+                raise RuntimeError("Runtime wake configuration resolver is unavailable")
+            selection = self._configuration_resolver(key.audience_key)
+            settings = load_interaction_agent_config(selection.runtime_config)
+            target = observations[-1].target_session
+            platform = context.get_platform_inst(target.platform_id)
+            metadata = platform.meta() if platform is not None else None
+            current_key = await self._resolve_observation_target_runtime_key(
+                target, config_id=selection.config_id, plugin_context=context,
+                runtime_config=selection.runtime_config,
+            )
+            if (
+                current_key != key
+                or not settings.enabled
+                or not settings.personal_policy_enabled
+                or metadata is None
+                or not metadata.support_proactive_message
+                or not supports_personal_runtime(metadata)
+            ):
+                runtime.observation_inbox.discard(
+                    tuple(o.observation_id for o in observations)
+                )
+                runtime._settle_discarded_observation_material()
+                runtime.state.set_pending_observation_count(0)
+                runtime.state.record_gate_result("wake_admission_revoked")
+                return
+            denied = []
+            for observation in observations:
+                source_denied = (
+                    observation.source.startswith("plugin_sensor:")
+                    and not await context.is_runtime_observation_source_admitted(
+                        observation
+                    )
+                )
+                initiation_disabled = (
+                    observation.kind == "idle_initiation"
+                    and not settings.personal_idle_initiation_enabled
+                )
+                if source_denied or initiation_disabled:
+                    denied.append(observation.observation_id)
+            runtime.observation_inbox.discard(denied)
+            runtime._settle_discarded_observation_material()
+            runtime.state.set_pending_observation_count(
+                runtime.observation_inbox.pending_count
+            )
+            await self._get_or_create_runtime(
+                key, plugin_context=context, runtime_config=selection.runtime_config
+            )
+        except Exception:
+            logger.exception(
+                "Personal Runtime wake admission failed: config_id=%s audience=%s",
+                key.config_id, key.audience_key,
+            )
+            runtime._schedule_observation_wake_at(
+                time.time() + OBSERVATION_RECOVERY_RETRY_SECONDS
+            )
             return
         runtime.wake_observations()
 
@@ -2727,12 +2828,14 @@ class PersonalRuntimeManager:
             runtime = self._sessions.get(key)
             if runtime is None:
                 persistent_state = None
+                restore_pending = False
                 if self._state_repository is not None:
                     try:
                         persistent_state = await self._state_repository.load(key)
                     except Exception:
+                        restore_pending = True
                         logger.exception(
-                            "Personal Runtime state restore failed; using process-local state: "
+                            "Personal Runtime state restore failed; autonomous work is held: "
                             "config_id=%s persona_id=%s audience=%s",
                             key.config_id,
                             key.persona_id,
@@ -2745,8 +2848,17 @@ class PersonalRuntimeManager:
                     observation_gate_settings=self._observation_gate_settings,
                     state_repository=self._state_repository,
                     persistent_state=persistent_state,
+                    state_restore_pending=restore_pending,
                 )
                 self._sessions[key] = runtime
+            elif runtime._state_restore_pending:
+                try:
+                    await runtime.ensure_state_restored()
+                except Exception:
+                    logger.exception(
+                        "Personal Runtime state restore retry failed: config_id=%s audience=%s",
+                        key.config_id, key.audience_key,
+                    )
         interaction_config = load_interaction_agent_config(runtime_config)
         runtime.configure_personal_policy(
             agent=self._personal_policy_agent,
@@ -2755,6 +2867,7 @@ class PersonalRuntimeManager:
             interaction_config=interaction_config,
             gate_settings=replace(
                 self._observation_gate_settings,
+                state_available=not runtime._state_restore_pending,
                 enabled=(
                     self._observation_gate_settings.enabled
                     and interaction_config.enabled

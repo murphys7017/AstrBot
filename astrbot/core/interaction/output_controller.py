@@ -766,6 +766,43 @@ class InteractionOutputController:
                     reason="incremental_optional_resource_timeout",
                 )
 
+        async def discard_empty_incremental_output() -> None:
+            """Release a writer that produced no payload after resources close."""
+            nonlocal incremental_writer
+            if incremental_writer is None:
+                return
+            if getattr(incremental_writer, "has_output", False):
+                return
+            persona_result_id = str(state.get("persona_result_id") or "").strip()
+            discard_output = getattr(
+                event, "discard_interaction_incremental_output", None
+            )
+            if not persona_result_id or not callable(discard_output):
+                return
+            try:
+                discarded = await discard_output(
+                    persona_result_id=persona_result_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - fallback remains best effort.
+                logger.warning(
+                    "Failed to discard empty OLV incremental output: "
+                    "turn_id=%s persona_result_id=%s reason=%s",
+                    event.get_extra("_turn_id"),
+                    persona_result_id,
+                    exc,
+                )
+                return
+            if not discarded:
+                return
+            incremental_writer = None
+            event.set_extra("_interaction_incremental_output_writer", None)
+            logger.info(
+                "OLV incremental output released without payload: "
+                "turn_id=%s persona_result_id=%s",
+                event.get_extra("_turn_id"),
+                persona_result_id,
+            )
+
         async def start_incremental_output(persona_result_id: str) -> None:
             nonlocal incremental_writer, incremental_pcm_queue, incremental_pcm_task
             if not is_olv_segment_stream:
@@ -1733,15 +1770,16 @@ class InteractionOutputController:
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
+            await close_incremental_resources(
+                status="cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
+                reason="persona_stream_cancelled" if isinstance(exc, asyncio.CancelledError) else "persona_stream_failed",
+            )
+            await discard_empty_incremental_output()
             if isinstance(exc, asyncio.CancelledError):
                 state["status"] = "cancelled"
                 platform_extras["persona_stream"]["tts_status"] = (
                     "cancelled" if state["tts_attempted"] else "not_attempted"
                 )
-            await close_incremental_resources(
-                status="cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
-                reason="persona_stream_cancelled" if isinstance(exc, asyncio.CancelledError) else "persona_stream_failed",
-            )
             outcome = finalize_outcome()
             await notify_stream_finished(outcome)
             if isinstance(exc, asyncio.CancelledError):
@@ -1770,6 +1808,7 @@ class InteractionOutputController:
             )
             await asyncio.shield(children)
             await settle_incremental_background_tasks()
+            await discard_empty_incremental_output()
         except asyncio.CancelledError:
             state["status"] = "cancelled"
             platform_extras["persona_stream"]["status"] = "cancelled"
@@ -1797,6 +1836,7 @@ class InteractionOutputController:
                 status="cancelled",
                 reason="persona_stream_cancelled",
             )
+            await discard_empty_incremental_output()
             await asyncio.gather(children, return_exceptions=True)
             outcome = finalize_outcome()
             await notify_stream_finished(outcome)
@@ -1817,6 +1857,11 @@ class InteractionOutputController:
                 *incremental_motion_tasks,
                 return_exceptions=True,
             )
+            await close_incremental_resources(
+                status="failed",
+                reason="persona_stream_failed",
+            )
+            await discard_empty_incremental_output()
             state["status"] = "incomplete"
             platform_extras["persona_stream"]["status"] = "incomplete"
 

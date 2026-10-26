@@ -77,13 +77,14 @@
     "cancel": "Cancel",
     "save": "Apply",
     "scopeRequired": "Select or enter a plugin scope",
-    "scopeDuplicate": "Each scope can only be configured once",
+    "scopeDuplicate": "Each plugin and target type can be configured once",
     "targetInvalid": "Select a valid runtime target",
     "loadFailed": "The complete plugin or tool list could not be loaded. You can still enter a configuration key manually.",
     "capabilityEmpty": "No overrides",
-    "capabilityTitle": "Plugin capability targets",
+    "capabilityTitle": "Plugin target routing",
     "pluginLabel": "Plugin",
-    "kindLabel": "Capability",
+    "kindLabel": "Target type",
+    "promptExtensions": "Prompt Extension",
     "toolLabel": "Tool name (* for all)"
   },
   "providerSelector": {

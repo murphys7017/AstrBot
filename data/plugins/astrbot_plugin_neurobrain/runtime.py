@@ -23,7 +23,10 @@ class NeuroBrainRuntime:
         self._checkpoint = checkpoint
         self._device = device
         self._delta_seconds = delta_seconds
-        self._inputs: queue.Queue[dict[str, float]] = queue.Queue()
+        # Keep only the newest stimulus that has not reached a model tick yet.
+        # Older pending inputs are stale for a continuously evolving state.
+        self._inputs: queue.Queue[dict[str, float]] = queue.Queue(maxsize=1)
+        self._input_lock = threading.Lock()
         self._stop = threading.Event()
         self._initialized = threading.Event()
         self._snapshot: dict[str, Any] | None = None
@@ -53,13 +56,19 @@ class NeuroBrainRuntime:
         )
 
     def submit_emotion(self, tendency: Mapping[str, int]) -> None:
-        """Validate and enqueue eight values without waiting for inference."""
+        """Validate and replace the pending eight-value stimulus."""
         from neurobrain import convert_astrbot_tendency_to_stimulus
 
         if not self.is_running:
             raise RuntimeError("NeuroBrain is not running")
         stimulus = convert_astrbot_tendency_to_stimulus(tendency)
-        self._inputs.put(stimulus)
+        with self._input_lock:
+            try:
+                while True:
+                    self._inputs.get_nowait()
+            except queue.Empty:
+                pass
+            self._inputs.put_nowait(stimulus)
 
     def get_state(self) -> dict[str, Any] | None:
         """Copy the last complete snapshot without touching the model."""
