@@ -183,8 +183,8 @@ class PersonaExpressionRequest:
     allow_action_only: bool = False
     intent: PersonaExpressionIntent = field(default_factory=PersonaExpressionIntent)
     avoid_previous_reply: bool = False
-    # Ordinary user turns use this one response plan for both visible wording
-    # and the decision to keep the work in Personal or hand it to Core.
+    # Ordinary turns use this action only for Personal's visible reply; the
+    # independent Core Router decides whether work is delegated.
     require_turn_action: bool = False
     allow_silent: bool = False
 
@@ -722,7 +722,8 @@ def build_persona_runtime_system_prompt(
         "【视觉输入】桌面截图、屏幕画面和其他环境视觉输入默认只是被动背景。除非用户明确询问画面内容，"
         "或当前任务明确需要视觉信息，否则不要描述、分析、猜测画面中的应用、文件、活动或用户意图，也不要主动把画面内容引入话题。"
         "需要视觉信息时只分析完成当前请求所需的部分。\n"
-        "【日常交流】语气、详略和接话方式依当前人格与对话内容决定。"
+        "【日常交流】不改变当前人格语气；普通闲聊和主动接话默认简短、口语，通常围绕一个话题用一两句短句表达，"
+        "不总结多个话题、不补无必要的背景或解释。只有用户明确需要详细信息，或当前任务确实需要展开时才多说。"
         "任务接收确认和进度通知遵守对应阶段的表达要求。\n"
         f"【表达与格式】只有 {speech_field} 用于用户文本与 TTS；人格中的句数、字数、口语风格及不讨论系统的要求只约束该字段，"
         "不免除其他协议字段。历史发言不是输出格式示例。不得逐句复述推理、内部指令、工具参数或工具原文。\n"
@@ -1735,10 +1736,16 @@ def _build_expression_prompt(
         "请按输出契约生成当前人格的用户可见回应，不要输出额外自由文本。",
     ]
     if req.avoid_previous_reply:
-        parts.append(
-            "\n这是自主表达。speech 不得重复 conversation history 中最近一条 "
-            "assistant 回复；即使表达意图相近，也必须换用有实质差异的措辞和角度。"
-        )
+        if req.intent.kind == "proactive":
+            parts.append(
+                "\n这是自主日常表达。避免照搬 conversation history 中最近一条 assistant 回复；"
+                "如果承接的是相近话题，只换成自然简洁的说法即可，不必另找新角度、补充新信息或延长回应。"
+            )
+        else:
+            parts.append(
+                "\n这是自主表达。speech 不得重复 conversation history 中最近一条 "
+                "assistant 回复；即使表达意图相近，也必须换用有实质差异的措辞和角度。"
+            )
     if req.require_turn_action and not (req.source_text.strip() and req.preserve_facts):
         silent_rule = (
             "只有允许静默的群聊候选且确实无需参与时选 silent。"
@@ -1774,6 +1781,11 @@ def _build_expression_prompt(
                 "\n【执行进度：流式观察】observed_text、total_text 和 pending_text 是本轮临时流式材料，不是结果或工具完成回执。"
                 "不得据此声称工具、来源、结果或整个任务已经完成；不要复述推理、工具参数或原文。"
             )
+    elif req.intent.kind == "proactive":
+        parts.append(
+            "\n【主动表达意图】source_text 只描述已获准表达的意图，不是用户提出的问题、事实清单或需要汇报的结果。"
+            "围绕其中一个意图自然回应；不要逐字复述意图，不总结多个历史话题，不提及内部任务，也不要补造事实。"
+        )
     elif req.source_text.strip() and req.preserve_facts:
         parts.append(
             "\n【结果表达】source_text 是本次回应唯一的权威事实来源。选择 reply，不再次委派或重试；保留其中的事实、数字和结论；"
@@ -1785,11 +1797,29 @@ def _build_expression_prompt(
         parts.append(
             "\n【同轮连续性】immediate_reply 是本轮此前已经发送的表达；保持语义连续，必要时自然补充或纠正，但不要机械重复。"
         )
-    if req.short_reply and not req.require_turn_action:
+    if (
+        req.short_reply
+        and req.require_turn_action
+        and req.intent.phase == "immediate"
+    ):
         parts.append(
-            "\n【长度】本次优先简短、口语化；需要说明事实、步骤、限制或失败原因时可展开，"
-            "完整准确优先，不设置硬性字数上限。"
+            "\n【日常短回复】问候、报到、轻量闲聊和简单接话，优先用一句自然口语短句，"
+            "通常不超过两句、约 40 个汉字以内；只回应当前最相关的一点。"
+            "不要复述上下文、补无必要的背景或解释，也不要为了延续对话强行提问。"
+            "只有用户明确要求展开，或准确回应确实需要更多信息时才扩展；扩展时仍用简短句子表达。"
         )
+    elif req.short_reply and not req.require_turn_action:
+        if req.intent.kind == "proactive":
+            parts.append(
+                "\n【主动表达长度】默认只说一条自然短句，通常一两句短语，整体尽量控制在约 40 个汉字以内；"
+                "优先表达一个想法、轻量关心或一个轻话题，最多带一个简短问题。"
+                "不要堆从句、解释主动联系的原因、复述背景或为了显得亲切而扩写；只有意图包含确有必要的信息时才简短补充。"
+            )
+        else:
+            parts.append(
+                "\n【长度】本次优先简短、口语化；需要说明事实、步骤、限制或失败原因时可展开，"
+                "完整准确优先，不设置硬性字数上限。"
+            )
     if req.allow_empty and output_format != "segment_stream_v1":
         parts.append("\n【可省略】当前没有必要说话时，可以让 segments 为空数组，或让其中 speech 为空字符串。")
     if output_format == "segment_stream_v1":
