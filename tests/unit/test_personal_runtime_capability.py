@@ -2316,6 +2316,62 @@ async def test_model_continuation_preserves_handler_takeover_before_route(
 
 
 @pytest.mark.asyncio
+async def test_waking_keeps_legacy_candidate_for_media_only_runtime_group(monkeypatch):
+    group_id = "group-waking-media"
+    metadata = _metadata(support_personal_runtime=True)
+    event = _DirectEvent(
+        metadata,
+        message_type=MessageType.GROUP_MESSAGE,
+        session_id=group_id,
+    )
+    event.message_str = ""
+    event.message_obj.message_str = ""
+    event.message_obj.message = [Image(file="input.png")]
+    event.message_obj.group_id = group_id
+    runtime_config = {
+        "admins_id": [],
+        "wake_prefix": ["/"],
+        "plugin_set": ["*"],
+        "platform_settings": {},
+        "interaction_middleware": {
+            "enabled": True,
+            "personal_conversation_activity_enabled": True,
+        },
+        "provider_ltm_settings": {
+            "active_reply": {"enable": True, "possibility_reply": 1.0}
+        },
+    }
+
+    async def discover_handlers(current_event, **_kwargs):
+        current_event.set_extra("activated_handlers", [])
+        return False
+
+    monkeypatch.setattr(
+        "astrbot.core.pipeline.waking_check.stage.discover_activated_handlers",
+        discover_handlers,
+    )
+    waking = WakingCheckStage()
+    targets = (MessageSession("demo", MessageType.GROUP_MESSAGE, group_id),)
+    await waking.initialize(
+        SimpleNamespace(
+            astrbot_config=runtime_config,
+            astrbot_config_id="default",
+            personal_runtime_manager=None,
+            plugin_manager=SimpleNamespace(
+                context=SimpleNamespace(
+                    get_runtime_observation_targets=lambda: targets,
+                )
+            ),
+        )
+    )
+
+    await waking.process(event)
+
+    assert event.get_extra(GROUP_REPLY_CANDIDATE_EXTRA) is True
+    assert not event.is_stopped()
+
+
+@pytest.mark.asyncio
 async def test_waking_marks_explicit_owner_and_preserves_active_handler_takeover(
     monkeypatch,
 ):

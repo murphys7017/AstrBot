@@ -1207,6 +1207,15 @@ class TestConfigSchemaToDefault:
 class TestConfigMetadataI18n:
     """Tests for i18n utils."""
 
+    @staticmethod
+    def _get_by_selector(config: dict, selector: str):
+        current = config
+        for key in selector.split("."):
+            assert isinstance(current, dict), selector
+            assert key in current, selector
+            current = current[key]
+        return current
+
     def test_get_i18n_key(self):
         """Test generating i18n key."""
         key = ConfigMetadataI18n._get_i18n_key(
@@ -1405,8 +1414,8 @@ class TestConfigMetadataI18n:
             "context",
             "expression",
             "general",
-            "personal_policy",
             "personal_engagement",
+            "personal_policy",
             "planner",
             "plugin",
             "progress",
@@ -1490,12 +1499,8 @@ class TestConfigMetadataI18n:
             ].values()
             for item_key in section["items"]
         }
-        defaults = DEFAULT_CONFIG["interaction_middleware"]
-
         for item_key in exposed_keys:
-            prefix, key = item_key.split(".", 1)
-            assert prefix == "interaction_middleware"
-            assert key in defaults
+            self._get_by_selector(DEFAULT_CONFIG, item_key)
 
     def test_memory_extension_config_metadata_is_exposed(self):
         """Extension config page requires memory metadata to be present."""
@@ -1552,15 +1557,6 @@ class TestConfigMetadataI18n:
 
     def test_memory_defaults_match_exposed_metadata(self):
         """All exposed memory config keys should exist in DEFAULT_CONFIG."""
-
-        def get_by_selector(config: dict, selector: str):
-            current = config
-            for key in selector.split("."):
-                assert isinstance(current, dict), selector
-                assert key in current, selector
-                current = current[key]
-            return current
-
         exposed_keys = {
             item_key
             for section in CONFIG_METADATA_3["memory_group"]["metadata"].values()
@@ -1568,7 +1564,7 @@ class TestConfigMetadataI18n:
         }
 
         for item_key in exposed_keys:
-            get_by_selector(DEFAULT_CONFIG, item_key)
+            self._get_by_selector(DEFAULT_CONFIG, item_key)
 
     def test_memory_metadata_i18n_keys_have_locale_entries(self):
         """Memory metadata shown in WebUI should not render raw i18n keys."""

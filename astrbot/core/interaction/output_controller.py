@@ -91,6 +91,8 @@ from .plugin_execution_types import (
 )
 from .runtime_config import merge_runtime_config
 from .turn_state import (
+    InteractionDeliveryCompletionStatus,
+    InteractionDeliveryFailureStage,
     InteractionFinalOutputStatus,
     add_interaction_turn_stream_observation_task,
     append_interaction_turn_assistant_artifacts,
@@ -4637,6 +4639,8 @@ class InteractionOutputController:
         message_id: str | None = None,
         tts_segments: Sequence[str] | None = None,
         persona_result_id: str | None = None,
+        apply_reasoning_display: bool = True,
+        apply_t2i: bool = True,
     ) -> tuple[MessageChain, dict[str, Any]]:
         options = self._resolve_outbound_options(event)
         materialization: dict[str, Any] = {
@@ -4648,12 +4652,13 @@ class InteractionOutputController:
         materialized = self._apply_interaction_reply_prefix(
             event, message, options=options
         )
-        materialized, reasoning_metadata = self._apply_interaction_reasoning_display(
-            event,
-            materialized,
-            options=options,
-        )
-        materialization.update(reasoning_metadata)
+        if apply_reasoning_display:
+            materialized, reasoning_metadata = self._apply_interaction_reasoning_display(
+                event,
+                materialized,
+                options=options,
+            )
+            materialization.update(reasoning_metadata)
         try:
             materialized, tts_metadata = await self._apply_interaction_tts(
                 event,
@@ -4665,8 +4670,11 @@ class InteractionOutputController:
                 persona_result_id=persona_result_id,
             )
         except VoiceServiceError as exc:
+            immediate_reply = message_kind == "immediate_reply"
             logger.error(
-                "Interaction TTS failed; emitting an audio-failed materialization.",
+                "%s TTS failed; emitting an audio-failed %s.",
+                "Immediate interaction" if immediate_reply else "Interaction",
+                "segment" if immediate_reply else "materialization",
                 exc_info=True,
             )
             tts_metadata = {
@@ -4682,7 +4690,7 @@ class InteractionOutputController:
                     exc.state,
                 )
         materialization.update(tts_metadata)
-        if tts_metadata.get("delivered_as") == "record":
+        if not apply_t2i or tts_metadata.get("delivered_as") == "record":
             return materialized, materialization
         try:
             materialized, t2i_metadata = await self._apply_interaction_t2i(
@@ -4712,45 +4720,17 @@ class InteractionOutputController:
         tts_segments: Sequence[str] | None = None,
         persona_result_id: str | None = None,
     ) -> tuple[MessageChain, dict[str, Any]]:
-        options = self._resolve_outbound_options(event)
-        materialization: dict[str, Any] = {
-            "message_kind": "immediate_reply",
-            "semantic_text": message.get_plain_text(),
-            "delivered_as": "text",
-            "tts_status": "not_attempted",
-        }
-        materialized = self._apply_interaction_reply_prefix(
-            event, message, options=options
+        return await self.materialize_interaction_outbound_message(
+            event,
+            message,
+            message_kind="immediate_reply",
+            result_is_model_result=True,
+            message_id=message_id,
+            tts_segments=tts_segments,
+            persona_result_id=persona_result_id,
+            apply_reasoning_display=False,
+            apply_t2i=False,
         )
-        try:
-            materialized, tts_metadata = await self._apply_interaction_tts(
-                event,
-                materialized,
-                options=options,
-                result_is_model_result=True,
-                message_id=message_id,
-                tts_segments=tts_segments,
-                persona_result_id=persona_result_id,
-            )
-        except VoiceServiceError as exc:
-            logger.error(
-                "Immediate interaction TTS failed; emitting an audio-failed segment.",
-                exc_info=True,
-            )
-            tts_metadata = {
-                "tts_failed": True,
-                "failure_code": (
-                    exc.state.failure_code if exc.state is not None else exc.reason
-                ),
-                "tts_status": "failed",
-            }
-            if exc.state is not None:
-                materialized = self._attach_tts_failure_segment(
-                    materialized,
-                    exc.state,
-                )
-        materialization.update(tts_metadata)
-        return materialized, materialization
 
     def _apply_interaction_reply_prefix(
         self,
@@ -5223,6 +5203,20 @@ class InteractionOutputController:
             ),
         )
 
+        def finish_receipt(
+            physical_result: MessageChainDeliveryResult | None,
+            completion_status: InteractionDeliveryCompletionStatus,
+            failure_stage: InteractionDeliveryFailureStage | None = None,
+        ) -> None:
+            receipt = finish_interaction_turn_delivery_receipt(
+                event,
+                message_id=normalized_segment_id,
+                physical_result=physical_result,
+                completion_status=completion_status,
+                failure_stage=failure_stage,
+            )
+            self._trace_delivery_receipt(event, receipt)
+
         active_semantic_text = semantic_text
         active_output_segment_id = output_segment_id
         committed_segment_texts: list[str] = []
@@ -5349,47 +5343,19 @@ class InteractionOutputController:
                 )
         except asyncio.CancelledError:
             record_partial_delivery()
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=None,
-                completion_status="not_attempted",
-                failure_stage="physical_send",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(None, "not_attempted", "physical_send")
             raise
         except Exception:
             record_partial_delivery()
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=None,
-                completion_status="not_attempted",
-                failure_stage="physical_send",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(None, "not_attempted", "physical_send")
             raise
         if not delivery.sent_any:
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=delivery,
-                completion_status="not_attempted",
-                failure_stage="physical_send",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(delivery, "not_attempted", "physical_send")
             raise RuntimeError(
                 f"Interaction output was not delivered: {message_kind}"
             )
         if not delivery.all_succeeded:
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=delivery,
-                completion_status="not_attempted",
-                failure_stage="physical_send",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(delivery, "not_attempted", "physical_send")
             raise RuntimeError(
                 f"Interaction output was only partially delivered: {message_kind}"
             )
@@ -5402,33 +5368,13 @@ class InteractionOutputController:
             )
         except asyncio.CancelledError:
             record_partial_delivery()
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=delivery,
-                completion_status="unknown",
-                failure_stage="message_completion",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(delivery, "unknown", "message_completion")
             raise
         except Exception:
             record_partial_delivery()
-            receipt = finish_interaction_turn_delivery_receipt(
-                event,
-                message_id=normalized_segment_id,
-                physical_result=delivery,
-                completion_status="failed",
-                failure_stage="message_completion",
-            )
-            self._trace_delivery_receipt(event, receipt)
+            finish_receipt(delivery, "failed", "message_completion")
             raise
-        receipt = finish_interaction_turn_delivery_receipt(
-            event,
-            message_id=normalized_segment_id,
-            physical_result=delivery,
-            completion_status="completed",
-        )
-        self._trace_delivery_receipt(event, receipt)
+        finish_receipt(delivery, "completed")
         record_interaction_turn_visible_message_fingerprint(
             event,
             fingerprint_visible_message(message),
