@@ -30,7 +30,7 @@ os.makedirs(get_astrbot_data_path(), exist_ok=True)
 
 DEMO_MODE = os.getenv("DEMO_MODE", "False").strip().lower() in ("true", "1", "t")
 
-astrbot_config = AstrBotConfig()
+astrbot_config = AstrBotConfig(migrate_legacy_personal_runtime_targets=True)
 t2i_base_url = astrbot_config.get("t2i_endpoint", "https://t2i.soulter.top/text2img")
 html_renderer = HtmlRenderer(t2i_base_url)
 logger = LogManager.GetLogger(log_name="astrbot")

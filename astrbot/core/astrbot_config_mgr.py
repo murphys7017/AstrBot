@@ -306,6 +306,7 @@ class AstrBotConfigManager:
                 conf = AstrBotConfig(
                     config_path=conf_path,
                     default_config=profile_default,
+                    migrate_legacy_personal_runtime_targets=True,
                 )
                 if "core_executor" in conf:
                     conf.pop("core_executor", None)
@@ -476,7 +477,11 @@ class AstrBotConfigManager:
         conf_path = os.path.join(get_astrbot_config_path(), conf_file_name)
         profile_config = deepcopy(config)
         profile_config.pop("core_executor", None)
-        conf = AstrBotConfig(config_path=conf_path, default_config=profile_config)
+        conf = AstrBotConfig(
+            config_path=conf_path,
+            default_config=profile_config,
+            migrate_legacy_personal_runtime_targets=True,
+        )
         conf.save_config()
         self._save_conf_mapping(conf_file_name, conf_uuid, abconf_name=name)
         self.confs[conf_uuid] = conf

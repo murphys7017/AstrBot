@@ -5,6 +5,8 @@ from astrbot.core import logger, sp
 from astrbot.core.core_lifecycle import AstrBotCoreLifecycle
 from astrbot.core.db import BaseDatabase
 from astrbot.core.db.po import ConversationV2, Preference
+from astrbot.core.platform.message_type import MessageType
+from astrbot.core.platform.platform_metadata import supports_personal_runtime
 from astrbot.core.provider.entities import ProviderType
 from astrbot.core.umo_alias import build_umo_alias_map, parse_umo, serialize_umo_alias
 from astrbot.dashboard.asgi_runtime import request
@@ -454,7 +456,24 @@ class SessionManagementService(DashboardService):
         """
         try:
             umos = await self._list_known_umos()
-            if request.args.get("proactive_only", "").lower() == "true":
+            if request.args.get("personal_runtime_only", "").lower() == "true":
+                supported_platform_ids = {
+                    platform.meta().id
+                    for platform in self.core_lifecycle.platform_manager.platform_insts
+                    if supports_personal_runtime(platform.meta())
+                }
+                umos = [
+                    umo
+                    for umo in umos
+                    if (parsed_umo := parse_umo(umo)).get("platform")
+                    in supported_platform_ids
+                    and parsed_umo.get("message_type")
+                    in {
+                        MessageType.FRIEND_MESSAGE.value,
+                        MessageType.GROUP_MESSAGE.value,
+                    }
+                ]
+            elif request.args.get("proactive_only", "").lower() == "true":
                 proactive_platform_ids = {
                     platform.meta().id
                     for platform in self.core_lifecycle.platform_manager.platform_insts

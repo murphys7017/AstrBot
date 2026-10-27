@@ -396,32 +396,11 @@ class WakingCheckStage(Stage):
                 event,
                 runtime_config,
             )
-            if select_legacy_active_reply_candidate(event, runtime_config):
-                mark_group_reply_candidate(event, kind="ambient")
-                if capture_group_context:
-                    event.set_extra(GROUP_CONTEXT_CAPTURE_CANDIDATE_EXTRA, True)
-                logger.info(
-                    "Legacy group active-reply setting selected Personal candidate: "
-                    "session_id=%s sender_id=%s",
-                    event.unified_msg_origin,
-                    event.get_sender_id(),
-                )
-                return
-            if capture_group_context:
-                event.set_extra(GROUP_CONTEXT_CAPTURE_CANDIDATE_EXTRA, True)
-                if is_conversation_activity_capture_enabled(runtime_config):
-                    target = resolve_conversation_activity_target(
-                        event,
-                        self.ctx.plugin_manager.context.get_runtime_observation_targets(),
-                    )
-                    if is_conversation_activity_candidate(
-                        event,
-                        runtime_config,
-                        target,
-                    ):
-                        event.set_extra(CONVERSATION_ACTIVITY_CANDIDATE_EXTRA_KEY, True)
-                return
-            if is_conversation_activity_capture_enabled(runtime_config):
+            ambient_personal_capture_enabled = (
+                is_conversation_activity_capture_enabled(runtime_config)
+            )
+            target = None
+            if ambient_personal_capture_enabled:
                 target = resolve_conversation_activity_target(
                     event,
                     self.ctx.plugin_manager.context.get_runtime_observation_targets(),
@@ -432,5 +411,24 @@ class WakingCheckStage(Stage):
                     target,
                 ):
                     event.set_extra(CONVERSATION_ACTIVITY_CANDIDATE_EXTRA_KEY, True)
+                    if capture_group_context:
+                        event.set_extra(GROUP_CONTEXT_CAPTURE_CANDIDATE_EXTRA, True)
                     return
+            if select_legacy_active_reply_candidate(event, runtime_config):
+                if not (
+                    ambient_personal_capture_enabled and target is not None
+                ):
+                    mark_group_reply_candidate(event, kind="ambient")
+                    if capture_group_context:
+                        event.set_extra(GROUP_CONTEXT_CAPTURE_CANDIDATE_EXTRA, True)
+                    logger.info(
+                        "Legacy group active-reply setting selected Personal candidate: "
+                        "session_id=%s sender_id=%s",
+                        event.unified_msg_origin,
+                        event.get_sender_id(),
+                    )
+                    return
+            if capture_group_context:
+                event.set_extra(GROUP_CONTEXT_CAPTURE_CANDIDATE_EXTRA, True)
+                return
             event.stop_event()

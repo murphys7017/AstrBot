@@ -1,7 +1,7 @@
 # Yakumo Current State
 
 > 本页保留实施时间线供追溯；下方带日期的小节是当时的历史快照，不代表现在仍未实现。
-> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。最新 Runtime Observation 状态见文末 2026-10-20 更新。
+> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。最新 Runtime Observation 状态见文末 2026-10-28 更新。
 
 ## 2026-10-12 当前交付基线
 
@@ -380,7 +380,7 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
   组件公共接口，也未改变 delayed delivery 的时序或完成策略。
 - live audio 缺 provider / 文本降级 / completion diagnostics 仍需进一步统一
 - 真实平台手动日志断点仍需补齐，尤其是 Record/Image/Text 投递形态与 ledger metadata 的一致性
-- `platform_settings.personal_runtime_observation_targets` 可以显式选择多个 Personal Runtime 观察目标；留空时兼容使用 `proactive_message_target`，且不改变无目标主动消息的发送位置。Context 汇总所有已加载配置文件中声明、且 UMO 实际路由回声明配置的目标；Heartbeat 按每个目标实际命中的 Runtime 配置读取开关与间隔，并为每个启用目标维护独立 due time，只重评已有 retained batch，空 Inbox 不创建材料或唤醒任务；当 retained batch 没有更早的 lifecycle wake deadline 时，Heartbeat 会请求一次重评，但不会创建新材料或直接调用模型。群聊环境观察默认关闭，启用后仅放行该范围内、且当前会话配置已开启功能的非唤醒群聊文本，经官方白名单和会话状态检查后转换为不含原文的 `conversation_activity` fact，并在进入限流、插件、普通 Personal 计划和 Core 前停止原事件。两类 Source 都不构造平台事件、不直接调用 Persona/Core/Output。插件可通过 `Context.register_runtime_observation_sensor()` 注册受限的结构化事实来源；Context 只解析目标并经 Lifecycle dispatcher 交给已有 Runtime Manager，注册随插件卸载清理。
+- `platform_settings.personal_runtime_observation_targets` 是 Personal Runtime 的显式会话列表；留空表示没有目标。旧配置首次加载时会将原主动消息默认目标迁入一次。Context 仅汇总已加载配置中声明、且 UMO 实际路由回所属配置的目标。Heartbeat 按目标独立重评已保留批次，空 Inbox 不会生成材料。只有已选择且开启该功能的群聊消息才会进入 Policy，作为带有最多 800 字符不可信原文片段的 `conversation_activity` fact；原事件会在限流、插件、普通 Personal 计划和 Core 之前终止。普通回复的群聊上下文功能仍独立配置。插件 Runtime Sensor 通过同一 Lifecycle 管理器提交结构化事实。
 - 群聊历史上下文本身不授予隐式唤醒权限。连续对话 owner 由 `PersonalRuntimeManager` 按 `config_id + audience_key + privacy_scope` 统一持有，不随 Persona Runtime 分裂；只有通过唤醒命令、`@Bot` 或回复 Bot 明确触发对话的用户可以取得 owner。没有显式触发 Bot 的 Handler-only turn、仅 `@` 其他群成员和环境消息不会建立、刷新或清空 owner。active turn 中存在可吸收 Runner 且没有 Handler 接管候选时可内联 follow-up，否则安全降级为同一 owner 的 direct continuation 并排在当前 turn 后继续。Bot 成功发送可见回复后的前 `personal_runtime_direct_continuation_seconds` 秒仅该用户可直接续接，Personal 只允许 `reply`；此后到 `personal_runtime_conversation_continuation_seconds` 截止仍只接受该用户，并向 Personal 开放 `silent`。窗口外和其他发送者不进入对话；群聊 `silent` 不产生可见输出，不能撤回已经送达的表达。Core 路由由独立 Router 判断，不编码为 Persona `turn_action`。
 - Dashboard 的 `/stat/personal-runtime` 诊断除了已实体化 Runtime 的 Gate、Policy 和投递终态外，也返回 Heartbeat 的已配置目标、启用状态、间隔和下一次调度状态；该视图不包含 Observation payload、用户原文或可见回复内容。
 - `CompletionFeedback` 已接入真实 turn completion。最后一份不可变反馈进入 Runtime diagnostics；`defer` 立即写入不动作冷却，带 `ActionIntent/action_id` 的 `express` 只有在可见输出确认送达后才写回复冷却并递增主动输出预算，普通被动回复不会被误算。
@@ -526,3 +526,12 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - AG99live 当前通过插件 Runtime Sensor 提交 `desktop_changed` 与 `desktop_returned` 事实。桌面变化仅在本机以分块 SSIM/颜色差做数学比较；返回来源读取系统锁屏/休眠及输入空闲时长。两项功能默认关闭、遵循对话优先级并复用同一 Policy；变化图像不进入模型，事件本身也不保证触发发言。真实桌面、Windows 锁屏/休眠和语音/动作仍待配套加载验收，细则见 AG99live 文档中心的两份桌面计划。
 
 以上已通过针对性静态检查和运行时边界验证；重启后的实际策略 Provider、语音及 Live2D 表现仍需现场验收。
+
+## 2026-10-28 Personal 互动与简短回复更新
+
+本节描述当前工作区行为；本轮未运行测试，需重启 AstrBot 后进行实机验收。
+
+- `platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧版全局配置和配置档首次加载时，会将原 `proactive_message_target` 迁移到该列表一次。Dashboard 入口位于“扩展配置 → 自动化 → Personal 主动互动”。
+- 空闲主动联系只作用于已选择、有过真实用户互动的私聊会话，不会枚举联系人，也不会在群聊中空闲发言。它还需要启用 Heartbeat、空闲主动发起和 Personal Policy；阈值是最早准入时间，实际检查随 Heartbeat 周期进行。
+- 群聊环境观察只处理已选择且开启该功能的群聊目标。通过官方白名单和会话状态检查后，最多 800 字符的原文作为明确标记为不可信的 `conversation_activity` 事实交给 Policy；原事件在限流、插件、普通 Personal 计划和 Core 前结束。它不进入普通对话历史，Policy 决定是否形成表达。
+- 即时日常交流和 Personal 自主接话默认采用简短口语表达，通常不超过两句、约 40 个汉字；这是 Prompt 风格偏好，不是输出截断。用户明确要求展开或准确回答需要时允许扩展。自主表达意图是表达目的，不要求逐字复述。

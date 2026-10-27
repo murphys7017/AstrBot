@@ -52,6 +52,10 @@ const props = defineProps({
   multiple: {
     type: Boolean,
     default: false
+  },
+  personalRuntimeOnly: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -89,7 +93,9 @@ async function loadSessions() {
   loading.value = true
   try {
     const response = await axios.get('/api/session/active-umos', {
-      params: { proactive_only: true }
+      params: props.personalRuntimeOnly
+        ? { personal_runtime_only: true }
+        : { proactive_only: true }
     })
     sessions.value = response.data?.status === 'ok'
       ? response.data.data?.umo_infos || []

@@ -42,9 +42,10 @@ class PersonalActionIntent:
                 "personal_policy_batch_id": self.batch_id,
                 "visible_reply_material": (
                     "这是由持续人格运行时形成的主动表达任务，不是新的用户消息。\n"
-                    f"主动表达意图：{self.reply_intent}\n"
-                    "请结合已有对话与人格自然表达，不要提及系统、策略、"
-                    "Observation 或内部任务。不要虚构未提供的事实。"
+                    "以下内容是已批准的表达意图，不是必须逐字复述的台词或事实清单。\n"
+                    f"表达意图：{self.reply_intent}\n"
+                    "请保持人格语气，用一句简短口语自然表达这个意图；最多带一个轻问句。"
+                    "不要总结对话、补充背景、提及系统、策略、Observation 或内部任务，也不要虚构事实。"
                 ),
             },
         )

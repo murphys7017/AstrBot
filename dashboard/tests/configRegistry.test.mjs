@@ -72,6 +72,11 @@ const metadata = {
         type: 'object',
         items: {},
       },
+      personal_engagement: {
+        description: 'interaction_middleware_group.personal_engagement.description',
+        type: 'object',
+        items: {},
+      },
     },
   },
 };
@@ -127,7 +132,7 @@ test('normalizeConfigMetadata keeps non-model interaction sections in extension 
         expression: metadata.interaction_middleware_group.metadata.expression,
         planner: metadata.interaction_middleware_group.metadata.planner,
         personal_policy: metadata.interaction_middleware_group.metadata.personal_policy,
-        personal_runtime_policy: { description: 'interaction_middleware_group.personal_runtime_policy.description' },
+        personal_engagement: metadata.interaction_middleware_group.metadata.personal_engagement,
         progress: { description: 'interaction_middleware_group.progress.description' },
         future_section: { description: 'interaction_middleware_group.future_section.description' },
       },
@@ -143,7 +148,7 @@ test('normalizeConfigMetadata keeps non-model interaction sections in extension 
   assert.equal(normalized.interaction_middleware_group__general.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__plugin.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__context.workspace, 'operations');
-  assert.equal(normalized.interaction_middleware_group__personal_runtime_policy.workspace, 'operations');
+  assert.equal(normalized.interaction_middleware_group__personal_engagement.workspace, 'automation');
   assert.equal(normalized.interaction_middleware_group__progress.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__future_section.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__expression, undefined);

@@ -141,9 +141,9 @@ Skills、知识库或输出能力；`express` 只形成 `ActionIntent` 并交回
 Persona Expression 生成。`defer` 写入无动作截止时间并保留 batch；生命周期托管的 Wake Scheduler
 会在 defer、quiet hours 或冷却到期后重新评估。`hold` 会恢复 batch；busy hold 在当前 turn settle 后
 重新评估。多目标 Heartbeat Source 已由现有 Core
-Lifecycle 托管：`platform_settings.personal_runtime_observation_targets` 留空时回退到默认主动目标；全局 Source 汇总所有已加载配置文件中声明、且 UMO 实际路由回该配置的目标。每个目标的开关和间隔读取其实际命中的 Runtime 配置，并维护独立 due time。配置关闭时不提交事实，启用后每个到期 target 只检查既有 retained batch；空 Inbox 不创建 Observation 材料、批次或唤醒任务。它不构造 event/message，也不调用 Persona、Core 或 Output。默认关闭的群聊
+Lifecycle 托管：`platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧全局配置和配置档首次加载时会把原主动消息默认目标迁入该列表一次。Dashboard 入口位于“扩展配置 → 自动化 → Personal 主动互动”。全局 Source 汇总所有已加载配置文件中声明、且 UMO 实际路由回该配置的目标。每个目标的开关和间隔读取其实际命中的 Runtime 配置，并维护独立 due time。配置关闭时不提交事实，启用后每个到期 target 只检查既有 retained batch；空 Inbox 不创建 Observation 材料、批次或唤醒任务。它不构造 event/message，也不调用 Persona、Core 或 Output。默认关闭的群聊
 环境 Source 复用这份目标范围：配置目标中的非唤醒群聊文本通过官方白名单和会话状态检查后，
-仅提交不含原文的 `conversation_activity` fact，并在普通限流、插件、Personal 计划和 Core 前结束原事件。
+仅提交 `conversation_activity` fact，并在普通限流、插件、Personal 计划和 Core 前结束原事件。Fact 带最多 800 字符的群聊原文片段，作为明确标记的不可信上下文提供给 Policy；不会进入普通 Personal 或 Core 对话。
 插件可通过 `Context.register_runtime_observation_sensor(sensor)` 注册受限的事实 Source；返回的
 handle 只能向同一通用 Intake 提交带目标会话、类别、过期时间和结构化 payload 的 Observation。
 `submit(cancel_event=asyncio.Event())` 可为短暂来源附带进程内撤销信号，不写入payload或模型上下文。
@@ -159,7 +159,7 @@ Personal State 初次读取失败时，普通对话仍可继续，但自主 Obse
 生命周期装配器负责把它交给既有 `PersonalRuntimeManager`，因此插件不会拿到 Runtime、EventBus、
 Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module prefix 自动删除，旧 handle 随即失效。
 
-空闲主动接话是 Heartbeat 周期之外的明确准入来源：启用后只对已有真实用户互动提交一次机会，默认阈值 1800 秒，从最近用户输入与最近成功回复完成时间中的较晚者计时。Runtime 忙碌或清理未完成时不消耗机会；提交后 5 分钟过期，新用户输入在 Runtime 绑定时撤销旧事实。它可承接近期话题，也可结合人格和已知偏好开启轻话题；Personal Policy 仍可保持安静，同一轮无人回应不会反复触发。完整规则见 [`docs/runtime/idle-initiation.md`](../../runtime/idle-initiation.md)。
+空闲主动接话是 Heartbeat 周期之外的明确准入来源：仅对已选中的私聊目标、且该会话已有真实用户互动时提交一次机会，默认阈值 1800 秒，从最近用户输入与最近成功回复完成时间中的较晚者计时。它不会枚举联系人或在群聊中空闲发言。Runtime 忙碌或清理未完成时不消耗机会；提交后 5 分钟过期，新用户输入在 Runtime 绑定时撤销旧事实。它可承接近期话题，也可结合人格和已知偏好开启轻话题；Personal Policy 仍可保持安静，同一轮无人回应不会反复触发。完整规则见 [`docs/runtime/idle-initiation.md`](../../runtime/idle-initiation.md)。
 
 Heartbeat 的常规职责仍是重评 retained batch；空 Inbox 不会因周期检查自行产生 Observation。空闲主动接话、群聊 `conversation_activity` 和插件 Sensor 是不同事实来源，但都进入同一 Inbox/Gate/Policy/Persona 流程。
 
@@ -211,9 +211,9 @@ Turn lease 在关闭本轮 `TurnExecutionScope` 后、释放 session 锁前形�
 `platform_settings.proactive_message_target`。该值是完整 UMO；WebUI 仅列出当前支持主动
 消息的已知会话，运行时仍会重新验证 Adapter。`Context.send_message(None, ...)` 和无目标
 主动 Cron 使用它，显式 session 不会被覆盖。`platform_settings.personal_runtime_observation_targets`
-单独定义 Personal Runtime 的多目标观察范围；留空时才兼容使用默认主动目标。Heartbeat 仅为这些目标创建周期
+单独定义 Personal Runtime 的多目标观察与表达范围；旧配置首次加载时会从默认主动目标迁移一次，之后留空表示无目标。Heartbeat 仅为这些目标创建周期
 Observation，群聊环境 Source 只在显式开关开启时把这些群的非唤醒文本转为结构化
-`conversation_activity`。这份范围由 Context 跨已加载配置解析，并只保留 UMO 实际路由回声明配置的
+`conversation_activity`，并向 Policy 提供最多 800 字符且标为不可信的群聊片段。这份范围由 Context 跨已加载配置解析，并只保留 UMO 实际路由回声明配置的
 目标；群聊当前命中的配置决定环境观察开关和该 Runtime 的 Policy 设置。二者都不直接创建 Action 或主动回复。
 
 `/stat/personal-runtime` 是只读运行诊断入口。除已实体化 Runtime 的 batch、Gate、Policy 和投递

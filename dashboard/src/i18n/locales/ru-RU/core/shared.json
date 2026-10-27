@@ -33,10 +33,14 @@
         "allPluginsLabel": "Все плагины"
     },
     "runtimeTargetEditor": {
-        "configure": "Настроить путь выполнения",
-        "targetLabel": "Путь выполнения",
-        "targetCore": "Рабочий путь Core",
-        "targetPersona": "Путь Persona Expression",
+        "configure": "Настроить цели",
+        "dialogSubtitle": "Для каждой возможности плагина задаётся отдельная цель.",
+        "targetLabel": "Применять к",
+        "targetCore": "Выполнение Core",
+        "targetPersona": "Ответ Personal",
+        "targetCorePrompt": "Промпт Core",
+        "targetPersonaPrompt": "Personal (включая поток OLV)",
+        "promptExtensionPersonalHint": "Personal Prompt Extension включается и в обычные ответы Personal, и в поток Persona через OLV. Это не отдельная цель только для потока; плагин должен объявить цель persona.",
         "add": "Добавить",
         "remove": "Удалить",
         "cancel": "Отмена",
@@ -48,8 +52,10 @@
         "capabilityEmpty": "Нет переопределений",
         "capabilityTitle": "Маршрутизация целей плагинов",
         "pluginLabel": "Плагин",
-        "kindLabel": "Тип цели",
+        "kindLabel": "Возможность",
+        "llmHooks": "LLM Hook",
         "promptExtensions": "Prompt Extension",
+        "functionTools": "FunctionTool",
         "toolLabel": "Инструмент (* для всех)"
     },
     "providerSelector": {

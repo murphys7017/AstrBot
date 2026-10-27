@@ -40,9 +40,13 @@
   },
   "runtimeTargetEditor": {
     "configure": "配置目标",
-    "targetLabel": "目标对话",
-    "targetCore": "Core 工作链路",
-    "targetPersona": "Personal 人格回复",
+    "dialogSubtitle": "每条规则独立设置一种插件能力的生效目标。",
+    "targetLabel": "生效目标",
+    "targetCore": "Core 执行",
+    "targetPersona": "Personal 表达",
+    "targetCorePrompt": "Core Prompt",
+    "targetPersonaPrompt": "Personal（含 OLV 流式）",
+    "promptExtensionPersonalHint": "Prompt Extension 选择 Personal 后，会进入普通 Personal 回复和 OLV 人格流式请求；该目标不限于流式，且要求插件声明 persona 目标。",
     "add": "添加规则",
     "remove": "移除规则",
     "cancel": "取消",
@@ -54,8 +58,10 @@
     "capabilityEmpty": "未配置覆盖项",
     "capabilityTitle": "插件目标路由",
     "pluginLabel": "插件",
-    "kindLabel": "目标类型",
+    "kindLabel": "能力类型",
+    "llmHooks": "LLM Hook",
     "promptExtensions": "Prompt Extension",
+    "functionTools": "FunctionTool",
     "toolLabel": "工具名称（* 表示全部）"
   },
   "providerSelector": {

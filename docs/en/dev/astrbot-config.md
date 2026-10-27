@@ -438,6 +438,8 @@ output structure and action constraints; invalid output keeps the runtime in `ob
 The Dashboard exposes the lifecycle and tool target maps under **Config Files →
 Interaction Middleware → General**. Its structured editor suggests installed plugins
 and plugin tools while still allowing compatible module-path keys to be entered manually.
+Personal Runtime targets, Heartbeat, private-chat idle initiation, and group observation
+are configured under **Extension Config → Automation → Personal Engagement**.
 
 - `enabled`: Enable Interaction Middleware. Omit it to use the default; set it to
   `false` to retain Core-only behavior.
@@ -483,11 +485,12 @@ and plugin tools while still allowing compatible module-path keys to be entered 
   ```
 
 - `personal_heartbeat_enabled` / `personal_heartbeat_interval_seconds`: Enable a
-  Heartbeat scheduled independently for each observation target. Heartbeat only
+  Heartbeat scheduled independently for each selected observation target. Heartbeat only
   checks an existing retained batch; an empty Inbox creates no material, model
   call, or outbound message. The minimum interval is 30 seconds.
 - `personal_idle_initiation_enabled` / `personal_idle_initiation_after_seconds`:
-  Explicitly enable an idle-initiation observation scheduled by Heartbeat. It is
+  Explicitly enable a private-chat idle-initiation observation scheduled by
+  Heartbeat. It only applies to explicitly selected private sessions and is
   submitted once only after a session has real user activity and reaches the
   configured idle threshold. It does not fabricate a user message or bypass
   Policy, Persona, mute, quiet hours, cooldown, or daily budgets. A new user
@@ -496,8 +499,9 @@ and plugin tools while still allowing compatible module-path keys to be entered 
   latest Heartbeat and idle-initiation status/reason codes, such as
   `heartbeat_without_material` and `idle_initiation_not_due`.
 - `personal_conversation_activity_enabled`: Allow non-addressed messages from
-  configured observed groups to become restricted `conversation_activity` facts.
-  They still pass the whitelist and session-status checks, and do not enter the
+  selected observed groups to become restricted `conversation_activity` facts.
+  After whitelist and session-status checks, Personal Policy may read an
+  untrusted message excerpt capped at 800 characters. It does not enter the
   normal plugin, Personal, or Core path.
 - `personal_runtime_direct_continuation_seconds`: After a successful visible
   reply, only the same user who explicitly triggered the Bot may continue
@@ -514,16 +518,21 @@ and plugin tools while still allowing compatible module-path keys to be entered 
   retry throttling, and the daily autonomous-expression limit. Only confirmed,
   Action-ID-bearing autonomous delivery consumes the output limit.
 - `platform_settings.personal_runtime_observation_targets`: The Personal Runtime
-  observation scope, expressed as a list of complete UMOs. An empty list falls
-  back to the Default Proactive Message Target. Global Heartbeat and ambient
-  group observation aggregate targets declared by loaded config profiles only
-  when the target UMO resolves back to that profile; the target's effective
-  config still controls its enablement, interval, and Policy. It restricts
-  which sessions may be observed; it does not decide when to send a message.
+  observation and proactive-expression sessions, expressed as complete UMOs.
+  An empty list means no targets. On first load, legacy configurations migrate
+  the old Default Proactive Message Target into this list once. Global Heartbeat
+  and ambient group observation aggregate targets declared by loaded profiles
+  only when each UMO resolves back to that profile; the target's effective
+  config controls enablement, interval, and Policy. Group text reaches Personal
+  Policy only as an untrusted excerpt capped at 800 characters. The selector
+  lists known private and group sessions on currently enabled platforms that
+  support Personal Runtime.
 
-`provider_ltm_settings.active_reply` only controls group-candidate sampling. It remains
-separate from Personal Runtime Policy, while candidates and continuation use the same
-Personal `silent` eligibility gate.
+`provider_ltm_settings.active_reply` is the legacy random group-candidate path. Selected
+groups use Runtime Policy when ambient Personal group observation is enabled; otherwise
+the legacy path remains active. Private-chat idle initiation only applies to
+explicitly selected private sessions with real prior user activity and never enumerates
+contacts automatically.
 
 ### `content_safety`
 

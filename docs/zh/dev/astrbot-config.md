@@ -430,7 +430,8 @@ Policy 通过普通 JSON 文本决定 `ignore`、`observe`、`express` 或 `defe
 也不要求 Provider 支持工具调用。代码校验输出结构和动作约束；格式非法时保持 `observe`。
 
 Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑插件生命周期和工具目标映射。结构化
-编辑器会提供已安装插件和插件工具建议，同时保留手工输入兼容模块路径的能力。
+编辑器会提供已安装插件和插件工具建议，同时保留手工输入兼容模块路径的能力。Personal Runtime 的
+目标会话、Heartbeat、私聊空闲联系和群聊观察在“扩展配置 → 自动化 → Personal 主动互动”中统一设置。
 
 - `enabled`：是否启用 Interaction Middleware。省略时启用；设为 `false` 可保留原有 Core-only 行为。
 - `expression_provider_id`、`router_provider_id` 与 `planner_provider_id`：可选的分阶段模型覆盖。
@@ -461,19 +462,19 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
   }
   ```
 
-- `personal_heartbeat_enabled` / `personal_heartbeat_interval_seconds`：启用按观察目标独立计时的
+- `personal_heartbeat_enabled` / `personal_heartbeat_interval_seconds`：启用按已选观察目标独立计时的
   Heartbeat。Heartbeat 只检查已有 retained batch；空 Inbox 不会生成材料、调用模型或发送消息。
-  间隔最小为 30 秒。
+  间隔最小为 30 秒。心跳目标由 `platform_settings.personal_runtime_observation_targets` 单独选择。
 - `personal_idle_initiation_enabled` / `personal_idle_initiation_after_seconds`：显式启用基于
-  Heartbeat 调度的空闲主动发起。仅在该会话已有真实用户互动、达到空闲阈值，且自那次用户活动
+  Heartbeat 调度的私聊空闲主动联系。只对已选中的私聊会话生效；该会话需已有真实用户互动、达到空闲阈值，且自那次用户活动
   尚未发起过空闲 Observation 时提交一次 `idle_initiation`；它不会伪造用户消息，也不会绕过
   Policy、Persona、静音、安静时段、冷却或每日预算。用户发送新消息后会重新进入下一轮资格；
   该去重状态会持久化，因此重启不会把同一段空闲重复当作新机会。默认关闭。
   `/stat/personal-runtime` 的 `heartbeat.targets` 会显示 Heartbeat 和空闲发起最近一次提交的状态
   与原因码，例如 `heartbeat_without_material`、`idle_initiation_not_due`。
-- `personal_conversation_activity_enabled`：允许已配置观察范围内的非唤醒群聊消息形成受限的
-  `conversation_activity` 事实；它仍会先经过白名单和会话状态检查，不会作为普通消息进入插件、
-  Personal 计划或 Core。
+- `personal_conversation_activity_enabled`：允许已选群聊观察目标内的非唤醒群聊消息形成受限的
+  `conversation_activity` 事实；通过白名单和会话状态检查后，最多 800 字符且标记为不可信的原文片段
+  可供 Personal Policy 理解话题。它不会作为普通消息进入插件、Personal 计划或 Core。
 - `personal_runtime_direct_continuation_seconds`：Bot 成功回复明确触发它的用户后，仅该用户可在这段
   窗口内无需再次 `@`；Personal 仍判断 `reply` 或 `delegate`，但不能选择 `silent`。默认 `10` 秒，
   且不会超过连续对话总窗口。
@@ -483,13 +484,15 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
   `personal_runtime_reply_cooldown_seconds`、`personal_runtime_no_action_cooldown_seconds` 与
   `personal_runtime_daily_proactive_output_limit`：控制静音、安静时段、重试节流和每日主动表达上限。
   只有确认送达且带 Action ID 的自主表达会消耗主动输出额度。
-- `platform_settings.personal_runtime_observation_targets`：Personal Runtime 的观察范围，使用完整
-  UMO 列表；留空时回退“主动消息默认目标”。全局 Heartbeat 与群聊环境观察会汇总所有已加载
-  配置文件中声明、且其 UMO 实际路由回该配置的目标；具体开关、间隔和 Policy 仍由目标实际
-  命中的配置决定。它只限定可观察的会话，不决定何时发送消息。
+- `platform_settings.personal_runtime_observation_targets`：Personal Runtime 的观察与主动表达会话，使用完整
+  UMO 列表；留空表示无目标。旧配置首次加载时会把原“主动消息默认目标”迁入一次。全局 Heartbeat
+  与群聊环境观察会汇总所有已加载配置文件中声明、且其 UMO 实际路由回该配置的目标；具体开关、间隔
+  和 Policy 仍由目标实际命中的配置决定。选择器只显示当前启用且支持 Personal Runtime 的适配器
+  中已知的私聊与群聊会话。群聊原文只以最多 800 字符的不可信片段进入 Personal Policy。
 
-`provider_ltm_settings.active_reply` 仅控制群聊候选抽样；它与 Personal Runtime Policy 仍是独立
-功能，但候选回复与连续对话共用 Personal 的静默门控。
+`provider_ltm_settings.active_reply` 是旧版群聊随机候选入口。已选择且开启 Personal 群聊环境观察的
+群聊优先走 Runtime Policy；环境观察关闭或群聊未选择时仍走旧路径。私聊空闲主动发起只面向列表中
+明确选择、且已有真实用户互动的私聊会话，不会自动枚举联系人。
 
 ### `content_safety`
 

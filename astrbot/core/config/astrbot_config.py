@@ -49,6 +49,34 @@ def _migrate_local_permission_config(config: dict, default_config: dict) -> bool
     return True
 
 
+def _migrate_personal_runtime_targets(config: dict) -> bool:
+    """Move the legacy proactive default into explicit Personal Runtime targets."""
+    platform_settings = config.get("platform_settings")
+    if not isinstance(platform_settings, dict):
+        return False
+    version = platform_settings.get("personal_runtime_targets_config_version", 0)
+    if (
+        isinstance(version, (int, float))
+        and not isinstance(version, bool)
+        and version >= 1
+    ):
+        return False
+
+    targets = platform_settings.get("personal_runtime_observation_targets")
+    if not isinstance(targets, list) or not any(
+        isinstance(target, str) and target.strip() for target in targets
+    ):
+        legacy_target = platform_settings.get("proactive_message_target")
+        platform_settings["personal_runtime_observation_targets"] = (
+            [legacy_target.strip()]
+            if isinstance(legacy_target, str) and legacy_target.strip()
+            else []
+        )
+
+    platform_settings["personal_runtime_targets_config_version"] = 1
+    return True
+
+
 def _strip_memory_analyzer_model_fields(config: dict) -> bool:
     analyzers = (
         config.get("analysis", {}).get("analyzers", {})
@@ -386,6 +414,7 @@ class AstrBotConfig(dict):
         config_path: str = ASTRBOT_CONFIG_PATH,
         default_config: dict = DEFAULT_CONFIG,
         schema: dict | None = None,
+        migrate_legacy_personal_runtime_targets: bool = False,
     ) -> None:
         super().__init__()
 
@@ -469,6 +498,11 @@ class AstrBotConfig(dict):
             conf,
             default_config,
         )
+        migrated_personal_runtime_targets = (
+            _migrate_personal_runtime_targets(conf)
+            if schema is None and migrate_legacy_personal_runtime_targets
+            else False
+        )
 
         # 检查配置完整性，并插入
         has_new = self.check_config_integrity(default_config, conf, schema=schema)
@@ -506,6 +540,7 @@ class AstrBotConfig(dict):
             or stripped_retired_dashboard_projections
             or migrated_execution_config
             or migrated_local_permission_config
+            or migrated_personal_runtime_targets
         ):
             self.save_config()
 

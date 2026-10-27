@@ -1406,7 +1406,7 @@ class TestConfigMetadataI18n:
             "expression",
             "general",
             "personal_policy",
-            "personal_runtime_policy",
+            "personal_engagement",
             "planner",
             "plugin",
             "progress",

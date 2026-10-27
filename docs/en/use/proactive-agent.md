@@ -34,6 +34,10 @@ jobs and plugins with an explicit target continue to use that target.
 Active cron jobs created through the API without a `session` use this default.
 Without a configured default, targetless jobs retain their existing internal
 execution behavior.
+On upgrade, legacy configurations migrate the former default into the Personal
+Runtime session list once. Later changes to this default do not change the Personal
+Runtime scope. Select those sessions separately under **Extension Config →
+Automation → Personal Engagement**.
 
 The Main Agent has the ability to manage scheduled tasks. You can tell it:
 - "Remind me to have a meeting at 8 AM tomorrow."

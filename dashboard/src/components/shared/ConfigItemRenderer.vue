@@ -54,6 +54,14 @@
     <template v-else-if="itemMeta?._special === 'select_sessions'">
       <SessionSelector :model-value="modelValue" @update:model-value="emitUpdate" multiple />
     </template>
+    <template v-else-if="itemMeta?._special === 'select_personal_runtime_sessions'">
+      <SessionSelector
+        :model-value="modelValue"
+        @update:model-value="emitUpdate"
+        multiple
+        personal-runtime-only
+      />
+    </template>
     <template v-else-if="itemMeta?._special === 't2i_template'">
       <T2ITemplateEditor />
     </template>

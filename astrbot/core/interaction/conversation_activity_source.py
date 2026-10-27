@@ -22,6 +22,7 @@ CONVERSATION_ACTIVITY_CANDIDATE_EXTRA_KEY = (
     "_personal_runtime_conversation_activity_candidate"
 )
 _CONVERSATION_ACTIVITY_TTL_SECONDS = 60.0
+_MAX_AMBIENT_MESSAGE_EXCERPT_CHARS = 800
 
 
 def is_conversation_activity_capture_enabled(config: Mapping[str, object]) -> bool:
@@ -110,6 +111,7 @@ class ConversationActivitySource:
             return None
 
         occurred_at = time.time()
+        message_excerpt = event.get_message_str().strip()
         observation = RuntimeObservation(
             kind="conversation_activity",
             source="personal_runtime.conversation_activity",
@@ -119,6 +121,9 @@ class ConversationActivitySource:
             payload={
                 "message_count": 1,
                 "participant_id": str(event.get_sender_id() or "").strip(),
+                "ambient_message_excerpt": message_excerpt[
+                    :_MAX_AMBIENT_MESSAGE_EXCERPT_CHARS
+                ],
                 "is_explicitly_summoned": False,
             },
         )

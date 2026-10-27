@@ -6,7 +6,7 @@ from collections.abc import Mapping
 def configured_runtime_observation_target_values(
     config: Mapping[str, object],
 ) -> tuple[str, ...]:
-    """Return explicit Runtime observation targets or the legacy default fallback."""
+    """Return explicitly configured Personal Runtime session targets."""
     platform_settings = config.get("platform_settings", {})
     if not isinstance(platform_settings, Mapping):
         return ()
@@ -14,10 +14,7 @@ def configured_runtime_observation_target_values(
     configured_targets = platform_settings.get(
         "personal_runtime_observation_targets"
     )
-    if isinstance(configured_targets, list) and configured_targets:
-        values = configured_targets
-    else:
-        values = [platform_settings.get("proactive_message_target")]
+    values = configured_targets if isinstance(configured_targets, list) else ()
 
     result: list[str] = []
     seen: set[str] = set()

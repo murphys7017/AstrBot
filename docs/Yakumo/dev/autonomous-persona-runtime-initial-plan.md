@@ -7,6 +7,12 @@
 > 当前 Personal 只选择 `reply / silent`，独立 Core Router 并行判断是否进入 Core；下文关于
 > 旧 Router 与委派动作的描述仅保留为历史记录。
 
+> 2026-10-28 目标配置更新：`personal_runtime_observation_targets` 是显式目标列表，留空表示无目标；
+> 旧全局配置和配置档首次加载时仅迁移一次原 `proactive_message_target`。Dashboard 设置位于
+> “扩展配置 → 自动化 → Personal 主动互动”。空闲主动联系仅适用于已选且有真实用户互动的私聊，
+> 群聊环境观察则使用独立开关；被选群聊的原文最多以 800 字符不可信片段进入 Policy。下文旧的
+> 空列表回退描述已被当前行为取代。
+
 本文定义 Yakumo 如何从“能够主动投递消息”演进为“持续观察、谨慎判断、按需行动”的
 自主人格运行时，并给出可直接进入开发的分批实施顺序。
 
@@ -34,7 +40,7 @@
 10. 对话和诊断状态保持进程内；主动控制字段在主动表达开放前必须具备重启安全的持久化。
 11. 现有 `RuntimeObservationEvent` 和 `submit_runtime_observation_event()` 是“已决定输出后的平台
     适配入口”，不是通用 Observation Inbox，不能直接扩展成后台观察总线。
-12. 主动策略只作用于用户明确配置的 Personal Runtime 观察目标；留空时兼容默认主动目标，不自动为所有历史会话创建 Heartbeat。
+12. 主动策略只作用于用户明确配置的 Personal Runtime 会话目标；留空时没有目标。旧核心全局配置和配置档首次加载时只迁移一次默认主动消息目标，不自动为其他历史会话创建 Heartbeat。
 
 ### 1.1 设计参考和非目标
 
@@ -692,12 +698,12 @@ Policy 不接收：
 
 - 冷却、静音和每日预算已持久化。
 - Policy 模型在严格 tool-call 契约下稳定。
-- 至少一个显式观察目标或默认主动目标可用并支持主动消息。
+- 至少一个显式观察目标可用并支持主动表达。
 
 工作：
 
 - 增加本地 Heartbeat Source；tick 只检查 retained batch，不创建新材料。
-- `platform_settings.personal_runtime_observation_targets` 为空时回退 `proactive_message_target`；非空时每个目标独立创建 Observation。
+- `platform_settings.personal_runtime_observation_targets` 是唯一的 Personal Runtime 目标范围；留空时不创建目标。首次加载旧核心全局配置或配置档时，把原 `proactive_message_target` 迁移到列表一次；迁移不适用于插件 schema 配置。
 - quiet hours 使用显式 IANA timezone；未配置时使用主机时区。
 - 开放 `ignore / observe / express / defer`，继续禁止 `execute`。
 - `express` 经 ActionIntent、Persona Expression 和 Output Runtime 投递。
@@ -863,8 +869,8 @@ Phase 1A、Phase 1B、Phase 2A、Phase 2B、Phase 3 和 Phase 4 已完成：
     回复冷却和主动输出计数。
 
 多目标 Heartbeat Source 已接入现有 Core Lifecycle，默认关闭；启用后按
-`platform_settings.personal_runtime_observation_targets` 逐个重新验证，留空时兼容
-`platform_settings.proactive_message_target`，并为每个目标独立检查 retained batch。Heartbeat 不直接
+`platform_settings.personal_runtime_observation_targets` 逐个重新验证；留空时不创建目标。旧核心全局配置和配置档
+首次加载时会把原 `platform_settings.proactive_message_target` 迁移到目标列表一次，并为每个目标独立检查 retained batch。Heartbeat 不直接
 发送消息，也不为空 Inbox 创建材料；只有 Gate 与显式启用的 Policy 形成 `express` ActionIntent 后，才通过对应 Runtime 的 Persona
 与 Output 链路表达。defer、cooldown 和 quiet-hours 的 retained batch 由生命周期托管 Wake Scheduler
 到期重评；下一步应使用真实运行数据审阅策略质量，再设计其他 Runtime Sensor。

@@ -1208,10 +1208,6 @@
         "empty_mention_waiting": {
           "description": "只 @ 机器人是否触发等待"
         },
-        "personal_runtime_observation_targets": {
-          "description": "人格运行时观察目标",
-          "hint": "选择允许人格心跳和环境观察的会话。留空时兼容使用主动消息默认目标；不会改变未指定目标的插件或定时消息发送位置。"
-        },
         "proactive_message_target": {
           "description": "主动消息默认目标",
           "hint": "选择主动消息默认发送到的适配器和会话。该设置供未携带明确目标的主动能力使用，不会覆盖已经指定目标的定时任务或插件消息。"
@@ -1442,8 +1438,8 @@
         },
         "active_reply": {
           "enable": {
-            "description": "主动回复",
-            "hint": "仅抽样形成 Personal 候选。是否回复、委派或静默由同一次 Personal 结构化表达决定；该设置不直接调用模型。"
+            "description": "兼容旧版群聊主动回复",
+            "hint": "旧版随机候选入口。已选择的群聊开启 Personal 环境观察后由 Runtime Policy 优先；环境观察关闭或群聊未选择时仍走此路径。"
           },
           "method": {
             "description": "主动回复方法"
@@ -1548,7 +1544,7 @@
         },
         "plugin_capability_targets": {
           "description": "插件能力生效链路",
-          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 可选 persona 或 core，且必须是插件已声明的目标。"
+          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 选择 persona 时会进入普通 Personal 回复和 OLV 流式请求，并非仅流式；必须是插件已声明的目标。"
         }
       }
     },
@@ -1582,7 +1578,7 @@
         },
         "plugin_capability_targets": {
           "description": "插件能力生效链路",
-          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 选择 persona 或 core 时，必须是扩展或 Collector 已声明的目标。"
+          "hint": "按插件注册名称独立配置 llm_hooks、prompt_extensions 与 tools。prompt_extensions 选择 persona 时会进入普通 Personal 回复和 OLV 流式请求，并非仅流式；必须是扩展或 Collector 已声明的目标。"
         }
       }
     },
@@ -1688,29 +1684,35 @@
         }
       }
     },
-    "personal_runtime_policy": {
-      "description": "主动人格控制",
-      "hint": "控制后台 Observation、延后策略与主动表达。Heartbeat 只产生 Observation；Policy 决定是否经统一 Persona 输出链路表达。",
+    "personal_engagement": {
+      "description": "Personal 主动互动",
+      "hint": "Personal Runtime 只作用于明确选择的会话。群聊观察与私聊空闲主动联系分别控制；是否表达仍由 Policy、冷却、静音时段和每日预算共同决定。",
+      "platform_settings": {
+        "personal_runtime_observation_targets": {
+          "description": "Personal 互动会话",
+          "hint": "选择允许 Personal Runtime 观察并主动表达的具体会话。留空表示不启用 Personal Runtime 会话，不会继承通用主动消息默认目标。选择器只列出当前启用且支持 Personal Runtime 的适配器中的已知私聊和群聊会话。"
+        }
+      },
       "interaction_middleware": {
         "personal_heartbeat_enabled": {
-          "description": "启用人格心跳",
-          "hint": "仅向 Personal Runtime 提交 Observation，不直接发送消息或调用 Core。"
+          "description": "启用 Personal 心跳",
+          "hint": "按间隔向已选择的会话提交后台 Observation；不直接发送消息或调用 Core。私聊空闲主动联系依赖此开关。"
         },
         "personal_heartbeat_interval_seconds": {
-          "description": "人格心跳间隔秒数",
-          "hint": "最小 30 秒；每个已配置的人格运行时观察目标独立计时。"
+          "description": "Personal 心跳间隔秒数",
+          "hint": "最小 30 秒；每个已选择的 Personal 会话独立计时。"
         },
         "personal_idle_initiation_enabled": {
-          "description": "启用空闲主动发起",
-          "hint": "仅对已有真实用户互动且达到空闲阈值的会话提交一次受限 Observation；仍由 Policy、静音、安静时段、冷却和每日预算决定是否表达。"
+          "description": "允许私聊空闲后主动开启话题",
+          "hint": "仅对已选择且有真实用户互动的私聊会话，在达到阈值后提交一次受限 Observation；不会自动枚举联系人，也不在群聊中空闲发言。仍由 Policy、静音、安静时段、冷却和每日预算决定是否表达。"
         },
         "personal_idle_initiation_after_seconds": {
           "description": "空闲主动发起阈值秒数",
           "hint": "最小 30 秒。每次新的用户活动最多触发一次空闲 Observation；重启后保持该去重状态。"
         },
         "personal_conversation_activity_enabled": {
-          "description": "启用群聊环境观察",
-          "hint": "仅观察默认主动消息目标中的未唤醒群聊文本。通过白名单和会话状态检查后只提交 Runtime Observation，不触发普通 Personal、插件或 Core。"
+          "description": "允许 Personal 观察并参与群聊",
+          "hint": "只观察已选择会话中的未唤醒群聊文本。通过白名单和会话状态检查后，最多 800 字符且标记为不可信的原文片段会提交给 Personal Policy；不会触发普通 Personal、插件或 Core 对话链路。Policy 决定是否参与。"
         },
         "personal_runtime_conversation_continuation_seconds": {
           "description": "群聊连续对话窗口秒数",

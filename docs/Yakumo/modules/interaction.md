@@ -137,8 +137,10 @@ Core Gate、EXPIRED 脱离和低优先级 T2 已接入生产 ProcessStage，但�
 - `general`：中间件开关与整轮总超时。
 - `plugin`：并行 Plugin Job、首回复是否等待插件富化、单个 Prompt/Result Contributor 超时，以及插件 Hook / FunctionTool 的目标映射。
 - `context`：近期 interaction memory 与 Persona 历史候选池；这两个是输入候选上限，最终仍服从目标 token 预算。
-- `expression`、`planner`、`personal_policy`、`personal_runtime_policy`：分别属于统一 Persona 表达、已委派任务规划、后台策略和主动人格运行时。
+- `expression`、`planner`、`personal_policy`、`personal_engagement`：分别属于统一 Persona 表达、已委派任务规划、后台策略和 Personal 主动互动。
 - `progress`：一个总开关和三个阈值，共同管理流式文本与资料型工具的执行进度提示。
+
+Personal 主动互动设置位于 Dashboard 的“扩展配置 → 自动化 → Personal 主动互动”；目标列表按 Persona 配置，空列表表示不创建 Personal Runtime 目标。
 
 `stream_observation_enabled` 与 `tool_stage_observation_enabled` 已删除。两者过去只是同一进度提示开关的局部重复控制：关闭总开关时不会再创建观察工作；开启时两类观察都按各自阈值提供结构化阶段事实。
 
@@ -296,11 +298,12 @@ session lock，目标必须明确支持主动消息；没有 `visible_reply_mate
 发送失败会使 turn 失败，不能把未投递内容写成成功历史。
 
 多目标 Heartbeat Source 已由 Core Lifecycle 托管；`platform_settings.personal_runtime_observation_targets`
-留空时兼容默认主动目标，它会为每个已配置且仍支持主动消息的目标独立检查 retained batch，不构造
-消息、不创建新材料或直接发送。空 Inbox 的 Heartbeat 被忽略。群聊环境观察默认关闭；启用后，官方 Waking 阶段只让
-配置群聊目标中的非唤醒文本继续通过白名单和会话状态检查，
-再转换为不含原文的 `conversation_activity` Observation，并在普通限流、插件、Personal 和 Core 前
-终止该平台事件。Action Coordinator 已实现 `express / defer`。插件可以注册受限 Runtime Sensor，
+是显式的观察与主动表达会话列表，留空时无目标。旧配置首次加载时会从默认主动目标迁移一次。它会为每个
+已配置且仍支持 Personal Runtime 的目标独立检查 retained batch，不构造消息、不创建新材料或直接发送。
+空 Inbox 的 Heartbeat 被忽略。群聊环境观察默认关闭；启用后，官方 Waking 阶段只让配置群聊目标中的
+非唤醒文本继续通过白名单和会话状态检查，再转换为 `conversation_activity` Observation，并在其中保留
+最多 800 字符、明确标记为不可信的原文片段供 Policy 理解话题；不会进入普通 Personal、插件或 Core 对话。
+该平台事件随后终止。Action Coordinator 已实现 `express / defer`。插件可以注册受限 Runtime Sensor，
 通过 handle 提交可过期的结构化事实。Policy 每日调用上限会在 Provider 请求前写入独立
 Personal State Repository。
 最近表达、冷却、静音和每日用量具备窄化的重启恢复边界。静音、quiet hours、cooldown 时长与
@@ -616,7 +619,7 @@ Canonical Persona 结果包含表达和是否发出可见回复的选择，不�
 
 表达可以使用 Prompt-only JSON，也可以在配置明确选择 XML、Markdown 或严格 Tool Call；Provider 页的 10 次格式诊断只提供稳定性参考，不会自动修改配置。适用 effect 始终由独立 `persona_effect_batch` terminal tool 提供；无适用 effect 时不提供 effect 工具，Core 聚合结果中仍提供空 `effect_calls` 数组。若本轮同时有表达 Tool Call 和 effect Tool Call，两者须在同一响应返回；若表达使用 JSON/XML/Markdown，适用的 effect 仍须通过独立工具调用返回。双通道首轮漏项时，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。
 
-`turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要；不包含 Persona 提示、人格式记忆、Personal 回复、插件目录或工具清单。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。日常闲聊偏好简短表达（通常约 20 字），这是风格软偏好；说明事实、步骤、限制、失败原因或复杂情绪时可以自然展开，Core 不按字数截断。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+`turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要；不包含 Persona 提示、人格式记忆、Personal 回复、插件目录或工具清单。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。普通问候、轻量闲聊和主动接话偏好简短口语表达，通常不超过两句、约 40 个汉字；这是 Prompt 风格软偏好，不是字数截断。用户明确要求展开，或准确说明事实、步骤、限制、失败原因及复杂情绪确有需要时可以扩展。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
 开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 

@@ -76,7 +76,7 @@ const CONFIG_SECTION_REGISTRY: Record<string, ConfigSectionRegistryEntry> = {
   'interaction_middleware_group.expression': { group: 'interaction_middleware_group', section: 'expression', workspace: 'intelligence', scope: 'profile', order: 50 },
   'interaction_middleware_group.planner': { group: 'interaction_middleware_group', section: 'planner', workspace: 'intelligence', scope: 'profile', order: 60 },
   'interaction_middleware_group.personal_policy': { group: 'interaction_middleware_group', section: 'personal_policy', workspace: 'intelligence', scope: 'profile', order: 70 },
-  'interaction_middleware_group.personal_runtime_policy': { group: 'interaction_middleware_group', section: 'personal_runtime_policy', workspace: 'automation', scope: 'persona', order: 20 },
+  'interaction_middleware_group.personal_engagement': { group: 'interaction_middleware_group', section: 'personal_engagement', workspace: 'automation', scope: 'persona', order: 20 },
   'interaction_middleware_group.progress': { group: 'interaction_middleware_group', section: 'progress', workspace: 'operations', scope: 'system', order: 20 },
 };
 
@@ -123,7 +123,10 @@ function getSectionRegistryEntry(
 ): ConfigGroupRegistryEntry {
   if (
     configType === 'extension'
-    && (EXTENSION_ONLY_GROUPS.has(groupKey) || groupKey === 'interaction_middleware_group')
+    && (
+      EXTENSION_ONLY_GROUPS.has(groupKey)
+      || (groupKey === 'interaction_middleware_group' && sectionKey !== 'personal_engagement')
+    )
   ) {
     return {
       workspace: 'operations',

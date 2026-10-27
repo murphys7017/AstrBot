@@ -818,10 +818,6 @@
           "description": "Default Proactive Message Target",
           "hint": "Select the adapter and session used by proactive messages that do not specify a target. Explicit cron or plugin targets are not overridden."
         },
-        "personal_runtime_observation_targets": {
-          "description": "Personal Runtime Observation Targets",
-          "hint": "Select sessions that allow Persona heartbeats and ambient observation. When empty, the default proactive target is used for compatibility; this does not change targetless cron or plugin delivery."
-        },
         "friend_message_needs_wake_prefix": {
           "description": "Private Messages Require Wake Word"
         },
@@ -1083,8 +1079,8 @@
         },
         "active_reply": {
           "enable": {
-            "description": "Active Reply",
-            "hint": "Samples messages to create Personal candidates. Whether to reply, delegate, or stay silent is decided by the same structured Personal expression; this setting does not call a model directly."
+            "description": "Legacy Group Active Reply Compatibility",
+            "hint": "Legacy random-candidate path. Selected groups use Runtime Policy when ambient Personal group observation is enabled; otherwise this path remains active."
           },
           "possibility_reply": {
             "description": "Reply Probability",
@@ -1137,7 +1133,7 @@
         },
         "plugin_capability_targets": {
           "description": "Plugin capability targets",
-          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. prompt_extensions selects persona or core only when that target is declared by the plugin."
+          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. A persona Prompt Extension is included in regular Personal replies and OLV streaming, not only streaming, and must be declared by the plugin."
         }
       }
     },
@@ -1171,7 +1167,7 @@
         },
         "plugin_capability_targets": {
           "description": "Plugin capability targets",
-          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. prompt_extensions selects persona or core only when that target is declared by the plugin."
+          "hint": "Configure llm_hooks, prompt_extensions, and tools independently per plugin. A persona Prompt Extension is included in regular Personal replies and OLV streaming, not only streaming, and must be declared by the plugin."
         }
       }
     },
@@ -1277,29 +1273,35 @@
         }
       }
     },
-    "personal_runtime_policy": {
-      "description": "Proactive Persona Controls",
-      "hint": "Controls background Observations, deferred policy decisions, and proactive expression. Heartbeat only produces Observations; Policy decides whether to express through the unified Persona output path.",
+    "personal_engagement": {
+      "description": "Personal Engagement",
+      "hint": "Personal Runtime applies only to explicitly selected sessions. Group observation and private-chat idle initiation are controlled separately; Policy, cooldowns, quiet hours, mute, and daily budgets still govern expression.",
+      "platform_settings": {
+        "personal_runtime_observation_targets": {
+          "description": "Personal Engagement Sessions",
+          "hint": "Select the exact sessions Personal Runtime may observe and proactively address. Empty disables Personal Runtime sessions and does not inherit the default proactive message target. The selector lists known private and group sessions on enabled adapters that support Personal Runtime."
+        }
+      },
       "interaction_middleware": {
         "personal_heartbeat_enabled": {
-          "description": "Enable Persona Heartbeat",
-          "hint": "Only submits Observations to Personal Runtime; it never sends messages or calls Core directly."
+          "description": "Enable Personal Heartbeat",
+          "hint": "Submits background Observations to selected sessions on an interval; it does not send messages or call Core directly. Private-chat idle initiation depends on this switch."
         },
         "personal_heartbeat_interval_seconds": {
-          "description": "Persona Heartbeat Interval Seconds",
-          "hint": "Minimum 30 seconds; initially applies only to the default proactive message target."
+          "description": "Personal Heartbeat Interval Seconds",
+          "hint": "Minimum 30 seconds; each selected Personal session is scheduled independently."
         },
         "personal_idle_initiation_enabled": {
-          "description": "Enable Idle Initiation",
-          "hint": "Submit one restricted Observation only after real user activity reaches the idle threshold; Policy, mute, quiet hours, cooldowns, and budgets still decide whether to express."
+          "description": "Allow Private Chats to Start a Topic After Idle",
+          "hint": "Submits one restricted Observation after a selected private chat with real user activity reaches the idle threshold. Contacts are never enumerated automatically, and idle messages are not sent in groups. Policy, mute, quiet hours, cooldowns, and budgets still decide whether to express."
         },
         "personal_idle_initiation_after_seconds": {
           "description": "Idle Initiation Threshold Seconds",
           "hint": "Minimum 30 seconds. Each new user activity period can trigger at most one idle Observation, and the dedupe state survives restarts."
         },
         "personal_conversation_activity_enabled": {
-          "description": "Enable Ambient Group Activity",
-          "hint": "Observes only unaddressed group text in the default proactive message target. After whitelist and session checks, it submits a Runtime Observation without invoking the normal Personal response plan, plugins, or Core."
+          "description": "Allow Personal to Observe and Join Group Chats",
+          "hint": "Observes unaddressed text only in selected group sessions. After whitelist and session checks, it submits an untrusted excerpt capped at 800 characters to Personal Policy without invoking the normal Personal response plan, plugins, or Core. Policy decides whether to join."
         },
         "personal_runtime_conversation_continuation_seconds": {
           "description": "Group Conversation Continuation Seconds",

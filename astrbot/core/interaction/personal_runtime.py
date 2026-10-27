@@ -889,6 +889,10 @@ class PersonalSessionRuntime:
         minimum_idle_seconds: float,
     ) -> ObservationAdmissionResult:
         """Submit one configured idle fact for the current user-activity epoch."""
+        if target_session.message_type is not MessageType.FRIEND_MESSAGE:
+            return self._ignored_idle_initiation(
+                "idle_initiation_requires_private_session"
+            )
         if self._state_restore_pending:
             return self._ignored_idle_initiation("state_restore_pending")
         user_activity_at = self.state.last_user_activity_at

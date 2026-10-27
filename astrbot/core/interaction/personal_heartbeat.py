@@ -344,7 +344,10 @@ class PersonalHeartbeatSource:
             )
         self._next_tick_at[target_key] = occurred_at + interval
         results.append(result)
-        if not runtime_settings.personal_idle_initiation_enabled:
+        if (
+            not runtime_settings.personal_idle_initiation_enabled
+            or target.message_type is not MessageType.FRIEND_MESSAGE
+        ):
             self._last_idle_initiation_submissions.pop(target_key, None)
             self._idle_initiation_stats.pop(target_key, None)
             return

@@ -5,47 +5,68 @@
         {{ emptyText }}
       </span>
       <v-chip
-        v-for="([scope, target]) in summaryEntries.slice(0, maxSummaryItems)"
+        v-for="([scope, target, kind]) in summaryEntries.slice(0, maxSummaryItems)"
         :key="scope"
         size="small"
         label
-        color="primary"
         variant="tonal"
       >
-        {{ scope }}: {{ targetLabel(target) }}
+        {{ scope }}: {{ targetLabel(target, kind) }}
       </v-chip>
       <v-chip v-if="summaryEntries.length > maxSummaryItems" size="small" label>
         +{{ summaryEntries.length - maxSummaryItems }}
       </v-chip>
     </div>
-    <v-btn size="small" color="primary" variant="tonal" @click="openDialog">
+    <v-btn
+      size="small"
+      color="primary"
+      variant="tonal"
+      prepend-icon="mdi-tune-variant"
+      @click="openDialog"
+    >
       {{ tm('runtimeTargetEditor.configure') }}
     </v-btn>
   </div>
 
   <v-dialog v-model="dialog" max-width="1040px" scrollable>
-    <v-card>
-      <v-card-title class="text-h3 py-4" style="font-weight: normal;">
-        {{ dialogTitle }}
+    <v-card class="target-map-dialog">
+      <v-card-title class="target-map-dialog-header">
+        <div>
+          <div class="text-h6">{{ dialogTitle }}</div>
+          <div class="text-body-2 text-medium-emphasis mt-1">
+            {{ tm('runtimeTargetEditor.dialogSubtitle') }}
+          </div>
+        </div>
+        <v-btn
+          icon="mdi-close"
+          variant="text"
+          size="small"
+          :aria-label="tm('runtimeTargetEditor.cancel')"
+          @click="dialog = false"
+        />
       </v-card-title>
+      <v-divider />
       <v-card-text class="pa-4">
         <v-alert v-if="loadFailed" type="warning" variant="tonal" density="compact" class="mb-4">
           {{ tm('runtimeTargetEditor.loadFailed') }}
         </v-alert>
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
+        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+          {{ tm('runtimeTargetEditor.promptExtensionPersonalHint') }}
+        </v-alert>
 
         <div v-if="draftEntries.length === 0" class="text-medium-emphasis py-4 text-center">
           {{ emptyText }}
         </div>
 
-        <v-row
+        <div
           v-for="(entry, index) in draftEntries"
           :key="entry.id"
-          align="start"
-          class="target-map-row"
+          class="target-map-entry"
         >
-          <v-col cols="12" md="3">
+          <div class="target-map-entry-grid" :class="{ 'has-tool': entry.kind === 'tools' }">
             <v-combobox
+              class="entry-plugin"
               v-model="entry.scope"
               :items="scopeOptions"
               item-title="title"
@@ -56,42 +77,57 @@
               density="compact"
               variant="outlined"
               clearable
+              hide-details="auto"
             />
-          </v-col>
-          <v-col cols="12" md="3">
             <v-select
+              class="entry-kind"
               :model-value="entry.kind"
               @update:model-value="value => onKindChange(entry, value)"
               :items="kindOptions"
               :label="tm('runtimeTargetEditor.kindLabel')"
               density="compact"
               variant="outlined"
+              hide-details
             />
-          </v-col>
-          <v-col cols="12" md="3" :class="{ 'd-none d-md-block': entry.kind !== 'tools' }">
             <v-combobox
               v-if="entry.kind === 'tools'"
+              class="entry-tool"
               v-model="entry.tool"
               :items="toolOptions[entry.scope] || ['*']"
               :label="tm('runtimeTargetEditor.toolLabel')"
               density="compact"
               variant="outlined"
               :return-object="false"
+              hide-details
             />
-          </v-col>
-          <v-col cols="10" md="2">
-            <v-select
-              v-model="entry.target"
-              :items="targetOptionsFor(entry)"
-              item-title="title"
-              item-value="value"
-              :label="tm('runtimeTargetEditor.targetLabel')"
-              density="compact"
-              variant="outlined"
-            />
-          </v-col>
-          <v-col cols="2" md="1" class="d-flex justify-end">
+            <div class="entry-target">
+              <div class="entry-target-label">
+                {{ tm('runtimeTargetEditor.targetLabel') }}
+              </div>
+              <v-btn-toggle
+                v-model="entry.target"
+                mandatory
+                divided
+                color="primary"
+                density="compact"
+                class="target-map-target-toggle"
+                :aria-label="tm('runtimeTargetEditor.targetLabel')"
+              >
+                <v-btn
+                  v-for="option in targetOptionsFor(entry)"
+                  :key="option.value"
+                  :value="option.value"
+                  size="small"
+                >
+                  {{ option.title }}
+                </v-btn>
+              </v-btn-toggle>
+              <div v-if="targetError(index)" class="target-map-field-error">
+                {{ targetError(index) }}
+              </div>
+            </div>
             <v-btn
+              class="entry-remove"
               icon="mdi-delete-outline"
               color="error"
               variant="text"
@@ -99,10 +135,16 @@
               :aria-label="tm('runtimeTargetEditor.remove')"
               @click="removeEntry(index)"
             />
-          </v-col>
-        </v-row>
+          </div>
+        </div>
 
-        <v-btn prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addEntry">
+        <v-btn
+          prepend-icon="mdi-plus"
+          variant="tonal"
+          color="primary"
+          class="mt-3"
+          @click="addEntry"
+        >
           {{ tm('runtimeTargetEditor.add') }}
         </v-btn>
       </v-card-text>
@@ -169,30 +211,37 @@ const summaryEntries = computed(() => bindingEntries(normalizedModelValue.value)
       ? entry.tool
       : entry.kind === 'prompt_extensions'
         ? tm('runtimeTargetEditor.promptExtensions')
-        : 'LLM Hook'}`,
-    entry.target
+        : tm('runtimeTargetEditor.llmHooks')}`,
+    entry.target,
+    entry.kind
   ]
 ))
 const emptyText = computed(() => tm('runtimeTargetEditor.capabilityEmpty'))
 const dialogTitle = computed(() => tm('runtimeTargetEditor.capabilityTitle'))
 const kindOptions = computed(() => [
-  { title: 'LLM Hook', value: 'llm_hooks' },
+  { title: tm('runtimeTargetEditor.llmHooks'), value: 'llm_hooks' },
   { title: tm('runtimeTargetEditor.promptExtensions'), value: 'prompt_extensions' },
-  { title: 'FunctionTool', value: 'tools' }
+  { title: tm('runtimeTargetEditor.functionTools'), value: 'tools' }
 ])
-const hasErrors = computed(() => draftEntries.value.some((_, index) => Boolean(entryError(index))))
+const hasErrors = computed(() => draftEntries.value.some((_, index) => (
+  Boolean(entryError(index)) || Boolean(targetError(index))
+)))
 
-function targetLabel(target) {
-  if (target === 'personal_expression' || target === 'persona') {
-    return 'Personal'
-  }
+function targetLabel(target, kind) {
   if (target === 'core') {
-    return 'Core'
+    return kind === 'prompt_extensions'
+      ? tm('runtimeTargetEditor.targetCorePrompt')
+      : tm('runtimeTargetEditor.targetCore')
+  }
+  if (target === 'personal_expression' || target === 'persona') {
+    return kind === 'prompt_extensions'
+      ? tm('runtimeTargetEditor.targetPersonaPrompt')
+      : tm('runtimeTargetEditor.targetPersona')
   }
   return String(target || '')
 }
 
-function newEntry(scope = '', target = 'core', kind = 'llm_hooks', tool = '*') {
+function newEntry(scope = '', target = 'persona', kind = 'prompt_extensions', tool = '*') {
   nextEntryId += 1
   return {
     id: nextEntryId,
@@ -204,11 +253,19 @@ function newEntry(scope = '', target = 'core', kind = 'llm_hooks', tool = '*') {
 }
 
 function targetOptionsFor(entry) {
+  const promptExtension = entry.kind === 'prompt_extensions'
   return [
-    { title: tm('runtimeTargetEditor.targetCore'), value: 'core' },
     {
-      title: tm('runtimeTargetEditor.targetPersona'),
-      value: entry.kind === 'prompt_extensions' ? 'persona' : 'personal_expression'
+      title: tm(promptExtension
+        ? 'runtimeTargetEditor.targetCorePrompt'
+        : 'runtimeTargetEditor.targetCore'),
+      value: 'core'
+    },
+    {
+      title: tm(promptExtension
+        ? 'runtimeTargetEditor.targetPersonaPrompt'
+        : 'runtimeTargetEditor.targetPersona'),
+      value: promptExtension ? 'persona' : 'personal_expression'
     }
   ]
 }
@@ -224,7 +281,6 @@ function onKindChange(entry, kind) {
 
 function entryError(index) {
   const scope = String(draftEntries.value[index]?.scope || '').trim()
-  const target = draftEntries.value[index]?.target
   const { kind, tool } = draftEntries.value[index]
   if (!scope || (kind === 'tools' && !String(tool || '').trim())) {
     return tm('runtimeTargetEditor.scopeRequired')
@@ -236,6 +292,11 @@ function entryError(index) {
   if (duplicateCount > 1) {
     return tm('runtimeTargetEditor.scopeDuplicate')
   }
+  return ''
+}
+
+function targetError(index) {
+  const { kind, target } = draftEntries.value[index]
   const allowedTargets = kind === 'prompt_extensions'
     ? new Set(['core', 'persona'])
     : validTargets
@@ -322,7 +383,7 @@ function saveEntries() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .target-map-chips {
@@ -333,7 +394,147 @@ function saveEntries() {
   min-width: 0;
 }
 
-.target-map-row {
-  margin-bottom: 2px;
+.target-map-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  white-space: normal;
+}
+
+.target-map-entry {
+  padding: 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 6px;
+}
+
+.target-map-entry + .target-map-entry {
+  margin-top: 10px;
+}
+
+.target-map-entry-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(150px, 0.8fr) minmax(270px, 1.4fr) 40px;
+  align-items: start;
+  gap: 10px;
+}
+
+.target-map-entry-grid.has-tool {
+  grid-template-columns: minmax(180px, 1.1fr) minmax(145px, 0.8fr) minmax(150px, 0.9fr) minmax(270px, 1.4fr) 40px;
+}
+
+.entry-target {
+  min-width: 0;
+}
+
+.entry-target-label {
+  margin: 0 0 6px 2px;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.target-map-target-toggle {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.target-map-target-toggle :deep(.v-btn) {
+  flex: 1 1 0;
+  min-width: 0;
+  height: auto;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-transform: none;
+  white-space: normal;
+  line-height: 1.2;
+}
+
+.target-map-target-toggle :deep(.v-btn__content) {
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.target-map-field-error {
+  margin: 4px 0 0 12px;
+  color: rgb(var(--v-theme-error));
+  font-size: 0.75rem;
+}
+
+.entry-remove {
+  margin-top: 4px;
+}
+
+@media (max-width: 960px) {
+  .target-map-entry-grid,
+  .target-map-entry-grid.has-tool {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+  }
+
+  .entry-plugin {
+    grid-column: 1;
+  }
+
+  .entry-kind {
+    grid-column: 2;
+  }
+
+  .entry-tool,
+  .entry-target {
+    grid-column: 1 / 3;
+  }
+
+  .entry-remove {
+    grid-column: 3;
+    grid-row: 1 / span 4;
+  }
+}
+
+@media (max-width: 600px) {
+  .target-map-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .target-map-dialog-header {
+    padding: 16px;
+  }
+
+  .target-map-entry-grid,
+  .target-map-entry-grid.has-tool {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .entry-plugin,
+  .entry-kind,
+  .entry-tool,
+  .entry-target {
+    grid-column: 1;
+  }
+
+  .entry-plugin {
+    grid-row: 1;
+  }
+
+  .entry-kind {
+    grid-row: 2;
+  }
+
+  .entry-tool {
+    grid-row: 3;
+  }
+
+  .entry-target {
+    grid-row: 4;
+  }
+
+  .entry-remove {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 </style>
