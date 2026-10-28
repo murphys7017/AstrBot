@@ -89,6 +89,29 @@ def test_dashboard_uses_bundled_dist_when_data_dist_is_stale(
     assert server.data_path == str(bundled_dist)
 
 
+@pytest.mark.asyncio
+async def test_dashboard_lifespan_shuts_down_registered_services(
+    core_lifecycle_td: AstrBotCoreLifecycle,
+):
+    server = AstrBotDashboard(
+        core_lifecycle_td,
+        core_lifecycle_td.db,
+        asyncio.Event(),
+    )
+    shutdown_calls = []
+
+    class Service:
+        async def shutdown(self):
+            shutdown_calls.append("closed")
+
+    server.asgi_app.state.services["test_service"] = Service()
+
+    async with server.asgi_app.router.lifespan_context(server.asgi_app):
+        pass
+
+    assert shutdown_calls == ["closed"]
+
+
 def test_dashboard_ready_banner_reports_missing_assets(
     core_lifecycle_td: AstrBotCoreLifecycle,
     monkeypatch,

@@ -122,6 +122,8 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # 提交事件到事件队列。不要忘记！
 ```
 
+commit_event 在共享事件队列已满时返回 False 并记录过载告警；适配器可检查返回值并按平台能力处理重试或拒绝。
+
 ## 为 Prompt 输入附加语义说明（可选）
 
 有些平台会额外提供“输入项的解释信息”，但这些解释不属于用户原始输入本身，例如：

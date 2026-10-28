@@ -646,7 +646,7 @@ class LarkPlatformAdapter(Platform):
             bot=self.lark_api,
         )
 
-        self._event_queue.put_nowait(event)
+        self.commit_event(event)
 
     async def handle_webhook_event(self, event_data: dict) -> None:
         """处理 Webhook 事件

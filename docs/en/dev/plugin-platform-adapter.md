@@ -123,6 +123,8 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # Submit the event to the event queue. Don't forget this!
 ```
 
+commit_event returns False and logs an overload warning when the shared event queue is full. Adapters can check the return value and apply platform-specific retry or rejection behavior.
+
 `fake_platform_event.py`:
 
 ```py

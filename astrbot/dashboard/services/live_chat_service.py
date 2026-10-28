@@ -332,7 +332,7 @@ class LiveChatService(DashboardService):
 
         request_id = f"ws_sub_{uuid.uuid4().hex}"
         session.chat_subscriptions[chat_session_id] = request_id
-        task = asyncio.create_task(
+        task = self.create_background_task(
             self._forward_chat_subscription(session, chat_session_id, request_id),
             name=f"chat_ws_sub_{chat_session_id}",
         )

@@ -47,6 +47,7 @@ from astrbot.core.utils.requirements_utils import (
     plan_missing_requirements_install,
 )
 
+from .base import Star
 from .command_management import sync_command_configs
 from .context import Context, plugin_owner_scope
 from .error_messages import format_plugin_error
@@ -2190,7 +2191,7 @@ class PluginManager:
             await sp.global_put("inactivated_llm_tools", inactivated_llm_tools)
 
     async def _terminate_plugin(self, star_metadata: StarMetadata) -> None:
-        """终止插件，调用插件的 terminate() 和 __del__() 方法"""
+        """Run the async lifecycle hook or the deprecated destructor fallback."""
         logger.info(f"正在终止插件 {star_metadata.name} ...")
 
         if not star_metadata.activated:
@@ -2201,7 +2202,17 @@ class PluginManager:
         if star_metadata.star_cls is None:
             return
 
-        if "__del__" in star_metadata.star_cls_type.__dict__:
+        terminate = getattr(star_metadata.star_cls_type, "terminate", None)
+        if callable(terminate) and terminate is not Star.terminate:
+            # The async lifecycle hook is canonical; __del__ remains a
+            # compatibility fallback for plugins that have not migrated.
+            with plugin_owner_scope(
+                star_metadata.module_path,
+                plugin_name=star_metadata.name,
+                root_dir_name=star_metadata.root_dir_name,
+            ):
+                await star_metadata.star_cls.terminate()
+        elif "__del__" in star_metadata.star_cls_type.__dict__:
             loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(
@@ -2214,16 +2225,6 @@ class PluginManager:
                     star_metadata.name,
                     exc,
                 )
-        elif "terminate" in star_metadata.star_cls_type.__dict__:
-            # Plugin-authored teardown; keep the owner scope so anything it
-            # registers or unregisters is attributed to the right plugin.
-            with plugin_owner_scope(
-                star_metadata.module_path,
-                plugin_name=star_metadata.name,
-                root_dir_name=star_metadata.root_dir_name,
-            ):
-                await star_metadata.star_cls.terminate()
-
         # 触发插件卸载事件
         handlers = star_handlers_registry.get_handlers_by_event_type(
             EventType.OnPluginUnloadedEvent,

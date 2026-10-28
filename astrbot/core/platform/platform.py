@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from astrbot.core import logger
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.utils.metrics import Metric
 
@@ -41,6 +42,7 @@ class Platform(abc.ABC):
         self.config = config
         # 维护了消息平台的事件队列，EventBus 会从这里取出事件并处理。
         self._event_queue = event_queue
+        self._rejected_event_count = 0
         self.client_self_id = uuid.uuid4().hex
 
         # 平台运行状态
@@ -144,9 +146,23 @@ class Platform(abc.ABC):
             Metric.upload(msg_event_tick=1, adapter_name=self.meta().name)
         )
 
-    def commit_event(self, event: AstrMessageEvent) -> None:
+    def commit_event(self, event: AstrMessageEvent) -> bool:
         """提交一个事件到事件队列。"""
-        self._event_queue.put_nowait(event)
+        try:
+            self._event_queue.put_nowait(event)
+        except asyncio.QueueFull:
+            self._rejected_event_count += 1
+            if self._rejected_event_count == 1 or self._rejected_event_count % 100 == 0:
+                logger.warning(
+                    "Event ingress is full; rejecting platform event: "
+                    "platform=%s queue_size=%s queue_capacity=%s rejected=%s",
+                    self.meta().id,
+                    self._event_queue.qsize(),
+                    self._event_queue.maxsize,
+                    self._rejected_event_count,
+                )
+            return False
+        return True
 
     def get_client(self) -> object:
         """获取平台的客户端对象。"""

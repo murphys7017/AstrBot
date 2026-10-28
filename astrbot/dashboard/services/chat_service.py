@@ -300,6 +300,10 @@ class ChatService(DashboardService):
             os.path.join(get_astrbot_data_path(), "webchat", ".chunks")
         )
 
+    async def shutdown(self) -> None:
+        await super().shutdown()
+        await self.chunked_uploads.shutdown()
+
     async def get_file(self):
         filename = request.args.get("filename")
         if not filename:

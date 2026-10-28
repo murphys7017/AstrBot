@@ -190,7 +190,13 @@ class AstrBotDashboard:
             else:
                 scopes = list(ALL_OPEN_API_SCOPES)
             required_scope = self._get_required_open_api_scope(request.path)
-            if required_scope and "*" not in scopes and required_scope not in scopes:
+            if required_scope is None:
+                r = jsonify(
+                    Response().error("No API key scope is registered for this endpoint").__dict__
+                )
+                r.status_code = 403
+                return r
+            if "*" not in scopes and required_scope not in scopes:
                 r = jsonify(Response().error("Insufficient API key scope").__dict__)
                 r.status_code = 403
                 return r

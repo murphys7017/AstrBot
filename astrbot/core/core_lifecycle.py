@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 from asyncio import Queue
+from collections.abc import Awaitable, Callable
 
 from astrbot.api import logger, sp
 from astrbot.core import LogBroker, LogManager
@@ -65,7 +66,7 @@ from astrbot.core.utils.migra_helper import migra
 from astrbot.core.utils.temp_dir_cleaner import TempDirCleaner
 
 from . import astrbot_config, html_renderer
-from .event_bus import EventBus
+from .event_bus import MAX_PENDING_EVENTS, EventBus
 
 
 class AstrBotCoreLifecycle:
@@ -108,6 +109,7 @@ class AstrBotCoreLifecycle:
         self.turn_delivery_coordinator = TurnDeliveryCoordinator()
         self._default_chat_provider_warning_emitted = False
         self._lifecycle_service_tasks: set[asyncio.Task] = set()
+        self._shutdown_hooks: dict[str, Callable[[], Awaitable[None]]] = {}
         self._shutdown_lock = asyncio.Lock()
         self._stopped = False
 
@@ -320,20 +322,16 @@ class AstrBotCoreLifecycle:
             ),
         )
 
-        # apply migration
-        try:
-            await migra(
-                self.db,
-                self.astrbot_config_mgr,
-                self.umop_config_router,
-                self.astrbot_config_mgr,
-            )
-        except Exception as e:
-            logger.error(f"AstrBot migration failed: {e!s}")
-            logger.error(traceback.format_exc())
+        # Required migrations must finish before runtime services start.
+        await migra(
+            self.db,
+            self.astrbot_config_mgr,
+            self.umop_config_router,
+            self.astrbot_config_mgr,
+        )
 
         # 初始化事件队列
-        self.event_queue = Queue()
+        self.event_queue = Queue(maxsize=MAX_PENDING_EVENTS)
         self.interaction_output_controller = InteractionOutputController(
             platform_settings=self.astrbot_config.get("platform_settings", {}),
             pre_output_processor=self.pre_output_processor,
@@ -530,6 +528,16 @@ class AstrBotCoreLifecycle:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    def register_shutdown_hook(
+        self,
+        name: str,
+        callback: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Register an async external-service shutdown hook."""
+        if self._stopped:
+            raise RuntimeError("core lifecycle is already stopped")
+        self._shutdown_hooks[name] = callback
+
     def _load(self) -> None:
         """加载事件总线和任务并初始化."""
         # 创建一个异步任务来执行事件总线的 dispatch() 方法
@@ -644,6 +652,12 @@ class AstrBotCoreLifecycle:
                 except Exception:
                     logger.error("关闭生命周期组件失败: %s", name, exc_info=True)
 
+            dashboard_shutdown_event = getattr(self, "dashboard_shutdown_event", None)
+            if dashboard_shutdown_event is not None:
+                dashboard_shutdown_event.set()
+            for name, callback in tuple(self._shutdown_hooks.items()):
+                await shutdown_step(name, callback)
+
             event_bus = getattr(self, "event_bus", None)
             if event_bus is not None:
                 await shutdown_step("event_bus", event_bus.stop)
@@ -710,10 +724,6 @@ class AstrBotCoreLifecycle:
             except Exception:
                 logger.error("关闭 memory postprocessor 失败", exc_info=True)
             await shutdown_step("memory_service", shutdown_memory_service)
-
-            dashboard_shutdown_event = getattr(self, "dashboard_shutdown_event", None)
-            if dashboard_shutdown_event is not None:
-                dashboard_shutdown_event.set()
 
             # Release the database only after all event and service tasks have ended.
             try:

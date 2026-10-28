@@ -190,8 +190,9 @@ class BackupService(DashboardService):
         """确保后台清理任务已启动（在异步上下文中延迟启动）"""
         if self._cleanup_task is None or self._cleanup_task.done():
             try:
-                self._cleanup_task = asyncio.create_task(
-                    self._cleanup_expired_uploads()
+                self._cleanup_task = self.create_background_task(
+                    self._cleanup_expired_uploads(),
+                    name="backup-upload-cleanup",
                 )
             except RuntimeError:
                 # 如果没有运行中的事件循环，跳过（等待下次异步调用时启动）
@@ -345,7 +346,11 @@ class BackupService(DashboardService):
             self._init_task(task_id, "export", "pending")
 
             # 启动后台导出任务
-            asyncio.create_task(self._background_export_task(task_id))
+            self.create_background_task(
+                self._background_export_task(task_id),
+                name=f"backup-export-{task_id}",
+                cancel_on_shutdown=False,
+            )
 
             return (
                 Response()
@@ -920,7 +925,11 @@ class BackupService(DashboardService):
             self._init_task(task_id, "import", "pending")
 
             # 启动后台导入任务
-            asyncio.create_task(self._background_import_task(task_id, zip_path))
+            self.create_background_task(
+                self._background_import_task(task_id, zip_path),
+                name=f"backup-import-{task_id}",
+                cancel_on_shutdown=False,
+            )
 
             return (
                 Response()

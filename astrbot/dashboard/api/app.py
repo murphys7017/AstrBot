@@ -1,5 +1,7 @@
 """Native dashboard host and preserved local service wiring."""
 
+import asyncio
+from contextlib import asynccontextmanager
 from importlib import import_module
 
 from fastapi import FastAPI
@@ -8,12 +10,65 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 
+from astrbot.core import logger
 from astrbot.dashboard.asgi_runtime import FastAPIAppAdapter
 from astrbot.dashboard.services.base import ServiceContext
 
 
 def create_dashboard_app(server):
-    app = FastAPI(title="AstrBot API", docs_url=None, redoc_url=None, openapi_url=None)
+    services = {}
+    shutdown_lock = asyncio.Lock()
+    services_shutdown = False
+
+    async def shutdown_services() -> None:
+        nonlocal services_shutdown
+        async with shutdown_lock:
+            if services_shutdown:
+                return
+            service_items = list(reversed(tuple(services.items())))
+            results = await asyncio.gather(
+                *(service.shutdown() for _, service in service_items),
+                return_exceptions=True,
+            )
+            for (name, _), result in zip(service_items, results, strict=True):
+                if isinstance(result, BaseException) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    logger.error(
+                        "Dashboard service shutdown failed: %s",
+                        name,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+            services_shutdown = True
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield
+        finally:
+            await shutdown_services()
+
+    app = FastAPI(
+        title="AstrBot API",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
+
+    @app.middleware("http")
+    async def deprecate_query_api_keys(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/v1/") and (
+            "api_key" in request.query_params or "key" in request.query_params
+        ):
+            response.headers["X-AstrBot-Auth-Deprecation"] = (
+                "Use X-API-Key or Authorization instead of a query parameter."
+            )
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
     # Compress sizeable dashboard assets and JSON responses without buffering SSE.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     adapter = FastAPIAppAdapter(app, static_folder=server.data_path)
@@ -109,7 +164,6 @@ def create_dashboard_app(server):
             {},
         ),
     ]
-    services = {}
     for attribute, module, class_name, api_module, args, kwargs in specifications:
         service_type = getattr(
             import_module(f"astrbot.dashboard.services.{module}_service"), class_name
@@ -126,6 +180,9 @@ def create_dashboard_app(server):
     app.state.db = db
     app.state.services = services
     app.state.dashboard = server
+    register_shutdown_hook = getattr(core, "register_shutdown_hook", None)
+    if callable(register_shutdown_hook):
+        register_shutdown_hook("dashboard_services", shutdown_services)
     adapter.add_url_rule(
         "/api/plug/<path:subpath>",
         server.srv_plug_route,

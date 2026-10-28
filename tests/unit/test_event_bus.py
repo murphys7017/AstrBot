@@ -9,6 +9,7 @@ import pytest
 
 from astrbot.core.event_bus import EventBus
 from astrbot.core.platform.message_type import MessageType
+from astrbot.core.platform.platform import Platform
 
 
 @pytest.fixture
@@ -43,6 +44,22 @@ def event_bus(event_queue, mock_pipeline_scheduler, mock_config_manager):
         pipeline_scheduler_mapping={"test-conf-id": mock_pipeline_scheduler},
         astrbot_config_mgr=mock_config_manager,
     )
+
+
+def test_platform_commit_event_reports_full_ingress_queue():
+    event_queue = asyncio.Queue(maxsize=1)
+    event_queue.put_nowait(object())
+    platform = SimpleNamespace(
+        _event_queue=event_queue,
+        _rejected_event_count=0,
+        meta=lambda: SimpleNamespace(id="test-platform"),
+    )
+
+    with patch("astrbot.core.platform.platform.logger.warning") as warning:
+        accepted = Platform.commit_event(platform, object())
+
+    assert accepted is False
+    warning.assert_called_once()
 
 
 class TestEventBusInit:
@@ -194,6 +211,62 @@ class TestEventBusDispatch:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+
+    @pytest.mark.asyncio
+    async def test_dispatch_limits_concurrent_pipeline_tasks(
+        self, event_queue, mock_pipeline_scheduler, mock_config_manager
+    ):
+        started = asyncio.Event()
+        release = asyncio.Event()
+        all_processed = asyncio.Event()
+        active = 0
+        max_active = 0
+        processed = 0
+
+        async def execute(_event):
+            nonlocal active, max_active, processed
+            active += 1
+            max_active = max(max_active, active)
+            started.set()
+            try:
+                await release.wait()
+                processed += 1
+                if processed == 3:
+                    all_processed.set()
+            finally:
+                active -= 1
+
+        mock_pipeline_scheduler.execute.side_effect = execute
+        for index in range(3):
+            event = MagicMock()
+            event.unified_msg_origin = f"test-platform:group:{index}"
+            event.get_platform_id.return_value = "test-platform"
+            event.get_platform_name.return_value = "Test Platform"
+            event.get_sender_name.return_value = f"User{index}"
+            event.get_sender_id.return_value = f"user{index}"
+            event.get_message_outline.return_value = f"Message {index}"
+            event_queue.put_nowait(event)
+
+        bus = EventBus(
+            event_queue=event_queue,
+            pipeline_scheduler_mapping={"test-conf-id": mock_pipeline_scheduler},
+            astrbot_config_mgr=mock_config_manager,
+            max_concurrent_pipelines=1,
+        )
+        dispatch_task = asyncio.create_task(bus.dispatch())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await asyncio.sleep(0)
+            assert event_queue.qsize() == 2
+
+            release.set()
+            await asyncio.wait_for(all_processed.wait(), timeout=1.0)
+            assert max_active == 1
+        finally:
+            dispatch_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await dispatch_task
+            await bus.stop()
 
     @pytest.mark.asyncio
     async def test_dispatch_handles_missing_scheduler(

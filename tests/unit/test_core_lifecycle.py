@@ -632,10 +632,10 @@ class TestAstrBotCoreLifecycleInitialize:
         mock_memory_service.initialize.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_initialize_handles_migration_failure(
+    async def test_initialize_aborts_when_migration_fails(
         self, mock_log_broker, mock_db, mock_astrbot_config
     ):
-        """Test that initialize handles migration failures gracefully."""
+        """Required migrations must complete before runtime services initialize."""
         lifecycle = AstrBotCoreLifecycle(mock_log_broker, mock_db)
 
         mock_db.initialize = AsyncMock()
@@ -650,9 +650,10 @@ class TestAstrBotCoreLifecycleInitialize:
         mock_astrbot_config_mgr.default_conf = {}
         mock_astrbot_config_mgr.confs = {}
 
-        # Mock components that need to be created for initialize to continue
+        migration = AsyncMock(side_effect=Exception("Migration failed"))
         with ExitStack() as stack:
             mock_logger = MagicMock()
+            mock_logger.level = "INFO"
             mock_memory_service = MagicMock()
             mock_memory_service.initialize = AsyncMock()
             _enter_lifecycle_initialize_patches(
@@ -675,15 +676,17 @@ class TestAstrBotCoreLifecycleInitialize:
                 mock_event_bus=MagicMock(),
                 mock_memory_service=mock_memory_service,
                 mock_memory_postprocessor=MagicMock(),
-                migra_patch=AsyncMock(side_effect=Exception("Migration failed")),
+                migra_patch=migration,
                 update_llm_metadata_patch=AsyncMock(),
                 logger_patch=mock_logger,
             )
-            # Should not raise, just log the error
-            await lifecycle.initialize()
+            with pytest.raises(Exception, match="Migration failed"):
+                await lifecycle.initialize()
 
-            # Verify migration error was logged
-            mock_logger.error.assert_called()
+            migration.assert_awaited_once()
+            mock_memory_service.initialize.assert_not_awaited()
+            assert not hasattr(lifecycle, "event_queue")
+            mock_logger.error.assert_not_called()
 
 
 class TestAstrBotCoreLifecycleStart:
@@ -840,22 +843,31 @@ class TestAstrBotCoreLifecycleStopAdditional:
 
         lifecycle.dashboard_shutdown_event = asyncio.Event()
 
-        # Create mock tasks
-        mock_task1 = MagicMock(spec=asyncio.Task)
-        mock_task1.cancel = MagicMock()
-        mock_task1.get_name = MagicMock(return_value="task1")
+        cancelled = []
+        started = asyncio.Event()
+        started_count = 0
 
-        mock_task2 = MagicMock(spec=asyncio.Task)
-        mock_task2.cancel = MagicMock()
-        mock_task2.get_name = MagicMock(return_value="task2")
+        async def wait_for_shutdown(name):
+            nonlocal started_count
+            started_count += 1
+            if started_count == 2:
+                started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.append(name)
+                raise
 
-        lifecycle.curr_tasks = [mock_task1, mock_task2]
+        task1 = asyncio.create_task(wait_for_shutdown("task1"))
+        task2 = asyncio.create_task(wait_for_shutdown("task2"))
+        lifecycle.curr_tasks = [task1, task2]
+        await started.wait()
 
         await lifecycle.stop()
 
-        # Verify tasks were cancelled
-        mock_task1.cancel.assert_called_once()
-        mock_task2.cancel.assert_called_once()
+        assert set(cancelled) == {"task1", "task2"}
+        assert task1.cancelled()
+        assert task2.cancelled()
 
     @pytest.mark.asyncio
     async def test_stop_terminates_all_managers(self, mock_log_broker, mock_db):

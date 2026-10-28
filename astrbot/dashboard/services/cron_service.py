@@ -282,7 +282,11 @@ class CronService(DashboardService):
             job = await cron_mgr.db.get_cron_job(job_id)
             if not job:
                 return jsonify(Response().error("Job not found").__dict__)
-            task = asyncio.create_task(cron_mgr.run_job_now(job_id))
+            task = self.create_background_task(
+                cron_mgr.run_job_now(job_id),
+                name=f"dashboard-cron-{job_id}",
+                cancel_on_shutdown=True,
+            )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
             return jsonify(Response().ok(message="started").__dict__)

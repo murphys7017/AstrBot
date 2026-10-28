@@ -56,6 +56,7 @@ class ChunkedUploadService:
         self.expire_seconds = expire_seconds
         self.sessions: dict[str, UploadSession] = {}
         self._cleanup_task: asyncio.Task | None = None
+        self._shutting_down = False
 
     def init_session(
         self,
@@ -67,6 +68,8 @@ class ChunkedUploadService:
         total_size: int,
         meta: dict[str, Any] | None = None,
     ) -> UploadSession:
+        if self._shutting_down:
+            raise ChunkedUploadError("Upload service is shutting down")
         if total_size <= 0:
             raise ChunkedUploadError("Invalid file size")
         upload_id = str(uuid.uuid4())
@@ -216,11 +219,22 @@ class ChunkedUploadService:
         self.sessions.pop(upload_id, None)
 
     def ensure_cleanup_task_started(self) -> None:
+        if self._shutting_down:
+            return
         if self._cleanup_task is None or self._cleanup_task.done():
             try:
                 self._cleanup_task = asyncio.create_task(self._cleanup_expired_sessions())
             except RuntimeError:
                 pass
+
+    async def shutdown(self) -> None:
+        self._shutting_down = True
+        task = self._cleanup_task
+        self._cleanup_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _cleanup_expired_sessions(self) -> None:
         while True:

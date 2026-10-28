@@ -12,6 +12,7 @@ import yaml
 from astrbot.core.agent.tool import FunctionTool
 from astrbot.core.provider.register import llm_tools
 from astrbot.core.star import star_manager as star_manager_module
+from astrbot.core.star.base import Star
 from astrbot.core.star.star_handler import EventType, StarHandlerMetadata
 from astrbot.core.star.star_manager import PluginDependencyInstallError, PluginManager
 from astrbot.core.utils.pip_installer import PipInstallError
@@ -58,6 +59,67 @@ class MockStar:
         self.module_path = f"data.plugins.{TEST_PLUGIN_DIR}.main"
         self.reserved = False
         self.info = {"repo": TEST_PLUGIN_REPO, "readme": ""}
+
+
+@pytest.mark.asyncio
+async def test_plugin_termination_prefers_async_hook_over_legacy_destructor(monkeypatch):
+    calls = []
+
+    class DualLifecyclePlugin(Star):
+        async def terminate(self) -> None:
+            calls.append("terminate")
+
+        def __del__(self) -> None:
+            calls.append("legacy")
+
+    plugin = DualLifecyclePlugin(context=None)
+    metadata = SimpleNamespace(
+        activated=True,
+        name="dual-lifecycle",
+        module_path="data.plugins.dual_lifecycle.main",
+        root_dir_name="dual_lifecycle",
+        star_cls=plugin,
+        star_cls_type=DualLifecyclePlugin,
+    )
+    manager = object.__new__(PluginManager)
+    monkeypatch.setattr(
+        star_manager_module.star_handlers_registry,
+        "get_handlers_by_event_type",
+        lambda _event_type: [],
+    )
+
+    await PluginManager._terminate_plugin(manager, metadata)
+
+    assert calls == ["terminate"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_termination_keeps_legacy_destructor_fallback(monkeypatch):
+    calls = []
+
+    class LegacyLifecyclePlugin(Star):
+        def __del__(self) -> None:
+            calls.append("legacy")
+
+    plugin = LegacyLifecyclePlugin(context=None)
+    metadata = SimpleNamespace(
+        activated=True,
+        name="legacy-lifecycle",
+        module_path="data.plugins.legacy_lifecycle.main",
+        root_dir_name="legacy_lifecycle",
+        star_cls=plugin,
+        star_cls_type=LegacyLifecyclePlugin,
+    )
+    manager = object.__new__(PluginManager)
+    monkeypatch.setattr(
+        star_manager_module.star_handlers_registry,
+        "get_handlers_by_event_type",
+        lambda _event_type: [],
+    )
+
+    await PluginManager._terminate_plugin(manager, metadata)
+
+    assert calls == ["legacy"]
 
 
 def test_remove_plugin_runtime_extensions_clears_all_plugin_registries():

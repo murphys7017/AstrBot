@@ -1,6 +1,5 @@
 """知识库管理 API 路由"""
 
-import asyncio
 import os
 import traceback
 import uuid
@@ -800,7 +799,7 @@ class KnowledgeBaseService(DashboardService):
             self._init_task(task_id, status="pending")
 
             # 启动后台任务
-            asyncio.create_task(
+            self.create_background_task(
                 self._background_upload_task(
                     task_id=task_id,
                     kb_helper=kb_helper,
@@ -811,6 +810,8 @@ class KnowledgeBaseService(DashboardService):
                     tasks_limit=tasks_limit,
                     max_retries=max_retries,
                 ),
+                name=f"kb-upload-{task_id}",
+                cancel_on_shutdown=False,
             )
 
             return (
@@ -889,7 +890,7 @@ class KnowledgeBaseService(DashboardService):
             self._init_task(task_id, status="pending")
 
             # 启动后台任务
-            asyncio.create_task(
+            self.create_background_task(
                 self._background_import_task(
                     task_id=task_id,
                     kb_helper=kb_helper,
@@ -898,6 +899,8 @@ class KnowledgeBaseService(DashboardService):
                     tasks_limit=tasks_limit,
                     max_retries=max_retries,
                 ),
+                name=f"kb-import-{task_id}",
+                cancel_on_shutdown=False,
             )
 
             return (
@@ -1229,7 +1232,7 @@ class KnowledgeBaseService(DashboardService):
             self._init_task(task_id, status="pending")
 
             # 启动后台任务
-            asyncio.create_task(
+            self.create_background_task(
                 self._background_upload_from_url_task(
                     task_id=task_id,
                     kb_helper=kb_helper,
@@ -1242,6 +1245,8 @@ class KnowledgeBaseService(DashboardService):
                     enable_cleaning=enable_cleaning,
                     cleaning_provider_id=cleaning_provider_id,
                 ),
+                name=f"kb-url-upload-{task_id}",
+                cancel_on_shutdown=False,
             )
 
             return (

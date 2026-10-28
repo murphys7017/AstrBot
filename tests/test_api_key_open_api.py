@@ -106,6 +106,12 @@ async def test_api_key_scope_and_revoke(app: Quart, authenticated_header: dict):
     assert open_bot_data["status"] == "ok"
     assert isinstance(open_bot_data["data"]["bot_ids"], list)
 
+    unknown_scope_res = await test_client.get(
+        "/api/v1/unregistered",
+        headers={"X-API-Key": raw_key},
+    )
+    assert unknown_scope_res.status_code == 403
+
     denied_chat_sessions_res = await test_client.get(
         "/api/v1/chat/sessions?page=1&page_size=10",
         headers={"X-API-Key": raw_key},
@@ -393,6 +399,11 @@ async def test_open_api_auth_validation_and_key_carriers(
         data = await res.get_json()
         assert data["status"] == "ok"
         assert isinstance(data["data"]["bot_ids"], list)
+        if "api_key=" in url or "?key=" in url:
+            assert res.headers["X-AstrBot-Auth-Deprecation"].startswith(
+                "Use X-API-Key"
+            )
+            assert res.headers["Cache-Control"] == "no-store"
 
 
 @pytest.mark.asyncio

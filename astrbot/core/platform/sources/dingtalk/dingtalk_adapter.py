@@ -818,7 +818,7 @@ class DingtalkPlatformAdapter(Platform):
             adapter=self,
         )
 
-        self._event_queue.put_nowait(event)
+        self.commit_event(event)
 
     async def run(self) -> None:
         # 钉钉的 SDK 并没有实现真正的异步，start() 里面有堵塞方法。

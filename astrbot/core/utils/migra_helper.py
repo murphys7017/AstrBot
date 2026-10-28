@@ -1,5 +1,3 @@
-import traceback
-
 from astrbot.core import astrbot_config, logger
 from astrbot.core.agent.runners.deerflow.constants import DEERFLOW_PROVIDER_TYPE
 from astrbot.core.astrbot_config_mgr import AstrBotConfig, AstrBotConfigManager
@@ -12,21 +10,23 @@ def _migra_agent_runner_configs(conf: AstrBotConfig, ids_map: dict) -> None:
     """
     Migra agent runner configs from provider configs.
     """
-    try:
-        default_prov_id = conf["provider_settings"]["default_provider_id"]
-        if default_prov_id in ids_map:
-            conf["provider_settings"]["default_provider_id"] = ""
-            p = ids_map[default_prov_id]
-            runner_type = str(p.get("type") or "").lower()
-            if runner_type in {"dify", "coze", "dashscope", DEERFLOW_PROVIDER_TYPE}:
-                conf["agent_runner"] = {
-                    "mode": runner_type,
-                    "provider_id": p["id"],
-                }
-            conf.save_config()
-    except Exception as e:
-        logger.error(f"Migration for third party agent runner configs failed: {e!s}")
-        logger.error(traceback.format_exc())
+    provider_settings = conf.get("provider_settings", {})
+    if not isinstance(provider_settings, dict):
+        return
+
+    default_prov_id = provider_settings.get("default_provider_id")
+    if default_prov_id not in ids_map:
+        return
+
+    provider_settings["default_provider_id"] = ""
+    provider = ids_map[default_prov_id]
+    runner_type = str(provider.get("type") or "").lower()
+    if runner_type in {"dify", "coze", "dashscope", DEERFLOW_PROVIDER_TYPE}:
+        conf["agent_runner"] = {
+            "mode": runner_type,
+            "provider_id": provider["id"],
+        }
+    conf.save_config()
 
 
 def _migra_provider_to_source_structure(conf: AstrBotConfig) -> None:
@@ -122,26 +122,11 @@ async def migra(
     Stores the migration logic here.
     btw, i really don't like migration :(
     """
-    # 4.5 to 4.6 migration for umop_config_router
-    try:
-        await migrate_45_to_46(astrbot_config_mgr, umop_config_router)
-    except Exception as e:
-        logger.error(f"Migration from version 4.5 to 4.6 failed: {e!s}")
-        logger.error(traceback.format_exc())
-
-    # migration for webchat session
-    try:
-        await migrate_webchat_session(db)
-    except Exception as e:
-        logger.error(f"Migration for webchat session failed: {e!s}")
-        logger.error(traceback.format_exc())
-
-    # migration for token_usage column
-    try:
-        await migrate_token_usage(db)
-    except Exception as e:
-        logger.error(f"Migration for token_usage column failed: {e!s}")
-        logger.error(traceback.format_exc())
+    # Required migrations run before runtime services and must fail startup
+    # when persisted state cannot be brought to the current schema.
+    await migrate_45_to_46(astrbot_config_mgr, umop_config_router)
+    await migrate_webchat_session(db)
+    await migrate_token_usage(db)
 
     # migra third party agent runner configs
     _c = False
@@ -163,8 +148,4 @@ async def migra(
         _migra_agent_runner_configs(conf, ids_map)
 
     # Migrate providers to new structure: extract source fields to provider_sources
-    try:
-        _migra_provider_to_source_structure(astrbot_config)
-    except Exception as e:
-        logger.error(f"Migration for provider-source structure failed: {e!s}")
-        logger.error(traceback.format_exc())
+    _migra_provider_to_source_structure(astrbot_config)

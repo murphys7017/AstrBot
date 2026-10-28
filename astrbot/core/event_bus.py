@@ -25,6 +25,9 @@ from astrbot.core.utils.error_redaction import (
 
 from .platform import AstrMessageEvent
 
+MAX_PENDING_EVENTS = 1024
+MAX_CONCURRENT_PIPELINES = 64
+
 
 class EventBus:
     """用于处理事件的分发和处理"""
@@ -34,21 +37,28 @@ class EventBus:
         event_queue: Queue,
         pipeline_scheduler_mapping: dict[str, PipelineScheduler],
         astrbot_config_mgr: AstrBotConfigManager,
+        *,
+        max_concurrent_pipelines: int = MAX_CONCURRENT_PIPELINES,
     ) -> None:
+        if max_concurrent_pipelines < 1:
+            raise ValueError("max_concurrent_pipelines must be positive")
         self.event_queue = event_queue  # 事件队列
         # abconf uuid -> scheduler
         self.pipeline_scheduler_mapping = pipeline_scheduler_mapping
         self.astrbot_config_mgr = astrbot_config_mgr
         self._pending_tasks: set[asyncio.Task] = set()
+        self._pipeline_slots = asyncio.Semaphore(max_concurrent_pipelines)
         self._accepting_events = True
         self._stopped = False
 
     async def dispatch(self) -> None:
         while self._accepting_events:
-            event: AstrMessageEvent = await self.event_queue.get()
-            if not self._accepting_events:
-                return
+            await self._pipeline_slots.acquire()
+            slot_transferred = False
             try:
+                event: AstrMessageEvent = await self.event_queue.get()
+                if not self._accepting_events:
+                    return
                 selection_resolver = getattr(
                     self.astrbot_config_mgr,
                     "resolve_configuration_selection",
@@ -106,6 +116,7 @@ class EventBus:
                 task = asyncio.create_task(scheduler.execute(event))
                 self._pending_tasks.add(task)
                 task.add_done_callback(self._on_task_done)
+                slot_transferred = True
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -114,6 +125,9 @@ class EventBus:
                     type(event).__name__,
                     exc_info=True,
                 )
+            finally:
+                if not slot_transferred:
+                    self._pipeline_slots.release()
 
     async def stop(self) -> None:
         """Stop accepting events and settle every dispatched pipeline task."""
@@ -130,6 +144,7 @@ class EventBus:
 
     def _on_task_done(self, task: asyncio.Task) -> None:
         self._pending_tasks.discard(task)
+        self._pipeline_slots.release()
         if task.cancelled():
             return
         if exc := task.exception():

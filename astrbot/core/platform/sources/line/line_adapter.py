@@ -463,4 +463,4 @@ class LinePlatformAdapter(Platform):
             session_id=abm.session_id,
             line_api=self.line_api,
         )
-        self._event_queue.put_nowait(event)
+        self.commit_event(event)
