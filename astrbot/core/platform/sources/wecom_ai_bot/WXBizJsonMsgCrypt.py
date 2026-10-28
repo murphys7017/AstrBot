@@ -9,7 +9,6 @@
 import base64
 import hashlib
 import json
-import logging
 import secrets
 import socket
 import struct
@@ -17,6 +16,8 @@ import time
 from typing import NoReturn
 
 from Crypto.Cipher import AES
+
+from astrbot import logger
 
 from . import ierror
 
@@ -58,8 +59,8 @@ class SHA1:
             sha.update("".join(sortlist).encode("utf-8"))
             return ierror.WXBizMsgCrypt_OK, sha.hexdigest()
 
-        except Exception as e:
-            print(e)
+        except Exception:
+            logger.exception("WeCom message signature generation failed")
             return ierror.WXBizMsgCrypt_ComputeSignature_Error, None
 
 
@@ -82,8 +83,8 @@ class JsonParse:
         try:
             json_dict = json.loads(jsontext)
             return ierror.WXBizMsgCrypt_OK, json_dict["encrypt"]
-        except Exception as e:
-            print(e)
+        except Exception:
+            logger.exception("WeCom encrypted message parsing failed")
             return ierror.WXBizMsgCrypt_ParseJson_Error, None
 
     def generate(self, encrypt, signature, timestamp, nonce):
@@ -175,9 +176,8 @@ class Prpcrypt:
             ciphertext = cryptor.encrypt(text)
             # 使用BASE64对加密后的字符串进行编码
             return ierror.WXBizMsgCrypt_OK, base64.b64encode(ciphertext)
-        except Exception as e:
-            logger = logging.getLogger("astrbot")
-            logger.error(e)
+        except Exception:
+            logger.exception("WeCom message encryption failed")
             return ierror.WXBizMsgCrypt_EncryptAES_Error, None
 
     def decrypt(self, text, receiveid):
@@ -189,8 +189,8 @@ class Prpcrypt:
             cryptor = AES.new(self.key, self.mode, self.key[:16])  # type: ignore
             # 使用BASE64对密文进行解码，然后AES-CBC解密
             plain_text = cryptor.decrypt(base64.b64decode(text))
-        except Exception as e:
-            print(e)
+        except Exception:
+            logger.exception("WeCom message decryption failed")
             return ierror.WXBizMsgCrypt_DecryptAES_Error, None
         try:
             pad = plain_text[-1]
@@ -202,11 +202,15 @@ class Prpcrypt:
             json_len = socket.ntohl(struct.unpack("I", content[:4])[0])
             json_content = content[4 : json_len + 4].decode("utf-8")
             from_receiveid = content[json_len + 4 :].decode("utf-8")
-        except Exception as e:
-            print(e)
+        except Exception:
+            logger.exception("WeCom decrypted message validation failed")
             return ierror.WXBizMsgCrypt_IllegalBuffer, None
         if from_receiveid != receiveid:
-            print("receiveid not match", receiveid, from_receiveid)
+            logger.warning(
+                "WeCom receive ID mismatch: expected=%s received=%s",
+                receiveid,
+                from_receiveid,
+            )
             return ierror.WXBizMsgCrypt_ValidateCorpid_Error, None
         return 0, json_content
 
@@ -290,8 +294,7 @@ class WXBizJsonMsgCrypt:
         if ret != 0:
             return ret, None
         if not signature == sMsgSignature:
-            print("signature not match")
-            print(signature)
+            logger.warning("WeCom message signature mismatch")
             return ierror.WXBizMsgCrypt_ValidateSignature_Error, None
         pc = Prpcrypt(self.key)
         ret, json_content = pc.decrypt(encrypt, self.m_sReceiveId)

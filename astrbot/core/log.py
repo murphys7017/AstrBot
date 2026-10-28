@@ -1,10 +1,12 @@
 """日志系统，统一将标准 logging 输出转发到 loguru。"""
 
 import asyncio
+import copy
 import logging
 import os
 import sys
 import time
+import traceback
 from asyncio import Queue
 from collections import deque
 from typing import TYPE_CHECKING
@@ -13,6 +15,7 @@ from loguru import logger as _raw_loguru_logger
 
 from astrbot.core.config.default import VERSION
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.core.utils.error_redaction import sanitize_control_chars
 
 CACHED_SIZE = 500
 _SAFE_LOGURU_SINK_OPTIONS = {"backtrace": False, "diagnose": False}
@@ -56,8 +59,8 @@ class _QueueAnsiColorFilter(logging.Filter):
 def _is_plugin_path(pathname: str | None) -> bool:
     if not pathname:
         return False
-    norm_path = os.path.normpath(pathname)
-    return ("data/plugins" in norm_path) or ("astrbot/builtin_stars/" in norm_path)
+    norm_path = os.path.normcase(os.path.normpath(pathname)).replace("\\", "/")
+    return ("data/plugins/" in norm_path) or ("astrbot/builtin_stars/" in norm_path)
 
 
 def _get_short_level_name(level_name: str) -> str:
@@ -91,8 +94,120 @@ def _ensure_loguru_extra(record: "Record") -> None:
     extra.setdefault("is_trace", False)
 
 
+def _format_safe_exception(exception) -> str:
+    if exception is None:
+        return ""
+    try:
+        if isinstance(exception, tuple):
+            exc_type, exc_value, exc_traceback = exception
+        else:
+            exc_type = exception.type
+            exc_value = exception.value
+            exc_traceback = exception.traceback
+        formatted = traceback.TracebackException(
+            exc_type,
+            exc_value,
+            exc_traceback,
+        )
+        _sanitize_traceback_exception(formatted)
+        text = "".join(formatted.format())
+    except Exception:
+        exc_type = (
+            exception[0]
+            if isinstance(exception, tuple) and exception
+            else getattr(exception, "type", None)
+        )
+        type_name = getattr(exc_type, "__name__", "Exception")
+        text = f"{type_name}: <exception text unavailable>\n"
+    return sanitize_control_chars(text, preserve_newlines=True)
+
+
+def _sanitize_traceback_exception(formatted, _seen=None) -> None:
+    if _seen is None:
+        _seen = set()
+    if id(formatted) in _seen:
+        return
+    _seen.add(id(formatted))
+
+    formatted._str = sanitize_control_chars(formatted._str)
+    for frame in formatted.stack:
+        frame.filename = sanitize_control_chars(frame.filename)
+        frame.name = sanitize_control_chars(frame.name)
+        source_line = frame.line
+        if source_line is not None:
+            frame._line = sanitize_control_chars(source_line)
+    notes = getattr(formatted, "__notes__", None)
+    if isinstance(notes, (list, tuple)):
+        formatted.__notes__ = [sanitize_control_chars(note) for note in notes]
+    for attr in ("filename", "text", "msg"):
+        value = getattr(formatted, attr, None)
+        if isinstance(value, str):
+            setattr(formatted, attr, sanitize_control_chars(value))
+    for nested in (
+        getattr(formatted, "__cause__", None),
+        getattr(formatted, "__context__", None),
+        *(getattr(formatted, "exceptions", None) or ()),
+    ):
+        if nested is not None:
+            _sanitize_traceback_exception(nested, _seen)
+
+
+def _sanitize_log_value(value, *, preserve_newlines: bool, _seen=None):
+    if isinstance(value, str):
+        return sanitize_control_chars(value, preserve_newlines=preserve_newlines)
+    if isinstance(value, (dict, list, tuple)):
+        if _seen is None:
+            _seen = set()
+        identity = id(value)
+        if identity in _seen:
+            return "<recursive log value>"
+        _seen.add(identity)
+        try:
+            if isinstance(value, dict):
+                return {
+                    _sanitize_log_value(
+                        key,
+                        preserve_newlines=preserve_newlines,
+                        _seen=_seen,
+                    ): _sanitize_log_value(
+                        item,
+                        preserve_newlines=preserve_newlines,
+                        _seen=_seen,
+                    )
+                    for key, item in value.items()
+                }
+            if isinstance(value, list):
+                return [
+                    _sanitize_log_value(
+                        item,
+                        preserve_newlines=preserve_newlines,
+                        _seen=_seen,
+                    )
+                    for item in value
+                ]
+            return tuple(
+                _sanitize_log_value(
+                    item,
+                    preserve_newlines=preserve_newlines,
+                    _seen=_seen,
+                )
+                for item in value
+            )
+        finally:
+            _seen.remove(identity)
+    return value
+
+
 def _patch_record(record: "Record") -> None:
     _ensure_loguru_extra(record)
+    record["message"] = sanitize_control_chars(record["message"])
+    record["extra"] = _sanitize_log_value(
+        record["extra"],
+        preserve_newlines=False,
+    )
+    record["extra"]["safe_exception"] = _format_safe_exception(
+        record.get("exception"),
+    )
 
 
 def _format_console_record(record: "Record") -> str:
@@ -100,7 +215,8 @@ def _format_console_record(record: "Record") -> str:
     return (
         "<green>[{time:HH:mm:ss.SSS}]</green> {extra[plugin_tag]} "
         "<level>[{extra[short_levelname]}]</level>{extra[astrbot_version_tag]} "
-        "[{extra[source_file]}:{extra[source_line]}]: <level>{message}</level>\n{exception}"
+        "[{extra[source_file]}:{extra[source_line]}]: <level>{message}</level>\n"
+        "{extra[safe_exception]}"
     )
 
 
@@ -109,11 +225,12 @@ def _format_file_record(record: "Record") -> str:
     return (
         "[{time:YYYY-MM-DD HH:mm:ss.SSS}] {extra[plugin_tag]} "
         "[{extra[short_levelname]}]{extra[astrbot_version_tag]} "
-        "[{extra[source_file]}:{extra[source_line]}]: {message}\n{exception}"
+        "[{extra[source_file]}:{extra[source_line]}]: {message}\n"
+        "{extra[safe_exception]}"
     )
 
 
-_loguru = _raw_loguru_logger.patch(_patch_record)
+_loguru = _raw_loguru_logger
 
 
 class _LoguruInterceptHandler(logging.Handler):
@@ -162,10 +279,23 @@ class LogBroker:
         self.subscribers.remove(q)
 
     def publish(self, log_entry: dict) -> None:
-        self.log_cache.append(log_entry)
+        if log_entry.get("type") == "trace":
+            safe_log_entry = _sanitize_log_value(
+                log_entry,
+                preserve_newlines=False,
+            )
+        else:
+            # LogQueueHandler sanitizes rendered data before adding trusted ANSI styling.
+            safe_log_entry = {
+                key: value
+                if key == "data"
+                else _sanitize_log_value(value, preserve_newlines=False)
+                for key, value in log_entry.items()
+            }
+        self.log_cache.append(safe_log_entry)
         for q in self.subscribers:
             try:
-                q.put_nowait(log_entry)
+                q.put_nowait(safe_log_entry)
             except asyncio.QueueFull:
                 pass
 
@@ -178,7 +308,21 @@ class LogQueueHandler(logging.Handler):
         self.log_broker = log_broker
 
     def emit(self, record: logging.LogRecord) -> None:
-        log_entry = self.format(record)
+        safe_record = copy.copy(record)
+        safe_record.msg = sanitize_control_chars(record.getMessage())
+        safe_record.args = ()
+        safe_record.exc_text = _format_safe_exception(record.exc_info)
+        safe_record.exc_info = None
+        for field in (
+            "plugin_tag",
+            "short_levelname",
+            "astrbot_version_tag",
+            "source_file",
+        ):
+            value = getattr(safe_record, field, None)
+            if isinstance(value, str):
+                setattr(safe_record, field, sanitize_control_chars(value))
+        log_entry = self.format(safe_record)
         self.log_broker.publish(
             {
                 "level": record.levelname,
@@ -224,6 +368,7 @@ class LogManager:
         if cls._configured:
             return
 
+        _raw_loguru_logger.configure(patcher=_patch_record)
         _loguru.remove()
         cls._console_sink_id = _loguru.add(
             sys.stdout,

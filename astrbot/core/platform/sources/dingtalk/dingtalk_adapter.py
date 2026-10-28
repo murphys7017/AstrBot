@@ -83,8 +83,8 @@ def _dingtalk_reconnect_delay(retry_count: int) -> int:
 
 class MyEventHandler(dingtalk_stream.EventHandler):
     async def process(self, event: dingtalk_stream.EventMessage):
-        print(
-            "2",
+        logger.debug(
+            "DingTalk event received: type=%s event_id=%s born_time=%s data=%s",
             event.headers.event_type,
             event.headers.event_id,
             event.headers.event_born_time,

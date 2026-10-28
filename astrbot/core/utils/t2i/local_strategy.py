@@ -3,15 +3,18 @@ import os
 import aiohttp
 import ssl
 import certifi
+import logging
 from io import BytesIO
 from typing import List, Tuple
+
 from abc import ABC, abstractmethod
 from astrbot.core.config import VERSION
-
 from . import RenderStrategy
 from PIL import ImageFont, Image, ImageDraw
 from astrbot.core.utils.io import save_temp_img
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
+logger = logging.getLogger("astrbot")
 
 
 class FontManager:
@@ -640,9 +643,9 @@ class ImageElement(MarkdownElement):
                         image_data = await resp.read()
                         self.image = Image.open(BytesIO(image_data))
                     else:
-                        print(f"Failed to load image: HTTP {resp.status}")
+                        logger.warning("Failed to load image: HTTP %s", resp.status)
         except Exception as e:
-            print(f"Failed to load image: {e}")
+            logger.warning("Failed to load image: %s", e)
 
     def calculate_height(self, image_width: int, font_size: int) -> int:
         if self.image is None:

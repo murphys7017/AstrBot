@@ -1,9 +1,20 @@
 import json
+import logging
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from astrbot.core import log as log_module
-from astrbot.core.log import LogManager, _format_console_record, _format_file_record
+from astrbot.core.log import (
+    LogBroker,
+    LogManager,
+    LogQueueHandler,
+    _format_console_record,
+    _format_file_record,
+    _is_plugin_path,
+    _patch_record,
+    _sanitize_traceback_exception,
+)
 from astrbot.core.utils import trace as trace_utils
 
 
@@ -40,8 +51,10 @@ def test_loguru_file_formatter_enriches_missing_astrbot_fields():
 
 def test_loguru_sinks_disable_exception_diagnostics(monkeypatch, tmp_path):
     add_sink = MagicMock(side_effect=[101, 102, 103])
+    configure = MagicMock()
     monkeypatch.setattr(log_module._loguru, "add", add_sink)
     monkeypatch.setattr(log_module._loguru, "remove", MagicMock())
+    monkeypatch.setattr(log_module._raw_loguru_logger, "configure", configure)
     monkeypatch.setattr(LogManager, "_configured", False)
     monkeypatch.setattr(LogManager, "_console_sink_id", None)
 
@@ -62,9 +75,91 @@ def test_loguru_sinks_disable_exception_diagnostics(monkeypatch, tmp_path):
     )
 
     assert add_sink.call_count == 3
+    assert configure.call_args.kwargs["patcher"] is _patch_record
     for call in add_sink.call_args_list:
         assert call.kwargs["backtrace"] is False
         assert call.kwargs["diagnose"] is False
+
+
+def test_global_loguru_patcher_escapes_message_and_exception_controls():
+    try:
+        raise ValueError("untrusted\a\r\ntext")
+    except ValueError as exc:
+        exception = SimpleNamespace(
+            type=type(exc),
+            value=exc,
+            traceback=exc.__traceback__,
+        )
+    record = _make_loguru_record()
+    record.update(message="user\a\r\nmessage", exception=exception)
+
+    _patch_record(record)
+
+    assert record["message"] == "user\\x07\\x0d\\x0amessage"
+    assert (
+        "ValueError: untrusted\\x07\\x0d\\x0atext\n"
+        in record["extra"]["safe_exception"]
+    )
+    assert "\a" not in record["extra"]["safe_exception"]
+
+
+def test_traceback_sanitizer_handles_recursive_exception_links():
+    formatted = SimpleNamespace(_str="bad\a", stack=[], exceptions=())
+    formatted.__cause__ = formatted
+    formatted.__context__ = None
+
+    _sanitize_traceback_exception(formatted)
+
+    assert formatted._str == "bad\\x07"
+
+
+def test_log_broker_sanitizes_trace_values_without_mutating_input():
+    broker = LogBroker()
+    recursive_value = []
+    recursive_value.append(recursive_value)
+    entry = {
+        "type": "trace",
+        "message_outline": "hello\a\nworld",
+        "fields": {"response": "bad\x1b[2J", "recursive": recursive_value},
+    }
+
+    broker.publish(entry)
+
+    assert entry["message_outline"] == "hello\a\nworld"
+    assert broker.log_cache[-1]["message_outline"] == "hello\\x07\\x0aworld"
+    assert broker.log_cache[-1]["fields"]["response"] == "bad\\x1b[2J"
+    assert broker.log_cache[-1]["fields"]["recursive"] == ["<recursive log value>"]
+
+
+def test_log_queue_handler_sanitizes_messages_and_preserves_safe_traceback_lines():
+    broker = LogBroker()
+    handler = LogQueueHandler(broker)
+    handler.setFormatter(
+        logging.Formatter("\x1b[1;34m%(message)s\x1b[0m"),
+    )
+    try:
+        raise ValueError("bad\a\r\ninput")
+    except ValueError:
+        exc_info = sys.exc_info()
+    record = logging.LogRecord(
+        "astrbot", logging.ERROR, __file__, 1, "message\a\r\ninjected", (), exc_info
+    )
+
+    handler.emit(record)
+    data = broker.log_cache[-1]["data"]
+
+    assert data.startswith("\x1b[1;34m")
+    assert "injected\x1b[0m\nTraceback" in data
+    assert "message\\x07\\x0d\\x0ainjected" in data
+    assert "ValueError: bad\\x07\\x0d\\x0ainput\n" in data
+    assert "\a" not in data
+    assert "\r" not in data
+    assert record.exc_info is exc_info
+
+
+def test_plugin_log_paths_are_detected_on_windows():
+    assert _is_plugin_path(r"C:\AstrBot\data\plugins\sample\main.py")
+    assert _is_plugin_path(r"C:\AstrBot\astrbot\builtin_stars\sample.py")
 
 
 def test_prompt_trace_is_disabled_without_trace_file_logging(monkeypatch):

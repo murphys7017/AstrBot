@@ -19,6 +19,7 @@ import psutil
 from PIL import Image
 
 from .astrbot_path import get_astrbot_data_path, get_astrbot_path, get_astrbot_temp_path
+from .error_redaction import sanitize_control_chars
 from .version_comparator import VersionComparator
 
 logger = logging.getLogger("astrbot")
@@ -174,7 +175,8 @@ async def _download_response_to_file(
     downloaded_size = 0
     start_time = time.time()
     if show_progress:
-        print(f"文件大小: {total_size / 1024:.2f} KB | 文件地址: {url}")
+        safe_url = sanitize_control_chars(url)
+        print(f"文件大小: {total_size / 1024:.2f} KB | 文件地址: {safe_url}")
     await _emit_download_progress(
         progress_callback,
         {

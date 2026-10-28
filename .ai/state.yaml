@@ -3590,3 +3590,31 @@ neurobrain_transient_prompt_review_20261026:
     No AstrBot restart or live Persona provider request was performed. Verify
     latest-state refresh, no history persistence, provider fallback/tool-loop
     refresh, and stopped-runtime behavior after restarting AstrBot.
+
+project_log_control_character_sanitization_20261028:
+  date: '2026-10-28'
+  class: bugfix
+  risk: medium
+  status: source_validated_pending_restart_and_runtime_acceptance
+  scope: >-
+    Sanitize control characters at shared Loguru, logging queue, and trace broker
+    boundaries so plugin and core log content cannot emit terminal bells, ANSI
+    controls, or injected line breaks. Preserve structural traceback line breaks
+    while sanitizing exception text. Sanitize direct runtime progress output and
+    the astrbot run CLI exception/traceback output. Preserve generated plugin
+    deployments and subprocess stdout protocols.
+  validation: >-
+    Fourteen targeted error-redaction and log-manager tests passed, as did both
+    astrbot run CLI tests including control-character output escaping. Ruff and
+    compileall passed for changed Python sources. Isolated smoke checks confirmed
+    direct Loguru and standard logging messages escape BEL, ESC, CR, and LF. A
+    CRLF-aware diff check passed; the plain git diff --check flags carriage
+    returns on changed lines in the existing CRLF Tencent source file. Full-repo
+    Ruff reports unrelated diagnostics in existing files and the untracked
+    .tmp_livingmemory_review tree; scoped changed Python files pass.
+  evidence_gap: >-
+    No AstrBot restart or live platform/plugin acceptance was performed. The
+    shared logger change covers installed plugins using AstrBot's logger after
+    restart. CLI presentation output (for example, config values and plugin
+    downloader status) and standalone scripts/subprocess stdout protocols remain
+    outside the application logging boundary.

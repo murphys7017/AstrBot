@@ -12,6 +12,45 @@ from ..utils import check_astrbot_root, check_dashboard, get_astrbot_root
 DASHBOARD_RESET_PASSWORD_ENV = "ASTRBOT_RESET_DASHBOARD_PASSWORD"
 
 
+def _sanitize_cli_error(text: str) -> str:
+    return "".join(
+        f"\\x{ord(char):02x}"
+        if ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F
+        else char
+        for char in text
+    )
+
+
+def _sanitize_cli_traceback(formatted, seen=None) -> None:
+    if seen is None:
+        seen = set()
+    if id(formatted) in seen:
+        return
+    seen.add(id(formatted))
+
+    formatted._str = _sanitize_cli_error(formatted._str)
+    for frame in formatted.stack:
+        frame.filename = _sanitize_cli_error(frame.filename)
+        frame.name = _sanitize_cli_error(frame.name)
+        if frame.line is not None:
+            frame._line = _sanitize_cli_error(frame.line)
+    notes = getattr(formatted, "__notes__", None)
+    if isinstance(notes, (list, tuple)):
+        formatted.__notes__ = [_sanitize_cli_error(note) for note in notes]
+    for attr in ("filename", "text", "msg"):
+        value = getattr(formatted, attr, None)
+        if isinstance(value, str):
+            setattr(formatted, attr, _sanitize_cli_error(value))
+    nested_exceptions = (
+        getattr(formatted, "__cause__", None),
+        getattr(formatted, "__context__", None),
+        *(getattr(formatted, "exceptions", None) or ()),
+    )
+    for nested in nested_exceptions:
+        if nested is not None:
+            _sanitize_cli_traceback(nested, seen)
+
+
 async def run_astrbot(astrbot_root: Path) -> None:
     """Run AstrBot"""
     from astrbot.core import LogBroker, LogManager, db_helper, logger
@@ -71,4 +110,7 @@ def run(reload: bool, port: str | None, reset_password: bool) -> None:
             "Cannot acquire lock file. Please check if another instance is running"
         )
     except Exception as e:
-        raise click.ClickException(f"Runtime error: {e}\n{traceback.format_exc()}")
+        formatted = traceback.TracebackException.from_exception(e)
+        _sanitize_cli_traceback(formatted)
+        message = f"Runtime error:\n{''.join(formatted.format())}"
+        raise click.ClickException(message) from None

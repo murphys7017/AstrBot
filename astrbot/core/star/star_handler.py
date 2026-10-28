@@ -5,6 +5,8 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeVar, overload
 
+from astrbot.core.utils.error_redaction import sanitize_control_chars
+
 from .filter import HandlerFilter
 from .star import star_map
 
@@ -29,7 +31,7 @@ class StarHandlerRegistry(Generic[T]):
 
     def _print_handlers(self) -> None:
         for handler in self._handlers:
-            print(handler.handler_full_name)
+            print(sanitize_control_chars(handler.handler_full_name))
 
     @overload
     def get_handlers_by_event_type(
