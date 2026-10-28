@@ -3624,7 +3624,7 @@ interaction_olv_incremental_receipts_20261028:
   date: '2026-10-28'
   class: bugfix
   risk: medium
-  status: source_validated_pending_live_adapter_acceptance
+  status: source_validated_pending_deployment_and_live_acceptance
   scope: >-
     Extend existing Interaction TurnState receipts to the OLV incremental writer
     path. Treat resource-level text/audio/motion closure as logical stream
@@ -3637,16 +3637,16 @@ interaction_olv_incremental_receipts_20261028:
     closure prevent a delivered receipt. synth_finished is not client playback
     acknowledgement and remains outside message-level receipt state.
   validation: >-
-    OLV incremental output and Persona segment stream suites pass 21 cases,
-    including full completion, cancellation after text acceptance, text transport
-    failure and action-only output without an accepted motion payload. The six
-    Core/plugin streaming receipt cases still pass. Scoped Ruff, compileall and
-    git diff --check pass.
+    OLV incremental output tests pass 13 cases, including rejected motion
+    publication closing the Core resource as failed. AG99Live platform event
+    tests pass 23 cases, including final motion publication resolving the
+    result/segment-scoped Core future. Scoped Ruff, compileall and diff checks
+    pass.
   remaining: >-
-    No AstrBot restart or live OLV adapter acceptance. Confirm that the deployed
-    Adapter's motion finalizer resolves the Core stream future and closes the
-    resource before Core receipt settlement. Turn-level synth_finished failure
-    is separate from this message receipt.
+    The adapter source worktree contains other uncommitted Interaction changes;
+    deployment is deferred because the deploy script copies the whole plugin.
+    No AstrBot restart or live OLV adapter acceptance has been performed.
+    Turn-level synth_finished failure is separate from this message receipt.
 
 project_log_control_character_sanitization_20261028:
   date: '2026-10-28'

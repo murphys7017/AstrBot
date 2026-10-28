@@ -1148,7 +1148,7 @@ class InteractionOutputController:
                                 else:
                                     deadline = None
                                 if motion_future.done():
-                                    await asyncio.shield(motion_future)
+                                    motion_accepted = await asyncio.shield(motion_future)
                                 elif deadline is None:
                                     # No admitted producer owns this optional resource.
                                     await end_incremental_stream(
@@ -1156,11 +1156,24 @@ class InteractionOutputController:
                                         segment_index,
                                     )
                                     motion_future.set_result(False)
+                                    motion_accepted = False
                                 else:
-                                    await asyncio.wait_for(
+                                    motion_accepted = await asyncio.wait_for(
                                         asyncio.shield(motion_future),
                                         timeout=max(0.0, deadline - loop.time()),
                                     )
+                                if (
+                                    motion_accepted is False
+                                    and "motion"
+                                    not in incremental_closed_resources[segment_index]
+                                ):
+                                    await end_incremental_stream(
+                                        "motion",
+                                        segment_index,
+                                        status="failed",
+                                        reason="motion_result_rejected",
+                                    )
+                                    return
                                 incremental_closed_resources[segment_index].add(
                                     "motion"
                                 )

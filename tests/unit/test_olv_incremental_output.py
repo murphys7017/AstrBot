@@ -379,6 +379,35 @@ async def test_text_delivery_does_not_mark_failed_motion_as_persona_state():
 
 
 @pytest.mark.asyncio
+async def test_rejected_motion_result_closes_resource_as_failed():
+    sink = OutputSink(deliver_motion=False)
+
+    class RejectingMotionEvent(IncrementalEvent):
+        async def flush_interaction_incremental_motion(self, *, segment_index):
+            self.get_extra("_interaction_incremental_motion_futures")[
+                segment_index
+            ].set_result(False)
+
+    event = RejectingMotionEvent(sink)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer(
+            "可见文本",
+            actions=["nod"],
+            request=PersonaExpressionRequest(
+                require_turn_action=True,
+                allow_action_only=True,
+            ),
+        ),
+        on_header=publish,
+    )
+    assert outcome.status == "completed"
+    assert ("motion", 0, "failed") in sink.ends
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == "partial"
+
+
+@pytest.mark.asyncio
 async def test_action_only_motion_can_finish_after_one_second_within_its_budget():
     sink = OutputSink(deliver_motion=True)
 
