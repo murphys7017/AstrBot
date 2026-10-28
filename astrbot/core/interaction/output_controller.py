@@ -632,6 +632,10 @@ class InteractionOutputController:
         incremental_closed_resources: dict[int, set[str]] = {}
         incremental_motion_futures: dict[int, asyncio.Future[bool]] = {}
         incremental_motion_tasks: list[asyncio.Task] = []
+        incremental_output_attempted = False
+        incremental_output_sent = False
+        incremental_resource_failures: set[tuple[str, int]] = set()
+        incremental_receipt_recorded = False
 
         async def enqueue_pcm(item: PCMTextPart | None) -> bool:
             """Feed audio independently; text production never waits for PCM."""
@@ -664,6 +668,29 @@ class InteractionOutputController:
                     consumer.cancel()
                 return False
 
+        async def end_incremental_stream(
+            resource: str,
+            segment_index: int,
+            *,
+            status: str = "completed",
+            reason: str = "",
+        ) -> None:
+            nonlocal incremental_output_attempted
+            if incremental_writer is None:
+                return
+            incremental_output_attempted = True
+            if status != "completed":
+                incremental_resource_failures.add((resource, segment_index))
+            await incremental_writer.end_stream(
+                resource,
+                segment_index,
+                status=status,
+                reason=reason,
+            )
+            incremental_closed_resources.setdefault(segment_index, set()).add(
+                resource
+            )
+
         async def close_incremental_audio(
             segment_index: int, *, status: str = "completed", reason: str = "",
         ) -> None:
@@ -671,14 +698,16 @@ class InteractionOutputController:
             if incremental_writer is None or "audio" in closed:
                 return
             try:
-                await incremental_writer.end_stream(
-                    "audio", segment_index, status=status, reason=reason,
+                await end_incremental_stream(
+                    "audio",
+                    segment_index,
+                    status=status,
+                    reason=reason,
                 )
             except (RuntimeError, ValueError):
                 if status == "completed":
                     raise
                 return
-            closed.add("audio")
 
         async def close_incremental_resources(
             *, status: str, reason: str
@@ -691,7 +720,7 @@ class InteractionOutputController:
                     if resource in closed:
                         continue
                     try:
-                        await incremental_writer.end_stream(
+                        await end_incremental_stream(
                             resource,
                             segment_index,
                             status=status,
@@ -699,7 +728,6 @@ class InteractionOutputController:
                         )
                     except (RuntimeError, ValueError):
                         continue
-                    closed.add(resource)
 
         async def settle_incremental_background_tasks() -> None:
             """Drain admitted audio while it progresses; bound stalled production."""
@@ -897,6 +925,7 @@ class InteractionOutputController:
 
             async def consume_pcm() -> None:
                 nonlocal incremental_pcm_error, incremental_pcm_progress_at
+                nonlocal incremental_output_attempted, incremental_output_sent
                 state["tts_attempted"] = True
                 try:
                     async with aclosing(synthesize_pcm_stream(
@@ -904,11 +933,13 @@ class InteractionOutputController:
                     )) as frames:
                         async for frame in frames:
                             if frame.kind == "audio":
+                                incremental_output_attempted = True
                                 await incremental_writer.append_audio(
                                     frame.segment_index,
                                     frame.sample_offset,
                                     frame.audio,
                                 )
+                                incremental_output_sent = True
                             elif frame.kind == "end":
                                 await close_incremental_audio(frame.segment_index)
                             incremental_pcm_progress_at = time.monotonic()
@@ -939,9 +970,12 @@ class InteractionOutputController:
             )
 
         async def publish_incremental_text(segment_index: int, text: str) -> None:
+            nonlocal incremental_output_attempted, incremental_output_sent
             if not text:
                 return
+            incremental_output_attempted = True
             await incremental_writer.append_text(segment_index, text)
+            incremental_output_sent = True
             if message_kind == "immediate_reply":
                 mark_interaction_turn_personal_emitted(event)
             state["delivered_text_parts"].append(text)
@@ -949,6 +983,7 @@ class InteractionOutputController:
             await enqueue_pcm(PCMTextPart(segment_index, text))
 
         async def emit_record(record: dict[str, Any]) -> None:
+            nonlocal incremental_output_attempted
             record_type = record.get("type")
             if record_type == "header":
                 if state["header"]:
@@ -1004,6 +1039,7 @@ class InteractionOutputController:
                         self.pre_output_processor.create_incremental_text_preparer(event)
                     )
                     for resource in ("text", "audio", "motion"):
+                        incremental_output_attempted = True
                         await incremental_writer.start_stream(
                             resource,
                             segment_index=state["current_index"],
@@ -1093,8 +1129,7 @@ class InteractionOutputController:
                         )
                         segment = dict(segment)
                         segment["speech"] = finished_text
-                        await incremental_writer.end_stream("text", segment_index)
-                        incremental_closed_resources[segment_index].add("text")
+                        await end_incremental_stream("text", segment_index)
                         await enqueue_pcm(PCMTextPart(segment_index, None))
                         async def finish_motion() -> None:
                             motion_future = incremental_motion_futures[segment_index]
@@ -1116,18 +1151,23 @@ class InteractionOutputController:
                                     await asyncio.shield(motion_future)
                                 elif deadline is None:
                                     # No admitted producer owns this optional resource.
-                                    await incremental_writer.end_stream("motion", segment_index)
+                                    await end_incremental_stream(
+                                        "motion",
+                                        segment_index,
+                                    )
                                     motion_future.set_result(False)
                                 else:
                                     await asyncio.wait_for(
                                         asyncio.shield(motion_future),
                                         timeout=max(0.0, deadline - loop.time()),
                                     )
-                                incremental_closed_resources[segment_index].add("motion")
+                                incremental_closed_resources[segment_index].add(
+                                    "motion"
+                                )
                             except asyncio.TimeoutError:
                                 if "motion" not in incremental_closed_resources[segment_index]:
                                     try:
-                                        await incremental_writer.end_stream(
+                                        await end_incremental_stream(
                                             "motion",
                                             segment_index,
                                             status="failed",
@@ -1140,11 +1180,10 @@ class InteractionOutputController:
                                             motion_future.set_result(False)
                                     if not motion_future.done():
                                         motion_future.set_result(False)
-                                    incremental_closed_resources[segment_index].add("motion")
                             except asyncio.CancelledError:
                                 if "motion" not in incremental_closed_resources[segment_index]:
                                     try:
-                                        await incremental_writer.end_stream(
+                                        await end_incremental_stream(
                                             "motion",
                                             segment_index,
                                             status="cancelled",
@@ -1152,13 +1191,12 @@ class InteractionOutputController:
                                         )
                                     except (RuntimeError, ValueError):
                                         pass
-                                    incremental_closed_resources[segment_index].add("motion")
                                 if not motion_future.done():
                                     motion_future.set_result(False)
                             except Exception:
                                 if "motion" not in incremental_closed_resources[segment_index]:
                                     try:
-                                        await incremental_writer.end_stream(
+                                        await end_incremental_stream(
                                             "motion",
                                             segment_index,
                                             status="failed",
@@ -1166,7 +1204,6 @@ class InteractionOutputController:
                                         )
                                     except (RuntimeError, ValueError):
                                         pass
-                                    incremental_closed_resources[segment_index].add("motion")
                                 if not motion_future.done():
                                     motion_future.set_result(False)
 
@@ -1577,6 +1614,28 @@ class InteractionOutputController:
             )
 
         def finalize_outcome() -> PersonaSegmentStreamOutcome:
+            nonlocal incremental_receipt_recorded
+            if (
+                incremental_writer is not None
+                and state["status"] == "completed"
+                and incremental_started_segments
+            ):
+                require_complete = getattr(
+                    incremental_writer,
+                    "require_complete",
+                    None,
+                )
+                if callable(require_complete):
+                    try:
+                        require_complete()
+                    except Exception as exc:
+                        state["error"] = state["error"] or exc
+                        state["status"] = "incomplete"
+                        platform_extras["persona_stream"]["status"] = "incomplete"
+                        platform_extras["persona_stream"]["failure_reason"] = (
+                            self._persona_stream_error_reason(exc)
+                        )
+
             status = state["status"]
             if state["error"] is not None and status != "cancelled":
                 event.set_extra(
@@ -1594,6 +1653,73 @@ class InteractionOutputController:
                 else frozenset()
             )
             motion_count = len(delivered_motion_indexes)
+            if incremental_writer is not None and not incremental_receipt_recorded:
+                for segment_index, segment in enumerate(state["segments"]):
+                    if (
+                        segment.get("actions")
+                        and segment_index not in delivered_motion_indexes
+                    ):
+                        incremental_resource_failures.add(
+                            ("motion", segment_index)
+                        )
+                has_output = bool(
+                    getattr(incremental_writer, "has_output", False)
+                    or incremental_output_sent
+                    or emitted_text
+                    or motion_count
+                )
+                has_wire_activity = bool(
+                    getattr(incremental_writer, "has_wire_activity", False)
+                    or incremental_output_attempted
+                    or has_output
+                )
+                if has_wire_activity:
+                    required_resources = {"text", "audio", "motion"}
+                    resources_closed = bool(incremental_started_segments) and all(
+                        required_resources.issubset(
+                            incremental_closed_resources.get(segment_index, set())
+                        )
+                        for segment_index in incremental_started_segments
+                    )
+                    writer_failure_reason = str(
+                        getattr(incremental_writer, "failure_reason", "") or ""
+                    ).strip()
+                    delivery_completed = (
+                        has_output
+                        and status == "completed"
+                        and resources_closed
+                        and not incremental_resource_failures
+                        and not writer_failure_reason
+                    )
+                    begin_interaction_turn_delivery_receipt(
+                        event,
+                        message_id=message_id,
+                        message_kind=message_kind,
+                    )
+                    physical_result = (
+                        MessageChainDeliveryResult(
+                            sent_any=True,
+                            all_succeeded=delivery_completed,
+                            attempted_count=1,
+                            failed_count=0 if delivery_completed else 1,
+                        )
+                        if has_output
+                        else None
+                    )
+                    receipt = finish_interaction_turn_delivery_receipt(
+                        event,
+                        message_id=message_id,
+                        physical_result=physical_result,
+                        completion_status=(
+                            "completed" if delivery_completed else "not_attempted"
+                        ),
+                        failure_stage=(
+                            None if delivery_completed else "physical_send"
+                        ),
+                    )
+                    self._trace_delivery_receipt(event, receipt)
+                    incremental_receipt_recorded = True
+
             first_motion_output_at = event.get_extra(
                 "_interaction_personal_stream_first_output_monotonic"
             )

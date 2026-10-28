@@ -16,6 +16,7 @@ from astrbot.core.interaction.expression_agent import (
 )
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
+    get_interaction_turn_delivery_receipts,
     get_interaction_turn_immediate_persona_segments,
     get_interaction_turn_personal_emitted_monotonic,
     get_interaction_turn_visible_outputs,
@@ -34,16 +35,30 @@ from astrbot.core.voice.pcm_stream import PCMStreamFrame
 
 
 class OutputSink:
-    def __init__(self, *, deliver_motion=False):
+    def __init__(
+        self,
+        *,
+        deliver_motion=False,
+        fail_text=False,
+        fail_completion=False,
+    ):
         self.deliver_motion = deliver_motion
+        self.fail_text = fail_text
+        self.fail_completion = fail_completion
         self.delivered_motion_segment_indexes = frozenset()
         self.text = []
         self.ends = []
+
+    def require_complete(self):
+        if self.fail_completion:
+            raise RuntimeError("incremental resource closure is incomplete")
 
     async def start_stream(self, resource, *, segment_index, message_id):
         pass
 
     async def append_text(self, segment_index, text):
+        if self.fail_text:
+            raise RuntimeError("incremental text transport failed")
         self.text.append(text)
 
     async def end_stream(self, resource, segment_index, **kwargs):
@@ -183,6 +198,10 @@ async def test_pcm_drains_many_deltas_after_slow_tts_start(monkeypatch, cancel_d
             await task
         assert ("audio", 0, "cancelled") in sink.ends
         assert sink.audio == []
+        receipt = get_interaction_turn_delivery_receipts(event)[0]
+        assert receipt["status"] == "partial"
+        assert receipt["physical_status"] == "partial"
+        assert receipt["completion_status"] == "not_attempted"
         return
     outcome = await task
     assert outcome.status == "completed"
@@ -211,6 +230,45 @@ async def test_incremental_output_flushes_literal_suffix_once():
         == "开始结束 <"
     )
     assert get_interaction_turn_personal_emitted_monotonic(event) is not None
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == "delivered", receipt
+    assert receipt["physical_status"] == "delivered"
+    assert receipt["completion_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_incremental_output_write_failure_records_unknown_receipt():
+    sink = OutputSink(fail_text=True)
+    event = IncrementalEvent(sink)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer("visible text"),
+        on_header=publish,
+    )
+
+    assert outcome.status == "incomplete"
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == "unknown"
+    assert receipt["physical_status"] == "unknown"
+    assert receipt["completion_status"] == "not_attempted"
+    assert receipt["failure_stage"] == "physical_send"
+
+
+@pytest.mark.asyncio
+async def test_incremental_resource_closure_failure_records_partial_receipt():
+    sink = OutputSink(fail_completion=True)
+    event = IncrementalEvent(sink)
+    outcome = await InteractionOutputController().emit_persona_segment_stream(
+        event,
+        producer=stream_producer("visible text"),
+        on_header=publish,
+    )
+
+    assert outcome.status == "incomplete"
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == "partial"
+    assert receipt["physical_status"] == "partial"
+    assert receipt["completion_status"] == "not_attempted"
 
 
 def test_finish_still_rejects_open_hidden_block_and_unsafe_suffix():
@@ -251,6 +309,8 @@ async def test_action_only_stream_counts_delivered_motion_not_completion(deliver
         has_delivered_motion_output(get_interaction_turn_visible_outputs(event))
         is delivered
     )
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == ("delivered" if delivered else "unknown")
     if delivered:
         assert get_interaction_turn_immediate_persona_segments(event)[0]["actions"] == [
             "nod"
@@ -313,6 +373,9 @@ async def test_text_delivery_does_not_mark_failed_motion_as_persona_state():
     segment = get_interaction_turn_immediate_persona_segments(event)[0]
     assert segment["speech"] == "可见文本"
     assert segment["actions"] == []
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["status"] == "partial"
+    assert receipt["physical_status"] == "partial"
 
 
 @pytest.mark.asyncio

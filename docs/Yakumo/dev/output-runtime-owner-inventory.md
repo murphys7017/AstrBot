@@ -136,13 +136,21 @@ segment stream 原先直接调用 `send_interaction_streaming`，缺少逻辑 st
 - 空流不产生成功交付证据，receipt 保留 `unknown`。adapter 正常返回是此处的完成边界，
   不代表客户端已接收或播放；adapter 必须透传发送失败。
 
-OLV legacy segment stream 已经由 `_deliver_visible_message` 结算；独立的
-`open_interaction_incremental_output` writer 尚未接入此 receipt 边界。其 text/audio/motion
-分别闭合，最终控制包由 adapter coordinator 发送，不能只用 `has_output` 或 producer
-结束判断完成。后续需核对资源级失败、最终控制包与 Turn receipt 的结算关系。
+OLV legacy segment stream 由 `_deliver_visible_message` 结算；独立的
+`open_interaction_incremental_output` writer 现在也在 Persona stream 收口时写一条父级
+receipt。Controller 汇总各 segment 的 text/audio/motion 终止结果、writer 接受的 payload、
+资源失败和缺失的 motion action；完整输出记 `delivered`，确认已有部分输出但资源失败记
+`partial`，只确认发生过 wire activity、不能确认 payload 时记 `unknown`。空控制流不会伪造
+成功 receipt。
+
+`require_complete()`（writer 提供时）和 Controller 记录的资源关闭事实共同定义逻辑 stream
+完成。adapter coordinator 后续发送的 `synth_finished` 是 Turn 级最终控制，不属于该逻辑
+消息 receipt，也不代表客户端已播放或确认。adapter 必须继续透传发送失败；source 侧尚无
+真实连接验收，motion 的关闭回调也需通过已部署 adapter 验证。
 
 源码验收：新增 Core/插件公共入口的 6 个边界案例通过；两个相关测试文件合计
 73 通过、2 失败，失败均在未修改的 middleware 测试夹具读取缺失的
-`interaction_config` 时发生。Persona segment stream 的 9 个案例通过；本次 Python
-文件的 Ruff、compileall 和 diff 检查通过。尚未重启服务或做真实平台验收，未拆分
-Controller，也未移除 Event 兼容拦截。
+`interaction_config` 时发生。OLV incremental output 与 Persona segment stream 共 21 项通过；
+新增测试覆盖成功、部分资源取消、写失败及无 payload 的 motion。Scoped Ruff、compileall
+和 diff 检查通过。尚未重启服务或做真实平台验收，未拆分 Controller，也未移除 Event
+兼容拦截。
