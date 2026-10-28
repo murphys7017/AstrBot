@@ -122,7 +122,7 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # 提交事件到事件队列。不要忘记！
 ```
 
-commit_event 在共享事件队列已满时返回 False 并记录过载告警；适配器可检查返回值并按平台能力处理重试或拒绝。
+共享事件队列已满时，`commit_event` 会记录过载告警并抛出 `asyncio.QueueFull`。应让异常传递给平台 SDK，或仅在执行平台对应的重试/拒绝确认时捕获；不要把被拒绝的事件报告为已接收。
 
 ## 为 Prompt 输入附加语义说明（可选）
 

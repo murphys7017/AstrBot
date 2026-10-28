@@ -56,9 +56,9 @@ def test_platform_commit_event_reports_full_ingress_queue():
     )
 
     with patch("astrbot.core.platform.platform.logger.warning") as warning:
-        accepted = Platform.commit_event(platform, object())
+        with pytest.raises(asyncio.QueueFull):
+            Platform.commit_event(platform, object())
 
-    assert accepted is False
     warning.assert_called_once()
 
 

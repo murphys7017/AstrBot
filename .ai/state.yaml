@@ -3679,3 +3679,32 @@ project_log_control_character_sanitization_20261028:
     restart. CLI presentation output (for example, config values and plugin
     downloader status) and standalone scripts/subprocess stdout protocols remain
     outside the application logging boundary.
+
+runtime_ingress_migration_retry_20261029:
+  date: '2026-10-29'
+  class: bugfix
+  risk: high
+  status: source_reviewed_pending_live_adapter_acceptance
+  scope: >-
+    Make the 4.5-to-4.6 configuration migration retry-safe by deriving a copy,
+    persisting routing before removing legacy metadata, and updating the in-memory
+    mapping only after both writes succeed. Make bounded platform event queue
+    rejection raise asyncio.QueueFull after a rate-limited warning so adapters and
+    SDK callbacks cannot silently treat a rejected event as accepted. Preserve
+    unrelated Interaction, Dashboard UI, documentation, and generated worktree
+    changes.
+  assumptions: >-
+    Persisting the new route table before cleaned metadata is idempotent: if the
+    second preference write fails, legacy umop metadata remains available and the
+    next startup can repeat the same route update. Queue-full behavior is explicit
+    failure; retries and negative acknowledgements remain adapter-specific.
+  validation: >-
+    Static review confirmed the migration write order and all in-repository
+    commit_event call sites; git diff --check passed. No Python tests were run and
+    no service was started, stopped, or restarted, per user direction.
+  remaining: >-
+    No live platform overload acceptance. Some SDKs may acknowledge before
+    downstream processing; their retry/negative-ack behavior still needs
+    platform-specific review. Dashboard backup and knowledge-base shutdown drain
+    has no shared deadline, and the Interaction output gateway/receipt boundary
+    remains an architectural follow-up.

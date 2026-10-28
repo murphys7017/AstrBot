@@ -1,10 +1,12 @@
+from copy import deepcopy
+
 from astrbot.api import logger, sp
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
 from astrbot.core.umop_config_router import UmopConfigRouter
 
 
 async def migrate_45_to_46(acm: AstrBotConfigManager, ucr: UmopConfigRouter) -> None:
-    abconf_data = acm.abconf_data
+    abconf_data = deepcopy(acm.abconf_data)
 
     if not isinstance(abconf_data, dict):
         # should be unreachable
@@ -36,9 +38,10 @@ async def migrate_45_to_46(acm: AstrBotConfigManager, ucr: UmopConfigRouter) -> 
                 if isinstance(umo, str) and umo not in umo_to_conf_id:
                     umo_to_conf_id[umo] = conf_id
 
-    # update the abconf data
-    await sp.global_put("abconf_mapping", abconf_data)
-    # update the umop config router
+    # Persist routing first. If saving the metadata fails, the legacy `umop`
+    # entries remain available so startup can safely retry this migration.
     await ucr.update_routing_data(umo_to_conf_id)
+    await sp.global_put("abconf_mapping", abconf_data)
+    acm.abconf_data = abconf_data
 
     logger.info("Migration from version 45 to 46 completed successfully")

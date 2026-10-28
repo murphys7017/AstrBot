@@ -146,8 +146,8 @@ class Platform(abc.ABC):
             Metric.upload(msg_event_tick=1, adapter_name=self.meta().name)
         )
 
-    def commit_event(self, event: AstrMessageEvent) -> bool:
-        """提交一个事件到事件队列。"""
+    def commit_event(self, event: AstrMessageEvent) -> None:
+        """Submit an event or raise QueueFull when the queue rejects it."""
         try:
             self._event_queue.put_nowait(event)
         except asyncio.QueueFull:
@@ -161,8 +161,7 @@ class Platform(abc.ABC):
                     self._event_queue.maxsize,
                     self._rejected_event_count,
                 )
-            return False
-        return True
+            raise
 
     def get_client(self) -> object:
         """获取平台的客户端对象。"""

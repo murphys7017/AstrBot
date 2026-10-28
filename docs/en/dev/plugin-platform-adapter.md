@@ -123,7 +123,7 @@ class FakePlatformAdapter(Platform):
         self.commit_event(message_event) # Submit the event to the event queue. Don't forget this!
 ```
 
-commit_event returns False and logs an overload warning when the shared event queue is full. Adapters can check the return value and apply platform-specific retry or rejection behavior.
+commit_event raises `asyncio.QueueFull` and logs an overload warning when the shared event queue is full. Let the exception reach the platform SDK, or catch it only when applying a platform-specific retry or negative acknowledgement; do not report the event as accepted.
 
 `fake_platform_event.py`:
 
