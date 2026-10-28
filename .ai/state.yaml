@@ -3639,9 +3639,10 @@ interaction_olv_incremental_receipts_20261028:
   validation: >-
     OLV incremental output tests pass 13 cases, including rejected motion
     publication closing the Core resource as failed. AG99Live platform event
-    tests pass 23 cases, including final motion publication resolving the
-    result/segment-scoped Core future. Scoped Ruff, compileall and diff checks
-    pass. The AG99Live post-commit hook deployed the full plugin source working
+    tests pass 24 cases, including final motion publication resolving the
+    result/segment-scoped Core future on success and transport exception.
+    Scoped Ruff, compileall and diff checks pass. The AG99Live post-commit hook
+    deployed the full plugin source working
     tree; SHA-256 matches for platform_event.py, main.py, incremental_output.py
     and persona_lifecycle.py. The model-specific ag99 directory remains present.
   remaining: >-
