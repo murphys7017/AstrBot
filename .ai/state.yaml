@@ -3591,6 +3591,35 @@ neurobrain_transient_prompt_review_20261026:
     latest-state refresh, no history persistence, provider fallback/tool-loop
     refresh, and stopped-runtime behavior after restarting AstrBot.
 
+interaction_standard_stream_receipts_20261028:
+  date: '2026-10-28'
+  class: bugfix
+  risk: medium
+  status: source_validated_with_two_unrelated_fixture_failures_pending_live_acceptance
+  scope: >-
+    Begin the user-requested Interaction work with roadmap phase 1 receipt
+    coverage. Route Core streams, direct plugin streams and non-OLV Persona
+    streams through the existing TurnState receipt helpers. Preserve Event
+    interception, platform APIs, AG99live source/deployments and unrelated edits.
+  assumptions: >-
+    A non-empty stream naturally exhausted by the adapter followed by normal
+    adapter return is one logical handoff, not a client playback acknowledgement
+    or a count of physical chunks. Adapters must propagate delivery failures.
+  validation: >-
+    Six Core/plugin public-entry receipt cases pass for complete consumption,
+    early return, adapter exception and cancellation. Early-return/error cases
+    exposed and verified source-generator cleanup through observation wrappers.
+    The two related test files finish with 73 passed and 2 failed; both failures
+    read missing interaction_config from existing uninitialized middleware test
+    doubles outside the changed paths. All 9 Persona segment cases pass.
+    Scoped Ruff, compileall and git diff --check pass.
+  remaining: >-
+    No restart or live platform acceptance. Empty streams retain unknown
+    delivery; errors and cancellation cannot prove which chunks reached the
+    platform. OLV incremental writer resource closure and final control remain
+    outside this receipt slice and need separate contract mapping before
+    Controller extraction. No commit was made for this batch.
+
 project_log_control_character_sanitization_20261028:
   date: '2026-10-28'
   class: bugfix

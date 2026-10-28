@@ -122,3 +122,27 @@ Output Controller 可以作为长期逻辑输出 owner，但还不能直接改�
 上文“尚未形成 `DeliveryReceipt`/`OutputSegmentReceipt` 契约”和“下一步先画 receipt/identity 表”记录的是 2026-09-19 的审计基线，不代表当前实现状态。当前代码已有 `InteractionTurnState.output_delivery_receipts`、`begin_interaction_turn_delivery_receipt()` 和 `finish_interaction_turn_delivery_receipt()`；跨组件方案 B1 也已扩展物理投递、完成通知和取消未知状态。
 
 后续工作应审计各输出来源是否都使用这套既有 receipt/identity，并完成 Artifact、Delayed Delivery、整轮完成和真实平台路径的验收。只有代码证据证明现有结构无法表达某个缺口时，才新增最小字段；不另建平行 receipt 或 delivery ledger。
+
+## 2026-10-28 标准流式输出覆盖
+
+Core `capture_streaming`、插件 direct `capture_plugin_streaming` 和非 OLV Persona
+segment stream 原先直接调用 `send_interaction_streaming`，缺少逻辑 stream receipt。
+这三个入口现已共用 Controller 内的流式交付边界，写入现有 TurnState receipt 与 trace。
+
+- 非空 generator 自然耗尽且 adapter 正常返回后，记录一个逻辑 stream 的
+  `delivered/completed` receipt。计数为一次逻辑 adapter 交接，不是 chunk 或网络包数量。
+- adapter 抛错、取消、未消费或提前返回时记录 `unknown`；提前返回会报错，避免提交
+  半截内容为成功输出。关闭 wrapper 与源 generator，不依赖异步 GC 清理。
+- 空流不产生成功交付证据，receipt 保留 `unknown`。adapter 正常返回是此处的完成边界，
+  不代表客户端已接收或播放；adapter 必须透传发送失败。
+
+OLV legacy segment stream 已经由 `_deliver_visible_message` 结算；独立的
+`open_interaction_incremental_output` writer 尚未接入此 receipt 边界。其 text/audio/motion
+分别闭合，最终控制包由 adapter coordinator 发送，不能只用 `has_output` 或 producer
+结束判断完成。后续需核对资源级失败、最终控制包与 Turn receipt 的结算关系。
+
+源码验收：新增 Core/插件公共入口的 6 个边界案例通过；两个相关测试文件合计
+73 通过、2 失败，失败均在未修改的 middleware 测试夹具读取缺失的
+`interaction_config` 时发生。Persona segment stream 的 9 个案例通过；本次 Python
+文件的 Ruff、compileall 和 diff 检查通过。尚未重启服务或做真实平台验收，未拆分
+Controller，也未移除 Event 兼容拦截。

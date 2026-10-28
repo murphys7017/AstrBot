@@ -43,6 +43,7 @@ from astrbot.core.interaction.turn_state import (
     get_interaction_turn_runtime_config,
     get_interaction_turn_state,
     get_interaction_turn_visible_message_fingerprints,
+    get_interaction_turn_visible_outputs,
     is_interaction_turn_emitting_immediate_reply,
     is_interaction_turn_pipeline_output_suppressed,
     is_interaction_turn_pipeline_route_handled,
@@ -2104,6 +2105,111 @@ async def test_visible_message_completion_cancellation_records_unknown_effect():
         "failed_count": 0,
     }
     assert get_interaction_turn_visible_message_fingerprints(event) == set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("entry_point", "adapter_outcome", "expected_exception", "expected_status"),
+    [
+        ("plugin", "consume", None, "delivered"),
+        ("plugin", "early_return", RuntimeError, "unknown"),
+        ("plugin", "error", ValueError, "unknown"),
+        ("plugin", "cancel", asyncio.CancelledError, "unknown"),
+        ("core", "consume", None, "delivered"),
+        ("core", "early_return", RuntimeError, "unknown"),
+    ],
+)
+async def test_stream_receipt_requires_complete_adapter_consumption(
+    entry_point,
+    adapter_outcome,
+    expected_exception,
+    expected_status,
+):
+    class Event:
+        session_id = "session-1"
+
+        def __init__(self):
+            self._extras = {}
+            self.source_closed = False
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+        def get_platform_id(self):
+            return "test-platform"
+
+        async def send_interaction_streaming(
+            self,
+            generator,
+            *,
+            platform_extras=None,
+            use_fallback=False,
+        ):
+            del platform_extras, use_fallback
+            if adapter_outcome == "consume":
+                async for _message in generator:
+                    pass
+                return
+            await anext(generator)
+            if adapter_outcome == "error":
+                raise ValueError("adapter failed")
+            if adapter_outcome == "cancel":
+                raise asyncio.CancelledError
+
+    event = Event()
+    controller = InteractionOutputController(persist_callback=AsyncMock())
+    controller._begin_plugin_output_transaction = lambda _event: True
+    controller._get_interaction_config = lambda _event: SimpleNamespace(
+        stream_interjection_enabled=False
+    )
+    controller._next_output_segment_id = lambda _event, kind: f"{kind}-1"
+    controller.build_platform_output_extras = lambda *_args, **_kwargs: {}
+    controller._notify_lifecycle = AsyncMock()
+
+    async def source_stream():
+        try:
+            yield MessageChain([Plain("first")])
+            yield MessageChain([Plain("second")])
+        finally:
+            event.source_closed = True
+
+    stream = source_stream()
+
+    async def capture_stream():
+        if entry_point == "plugin":
+            return await controller.capture_plugin_streaming(stream, event)
+        return await controller.capture_streaming(stream, event)
+
+    if expected_exception is None:
+        await capture_stream()
+    else:
+        with pytest.raises(expected_exception):
+            await capture_stream()
+
+    message_id = f"{'plugin_direct' if entry_point == 'plugin' else 'core_stream'}-1"
+    outputs = get_interaction_turn_visible_outputs(event)
+    if expected_exception is None:
+        assert len(outputs) == 1
+        assert outputs[0]["text"] == "firstsecond"
+    else:
+        assert outputs == []
+
+    receipt = get_interaction_turn_delivery_receipts(event)[0]
+    assert receipt["message_id"] == message_id
+    assert receipt["status"] == expected_status
+    assert receipt["physical_status"] == (
+        "delivered" if expected_status == "delivered" else "unknown"
+    )
+    assert receipt["completion_status"] == (
+        "completed" if expected_status == "delivered" else "not_attempted"
+    )
+    assert receipt["failure_stage"] == (
+        None if expected_status == "delivered" else "physical_send"
+    )
+    assert event.source_closed
 
 
 @pytest.mark.asyncio

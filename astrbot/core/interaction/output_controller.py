@@ -1794,8 +1794,11 @@ class InteractionOutputController:
             asyncio.create_task(
                 deliver_olv_segments()
                 if is_olv_segment_stream
-                else event.send_interaction_streaming(
+                else self._deliver_streaming_message(
+                    event,
                     stream_messages(),
+                    message_kind=message_kind,
+                    output_segment_id=message_id,
                     platform_extras=platform_extras,
                     use_fallback=False,
                 )
@@ -2481,11 +2484,12 @@ class InteractionOutputController:
         message_id = self._next_output_segment_id(event, resolved_kind)
 
         async def _observe_plugin_stream() -> AsyncGenerator[MessageChain, None]:
-            async for chain in generator:
-                chunk_text = self._extract_observable_stream_text(chain)
-                if chunk_text:
-                    stream_text_parts.append(chunk_text)
-                yield chain
+            async with aclosing(generator):
+                async for chain in generator:
+                    chunk_text = self._extract_observable_stream_text(chain)
+                    if chunk_text:
+                        stream_text_parts.append(chunk_text)
+                    yield chain
 
         platform_extras = {
             **self.build_platform_output_extras(
@@ -2502,8 +2506,11 @@ class InteractionOutputController:
             {"message_kind": resolved_kind},
         )
         try:
-            await event.send_interaction_streaming(
+            await self._deliver_streaming_message(
+                event,
                 _observe_plugin_stream(),
+                message_kind=resolved_kind,
+                output_segment_id=message_id,
                 platform_extras=platform_extras,
                 use_fallback=use_fallback,
             )
@@ -2686,8 +2693,11 @@ class InteractionOutputController:
             {"message_kind": "core_stream"},
         )
         try:
-            await event.send_interaction_streaming(
+            await self._deliver_streaming_message(
+                event,
                 observed_generator,
+                message_kind="core_stream",
+                output_segment_id=message_id,
                 platform_extras=platform_extras,
                 use_fallback=use_fallback,
             )
@@ -2713,7 +2723,27 @@ class InteractionOutputController:
             )
             await self._persist_interaction_turn(event)
         finally:
-            set_interaction_turn_core_streaming_active(event, False)
+            try:
+                try:
+                    await observed_generator.aclose()
+                except Exception:
+                    logger.debug(
+                        "Failed to close observed Core stream: message_id=%s",
+                        message_id,
+                        exc_info=True,
+                    )
+            finally:
+                try:
+                    try:
+                        await generator.aclose()
+                    except Exception:
+                        logger.debug(
+                            "Failed to close source Core stream: message_id=%s",
+                            message_id,
+                            exc_info=True,
+                        )
+                finally:
+                    set_interaction_turn_core_streaming_active(event, False)
 
     async def _wrap_core_stream(
         self,
@@ -5145,6 +5175,117 @@ class InteractionOutputController:
             message=message,
             platform_extras=platform_extras,
             record_send_operation=record_send_operation,
+        )
+
+    async def _deliver_streaming_message(
+        self,
+        event: AstrMessageEvent,
+        generator: AsyncGenerator[MessageChain, None],
+        *,
+        message_kind: str,
+        output_segment_id: str,
+        platform_extras: dict[str, Any],
+        use_fallback: bool,
+    ) -> None:
+        """Record one logical stream at the adapter handoff boundary.
+
+        Streaming adapters own chunk aggregation and terminal signaling, so a
+        normal return after consuming the complete stream is the completion
+        boundary. A raised error, cancellation, or unconsumed generator has
+        unknown delivery.
+        """
+        normalized_message_id = str(output_segment_id or "").strip()
+        begin_interaction_turn_delivery_receipt(
+            event,
+            message_id=normalized_message_id,
+            message_kind=message_kind,
+        )
+        consumed_output = False
+        stream_exhausted = False
+        receipt_finished = False
+
+        async def tracked_generator() -> AsyncGenerator[MessageChain, None]:
+            nonlocal consumed_output, stream_exhausted
+            async for message in generator:
+                consumed_output = True
+                yield message
+            stream_exhausted = True
+
+        def finish_receipt(
+            physical_result: MessageChainDeliveryResult | None,
+            completion_status: InteractionDeliveryCompletionStatus,
+            failure_stage: InteractionDeliveryFailureStage | None = None,
+        ) -> None:
+            nonlocal receipt_finished
+            if receipt_finished:
+                return
+            receipt = finish_interaction_turn_delivery_receipt(
+                event,
+                message_id=normalized_message_id,
+                physical_result=physical_result,
+                completion_status=completion_status,
+                failure_stage=failure_stage,
+            )
+            receipt_finished = True
+            self._trace_delivery_receipt(event, receipt)
+
+        tracked_stream = tracked_generator()
+        try:
+            await event.send_interaction_streaming(
+                tracked_stream,
+                platform_extras=platform_extras,
+                use_fallback=use_fallback,
+            )
+        except asyncio.CancelledError:
+            finish_receipt(None, "not_attempted", "physical_send")
+            raise
+        except Exception:
+            finish_receipt(None, "not_attempted", "physical_send")
+            raise
+        finally:
+            if not stream_exhausted:
+                try:
+                    await tracked_stream.aclose()
+                except asyncio.CancelledError:
+                    finish_receipt(None, "not_attempted", "physical_send")
+                    raise
+                except Exception:
+                    logger.debug(
+                        "Failed to close interaction streaming wrapper: "
+                        "message_id=%s",
+                        normalized_message_id,
+                        exc_info=True,
+                    )
+                try:
+                    await generator.aclose()
+                except asyncio.CancelledError:
+                    finish_receipt(None, "not_attempted", "physical_send")
+                    raise
+                except Exception:
+                    logger.debug(
+                        "Failed to close interaction source stream: message_id=%s",
+                        normalized_message_id,
+                        exc_info=True,
+                    )
+
+        if not stream_exhausted:
+            finish_receipt(None, "not_attempted", "physical_send")
+            raise RuntimeError(
+                "Interaction streaming adapter returned before consuming "
+                "the complete stream"
+            )
+
+        if not consumed_output:
+            finish_receipt(None, "not_attempted", "physical_send")
+            return
+
+        finish_receipt(
+            MessageChainDeliveryResult(
+                sent_any=True,
+                all_succeeded=True,
+                attempted_count=1,
+            ),
+            "completed",
         )
 
     async def _deliver_visible_message(
