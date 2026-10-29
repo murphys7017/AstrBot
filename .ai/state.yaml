@@ -3777,3 +3777,35 @@ log_privacy_and_group_reflection_recovery_20261030:
     preserved as diagnostic records. Older LivingMemory database-open errors did not
     recur in the reviewed current logs, so no additional database-path change was
     made.
+
+log_privacy_history_cleanup_and_runtime_load_20261030:
+  date: '2026-10-30'
+  class: bugfix
+  risk: high
+  status: runtime_loaded_pending_live_platform_roundtrip
+  supersedes: >-
+    livingmemory_prompt_stale_recall_20261029 and
+    log_privacy_and_group_reflection_recovery_20261030 restart and historical-log
+    cleanup status.
+  scope: >-
+    Redact existing body-bearing platform, event, LivingMemory, and prompt-trace
+    records from AstrBot logs while retaining timestamps, module labels, and safe
+    diagnostic fields. Isolate pytest's default AstrBot data root under ignored
+    .tmp so tests do not append simulated failures to the user's runtime logs.
+  validation: >-
+    Across four existing logs, 34,846 message/prompt-bearing records were redacted;
+    134 historical traceback records across all four logs were reduced to
+    exception-type markers: 127 in rotated logs and 7 in the active log.
+    Follow-up scans found zero known legacy message,
+    prompt, or traceback markers. Core event/log tests passed: 32. LivingMemory
+    recall, reflection, and backlog tests passed under the repository's AstrBot
+    4.29.0-beta.1 environment: 36. Runtime environment and CLI tests passed: 5.
+    The test harness isolation change passed the same 32 core tests. AstrBot
+    started with the updated code; WebUI returned HTTP 200, startup output
+    contained no traceback or error lines, and LivingMemory/OLV load mentions
+    were present.
+  remaining: >-
+    No live OLV chat roundtrip was sent; all identified historical message/prompt
+    bodies and exception stacks were removed from the four log files. The pytest
+    root isolation prevents future synthetic test traces from entering the runtime
+    log.

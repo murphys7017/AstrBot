@@ -24,6 +24,11 @@ if str(PROJECT_ROOT) not in sys.path:
 # 设置测试环境变量
 os.environ.setdefault("TESTING", "true")
 os.environ.setdefault("ASTRBOT_TEST_MODE", "true")
+# Keep imports that initialize global config away from the developer's runtime logs.
+os.environ.setdefault(
+    "ASTRBOT_ROOT",
+    str(PROJECT_ROOT / ".tmp" / "pytest-astrbot-root"),
+)
 
 
 # ============================================================
