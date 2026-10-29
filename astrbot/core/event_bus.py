@@ -18,10 +18,7 @@ from astrbot.core import logger
 from astrbot.core.astrbot_config_mgr import AstrBotConfigManager
 from astrbot.core.pipeline.scheduler import PipelineScheduler
 from astrbot.core.platform.unique_session import apply_unique_session
-from astrbot.core.utils.error_redaction import (
-    redact_sensitive_text,
-    sanitize_control_chars,
-)
+from astrbot.core.utils.error_redaction import sanitize_control_chars
 
 from .platform import AstrMessageEvent
 
@@ -59,6 +56,22 @@ class EventBus:
                 event: AstrMessageEvent = await self.event_queue.get()
                 if not self._accepting_events:
                     return
+                trace = getattr(event, "trace", None)
+                record_trace = getattr(trace, "record", None)
+                if callable(record_trace):
+                    event_age_ms = None
+                    elapsed_ms = getattr(trace, "elapsed_ms", None)
+                    if callable(elapsed_ms):
+                        try:
+                            elapsed_value = elapsed_ms()
+                            if isinstance(elapsed_value, (int, float)):
+                                event_age_ms = round(elapsed_value, 3)
+                        except (TypeError, ValueError):
+                            pass
+                    record_trace(
+                        "event_dispatch_started",
+                        event_age_ms=event_age_ms,
+                    )
                 selection_resolver = getattr(
                     self.astrbot_config_mgr,
                     "resolve_configuration_selection",
@@ -160,28 +173,20 @@ class EventBus:
             event (AstrMessageEvent): 事件对象
 
         """
-        sender_name = event.get_sender_name()
-        safe_sender_name = sanitize_control_chars(sender_name)
-        safe_message_outline = sanitize_control_chars(event.get_message_outline())
         safe_conf_name = sanitize_control_chars(str(conf_name))
         safe_platform_id = sanitize_control_chars(str(event.get_platform_id()))
         safe_platform_name = sanitize_control_chars(str(event.get_platform_name()))
-        safe_sender_id = sanitize_control_chars(str(event.get_sender_id()))
-
-        # 如果有发送者名称: [平台名] 发送者名称/发送者ID: 消息概要
-        if sender_name:
-            logger.info(
-                f"[{safe_conf_name}] [{safe_platform_id}({safe_platform_name})] {safe_sender_name}/{safe_sender_id}: {safe_message_outline}",
-            )
-            if (
-                f"[{event.get_platform_id()}({event.get_platform_name()})]"
-                == "[alice(aiocqhttp)]"
-            ):
-                logger.debug(
-                    f"Full event data: {redact_sensitive_text(str(event.message_obj))}"
-                )
-        # 没有发送者名称: [平台名] 发送者ID: 消息概要
-        else:
-            logger.info(
-                f"[{safe_conf_name}] [{safe_platform_id}({safe_platform_name})] {safe_sender_id}: {safe_message_outline}",
-            )
+        message_type = event.get_message_type()
+        message_type_name = str(getattr(message_type, "name", message_type))
+        try:
+            component_count = len(event.get_messages())
+        except (AttributeError, TypeError):
+            component_count = 0
+        logger.info(
+            "[%s] [%s(%s)] Received message: type=%s components=%d",
+            safe_conf_name,
+            safe_platform_id,
+            safe_platform_name,
+            sanitize_control_chars(message_type_name),
+            component_count,
+        )

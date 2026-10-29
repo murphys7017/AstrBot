@@ -107,8 +107,6 @@ class AstrMessageEvent(abc.ABC):
         self.trace = TraceSpan(
             name="AstrMessageEvent",
             umo=self.unified_msg_origin,
-            sender_name=self.get_sender_name(),
-            message_outline=self.get_message_outline(),
         )
         """用于记录事件处理的 TraceSpan 对象"""
         self.span = self.trace

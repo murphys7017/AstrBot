@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import aclosing, nullcontext
+from time import perf_counter
 
 from astrbot.core import logger
 from astrbot.core.interaction.turn_state import get_interaction_turn_runtime_config
@@ -105,6 +106,8 @@ class PipelineScheduler:
                 "_plugin_execution_runtime",
                 self.ctx.plugin_execution_runtime,
             )
+        pipeline_started_at = perf_counter()
+        completed = False
         active_event_registry.register(event)
         try:
             await self._process_stages(event)
@@ -115,6 +118,26 @@ class PipelineScheduler:
                 await event.complete_visible_turn()
 
             logger.debug("pipeline 执行完毕。")
+            completed = True
         finally:
+            pipeline_duration_ms = (perf_counter() - pipeline_started_at) * 1000
             event.cleanup_temporary_local_files()
             active_event_registry.unregister(event)
+            trace = getattr(event, "trace", None)
+            record_trace = getattr(trace, "record", None)
+            if callable(record_trace):
+                event_elapsed_ms = None
+                elapsed_ms = getattr(trace, "elapsed_ms", None)
+                if callable(elapsed_ms):
+                    try:
+                        elapsed_value = elapsed_ms()
+                        if isinstance(elapsed_value, (int, float)):
+                            event_elapsed_ms = round(elapsed_value, 3)
+                    except (TypeError, ValueError):
+                        pass
+                record_trace(
+                    "pipeline_complete",
+                    status="completed" if completed else "failed",
+                    pipeline_duration_ms=round(pipeline_duration_ms, 3),
+                    event_elapsed_ms=event_elapsed_ms,
+                )

@@ -895,7 +895,8 @@ async def _stream_native_agent_output(
                 tool_info = _extract_chain_json_data(tool_chain)
                 astr_event.trace.record(
                     "agent_tool_call",
-                    tool_name=tool_info if tool_info else "unknown",
+                    tool_name=(tool_info.get("name") if tool_info else None)
+                    or "unknown",
                 )
                 _record_tool_call_name(tool_info, tool_name_by_call_id)
 

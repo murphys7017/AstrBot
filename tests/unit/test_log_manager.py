@@ -179,6 +179,8 @@ def test_prompt_trace_is_disabled_without_trace_file_logging(monkeypatch):
         event,
         "prompt.render_result",
         system_prompt_preview="sensitive prompt",
+        messages=[{"role": "user", "content": "private conversation"}],
+        duration_ms=12,
     )
 
     trace_logger.info.assert_not_called()
@@ -201,6 +203,12 @@ def test_prompt_trace_writes_details_only_to_trace_logger(monkeypatch):
         event,
         "prompt.render_result",
         system_prompt_preview="sensitive prompt",
+        messages=[{"role": "user", "content": "private conversation"}],
+        contexts=[{"role": "user", "content": "private context"}],
+        system="private system prompt",
+        image_urls=["https://example.invalid/private-image"],
+        response_tail="private model response",
+        duration_ms=12,
     )
 
     payload = json.loads(trace_logger.info.call_args.args[0])
@@ -208,4 +216,43 @@ def test_prompt_trace_writes_details_only_to_trace_logger(monkeypatch):
     assert payload["span_id"] == "span-1"
     assert payload["turn_id"] == "turn-1"
     assert payload["platform_id"] == "platform-1"
-    assert payload["fields"]["system_prompt_preview"] == "sensitive prompt"
+    assert payload["fields"]["system_prompt_preview"] == "[REDACTED]"
+    assert payload["fields"]["messages"] == "[REDACTED]"
+    assert payload["fields"]["contexts"] == "[REDACTED]"
+    assert payload["fields"]["system"] == "[REDACTED]"
+    assert payload["fields"]["image_urls"] == "[REDACTED]"
+    assert payload["fields"]["response_tail"] == "[REDACTED]"
+    assert payload["fields"]["duration_ms"] == 12
+
+
+def test_event_trace_redacts_content_and_keeps_timing(monkeypatch):
+    broker = LogBroker()
+    monkeypatch.setattr(trace_utils, "astrbot_config", {"trace_enable": True})
+    monkeypatch.setattr(trace_utils, "_get_log_broker", lambda: broker)
+    monkeypatch.setattr(
+        trace_utils,
+        "_get_trace_logger",
+        lambda: SimpleNamespace(handlers=[]),
+    )
+
+    span = trace_utils.TraceSpan(
+        "test",
+        sender_name="private sender",
+        message_outline="private message",
+    )
+    span.record(
+        "agent_tool_result",
+        tool_result="private tool output",
+        tool_name={"name": "search", "arguments": "private tool arguments"},
+        duration_ms=42.5,
+    )
+
+    record = broker.log_cache[-1]
+    assert record["sender_name"] is None
+    assert record["message_outline"] is None
+    assert record["fields"]["tool_result"] == "[REDACTED]"
+    assert record["fields"]["tool_name"] == {
+        "name": "search",
+        "arguments": "[REDACTED]",
+    }
+    assert record["fields"]["duration_ms"] == 42.5

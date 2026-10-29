@@ -22,7 +22,6 @@ from astrbot.api.platform import (
     PlatformMetadata,
 )
 from astrbot.core.platform.message_session import MessageSession
-from astrbot.core.utils.error_redaction import redact_sensitive_text
 
 from ...register import register_platform_adapter
 from .aiocqhttp_message_event import *
@@ -153,9 +152,10 @@ class AiocqhttpAdapter(Platform):
             # Normalize CQ code escaping for downstream consumers.
             event["raw_message"] = html.unescape(raw_message)
 
-        logger.debug(
-            f"[aiocqhttp] RawMessage {redact_sensitive_text(str(event))}"
+        raw_event_type = (
+            event.get("post_type") if isinstance(event, dict) else type(event).__name__
         )
+        logger.debug("[aiocqhttp] Raw event received: type=%s", raw_event_type)
 
         if event["post_type"] == "message":
             abm = await self._convert_handle_message_event(event)
@@ -824,7 +824,8 @@ class AiocqhttpAdapter(Platform):
             bot=self.bot,
         )
         logger.debug(
-            f"Handling message: {redact_sensitive_text(str(message_event.message_obj))}"
+            "Handling aiocqhttp message: type=%s",
+            getattr(message_event.get_message_type(), "name", "unknown"),
         )
         self.commit_event(message_event)
 

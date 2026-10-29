@@ -5,6 +5,7 @@ import base64
 import json
 from collections.abc import AsyncGenerator, Mapping
 from dataclasses import replace
+from time import perf_counter
 
 from sqlalchemy.exc import OperationalError
 
@@ -216,6 +217,7 @@ class InternalAgentSubStage(Stage):
     async def process(
         self, event: AstrMessageEvent, provider_wake_prefix: str
     ) -> AsyncGenerator[None, None]:
+        agent_stage_started_at = perf_counter()
         typing_requested = False
         native_executor: NativeExecutorAdapter | None = None
         native_attachment: NativeExecutionAttachment | None = None
@@ -379,6 +381,7 @@ class InternalAgentSubStage(Stage):
                         self.ctx.plugin_manager.context,
                     )
                     req = ProviderRequest(conversation=external_conversation)
+                    external_started_at = perf_counter()
                     external = await execute_external_core_turn(
                         context=self.ctx.plugin_manager.context,
                         event=event,
@@ -395,6 +398,9 @@ class InternalAgentSubStage(Stage):
                         },
                         on_started=register_external_input_control,
                         executor_lease=core_executor_lease,
+                    )
+                    external_execution_duration = (
+                        perf_counter() - external_started_at
                     )
                     execution_head = external.head
                     executor_activated = True
@@ -418,6 +424,18 @@ class InternalAgentSubStage(Stage):
                         [],
                         None,
                         user_aborted=False,
+                    )
+                    event.trace.record(
+                        "astr_agent_complete",
+                        request_lifecycle_id=request_lifecycle.lifecycle_id,
+                        execution_path="coordinator",
+                        execution_duration_ms=round(
+                            external_execution_duration * 1000, 3
+                        ),
+                        agent_stage_duration_ms=round(
+                            (perf_counter() - agent_stage_started_at) * 1000,
+                            3,
+                        ),
                     )
                     return
 
@@ -528,6 +546,10 @@ class InternalAgentSubStage(Stage):
                     request_lifecycle_id=request_lifecycle.lifecycle_id,
                     executor_id=executor_id,
                     system_prompt=req.system_prompt,
+                    preparation_duration_ms=round(
+                        (perf_counter() - agent_stage_started_at) * 1000,
+                        3,
+                    ),
                     tools=req.func_tool.names() if req.func_tool else [],
                     stream=streaming_response,
                     chat_provider={
@@ -536,6 +558,7 @@ class InternalAgentSubStage(Stage):
                     },
                 )
 
+                execution_started_at = perf_counter()
                 output_bridge = NativeExecutionOutputBridge(
                     native_executor,
                     max_step=max_step,
@@ -607,6 +630,14 @@ class InternalAgentSubStage(Stage):
                     request_lifecycle_id=request_lifecycle.lifecycle_id,
                     stats=evidence.stats.to_dict(),
                     resp=final_resp.completion_text if final_resp else None,
+                    execution_duration_ms=round(
+                        (perf_counter() - execution_started_at) * 1000,
+                        3,
+                    ),
+                    agent_stage_duration_ms=round(
+                        (perf_counter() - agent_stage_started_at) * 1000,
+                        3,
+                    ),
                 )
 
                 asyncio.create_task(

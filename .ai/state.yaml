@@ -3708,3 +3708,72 @@ runtime_ingress_migration_retry_20261029:
     platform-specific review. Dashboard backup and knowledge-base shutdown drain
     has no shared deadline, and the Interaction output gateway/receipt boundary
     remains an architectural follow-up.
+
+livingmemory_prompt_stale_recall_20261029:
+  date: '2026-10-30'
+  class: feature
+  risk: medium
+  status: deployed_pending_restart_and_runtime_acceptance
+  decision: >-
+    Prompt injection may reuse the last completed recall for the same session and
+    persona while the current query refreshes in the background. Ordinary
+    MemoryEngine search calls retain their fresh-result behavior.
+  scope: >-
+    LivingMemory 2.8.2 source branch codex/olv-recall-stale-refresh. Add a bounded
+    per-session/persona prompt snapshot with a configurable 300-second default
+    TTL and clear it on memory cache invalidation. Keep one active refresh per
+    session/persona, coalesce new queries to the latest queued request, and only
+    publish the active result when no newer query is waiting. The AstrBot runtime
+    deployment was not modified.
+  assumptions: >-
+    The previous completed recall is acceptable temporary prompt context while a
+    new query runs. Cached results still pass through current atom lifecycle
+    filtering. Sessions without a completed snapshot perform synchronous recall.
+  validation: >-
+    106 tests passed across memory-engine, event-recall, event-context,
+    event-reliability, and config-manager suites. Regression coverage verifies an
+    active refresh is retained, intermediate queries are coalesced, an obsolete
+    result does not replace the session snapshot, and repeating the active query
+    clears stale queued work. Python compileall, plugin schema JSON validation,
+    and git diff --check passed. Ruff is unavailable in the environment. Current
+    tracked source files were synchronized to the AstrBot runtime plugin directory;
+    SHA-256 comparison found 333 matching files and no missing or differing files.
+    Runtime data and plugin_data were excluded from the copy.
+  remaining: >-
+    The runtime plugin is deployed on disk but AstrBot has not been restarted, so
+    live OLV latency and the plugin version marker have not been accepted. First
+    recall after startup remains synchronous; later prompts may temporarily receive
+    a previous result up to the configured TTL while the current query refreshes.
+
+log_privacy_and_group_reflection_recovery_20261030:
+  date: '2026-10-30'
+  class: bugfix
+  risk: high
+  status: deployed_pending_restart_and_runtime_acceptance
+  scope: >-
+    Stop message and prompt values from entering Core event logs and trace fields.
+    Add event dispatch, pipeline, Agent preparation and execution durations. Remove
+    body-bearing LivingMemory diagnostics, schedule group summaries from passive
+    capture without requiring a Bot reply, and preserve failed summary ranges rather
+    than advancing the cursor after three failures. Redact nested effective-request
+    prompt/context/media fields and keep tool-call traces to tool names. Deploy
+    tracked LivingMemory source files while preserving runtime data and plugin_data.
+  validation: >-
+    Core event/log tests: 32 passed, including nested trace redaction for model
+    response tails, contexts, system prompts, media references, and tool arguments.
+    LivingMemory reflection, reliability and processor tests: 63 passed; an
+    additional focused passive-group/retry run passed 3 tests. Changed Python files
+    compile, git diff --check passes, and source/runtime SHA-256 matches for all 333
+    tracked plugin files.
+    The focused event-handler recall file reports 17 passed and 3 failures because
+    the test environment provides AstrBot 4.14.6 while the plugin requires 4.24.2;
+    the new query-log privacy check and updated retry tests pass. Ruff is unavailable.
+    Runtime databases, WAL files, cmd_config.json and plugin temporary data were
+    excluded from deployment.
+  remaining: >-
+    AstrBot was not restarted, so the active process has not loaded these changes
+    and live timing/group-summary acceptance remains pending. Existing historical
+    logs still contain message and prompt content emitted before this fix; they were
+    preserved as diagnostic records. Older LivingMemory database-open errors did not
+    recur in the reviewed current logs, so no additional database-path change was
+    made.
