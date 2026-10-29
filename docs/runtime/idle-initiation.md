@@ -4,7 +4,7 @@
 
 ## 时机与次数
 
-- 需在 `platform_settings.personal_runtime_observation_targets` 中选择私聊会话，并启用 Personal Heartbeat、空闲主动发起和 Personal Policy；使用原来的空闲阈值，默认 1800 秒，不修改用户已保存的设置。Dashboard 入口位于“扩展配置 → 自动化 → Personal 主动互动”。
+- 需在 `platform_settings.personal_runtime_observation_targets` 中选择私聊会话，并启用 Personal Heartbeat、空闲主动发起和 Personal Policy；使用原来的空闲阈值，默认 1800 秒，不修改用户已保存的设置。Dashboard 入口位于“自动化 → 自动化配置 → Personal 主动互动”。
 - 运行时仅接受 `FriendMessage` 目标。群聊环境观察由独立开关控制，不会触发此空闲接话来源。
 - 必须已经有真实用户互动。计时从最近用户输入与最近成功回复完成两者中较晚的时间开始；长回复和中途主动表达会推迟接话时机。
 - 完成反馈优先采用对话轮次的结束时间，避免把流式回复片段的创建时间当成回复完成；既有表达冷却也使用该完成边界。

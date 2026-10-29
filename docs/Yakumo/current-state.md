@@ -529,9 +529,14 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 
 ## 2026-10-28 Personal 互动与简短回复更新
 
-本节描述当前工作区行为；本轮未运行测试，需重启 AstrBot 后进行实机验收。
+本节描述当前工作区行为；本轮运行了相关定向测试，尚未重启 AstrBot 进行实机验收。
 
-- `platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧版全局配置和配置档首次加载时，会将原 `proactive_message_target` 迁移到该列表一次。Dashboard 入口位于“扩展配置 → 自动化 → Personal 主动互动”。
+- `platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧版全局配置和配置档首次加载时，会将原 `proactive_message_target` 迁移到该列表一次。Dashboard 入口位于“自动化 → 自动化配置 → Personal 主动互动”。
 - 空闲主动联系只作用于已选择、有过真实用户互动的私聊会话，不会枚举联系人，也不会在群聊中空闲发言。它还需要启用 Heartbeat、空闲主动发起和 Personal Policy；阈值是最早准入时间，实际检查随 Heartbeat 周期进行。
 - 群聊环境观察只处理已选择且开启该功能的群聊目标。通过官方白名单和会话状态检查后，最多 800 字符的原文作为明确标记为不可信的 `conversation_activity` 事实交给 Policy；原事件在限流、插件、普通 Personal 计划和 Core 前结束。它不进入普通对话历史，Policy 决定是否形成表达。
-- 即时日常交流和 Personal 自主接话默认采用简短口语表达，通常不超过两句、约 40 个汉字；这是 Prompt 风格偏好，不是输出截断。用户明确要求展开或准确回答需要时允许扩展。自主表达意图是表达目的，不要求逐字复述。
+- 即时用户回复不设置约 40 字限制；Personal 自主接话仍偏好简短口语，通常不超过两句、约 40 个汉字，这是 Prompt 风格偏好而非截断。用户明确要求展开或准确回答需要时允许扩展。自主表达意图是表达目的，不要求逐字复述。
+
+## 2026-10-29 日常 Persona 对话风格试点
+
+- Expression Agent 仅承载表达协议和运行边界；具体人格、关系与日常表达风格来自当前 Persona 设定及其插件注入上下文，不在通用运行时提示中重复定义。
+- 即时表达提示不再附加日常闲聊专属的行为清单、通用关系设定或 Core 路由/任务承接说明；但当前请求需要外部检索、业务操作或持久状态变更且材料没有对应结果时，仍不得编造结果或声称操作已完成。Persona 风格调整应落在实际生效的人格配置层，并使用目标配置档进行实机对话评估。

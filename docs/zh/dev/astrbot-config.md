@@ -431,7 +431,7 @@ Policy 通过普通 JSON 文本决定 `ignore`、`observe`、`express` 或 `defe
 
 Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑插件生命周期和工具目标映射。结构化
 编辑器会提供已安装插件和插件工具建议，同时保留手工输入兼容模块路径的能力。Personal Runtime 的
-目标会话、Heartbeat、私聊空闲联系和群聊观察在“扩展配置 → 自动化 → Personal 主动互动”中统一设置。
+目标会话、Heartbeat、私聊空闲联系和群聊观察在“自动化 → 自动化配置 → Personal 主动互动”中统一设置。
 
 - `enabled`：是否启用 Interaction Middleware。省略时启用；设为 `false` 可保留原有 Core-only 行为。
 - `expression_provider_id`、`router_provider_id` 与 `planner_provider_id`：可选的分阶段模型覆盖。

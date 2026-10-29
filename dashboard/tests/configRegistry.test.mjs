@@ -93,10 +93,12 @@ test('normalizeConfigMetadata projects mapped ai sections into their workspaces'
     'interaction_middleware_group__personal_policy',
     'platform_group',
     'ai_group__knowledgebase',
+    'interaction_middleware_group__personal_engagement',
   ]);
   assert.deepEqual(normalized.ai_group__persona, {
     key: 'ai_group__persona',
     name: 'ai_group.persona.description',
+    _i18n_fallback: { name: undefined },
     metadata: { persona: metadata.ai_group.metadata.persona },
     workspace: 'persona',
     scope: 'persona',
@@ -106,6 +108,8 @@ test('normalizeConfigMetadata projects mapped ai sections into their workspaces'
   });
   assert.equal(normalized.ai_group__custom_extension.workspace, 'intelligence');
   assert.equal(normalized.ai_group__custom_extension.legacySection, 'custom_extension');
+  assert.equal(normalized.interaction_middleware_group__personal_engagement.workspace, 'automation');
+  assert.equal(normalized.interaction_middleware_group__personal_engagement.scope, 'persona');
   assert.deepEqual(normalized.platform_group.metadata, metadata.platform_group.metadata);
   assert.equal(normalized.ext_group__ltm, undefined);
 });
@@ -148,7 +152,7 @@ test('normalizeConfigMetadata keeps non-model interaction sections in extension 
   assert.equal(normalized.interaction_middleware_group__general.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__plugin.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__context.workspace, 'operations');
-  assert.equal(normalized.interaction_middleware_group__personal_engagement.workspace, 'automation');
+  assert.equal(normalized.interaction_middleware_group__personal_engagement, undefined);
   assert.equal(normalized.interaction_middleware_group__progress.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__future_section.workspace, 'operations');
   assert.equal(normalized.interaction_middleware_group__expression, undefined);

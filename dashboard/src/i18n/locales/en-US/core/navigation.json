@@ -63,6 +63,7 @@
   "workspaceSettings": {
     "persona": "Persona Settings",
     "intelligence": "Intelligence Settings",
+    "channels": "Channel Settings",
     "knowledge": "Knowledge Settings",
     "capabilities": "Capability Settings",
     "automation": "Automation Settings"

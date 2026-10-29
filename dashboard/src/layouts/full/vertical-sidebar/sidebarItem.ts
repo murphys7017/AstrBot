@@ -72,6 +72,11 @@ const sidebarItem: menu[] = [
         title: 'core.navigation.platforms',
         icon: 'mdi-robot',
         to: '/platforms'
+      },
+      {
+        title: 'core.navigation.workspaceSettings.channels',
+        icon: 'mdi-cog',
+        to: '/config?workspace=channels#normal'
       }
     ]
   },

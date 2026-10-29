@@ -35,7 +35,7 @@ const MainRoutes = {
     {
       name: 'ExtensionMarketplace',
       path: '/extension-marketplace',
-      component: () => import('@/views/ExtensionPage.vue')
+      redirect: '/extension#market'
     },
     {
       name: 'PluginView',

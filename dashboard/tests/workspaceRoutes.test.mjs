@@ -25,3 +25,11 @@ test('workspace routes redirect to their primary task pages', () => {
     assert.equal(redirect({ params: { workspaceKey } }), target);
   }
 });
+
+test('legacy marketplace route redirects to the market tab', () => {
+  const marketplaceRoute = mainRoutes.children.find(
+    (route) => route.name === 'ExtensionMarketplace',
+  );
+
+  assert.equal(marketplaceRoute?.redirect, '/extension#market');
+});

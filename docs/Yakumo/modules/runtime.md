@@ -141,7 +141,7 @@ Skills、知识库或输出能力；`express` 只形成 `ActionIntent` 并交回
 Persona Expression 生成。`defer` 写入无动作截止时间并保留 batch；生命周期托管的 Wake Scheduler
 会在 defer、quiet hours 或冷却到期后重新评估。`hold` 会恢复 batch；busy hold 在当前 turn settle 后
 重新评估。多目标 Heartbeat Source 已由现有 Core
-Lifecycle 托管：`platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧全局配置和配置档首次加载时会把原主动消息默认目标迁入该列表一次。Dashboard 入口位于“扩展配置 → 自动化 → Personal 主动互动”。全局 Source 汇总所有已加载配置文件中声明、且 UMO 实际路由回该配置的目标。每个目标的开关和间隔读取其实际命中的 Runtime 配置，并维护独立 due time。配置关闭时不提交事实，启用后每个到期 target 只检查既有 retained batch；空 Inbox 不创建 Observation 材料、批次或唤醒任务。它不构造 event/message，也不调用 Persona、Core 或 Output。默认关闭的群聊
+Lifecycle 托管：`platform_settings.personal_runtime_observation_targets` 是显式 Personal Runtime 会话列表；留空时不创建目标。旧全局配置和配置档首次加载时会把原主动消息默认目标迁入该列表一次。Dashboard 入口位于“自动化 → 自动化配置 → Personal 主动互动”。全局 Source 汇总所有已加载配置文件中声明、且 UMO 实际路由回该配置的目标。每个目标的开关和间隔读取其实际命中的 Runtime 配置，并维护独立 due time。配置关闭时不提交事实，启用后每个到期 target 只检查既有 retained batch；空 Inbox 不创建 Observation 材料、批次或唤醒任务。它不构造 event/message，也不调用 Persona、Core 或 Output。默认关闭的群聊
 环境 Source 复用这份目标范围：配置目标中的非唤醒群聊文本通过官方白名单和会话状态检查后，
 仅提交 `conversation_activity` fact，并在普通限流、插件、Personal 计划和 Core 前结束原事件。Fact 带最多 800 字符的群聊原文片段，作为明确标记的不可信上下文提供给 Policy；不会进入普通 Personal 或 Core 对话。
 插件可通过 `Context.register_runtime_observation_sensor(sensor)` 注册受限的事实 Source；返回的

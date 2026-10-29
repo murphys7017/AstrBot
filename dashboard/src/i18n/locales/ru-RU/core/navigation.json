@@ -63,6 +63,7 @@
     "workspaceSettings": {
         "persona": "Настройки персонажей",
         "intelligence": "Настройки интеллекта",
+        "channels": "Настройки каналов",
         "knowledge": "Настройки знаний",
         "capabilities": "Настройки возможностей",
         "automation": "Настройки автоматизации"

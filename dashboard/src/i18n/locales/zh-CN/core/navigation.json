@@ -63,6 +63,7 @@
   "workspaceSettings": {
     "persona": "人格配置",
     "intelligence": "智能配置",
+    "channels": "渠道配置",
     "knowledge": "知识配置",
     "capabilities": "能力配置",
     "automation": "自动化配置"

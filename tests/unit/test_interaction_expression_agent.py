@@ -1365,23 +1365,35 @@ async def test_core_visible_reply_material_preserves_immediate_reply_context():
     }
 
 
-def test_persona_runtime_prompt_constrains_result_free_immediate_requests():
+def test_persona_expression_prompt_keeps_unverified_operations_grounded():
     prompt = _build_expression_prompt(
-        PersonaExpressionRequest(require_turn_action=True)
+        PersonaExpressionRequest(
+            require_turn_action=True,
+            intent=PersonaExpressionIntent(source="user_message", phase="immediate"),
+        )
     )
 
-    assert "不决定是否进入 Core" in prompt
-    assert "不得伪造执行结果或声称已经完成" in prompt
-    assert "是否进入 Core 由独立 Router 判断" in prompt
+    assert "不得编造结果或声称操作已完成" in prompt
+    assert "Core" not in prompt
+    assert "直接回应当前用户输入" in prompt
+
+    result_prompt = _build_expression_prompt(
+        PersonaExpressionRequest(
+            require_turn_action=True,
+            source_text="已确认的执行结果",
+            preserve_facts=True,
+            intent=PersonaExpressionIntent(source="core_result", phase="final"),
+        )
+    )
+    assert "不得编造结果或声称操作已完成" not in result_prompt
 
 
-def test_persona_system_prompt_distinguishes_personal_from_core_tools():
+def test_persona_system_prompt_keeps_expression_role_and_fact_boundaries():
     prompt = build_persona_runtime_system_prompt(require_turn_action=True)
 
     assert "唯一的对外人格交流窗口" in prompt
-    assert "联网、文件、定时任务等业务工具" in prompt
     assert "只能从 reply 中选择 turn_action" in prompt
-    assert "不判断是否进入 Core" in prompt
+    assert "Core" not in prompt
     assert "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言" in prompt
     assert "memory 是被选择或检索的结构化摘要" in prompt
     assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
@@ -1391,7 +1403,7 @@ def test_persona_system_prompt_describes_reply_only_calls():
     prompt = build_persona_runtime_system_prompt()
 
     assert "当前调用只允许使用 turn_action=reply" in prompt
-    assert "不判断是否进入 Core" in prompt
+    assert "Core" not in prompt
 
 
 def test_persona_progress_prompt_keeps_single_tool_completion_local():
@@ -1421,13 +1433,16 @@ def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
     assert "完整准确优先，不设置硬性字数上限" in prompt
 
     direct_prompt = _build_expression_prompt(
-        PersonaExpressionRequest(short_reply=True, require_turn_action=True)
+        PersonaExpressionRequest(
+            short_reply=True,
+            require_turn_action=True,
+            intent=PersonaExpressionIntent(source="user_message", phase="immediate"),
+        )
     )
     assert "【长度】" not in direct_prompt
-    assert "turn_action 只表示本轮是否由 Personal 发出回应" in direct_prompt
+    assert "【日常对话表达】" not in direct_prompt
     system_prompt = build_persona_runtime_system_prompt(require_turn_action=True)
-    assert "任务接收确认和进度通知遵守对应阶段的表达要求" in system_prompt
-    assert "不主动扩展背景、复盘或追加问题" not in system_prompt
+    assert "【人格与关系】" not in system_prompt
 
 
 def test_visible_reply_material_profile_hides_redundant_media_slots():

@@ -44,6 +44,11 @@ const INTELLIGENCE_INTERACTION_SECTIONS = new Set([
   'personal_policy',
 ]);
 
+const NORMAL_INTERACTION_SECTIONS = new Set([
+  ...INTELLIGENCE_INTERACTION_SECTIONS,
+  'personal_engagement',
+]);
+
 const CONFIG_GROUP_REGISTRY: Record<string, ConfigGroupRegistryEntry> = {
   ai_group: { workspace: 'intelligence', scope: 'profile', order: 10 },
   provider_group: { workspace: 'intelligence', scope: 'profile', order: 20 },
@@ -103,9 +108,9 @@ function shouldKeepSection(groupKey: string, sectionKey: string | undefined, con
   if (groupKey !== 'interaction_middleware_group') {
     return true;
   }
-  const isIntelligenceSection = sectionKey !== undefined
-    && INTELLIGENCE_INTERACTION_SECTIONS.has(sectionKey);
-  return configType === 'extension' ? !isIntelligenceSection : isIntelligenceSection;
+  const isNormalSection = sectionKey !== undefined
+    && NORMAL_INTERACTION_SECTIONS.has(sectionKey);
+  return configType === 'extension' ? !isNormalSection : isNormalSection;
 }
 
 function getGroupRegistryEntry(groupKey: string): ConfigGroupRegistryEntry {
@@ -125,7 +130,7 @@ function getSectionRegistryEntry(
     configType === 'extension'
     && (
       EXTENSION_ONLY_GROUPS.has(groupKey)
-      || (groupKey === 'interaction_middleware_group' && sectionKey !== 'personal_engagement')
+      || groupKey === 'interaction_middleware_group'
     )
   ) {
     return {
