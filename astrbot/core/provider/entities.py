@@ -46,6 +46,15 @@ class ProviderType(enum.Enum):
     RERANK = "rerank"
 
 
+class ProviderCompletionStatus(str, enum.Enum):
+    """Provider-neutral terminal state for a completed LLM response."""
+
+    UNKNOWN = "unknown"
+    COMPLETED = "completed"
+    INCOMPLETE = "incomplete"
+    FAILED = "failed"
+
+
 PromptRendererFamily = Literal[
     "base",
     "openai",
@@ -399,6 +408,10 @@ class LLMResponse:
     """The ID of the response. For chunked responses, it's the ID of the chunk; for non-chunked responses, it's the ID of the response."""
     usage: TokenUsage | None = None
     """The usage of the response. For chunked responses, it's the usage of the chunk; for non-chunked responses, it's the usage of the response."""
+    completion_status: ProviderCompletionStatus = ProviderCompletionStatus.UNKNOWN
+    """Provider-neutral terminal status. Streaming deltas should leave this unknown."""
+    finish_reason: str | None = None
+    """Provider-specific terminal reason, when the adapter exposes one."""
 
     def __init__(
         self,
@@ -420,6 +433,8 @@ class LLMResponse:
         is_chunk: bool = False,
         id: str | None = None,
         usage: TokenUsage | None = None,
+        completion_status: ProviderCompletionStatus = ProviderCompletionStatus.UNKNOWN,
+        finish_reason: str | None = None,
     ) -> None:
         """初始化 LLMResponse
 
@@ -453,6 +468,8 @@ class LLMResponse:
         self.anthropic_content_blocks = anthropic_content_blocks
         self.raw_completion = raw_completion
         self.is_chunk = is_chunk
+        self.completion_status = completion_status
+        self.finish_reason = finish_reason
 
         if id is not None:
             self.id = id

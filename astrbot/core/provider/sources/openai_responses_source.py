@@ -14,7 +14,12 @@ from astrbot.core.agent.tool import ToolSet
 from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.provider.entities import LLMResponse, TokenUsage, ToolCallsResult
+from astrbot.core.provider.entities import (
+    LLMResponse,
+    ProviderCompletionStatus,
+    TokenUsage,
+    ToolCallsResult,
+)
 
 from ..headers import build_conversation_headers
 from ..register import register_provider_adapter
@@ -225,7 +230,14 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         )
 
     @classmethod
-    def _parse_response(cls, response: Response, tools: ToolSet | None) -> LLMResponse:
+    def _parse_response(
+        cls,
+        response: Response,
+        tools: ToolSet | None,
+        *,
+        preserve_whitespace: bool = False,
+        allow_empty_output: bool = False,
+    ) -> LLMResponse:
         llm_response = LLMResponse("assistant")
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
@@ -252,7 +264,9 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
                 )
         text = getattr(response, "output_text", None) or "".join(text_parts)
         if text:
-            llm_response.result_chain = MessageChain().message(text.strip())
+            llm_response.result_chain = MessageChain().message(
+                text if preserve_whitespace else text.strip()
+            )
         if reasoning_parts:
             llm_response.reasoning_content = "\n".join(reasoning_parts)
         if tool_args:
@@ -260,14 +274,50 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
             llm_response.tools_call_args = tool_args
             llm_response.tools_call_name = tool_names
             llm_response.tools_call_ids = tool_ids
-        if not text.strip() and not reasoning_parts and not tool_args:
+        if (
+            not text.strip()
+            and not reasoning_parts
+            and not tool_args
+            and not allow_empty_output
+        ):
             raise EmptyModelOutputError(
                 f"Responses response has no usable output. response_id={getattr(response, 'id', None)}"
             )
         llm_response.raw_completion = response
         llm_response.id = getattr(response, "id", None)
         llm_response.usage = cls._extract_usage(response)
+        status = str(getattr(response, "status", "") or "").lower()
+        if status == "completed":
+            llm_response.completion_status = ProviderCompletionStatus.COMPLETED
+        elif status == "incomplete":
+            llm_response.completion_status = ProviderCompletionStatus.INCOMPLETE
+        elif status in {"failed", "cancelled", "canceled"}:
+            llm_response.completion_status = ProviderCompletionStatus.FAILED
+        incomplete_details = getattr(response, "incomplete_details", None)
+        llm_response.finish_reason = (
+            str(getattr(incomplete_details, "reason", "") or "") or None
+        )
         return llm_response
+
+    @staticmethod
+    def _response_has_text_content(response: Any) -> bool:
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str) and output_text.strip():
+            return True
+        for item in getattr(response, "output", []) or []:
+            if getattr(item, "type", None) != "message":
+                continue
+            for content in getattr(item, "content", []) or []:
+                content_type = getattr(content, "type", None)
+                if content_type == "output_text" and str(
+                    getattr(content, "text", "") or ""
+                ).strip():
+                    return True
+                if content_type == "refusal" and str(
+                    getattr(content, "refusal", "") or ""
+                ).strip():
+                    return True
+        return False
 
     def _request_options(
         self,
@@ -350,15 +400,21 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
         async for event in stream:
             event_type = getattr(event, "type", "")
             if event_type in {"response.failed", "response.incomplete", "error"}:
-                response = getattr(event, "response", None)
-                error = getattr(response, "error", None) if response else None
-                detail = getattr(error, "message", None) or str(error or event)
-                raise RuntimeError(f"Responses 流式请求失败: {detail}")
+                raise RuntimeError(
+                    f"Responses stream terminated with {event_type}"
+                )
             if event_type in {"response.created", "response.completed"}:
                 response = getattr(event, "response", None)
                 response_id = getattr(response, "id", None) or response_id
                 if event_type == "response.completed":
                     final_response = response
+                    if (
+                        str(getattr(response, "status", "") or "").lower()
+                        != "completed"
+                    ):
+                        raise RuntimeError(
+                            "Responses stream completed without completed status"
+                        )
             elif event_type == "response.output_item.added":
                 item = getattr(event, "item", None)
                 if getattr(item, "type", None) == "function_call":
@@ -404,24 +460,33 @@ class ProviderOpenAIResponses(ProviderOpenAIOfficial):
                 call["name"] = getattr(event, "name", "") or call["name"]
                 call["arguments"] = getattr(event, "arguments", "")
         if final_response is not None:
-            yield self._parse_response(final_response, tools)
-            return
-        if text_parts or reasoning_parts or tool_calls:
-            fallback = LLMResponse(
-                "tool" if tool_calls else "assistant",
-                completion_text="".join(text_parts) or None,
-                reasoning_content="".join(reasoning_parts) or None,
-                tools_call_args=[
+            streamed_text = "".join(text_parts)
+            has_final_text = self._response_has_text_content(final_response)
+            parsed = self._parse_response(
+                final_response,
+                tools,
+                preserve_whitespace=True,
+                allow_empty_output=bool(streamed_text.strip()) and not has_final_text,
+            )
+            if streamed_text.strip() and not has_final_text:
+                parsed.result_chain = MessageChain().message(streamed_text)
+            if reasoning_parts and not parsed.reasoning_content:
+                parsed.reasoning_content = "".join(reasoning_parts)
+            if tool_calls and not parsed.tools_call_args:
+                parsed.role = "tool"
+                parsed.tools_call_args = [
                     self._parse_arguments(call["arguments"])
                     for call in tool_calls.values()
-                ],
-                tools_call_name=[call["name"] for call in tool_calls.values()],
-                tools_call_ids=[call["id"] for call in tool_calls.values()],
-                id=response_id,
-            )
-            yield fallback
+                ]
+                parsed.tools_call_name = [
+                    call["name"] for call in tool_calls.values()
+                ]
+                parsed.tools_call_ids = [
+                    call["id"] for call in tool_calls.values()
+                ]
+            yield parsed
             return
-        raise EmptyModelOutputError("Responses 流式请求未返回可用输出")
+        raise RuntimeError("Responses stream ended without response.completed")
 
     async def text_chat(
         self,

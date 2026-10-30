@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import enum
 import json
 import logging
 import math
@@ -77,7 +78,11 @@ from astrbot.core.provider import (
     supports_strict_tool_call_output_contract,
     supports_text_chat_stream,
 )
-from astrbot.core.provider.entities import LLMResponse, ProviderRequest
+from astrbot.core.provider.entities import (
+    LLMResponse,
+    ProviderCompletionStatus,
+    ProviderRequest,
+)
 from astrbot.core.provider.output_contract_tools import (
     build_single_tool_set_from_contract,
 )
@@ -429,12 +434,74 @@ class InteractionExpressionError(RuntimeError):
         message: str | None = None,
         *,
         tool_execution_count: int = 0,
+        side_effects_started: bool = False,
         prepared: Any | None = None,
     ) -> None:
         self.reason = reason
         self.tool_execution_count = tool_execution_count
+        self.side_effects_started = side_effects_started
         self.prepared = prepared
         super().__init__(message or reason)
+
+    @property
+    def has_side_effects(self) -> bool:
+        return self.side_effects_started or self.tool_execution_count > 0
+
+
+class _PersonaFailureKind(str, enum.Enum):
+    PROVIDER = "provider"
+    OUTPUT_PROTOCOL = "output_protocol"
+    NON_RETRYABLE = "non_retryable"
+
+
+_PERSONA_OUTPUT_PROTOCOL_FAILURES = {
+    "empty_output",
+    "duplicate_persona_expression_tool_call",
+    "missing_persona_expression_tool_call",
+    "missing_persona_expression_output",
+    "invalid_persona_segments",
+    "invalid_persona_segment",
+    "invalid_persona_speech",
+    "invalid_persona_actions",
+    "invalid_persona_segment_fields",
+    "invalid_persona_expression_fields",
+    "invalid_persona_tendency",
+    "missing_personal_response_action",
+    "disallowed_personal_response_action",
+    "invalid_silent_personal_response",
+    "missing_persona_effect_batch_tool_call",
+    "unexpected_persona_effect_batch_tool_call",
+    "invalid_persona_effect_batch",
+    "invalid_required_persona_effect",
+    "missing_required_persona_effect",
+    "required_persona_effect_count",
+}
+
+_PERSONA_STREAM_NON_RETRYABLE_FAILURES = {
+    "persona_stream_hooks_unsupported",
+    "persona_stream_output_mode_unsupported",
+}
+
+
+def _classify_persona_failure(error: InteractionExpressionError) -> _PersonaFailureKind:
+    if error.has_side_effects:
+        return _PersonaFailureKind.NON_RETRYABLE
+    if error.reason in {
+        "provider_unavailable",
+        "model_error",
+        "provider_response_not_completed",
+    }:
+        return _PersonaFailureKind.PROVIDER
+    if (
+        error.reason in _PERSONA_OUTPUT_PROTOCOL_FAILURES
+        or error.reason.startswith("invalid_persona_expression_")
+        or (
+            error.reason.startswith("persona_stream_")
+            and error.reason not in _PERSONA_STREAM_NON_RETRYABLE_FAILURES
+        )
+    ):
+        return _PersonaFailureKind.OUTPUT_PROTOCOL
+    return _PersonaFailureKind.NON_RETRYABLE
 
 
 @dataclass(slots=True)
@@ -1959,26 +2026,114 @@ class InteractionExpressionAgent:
                     plugin_context,
                     interaction_config.expression_provider_id,
                 )
-                if provider is None:
-                    raise InteractionExpressionError(
+                primary_request_error = (
+                    InteractionExpressionError(
                         "provider_unavailable",
                         f"provider unavailable: provider_id={provider_id}",
                     )
-                if not supports_text_chat_stream(provider):
-                    raise InteractionExpressionError("provider_stream_unsupported")
+                    if provider is None
+                    else None
+                )
                 effects = self._list_persona_effects(plugin_context, event)
                 if _enabled_persona_effects(effects):
                     raise InteractionExpressionError("persona_effects_unsupported")
-                return await self._generate_expression_with_provider(
-                    event,
+                provider_settings = build_interaction_prompt_build_config(
                     plugin_context,
-                    interaction_config,
+                    event,
+                ).provider_settings
+                fallback_providers = resolve_fallback_chat_providers(
                     provider,
-                    req=req,
-                    persona_effect_specs=effects,
-                    segment_stream_callback=emit_record,
-                    segment_message_id=message_id,
+                    provider_settings,
+                    plugin_context.get_provider_by_id,
                 )
+                configured_candidates = [
+                    *([provider] if provider is not None else []),
+                    *fallback_providers,
+                ]
+                candidates = [
+                    candidate
+                    for candidate in configured_candidates
+                    if supports_text_chat_stream(candidate)
+                ]
+                if (
+                    provider is not None
+                    and provider not in candidates
+                    and primary_request_error is None
+                ):
+                    primary_request_error = InteractionExpressionError(
+                        "provider_stream_unsupported"
+                    )
+                if not candidates:
+                    raise primary_request_error or InteractionExpressionError(
+                        "provider_stream_unsupported"
+                    )
+
+                prepared: _PreparedPersonaExpression | None = None
+                protocol_fallback_candidate: int | None = None
+                for index, candidate in enumerate(candidates):
+                    if candidate is not provider and primary_request_error is not None:
+                        fallback_provider_id = str(
+                            candidate.provider_config.get("id", "<unknown>")
+                        )
+                        record_interaction_turn_expression_fallback(
+                            event,
+                            primary_failure_reason=primary_request_error.reason,
+                            provider_id=fallback_provider_id,
+                        )
+                        logger.warning(
+                            "Persona segment stream switched to fallback provider: "
+                            "platform_id=%s session_id=%s provider_id=%s "
+                            "primary_error=%s failure_kind=%s side_effects=%s",
+                            event.get_platform_id(),
+                            event.session_id,
+                            fallback_provider_id,
+                            primary_request_error.reason,
+                            _classify_persona_failure(primary_request_error).value,
+                            primary_request_error.has_side_effects,
+                        )
+                    try:
+                        return await self._generate_expression_with_provider(
+                            event,
+                            plugin_context,
+                            interaction_config,
+                            candidate,
+                            req=req,
+                            prepared=prepared,
+                            persona_effect_specs=effects,
+                            segment_stream_callback=emit_record,
+                            segment_message_id=message_id,
+                        )
+                    except InteractionExpressionError as exc:
+                        if candidate is provider:
+                            primary_request_error = exc
+                        if isinstance(exc.prepared, _PreparedPersonaExpression):
+                            prepared = exc.prepared
+                        failure_kind = _classify_persona_failure(exc)
+                        if prepared is None or exc.has_side_effects:
+                            raise
+                        if (
+                            protocol_fallback_candidate is not None
+                            and index >= protocol_fallback_candidate
+                        ):
+                            if (
+                                failure_kind is _PersonaFailureKind.PROVIDER
+                                and index + 1 < len(candidates)
+                            ):
+                                continue
+                            raise
+                        if (
+                            failure_kind is _PersonaFailureKind.OUTPUT_PROTOCOL
+                            and index + 1 < len(candidates)
+                        ):
+                            protocol_fallback_candidate = index + 1
+                            continue
+                        if (
+                            failure_kind is _PersonaFailureKind.PROVIDER
+                            and index + 1 < len(candidates)
+                        ):
+                            continue
+                        raise
+                raise InteractionExpressionError("model_error")
         except TurnDeadlineExceeded:
             raise
         except TimeoutError:
@@ -2099,6 +2254,7 @@ class InteractionExpressionAgent:
         last_error: InteractionExpressionError | None = primary_error
         prepared: _PreparedPersonaExpression | None = None
         primary_request_error: InteractionExpressionError | None = None
+        protocol_fallback_candidate: int | None = None
         fallback_request_error = (
             primary_error
             if primary_error is not None
@@ -2121,16 +2277,18 @@ class InteractionExpressionAgent:
                 )
                 record_interaction_turn_expression_fallback(
                     event,
-                    primary_failure_reason=str(primary_request_error),
+                    primary_failure_reason=primary_request_error.reason,
                     provider_id=fallback_provider_id,
                 )
                 logger.warning(
-                    "Persona expression switched to fallback provider: platform_id=%s session_id=%s lifecycle_id=%s provider_id=%s primary_error=%s",
+                    "Persona expression switched to fallback provider: platform_id=%s session_id=%s lifecycle_id=%s provider_id=%s primary_error=%s failure_kind=%s side_effects=%s",
                     event.get_platform_id(),
                     event.session_id,
                     prepared.lifecycle.lifecycle_id if prepared is not None else "",
                     fallback_provider_id,
-                    primary_request_error,
+                    primary_request_error.reason,
+                    _classify_persona_failure(primary_request_error).value,
+                    primary_request_error.has_side_effects,
                 )
             try:
                 result = await self._generate_expression_with_provider(
@@ -2146,21 +2304,25 @@ class InteractionExpressionAgent:
                 return result
             except InteractionExpressionError as exc:
                 last_error = exc
+                failure_kind = _classify_persona_failure(exc)
                 if isinstance(exc.prepared, _PreparedPersonaExpression):
                     prepared = exc.prepared
                 failure_prepared = exc.prepared
                 log_method = (
                     logger.warning
-                    if exc.tool_execution_count > 0
+                    if failure_kind is _PersonaFailureKind.NON_RETRYABLE
+                    or exc.tool_execution_count > 0
                     or index + 1 >= len(candidates)
                     else logger.debug
                 )
                 log_method(
                     "DIAG expression.%s: turn_id=%s platform_id=%s session_id=%s "
-                    "phase=%s lifecycle_id=%s reason=%s tool_execution_count=%s "
-                    "correction_attempted=%s",
+                    "phase=%s lifecycle_id=%s reason=%s failure_kind=%s "
+                    "tool_execution_count=%s side_effects=%s correction_attempted=%s",
                     "failed"
-                    if exc.tool_execution_count > 0 or index + 1 >= len(candidates)
+                    if failure_kind is _PersonaFailureKind.NON_RETRYABLE
+                    or exc.tool_execution_count > 0
+                    or index + 1 >= len(candidates)
                     else "provider_candidate_failed",
                     str(event.get_extra("_turn_id", "") or ""),
                     event.get_platform_id(),
@@ -2172,7 +2334,9 @@ class InteractionExpressionAgent:
                     if failure_prepared is not None
                     else "",
                     exc.reason,
+                    failure_kind.value,
                     exc.tool_execution_count,
+                    exc.has_side_effects,
                     bool(
                         getattr(failure_prepared, "correction_attempted", False)
                     ),
@@ -2181,18 +2345,38 @@ class InteractionExpressionAgent:
                     primary_error = exc
                 if candidate is provider:
                     primary_request_error = exc
-                if exc.reason != "unsupported_output_contract":
+                if failure_kind is not _PersonaFailureKind.NON_RETRYABLE:
                     fallback_request_error = exc
-                if exc.tool_execution_count > 0:
+                if exc.has_side_effects:
                     break
-                if index + 1 < len(candidates):
+                if (
+                    protocol_fallback_candidate is not None
+                    and index >= protocol_fallback_candidate
+                ):
+                    if (
+                        failure_kind is _PersonaFailureKind.PROVIDER
+                        and index + 1 < len(candidates)
+                    ):
+                        continue
+                    break
+                if (
+                    failure_kind is _PersonaFailureKind.OUTPUT_PROTOCOL
+                    and index + 1 < len(candidates)
+                ):
+                    protocol_fallback_candidate = index + 1
+                    continue
+                if (
+                    failure_kind is _PersonaFailureKind.PROVIDER
+                    and index + 1 < len(candidates)
+                ):
                     continue
                 break
 
         if primary_error is not None and last_error is not primary_error:
             raise InteractionExpressionError(
                 "fallback_exhausted",
-                f"primary error: {primary_error}; fallback error: {last_error}",
+                f"primary reason: {primary_error.reason}; "
+                f"fallback reason: {last_error.reason}",
             ) from last_error
         raise last_error or InteractionExpressionError("model_error")
 
@@ -2213,10 +2397,6 @@ class InteractionExpressionAgent:
         segment_message_id: str | None = None,
     ) -> PersonaExpressionResult:
         if prepared is not None:
-            if segment_stream_callback is not None:
-                raise InteractionExpressionError(
-                    "segment_stream_fallback_unsupported"
-                )
             prepared = await self._prepare_fallback_persona_expression(
                 provider,
                 prepared,
@@ -2446,6 +2626,10 @@ class InteractionExpressionAgent:
             render_result.metadata.get("expression_output_mode", "prompt_only")
             or "prompt_only"
         )
+        is_segment_stream = (
+            provider_request.metadata.get("interaction.persona_output_protocol")
+            == "segment_stream_v1"
+        )
         if render_result.prompt_tree is not None:
             render_request = copy.copy(provider_request)
             render_request.provider = provider
@@ -2455,13 +2639,18 @@ class InteractionExpressionAgent:
                 event=event,
                 plugin_context=plugin_context,
             )
-            if not _supports_persona_output_format(
-                provider,
-                output_format,
-                output_mode,
-                output_contract=candidate_render.output_contract,
-                compiled_output_contract=candidate_render.compiled_output_contract,
-            ):
+            supports_output = (
+                supports_text_chat_stream(provider)
+                if is_segment_stream
+                else _supports_persona_output_format(
+                    provider,
+                    output_format,
+                    output_mode,
+                    output_contract=candidate_render.output_contract,
+                    compiled_output_contract=candidate_render.compiled_output_contract,
+                )
+            )
+            if not supports_output:
                 raise InteractionExpressionError(
                     "fallback_provider_incompatible",
                     "fallback provider cannot satisfy the required Persona output contract",
@@ -2789,6 +2978,8 @@ class InteractionExpressionAgent:
             is_chunk=llm_resp.is_chunk,
             id=llm_resp.id,
             usage=llm_resp.usage,
+            completion_status=llm_resp.completion_status,
+            finish_reason=llm_resp.finish_reason,
         )
         # Protocol tool-call responses often carry an empty MessageChain. Keep
         # the parsed Persona reply authoritative for both legacy response APIs.
@@ -3304,6 +3495,7 @@ class InteractionExpressionAgent:
             if segment_stream_callback is not None
             else None
         )
+        stream_side_effects_started = False
         stream_turn_action: PersonalResponseAction | None = None
         refresh_prompt = _build_transient_prompt_refresh_callback(event, prepared)
         await runner.reset(
@@ -3323,7 +3515,8 @@ class InteractionExpressionAgent:
             deadline=get_interaction_turn_deadline(event),
         )
         async def dispatch_record(record):
-            nonlocal stream_turn_action
+            nonlocal stream_turn_action, stream_side_effects_started
+            stream_side_effects_started = True
             if record.get("type") == "header":
                 record["persona_result_id"] = prepared.lifecycle.lifecycle_id
                 stream_turn_action = PersonalResponseAction(
@@ -3411,11 +3604,15 @@ class InteractionExpressionAgent:
             raise InteractionExpressionError(
                 "timeout",
                 tool_execution_count=prepared.lifecycle.tool_execution_count,
+                side_effects_started=stream_side_effects_started,
             ) from None
         except InteractionExpressionError as exc:
             exc.tool_execution_count = max(
                 exc.tool_execution_count,
                 prepared.lifecycle.tool_execution_count,
+            )
+            exc.side_effects_started = (
+                exc.side_effects_started or stream_side_effects_started
             )
             if segment_parser is not None and exc.reason.startswith("persona_stream_"):
                 _log_persona_segment_stream_failure(
@@ -3433,6 +3630,7 @@ class InteractionExpressionAgent:
                 "model_error",
                 str(exc),
                 tool_execution_count=prepared.lifecycle.tool_execution_count,
+                side_effects_started=stream_side_effects_started,
             ) from exc
 
         llm_resp = runner.get_final_llm_resp()
@@ -3441,33 +3639,47 @@ class InteractionExpressionAgent:
                 "model_error",
                 "persona agent did not produce a final LLM response",
                 tool_execution_count=prepared.lifecycle.tool_execution_count,
+                side_effects_started=stream_side_effects_started,
             )
         if llm_resp.role == "err":
             raise InteractionExpressionError(
                 "model_error",
                 llm_resp.completion_text or "provider returned an error response",
                 tool_execution_count=prepared.lifecycle.tool_execution_count,
+                side_effects_started=stream_side_effects_started,
+            )
+        if llm_resp.completion_status in {
+            ProviderCompletionStatus.INCOMPLETE,
+            ProviderCompletionStatus.FAILED,
+        }:
+            raise InteractionExpressionError(
+                "provider_response_not_completed",
+                tool_execution_count=prepared.lifecycle.tool_execution_count,
+                side_effects_started=stream_side_effects_started,
             )
         if segment_parser is not None:
             if llm_resp.tools_call_name:
                 raise InteractionExpressionError(
                     "persona_stream_tool_call_unsupported",
                     tool_execution_count=prepared.lifecycle.tool_execution_count,
+                    side_effects_started=stream_side_effects_started,
                 )
             final_text = str(llm_resp.completion_text or "")
-            if final_text and final_text != segment_parser.wire_text:
+            if final_text != segment_parser.wire_text:
                 raise InteractionExpressionError(
                     "persona_stream_final_response_mismatch",
                     tool_execution_count=prepared.lifecycle.tool_execution_count,
+                    side_effects_started=stream_side_effects_started,
                 )
             try:
                 async for record in segment_parser.feed_async(
                     "", plugin_context=prepared.run_context.context.context, event=event, final=True,
                 ):
                     await dispatch_record(record)
-                completion = llm_resp.raw_completion
-                choices = getattr(completion, "choices", None)
-                normal_stop = bool(choices) and choices[0].finish_reason == "stop"
+                normal_stop = (
+                    llm_resp.completion_status
+                    is ProviderCompletionStatus.COMPLETED
+                )
                 recovered_at_eof = False
                 if normal_stop and not segment_parser._finished:
                     recovered_events = segment_parser.recover_normal_end()
@@ -3484,6 +3696,9 @@ class InteractionExpressionAgent:
                 if recovered_at_eof:
                     streamed_result.metadata["stream_recovered_at_eof"] = True
             except InteractionExpressionError as exc:
+                exc.side_effects_started = (
+                    exc.side_effects_started or stream_side_effects_started
+                )
                 _log_persona_segment_stream_failure(
                     event, segment_parser, exc, prepared.lifecycle.lifecycle_id,
                 )
@@ -4182,9 +4397,7 @@ def _build_failure_expression_request(
     req: PersonaExpressionRequest,
     error: InteractionExpressionError,
 ) -> PersonaExpressionRequest:
-    message = " ".join(str(error).split())
-    if len(message) > 2000:
-        message = f"{message[:1997]}..."
+    message = error.reason
     return replace(
         req,
         source_text=(

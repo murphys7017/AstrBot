@@ -22,7 +22,11 @@ from astrbot.core.agent.message import AudioURLPart, ContentPart, ImageURLPart, 
 from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.provider.entities import LLMResponse, TokenUsage
+from astrbot.core.provider.entities import (
+    LLMResponse,
+    ProviderCompletionStatus,
+    TokenUsage,
+)
 from astrbot.core.provider.func_tool_manager import ToolSet
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
 from astrbot.core.utils.image_materializer import (
@@ -65,6 +69,24 @@ class ProviderGoogleGenAI(Provider):
         "BLOCK_MEDIUM_AND_ABOVE": types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         "BLOCK_LOW_AND_ABOVE": types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
     }
+
+    @staticmethod
+    def _completion_reason_text(reason: object | None) -> str | None:
+        if reason is None:
+            return None
+        name = getattr(reason, "name", None)
+        return str(name or reason).rsplit(".", 1)[-1].upper()
+
+    @classmethod
+    def _completion_status(cls, reason: object | None) -> ProviderCompletionStatus:
+        reason_text = cls._completion_reason_text(reason)
+        if reason_text == "STOP":
+            return ProviderCompletionStatus.COMPLETED
+        if reason_text == "MAX_TOKENS":
+            return ProviderCompletionStatus.INCOMPLETE
+        if reason_text in {None, "UNSPECIFIED", "FINISH_REASON_UNSPECIFIED"}:
+            return ProviderCompletionStatus.UNKNOWN
+        return ProviderCompletionStatus.FAILED
 
     def __init__(
         self,
@@ -806,6 +828,13 @@ class ProviderGoogleGenAI(Provider):
 
         llm_response = LLMResponse("assistant")
         llm_response.raw_completion = result
+        finish_reason = (
+            result.candidates[0].finish_reason
+            if result.candidates
+            else None
+        )
+        llm_response.finish_reason = self._completion_reason_text(finish_reason)
+        llm_response.completion_status = self._completion_status(finish_reason)
         llm_response.result_chain = self._process_content_parts(
             result.candidates[0],
             llm_response,
@@ -882,6 +911,7 @@ class ProviderGoogleGenAI(Provider):
         accumulated_text = ""
         accumulated_reasoning = ""
         final_response = None
+        finish_reason = None
 
         async for chunk in result:
             llm_response = LLMResponse("assistant", is_chunk=True)
@@ -889,20 +919,34 @@ class ProviderGoogleGenAI(Provider):
             if not chunk.candidates:
                 logger.warning("Gemini stream chunk contains no candidates")
                 continue
-            if not chunk.candidates[0].content:
+            candidate = chunk.candidates[0]
+            if candidate.finish_reason is not None:
+                finish_reason = candidate.finish_reason
+            if not candidate.content:
+                if finish_reason is not None:
+                    final_response = LLMResponse(
+                        "assistant",
+                        raw_completion=chunk,
+                        id=chunk.response_id,
+                        completion_status=self._completion_status(finish_reason),
+                        finish_reason=self._completion_reason_text(finish_reason),
+                    )
+                    if chunk.usage_metadata:
+                        final_response.usage = self._extract_usage(chunk.usage_metadata)
+                    break
                 logger.warning(
                     "Gemini stream chunk content is empty: finish_reason=%s",
-                    chunk.candidates[0].finish_reason,
+                    candidate.finish_reason,
                 )
                 continue
 
-            if chunk.candidates[0].content.parts and any(
-                part.function_call for part in chunk.candidates[0].content.parts
+            if candidate.content.parts and any(
+                part.function_call for part in candidate.content.parts
             ):
                 llm_response = LLMResponse("assistant", is_chunk=False)
                 llm_response.raw_completion = chunk
                 llm_response.result_chain = self._process_content_parts(
-                    chunk.candidates[0],
+                    candidate,
                     llm_response,
                     validate_output=False,
                 )
@@ -916,6 +960,10 @@ class ProviderGoogleGenAI(Provider):
                             llm_response.reasoning_content or ""
                         )
                 llm_response.id = chunk.response_id
+                llm_response.finish_reason = self._completion_reason_text(
+                    finish_reason
+                )
+                llm_response.completion_status = self._completion_status(finish_reason)
                 if chunk.usage_metadata:
                     llm_response.usage = self._extract_usage(chunk.usage_metadata)
                 yield llm_response
@@ -924,7 +972,7 @@ class ProviderGoogleGenAI(Provider):
             _f = False
 
             # 提取 reasoning content
-            reasoning = self._extract_reasoning_content(chunk.candidates[0])
+            reasoning = self._extract_reasoning_content(candidate)
             if reasoning:
                 _f = True
                 accumulated_reasoning += reasoning
@@ -936,24 +984,35 @@ class ProviderGoogleGenAI(Provider):
             if _f:
                 yield llm_response
 
-            if chunk.candidates[0].finish_reason:
+            if candidate.finish_reason:
                 # Process the final chunk for potential tool calls or other content
-                if chunk.candidates[0].content.parts:
+                if candidate.content.parts:
                     final_response = LLMResponse("assistant", is_chunk=False)
                     final_response.raw_completion = chunk
                     final_response.result_chain = self._process_content_parts(
-                        chunk.candidates[0],
+                        candidate,
                         final_response,
                         validate_output=False,
                     )
                     final_response.id = chunk.response_id
+                    final_response.finish_reason = self._completion_reason_text(
+                        finish_reason
+                    )
+                    final_response.completion_status = self._completion_status(
+                        finish_reason
+                    )
                     if chunk.usage_metadata:
                         final_response.usage = self._extract_usage(chunk.usage_metadata)
                 break
 
         # Yield final complete response with accumulated text
         if not final_response:
-            final_response = LLMResponse("assistant", is_chunk=False)
+            final_response = LLMResponse(
+                "assistant",
+                is_chunk=False,
+                completion_status=self._completion_status(finish_reason),
+                finish_reason=self._completion_reason_text(finish_reason),
+            )
 
         # Set the complete accumulated reasoning in the final response
         if accumulated_reasoning:

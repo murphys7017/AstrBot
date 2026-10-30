@@ -22,7 +22,11 @@ from astrbot.core.agent.message import (
 )
 from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.provider.entities import LLMResponse, TokenUsage
+from astrbot.core.provider.entities import (
+    LLMResponse,
+    ProviderCompletionStatus,
+    TokenUsage,
+)
 from astrbot.core.provider.func_tool_manager import ToolSet
 from astrbot.core.provider.output_contract_tools import (
     resolve_output_contract_binding,
@@ -50,6 +54,14 @@ from ..register import register_provider_adapter
 class ProviderAnthropic(Provider):
     def supports_output_contract_strategy(self, strategy: str) -> bool:
         return strategy in {"prompt_only", "protocol_tool_call"}
+
+    @staticmethod
+    def _completion_status(stop_reason: str | None) -> ProviderCompletionStatus:
+        if stop_reason in {"end_turn", "stop_sequence", "tool_use"}:
+            return ProviderCompletionStatus.COMPLETED
+        if stop_reason in {"max_tokens", "pause_turn"}:
+            return ProviderCompletionStatus.INCOMPLETE
+        return ProviderCompletionStatus.UNKNOWN
 
     def _ensure_message_to_dicts(
         self,
@@ -614,6 +626,8 @@ class ProviderAnthropic(Provider):
                 content_block.model_dump(mode="json")
                 for content_block in completion.content
             ],
+            completion_status=self._completion_status(completion.stop_reason),
+            finish_reason=completion.stop_reason,
         )
 
         for content_block in completion.content:
@@ -687,6 +701,7 @@ class ProviderAnthropic(Provider):
         extra_body = self._prepare_custom_extra_body(payloads)
         reasoning_content = ""
         reasoning_signature = ""
+        stop_reason = None
 
         if "max_tokens" not in payloads:
             payloads["max_tokens"] = 65536
@@ -819,6 +834,7 @@ class ProviderAnthropic(Provider):
                         del tool_use_buffer[event.index]
 
                 elif event.type == "message_delta":
+                    stop_reason = getattr(event.delta, "stop_reason", None) or stop_reason
                     if event.usage:
                         self._update_usage(usage, event.usage)
 
@@ -831,6 +847,8 @@ class ProviderAnthropic(Provider):
             id=id,
             reasoning_content=reasoning_content,
             reasoning_signature=reasoning_signature or None,
+            completion_status=self._completion_status(stop_reason),
+            finish_reason=stop_reason,
             anthropic_content_blocks=[
                 content_blocks[index] for index in sorted(content_blocks)
             ],
@@ -846,7 +864,7 @@ class ProviderAnthropic(Provider):
         self._ensure_usable_response(
             final_response,
             completion_id=id,
-            stop_reason=None,
+            stop_reason=stop_reason,
         )
         yield final_response
 

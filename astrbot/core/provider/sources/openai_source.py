@@ -36,7 +36,12 @@ from astrbot.core.agent.tool import ToolSet
 from astrbot.core.exceptions import EmptyModelOutputError
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.provider.entities import LLMResponse, TokenUsage, ToolCallsResult
+from astrbot.core.provider.entities import (
+    LLMResponse,
+    ProviderCompletionStatus,
+    TokenUsage,
+    ToolCallsResult,
+)
 from astrbot.core.provider.output_contract_tools import (
     resolve_output_contract_binding,
 )
@@ -753,6 +758,7 @@ class ProviderOpenAIOfficial(Provider):
         llm_response = LLMResponse("assistant", is_chunk=True)
 
         state = ChatCompletionStreamState()
+        text_parts: list[str] = []
 
         async for chunk in stream:
             choice = chunk.choices[0] if chunk.choices else None
@@ -788,6 +794,7 @@ class ProviderOpenAIOfficial(Provider):
             if delta and delta.content:
                 # Don't strip streaming chunks to preserve spaces between words
                 completion_text = self._normalize_content(delta.content, strip=False)
+                text_parts.append(completion_text)
                 llm_response.result_chain = MessageChain(
                     chain=[Comp.Plain(completion_text)],
                 )
@@ -804,11 +811,32 @@ class ProviderOpenAIOfficial(Provider):
 
         try:
             final_completion = state.get_final_completion()
-            llm_response = await self._parse_openai_completion(final_completion, tools)
+            final_content = (
+                final_completion.choices[0].message.content
+                if final_completion.choices
+                else None
+            )
+            streamed_text = "".join(text_parts)
+            has_final_text = bool(
+                self._normalize_content(final_content, strip=False).strip()
+            )
+            llm_response = await self._parse_openai_completion(
+                final_completion,
+                tools,
+                preserve_whitespace=True,
+                allow_empty_output=bool(streamed_text.strip()) and not has_final_text,
+            )
+            if streamed_text.strip() and not has_final_text:
+                llm_response.completion_text = streamed_text
             yield llm_response
+        except EmptyModelOutputError:
+            logger.error("get_final_completion failed: error_type=EmptyModelOutputError")
+            raise
         except Exception as e:
             logger.error("get_final_completion failed: error_type=%s", type(e).__name__)
-            return
+            raise RuntimeError(
+                "OpenAI-compatible stream ended without a valid final response"
+            ) from None
 
     def _extract_reasoning_content(
         self,
@@ -947,7 +975,12 @@ class ProviderOpenAIOfficial(Provider):
         return str(raw_content) if raw_content is not None else ""
 
     async def _parse_openai_completion(
-        self, completion: ChatCompletion, tools: ToolSet | None
+        self,
+        completion: ChatCompletion,
+        tools: ToolSet | None,
+        *,
+        preserve_whitespace: bool = False,
+        allow_empty_output: bool = False,
     ) -> LLMResponse:
         """Parse OpenAI ChatCompletion into LLMResponse"""
         llm_response = LLMResponse("assistant")
@@ -965,23 +998,39 @@ class ProviderOpenAIOfficial(Provider):
                 f"OpenAI completion has no choices. response_id={completion.id}"
             )
         choice = completion.choices[0]
+        finish_reason = (
+            str(choice.finish_reason) if choice.finish_reason is not None else None
+        )
+        llm_response.finish_reason = finish_reason
+        if finish_reason in {"stop", "tool_calls", "function_call"}:
+            llm_response.completion_status = ProviderCompletionStatus.COMPLETED
+        elif finish_reason == "length":
+            llm_response.completion_status = ProviderCompletionStatus.INCOMPLETE
+        elif finish_reason == "content_filter":
+            llm_response.completion_status = ProviderCompletionStatus.FAILED
 
         # parse the text completion
         if choice.message.content is not None:
-            completion_text = self._normalize_content(choice.message.content)
-            # Compatible providers may wrap reasoning in <think> or <thinking> tags.
-            reasoning_pattern = re.compile(
-                r"<(think|thinking)>(.*?)</\1>", re.DOTALL
+            completion_text = self._normalize_content(
+                choice.message.content,
+                strip=not preserve_whitespace,
             )
-            matches = reasoning_pattern.findall(completion_text)
-            if matches:
-                llm_response.reasoning_content = "\n".join(
-                    [match[1].strip() for match in matches],
+            if not preserve_whitespace:
+                # Compatible providers may wrap reasoning in <think> tags.
+                reasoning_pattern = re.compile(
+                    r"<(think|thinking)>(.*?)</\1>", re.DOTALL
                 )
-                completion_text = reasoning_pattern.sub("", completion_text).strip()
-            completion_text = re.sub(
-                r"</(?:think|thinking)>\s*$", "", completion_text
-            ).strip()
+                matches = reasoning_pattern.findall(completion_text)
+                if matches:
+                    llm_response.reasoning_content = "\n".join(
+                        [match[1].strip() for match in matches],
+                    )
+                    completion_text = reasoning_pattern.sub("", completion_text)
+                completion_text = completion_text.strip()
+                completion_text = re.sub(
+                    r"</(?:think|thinking)>\s*$", "", completion_text
+                )
+                completion_text = completion_text.strip()
             llm_response.result_chain = MessageChain().message(completion_text)
         elif refusal := getattr(choice.message, "refusal", None):
             refusal_text = self._normalize_content(refusal)
@@ -1054,6 +1103,7 @@ class ProviderOpenAIOfficial(Provider):
             not has_text_output
             and not has_reasoning_output
             and not llm_response.tools_call_args
+            and not allow_empty_output
         ):
             logger.error(
                 "OpenAI completion has no usable output: id=%s finish_reason=%s",
