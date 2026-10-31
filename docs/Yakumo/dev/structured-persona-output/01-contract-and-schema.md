@@ -1,7 +1,14 @@
 # Canonical Schema 与字段规则
 
 **状态：** 双通道运行时与缺失通道恢复已实现；自动化定向验证通过；真实 Provider 和插件验收待完成
-**代码位置：** `astrbot/core/interaction/expression_agent.py`
+**代码位置：**
+
+- 类型和 Canonical Result：`astrbot/core/interaction/persona_expression_types.py`
+- Schema：`astrbot/core/interaction/persona_expression_schema.py`
+- 输出契约：`astrbot/core/interaction/persona_expression_contract.py`
+- 结果校验：`astrbot/core/interaction/persona_expression_validation.py`
+- Provider payload 解析：`astrbot/core/interaction/persona_expression_codec.py`
+- 运行编排：`astrbot/core/interaction/expression_agent.py`
 
 本文说明业务语义和实际校验边界。Provider wire format 不属于 Canonical Schema。表达通道默认使用 JSON 文本 + Prompt-only 约束，也可配置为原生 JSON、XML、Markdown 或严格 `persona_expression` tool call；适用的插件 effect 始终由独立 `persona_effect_batch` tool call 承载。Provider 页的 10 次诊断只检查所选文本格式的稳定性，不自动切换生产配置，也不覆盖 effect tool-call 能力。
 

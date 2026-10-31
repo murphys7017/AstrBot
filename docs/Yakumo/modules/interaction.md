@@ -29,6 +29,33 @@ Response Plan、Core delegation、输出 materialization 和 finalized material 
 
 middleware 的职责是组合这些服务，并在一个 interaction turn 内形成可观测、可扩展、可回滚的执行现场。
 
+## 当前 Persona Expression 模块边界
+
+Persona 表达运行由 `expression_agent.py` 编排，但协议实现已经分层。调用关系如下：
+
+```text
+PersonaContextSeed / ContextPack
+  -> PromptRenderProfile
+  -> Provider response
+  -> persona_expression_codec
+       -> persona_expression_types
+       -> persona_expression_validation
+       -> PersonaExpressionResult
+  -> Output Controller / TTS / Effect delivery
+```
+
+相关模块职责：
+
+- `persona_expression_types.py` 持有请求、segment、result 和错误类型。
+- `persona_expression_schema.py` 持有表达和 Effect schema。
+- `persona_expression_contract.py` 持有工具名、输出契约和 terminal tool 集合。
+- `persona_expression_validation.py` 持有非流式和流式共享语义校验。
+- `persona_expression_codec.py` 负责 Provider payload 到 Canonical result 的归一化。
+- `persona_stream_parser.py` 负责 `segment_stream_v1` JSONL 状态机。
+- `persona_stream_protocol.py` 只负责流式 Prompt 和响应形状诊断。
+
+`expression_agent.py` 仍保留兼容导出，但新代码应直接依赖上述中性模块。拆分只改变代码所有权，不改变 Prompt、Provider、输出事件或下游 `PersonaExpressionResult` 行为。
+
 ## 插件处理时序
 
 Interaction 不把所有插件都当作 Persona 输入。插件首先按行为类型分流：

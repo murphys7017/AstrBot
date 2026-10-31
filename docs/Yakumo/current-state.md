@@ -1,7 +1,18 @@
 # Yakumo Current State
 
 > 本页保留实施时间线供追溯；下方带日期的小节是当时的历史快照，不代表现在仍未实现。
-> 当前模块边界以 [架构入口](README.md) 和 [Agent Modules](modules/agent.md) 为准。最新 Runtime Observation 状态见文末 2026-10-28 更新。
+> 当前模块边界以 [架构入口](README.md)、[2026-10-31 架构同步基线](dev/architecture-sync-2026-10-31.md) 和 [Agent Modules](modules/agent.md) 为准。下方带日期的小节保留历史快照。
+
+## 2026-10-31 当前架构同步
+
+最近一轮结构收口已经落地：
+
+- Runtime 通过 `PersonaContextSeed` 为普通 Interaction、主动 Policy 和主动 Expression 提供共享的静态人格快照；Prompt collector 负责把领域人格槽投影为 `ContextSlot`，调用方不再各自拼装人格上下文。
+- Persona Expression 的数据类型、schema、输出 contract、语义校验、结果 codec 和流式协议已从 `expression_agent.py` 拆出。Agent 负责生命周期、Provider 和输出编排；协议模块负责可复用的纯结构逻辑。
+- JSON 基础解析和完整记录恢复位于中性 JSON/Prompt 边界；`structured_json.py` 只保留兼容导出。流式 Persona 解析保持单行单次严格解码和既有恢复边界。
+- Tencent SILK 的标准头、`0x02`/`0x03` 前缀识别和剥离已由共享音频签名模块统一，Media、MiMo 和转换器复用同一协议判断。
+
+这批结构改造没有增加 Provider 调用或跨回合 Prompt 快照。真实 Provider、平台、TTS 和 Live2D 行为仍需在重启后的运行环境中单独验收。
 
 ## 2026-10-12 当前交付基线
 

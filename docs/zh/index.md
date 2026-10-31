@@ -13,6 +13,9 @@ hero:
       text: 项目身份
       link: /Yakumo/project-identity
     - theme: alt
+      text: 当前架构
+      link: /Yakumo/dev/architecture-sync-2026-10-31
+    - theme: alt
       text: GitHub 仓库
       link: https://github.com/murphys7017/AG99
 

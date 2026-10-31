@@ -6,6 +6,7 @@
 
 - [项目身份](./Yakumo/project-identity.md)：项目名称、定位、与 AstrBot 的关系和术语边界。
 - [架构索引](./Yakumo/README.md)：当前模块边界与推荐阅读顺序。
+- [架构同步基线](./Yakumo/dev/architecture-sync-2026-10-31.md)：最近源码重构后的 Persona、JSON 和流式协议边界。
 - [当前状态](./Yakumo/current-state.md)：以代码为依据的实现事实。
 - [模块索引](./Yakumo/modules/README.md)：Interaction、Prompt、Runtime 等模块说明。
 - [Memory](./Yakumo/dev/memory/index.md)：记忆系统的边界与进度。

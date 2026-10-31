@@ -13,6 +13,9 @@ hero:
       text: Project Identity
       link: /Yakumo/project-identity
     - theme: alt
+      text: Current Architecture
+      link: /Yakumo/dev/architecture-sync-2026-10-31
+    - theme: alt
       text: GitHub Repository
       link: https://github.com/murphys7017/AG99
 

@@ -78,6 +78,7 @@ pnpm dev
 
 - [项目身份](./docs/Yakumo/project-identity.md)：名称、定位、兼容边界和术语。
 - [Yakumo 架构索引](./docs/Yakumo/README.md)：当前边界和推荐阅读顺序。
+- [架构同步基线](./docs/Yakumo/dev/architecture-sync-2026-10-31.md)：PersonaContext、Persona Expression、JSON 和流式协议的当前代码分层。
 - [当前状态](./docs/Yakumo/current-state.md)：已经实现的代码事实。
 - [Interaction Middleware](./docs/Yakumo/modules/interaction.md)：消息 turn、插件和输出归属。
 - [结构化 Prompt](./docs/Yakumo/modules/prompt.md)：规范事实和目标投影。

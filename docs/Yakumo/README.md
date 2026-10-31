@@ -79,6 +79,12 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 
 ## 文档边界
 
+当前架构同步基线：
+
+- `dev/architecture-sync-2026-10-31.md`
+
+该文档记录 Runtime-owned PersonaContext、Persona Expression 协议分层、JSON 边界和流式协议的当前源码位置。历史计划仍用于追溯，不覆盖该同步基线。
+
 当前事实：
 
 - `current-state.md`
@@ -115,19 +121,20 @@ Memory 子系统：
 ## 阅读顺序
 
 1. `current-state.md`
-2. `消息处理流程详解.md`
-3. `modules/README.md`
-4. `modules/interaction.md`
-5. `modules/prompt.md`
-6. `dev/structured-persona-output/README.md`
-7. `dev/execution-backend-flow.mmd`
-8. `dev/runtime-dependency-structure.mmd`
-9. `target-state.md`
-10. `dev/autonomous-persona-runtime-initial-plan.md`
-11. `dev/runtime-function-unification-plan.md`
-12. `dev/execution-backend-preparation-plan.md`
-13. `dev/internal-executor-replacement-plan.md`
-14. `dev/internal-executor-replacement-implementation-guide.md`
+2. `dev/architecture-sync-2026-10-31.md`
+3. `消息处理流程详解.md`
+4. `modules/README.md`
+5. `modules/interaction.md`
+6. `modules/prompt.md`
+7. `dev/structured-persona-output/README.md`
+8. `dev/execution-backend-flow.mmd`
+9. `dev/runtime-dependency-structure.mmd`
+10. `target-state.md`
+11. `dev/autonomous-persona-runtime-initial-plan.md`
+12. `dev/runtime-function-unification-plan.md`
+13. `dev/execution-backend-preparation-plan.md`
+14. `dev/internal-executor-replacement-plan.md`
+15. `dev/internal-executor-replacement-implementation-guide.md`
 
 ## 维护规则
 

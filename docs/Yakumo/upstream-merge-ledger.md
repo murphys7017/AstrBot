@@ -51,6 +51,23 @@ Validation: 17 focused media, pip, and NVIDIA tests passed; two MiMo validation
 cases passed. A broader media/pip run had 93 passes and one failure in an existing
 test that treats a `win32` environment marker as unmatched on Windows.
 
+## 2026-10-31 Local Architecture Synchronization
+
+This entry records local architecture work rather than an upstream intake. The
+current structure is summarized in
+[`dev/architecture-sync-2026-10-31.md`](dev/architecture-sync-2026-10-31.md).
+
+- `3fb9ad681`: Runtime-owned `PersonaContextSeed` and shared Persona context path.
+- `0fc88e7c8`: Persona Expression protocol layers, neutral JSON parsing boundary,
+  shared validation and stream parser extraction.
+- `c89df36bb`: Shared Tencent SILK signature recognition and marker stripping.
+- `04b6aba49`: Reviewed Heartbeat, NVIDIA endpoint, pip trust and related test/docs
+  updates.
+
+These changes preserve the existing Prompt and Provider contracts. Static checks
+were used for the architecture refactors; no live Provider, platform, TTS or
+Live2D acceptance is implied by this ledger entry.
+
 Current local reference-intake commits:
 
 - `e302356b` Add NVIDIA and Ollama embedding providers

@@ -2,6 +2,8 @@
 
 本文档集记录 Persona Expression 结构化输出协议、当前实现边界和后续阶段。当前代码事实以本目录的阶段记录、[Interaction 模块文档](../../modules/interaction.md)和[通用输出契约文档](../output-contract.md)为准。
 
+当前实现的代码分层见[2026-10-31 架构同步基线](../architecture-sync-2026-10-31.md)：类型、schema、输出契约、校验、codec 和流式解析已经从运行编排中拆开。本文档继续描述业务协议，不再把 `expression_agent.py` 作为所有结构化实现的唯一代码位置。
+
 ## 当前状态
 
 - 2026-10-17 非流式 N0–N7 已按限定范围实施并逐项提交：Memory 缓存/输出设备提前准备、松手截图重叠、v6 后到动作、段间动作交接、轻量能力摘要与文件 TTS 连接复用。完整 Electron 构建通过，真实对话性能与 Live2D 观感待验收；范围、提交和验证缺口见 [11 文档第 16 节](11-olv-nonstreaming-optimization-plan.md#16-2026-10-17-本会话实施记录)。

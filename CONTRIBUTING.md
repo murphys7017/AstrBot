@@ -33,6 +33,10 @@
 - 请使用英文描述您的 PR。
 - 标题请使用 `fix: `, `feat: `, `docs: `, `style: `, `refactor: `, `test: `, `chore: ` 等语义化前缀，并简要描述更改内容。如：`fix: correct login page typo`。
 
+#### 文档
+
+AG99 当前运行时的事实文档位于 `docs/Yakumo`。涉及 Persona、Interaction、Prompt、Runtime 或输出协议的改动，应先更新对应的当前态文档；最近的代码分层和阅读入口见 `docs/Yakumo/dev/architecture-sync-2026-10-31.md`。`dev/` 下的计划和历史记录不能替代当前态说明。
+
 #### 代码规范
 
 ##### Core
@@ -103,6 +107,10 @@ We use the `fix/` prefix for bug fixes and the `feat/` prefix for new features. 
 #### PR Description
 - Please use English to describe your PR.
 - Use semantic prefixes like `fix: `, `feat: `, `docs: `, `style: `, `refactor: `, `test: `, `chore: ` in the title, followed by a brief description of the changes, e.g., `fix: correct login page typo`.
+
+#### Documentation
+
+Current AG99 runtime facts live under `docs/Yakumo`. Changes to Persona, Interaction, Prompt, Runtime, or output protocols should update the relevant current-state documentation. The current code-layer map is `docs/Yakumo/dev/architecture-sync-2026-10-31.md`; design plans and historical records under `dev/` do not replace current-state documentation.
 
 #### Code Style
 

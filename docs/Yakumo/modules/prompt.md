@@ -6,6 +6,12 @@ Prompt 自身使用的 safety、persona fallback、tool-call、live mode、sandb
 文本由 `prompt.resources` 持有。Cron/background-task 唤醒提示仍属于 Agent 资源，不由
 Prompt 模块反向读取 `astr_main_agent_resources`。
 
+Persona 的 JSON 基础解析不属于 Prompt target projection。中性 JSON 规范化位于
+`astrbot/core/json_parsing.py`，完整记录恢复位于 `prompt/json_recovery.py`；
+`prompt/structured_json.py` 只保留兼容导出。Persona 的 JSON/XML/Markdown grammar
+仍由 `interaction/structured_output.py` 负责，最终结果交给 Interaction 的 Canonical
+Persona 校验。Prompt 只提供事实、输出 contract 和 Provider-neutral render tree。
+
 ## 当前主链路
 
 ```text
