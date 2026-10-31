@@ -120,6 +120,15 @@ from .persona_expression_schema import (
     _PERSONA_SEGMENT_GUIDANCE,
     _PERSONA_TENDENCY_GUIDANCE,
 )
+from .persona_expression_schema import (
+    build_persona_effect_batch_tool_parameters as _build_persona_effect_batch_tool_parameters,
+)
+from .persona_expression_schema import (
+    build_persona_expression_tool_parameters as _build_persona_expression_tool_parameters,
+)
+from .persona_expression_types import (
+    PERSONA_TENDENCY_DIMENSIONS as _PERSONA_TENDENCY_DIMENSIONS,
+)
 from .persona_expression_types import (
     InteractionExpressionError,
     PersonaExpressionRequest,
@@ -172,6 +181,7 @@ from .structured_output import (
 from .turn_state import (
     get_interaction_turn_deadline,
     get_interaction_turn_state,
+    next_interaction_turn_output_segment_id,
     record_interaction_turn_expression_fallback,
     set_interaction_turn_persona_id,
 )
@@ -182,7 +192,10 @@ PersonaExpressionKind = _PersonaExpressionKind
 PersonaExpressionPhase = _PersonaExpressionPhase
 PersonaExpressionSource = _PersonaExpressionSource
 PersonaProgressStage = _PersonaProgressStage
+PERSONA_TENDENCY_DIMENSIONS = _PERSONA_TENDENCY_DIMENSIONS
 PersonaExpressionSegment = _PersonaExpressionSegment
+build_persona_effect_batch_tool_parameters = _build_persona_effect_batch_tool_parameters
+build_persona_expression_tool_parameters = _build_persona_expression_tool_parameters
 _allowed_persona_turn_actions = allowed_persona_turn_actions
 _validated_persona_segment = validated_persona_segment
 _validated_persona_segments = validated_persona_segments
@@ -2333,6 +2346,7 @@ class InteractionExpressionAgent:
         )
         stream_side_effects_started = False
         stream_turn_action: PersonalResponseAction | None = None
+        segment_message_ids: dict[int, str] = {}
         refresh_prompt = _build_transient_prompt_refresh_callback(event, prepared)
         await runner.reset(
             provider=provider,
@@ -2353,6 +2367,20 @@ class InteractionExpressionAgent:
         async def dispatch_record(record):
             nonlocal stream_turn_action, stream_side_effects_started
             stream_side_effects_started = True
+            segment_message_id_for_record = segment_message_id
+            if (
+                is_olv_persona_stream_scope(event)
+                and record.get("type") in {"segment_start", "segment_end"}
+            ):
+                segment_index = int(record["segment_index"])
+                segment_message_id_for_record = segment_message_ids.get(segment_index)
+                if segment_message_id_for_record is None:
+                    segment_message_id_for_record = next_interaction_turn_output_segment_id(
+                        event,
+                        "persona_incremental",
+                    )
+                    segment_message_ids[segment_index] = segment_message_id_for_record
+                record["segment_message_id"] = segment_message_id_for_record
             if record.get("type") == "header":
                 record["persona_result_id"] = prepared.lifecycle.lifecycle_id
                 stream_turn_action = PersonalResponseAction(
@@ -2368,7 +2396,7 @@ class InteractionExpressionAgent:
                         ),
                         persona_result_id=prepared.lifecycle.lifecycle_id,
                         segment_index=record["segment_index"],
-                        message_id=segment_message_id,
+                        message_id=segment_message_id_for_record,
                         actions=list(record.get("actions") or []),
                         tendency=dict(record.get("tendency") or {}),
                         turn_action=stream_turn_action,
@@ -2389,7 +2417,7 @@ class InteractionExpressionAgent:
                         ),
                         persona_result_id=prepared.lifecycle.lifecycle_id,
                         segment_index=record["segment_index"],
-                        message_id=segment_message_id,
+                        message_id=segment_message_id_for_record,
                         segment=raw_segment,
                         turn_action=stream_turn_action,
                         execution_surface=(
@@ -2408,7 +2436,7 @@ class InteractionExpressionAgent:
                     str(event.get_extra("_turn_id", "") or "") or "<missing>",
                     prepared.lifecycle.lifecycle_id,
                     record["segment_index"],
-                    segment_message_id,
+                    segment_message_id_for_record,
                     time.time_ns() // 1_000_000,
                 )
                 await segment_stream_callback(record)

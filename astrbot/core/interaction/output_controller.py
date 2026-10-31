@@ -616,6 +616,7 @@ class InteractionOutputController:
             "status": "failed",
             "persona_result_id": None,
             "turn_action": None,
+            "segment_message_ids": {},
         }
         event.set_extra(
             "_interaction_persona_stream_motion_downlink_indexes",
@@ -1028,11 +1029,22 @@ class InteractionOutputController:
                 state["current_index"] = int(record["segment_index"])
                 state["current_text"] = []
                 state["next_delta_index"] = 0
+                segment_message_id = None
+                if is_olv_segment_stream:
+                    segment_message_id = str(
+                        record.get("segment_message_id") or ""
+                    ).strip()
+                    if segment_message_id:
+                        state["segment_message_ids"][state["current_index"]] = (
+                            segment_message_id
+                        )
                 if incremental_writer is not None:
-                    segment_message_id = self._next_output_segment_id(
-                        event,
-                        "persona_incremental",
-                    )
+                    if not segment_message_id:
+                        segment_message_id = self._next_output_segment_id(
+                            event,
+                            "persona_incremental",
+                        )
+                        record["segment_message_id"] = segment_message_id
                     incremental_started_segments[state["current_index"]] = segment_message_id
                     incremental_closed_resources[state["current_index"]] = set()
                     incremental_preparers[state["current_index"]] = (
@@ -1376,10 +1388,17 @@ class InteractionOutputController:
                     and item["type"] == "persona_segment"
                     and not str(item["text"] or "").strip()
                 ):
-                    segment_message_id = self._next_output_segment_id(
-                        event,
-                        "persona_motion",
+                    segment_message_id = state["segment_message_ids"].get(
+                        item["segment_index"]
                     )
+                    if not segment_message_id:
+                        segment_message_id = self._next_output_segment_id(
+                            event,
+                            "persona_motion",
+                        )
+                        state["segment_message_ids"][item["segment_index"]] = (
+                            segment_message_id
+                        )
                     yield MessageChain(
                         [
                             Plain(
@@ -1397,10 +1416,17 @@ class InteractionOutputController:
                     continue
 
                 if item["type"] == "persona_segment" and not use_tts:
-                    segment_message_id = self._next_output_segment_id(
-                        event,
-                        "persona_segment",
+                    segment_message_id = state["segment_message_ids"].get(
+                        item["segment_index"]
                     )
+                    if not segment_message_id:
+                        segment_message_id = self._next_output_segment_id(
+                            event,
+                            "persona_segment",
+                        )
+                        state["segment_message_ids"][item["segment_index"]] = (
+                            segment_message_id
+                        )
                     yield MessageChain(
                         [
                             Plain(
