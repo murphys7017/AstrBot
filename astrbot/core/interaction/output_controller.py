@@ -582,6 +582,10 @@ class InteractionOutputController:
             and await SessionServiceManager.should_process_tts_request(event)
         )
         message_id = self._next_output_segment_id(event, "persona_stream")
+        event.set_extra(
+            "_interaction_persona_stream_parent_message_id",
+            message_id,
+        )
         platform_extras = self.build_platform_output_extras(
             event,
             message_kind=message_kind,
