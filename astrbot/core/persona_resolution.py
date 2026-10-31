@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from astrbot.core.persona_context import PersonaContextSeed
+
 PERSONA_RESOLUTION_CACHE_EXTRA_KEY = "_persona_resolution_cache"
 PERSONA_RESOLUTION_INFLIGHT_EXTRA_KEY = "_persona_resolution_inflight"
 PersonaResolutionCacheKey = tuple[str, str, str, str, int]
@@ -67,8 +69,9 @@ async def resolve_event_persona(
     task = inflight.get(key)
     if not isinstance(task, asyncio.Task):
         task = asyncio.create_task(
-            _resolve_selected_persona(
-                event=event,
+            resolve_persona_selection(
+                unified_msg_origin=event.unified_msg_origin,
+                platform_name=event.get_platform_name(),
                 persona_manager=persona_manager,
                 conversation_persona_id=conversation_persona_id,
                 provider_settings=provider_settings,
@@ -93,22 +96,24 @@ async def resolve_event_persona(
     return resolution
 
 
-async def _resolve_selected_persona(
+async def resolve_persona_selection(
     *,
-    event: Any,
+    unified_msg_origin: str,
+    platform_name: str,
     persona_manager: Any,
     conversation_persona_id: str | None,
     provider_settings: Mapping[str, Any] | None,
 ) -> PersonaResolution:
+    """Resolve one selected-persona snapshot without requiring an Event."""
     (
         persona_id,
         persona,
         force_applied_persona_id,
         use_webchat_special_default,
     ) = await persona_manager.resolve_selected_persona(
-        umo=event.unified_msg_origin,
+        umo=unified_msg_origin,
         conversation_persona_id=conversation_persona_id,
-        platform_name=event.get_platform_name(),
+        platform_name=platform_name,
         provider_settings=dict(provider_settings or {}),
     )
     return PersonaResolution(
@@ -152,7 +157,9 @@ def _consume_background_resolution_exception(
 __all__ = [
     "PERSONA_RESOLUTION_CACHE_EXTRA_KEY",
     "PERSONA_RESOLUTION_INFLIGHT_EXTRA_KEY",
+    "PersonaContextSeed",
     "PersonaResolution",
     "build_event_persona_resolution_key",
     "resolve_event_persona",
+    "resolve_persona_selection",
 ]

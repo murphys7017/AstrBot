@@ -28,8 +28,7 @@ from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 
 from .persona_domain import (
-    adapt_persona_collector_slots,
-    build_effective_persona_context,
+    build_effective_persona_context_from_slots,
 )
 from .turn_state import (
     InteractionContextMaterial,
@@ -71,11 +70,23 @@ async def build_interaction_context_pack(
     plugin_context: Context,
     config,
 ) -> ContextPack:
+    turn_state = get_interaction_turn_state(event)
     builder = PromptContextBuilder(event, plugin_context, config)
     provider_request = get_interaction_prompt_source_request(event)
     base_pack = await builder.build(
         provider_request=provider_request,
-        collectors=interaction_base_collectors(),
+        collectors=interaction_base_collectors(
+            persona_resolution=(
+                turn_state.personal_runtime_persona_resolution
+                if turn_state is not None
+                else None
+            ),
+            persona_context_seed=(
+                turn_state.personal_runtime_persona_context_seed
+                if turn_state is not None
+                else None
+            ),
+        ),
         include_prompt_extensions=True,
         prompt_extension_collector_scope="control_plane",
         scope="interaction_base",
@@ -597,24 +608,40 @@ async def _build_interaction_context_material(
         build_config,
     )
     capability_payload = extract_core_capability_payload(prompt_context_pack)
-    persona_definition = adapt_persona_collector_slots(
-        tuple(prompt_context_pack.slots.values())
+    runtime_snapshot = (
+        turn_state.personal_runtime_state_snapshot
+        if turn_state is not None
+        else None
+    )
+    runtime_persona_definition = (
+        turn_state.personal_runtime_persona_definition
+        if turn_state is not None
+        else None
+    )
+    effective_persona_context = build_effective_persona_context_from_slots(
+        tuple(prompt_context_pack.slots.values()),
+        definition=runtime_persona_definition,
+        memory_snapshot_provider=lambda: get_cached_prompt_memory_snapshot(
+            event,
+            provider_request=get_interaction_prompt_source_request(event),
+        ),
+        runtime_snapshot=runtime_snapshot,
+        scope_key=(
+            turn_state.personal_runtime_persona_context_seed.scope_key
+            if turn_state is not None
+            and turn_state.personal_runtime_persona_context_seed is not None
+            else None
+        ),
     )
     material = InteractionContextMaterial(
         prompt_context_pack=prompt_context_pack,
         persona_payload=extract_persona_payload(prompt_context_pack),
-        persona_definition=persona_definition,
-        effective_persona_context=(
-            build_effective_persona_context(
-                definition=persona_definition,
-                memory_snapshot=get_cached_prompt_memory_snapshot(
-                    event,
-                    provider_request=get_interaction_prompt_source_request(event),
-                ),
-            )
-            if persona_definition is not None
+        persona_definition=(
+            effective_persona_context.definition
+            if effective_persona_context is not None
             else None
         ),
+        effective_persona_context=effective_persona_context,
         memory_payload=extract_memory_payload(prompt_context_pack),
         recent_messages=extract_recent_messages(
             prompt_context_pack,

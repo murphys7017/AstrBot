@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
@@ -17,7 +17,7 @@ from types import MappingProxyType
 from typing import Any
 
 from astrbot.core.memory.types import MemorySnapshot, PersonaState
-from astrbot.core.prompt.context_types import ContextSlot
+from astrbot.core.persona_context import PersonaContextSeed, PersonaContextSlotLike
 
 from .personal_state import (
     PersonalAttentionState,
@@ -201,7 +201,7 @@ class PersonaDefinition:
 
     @classmethod
     def from_context_slots(
-        cls, slots: Sequence[ContextSlot]
+        cls, slots: Sequence[PersonaContextSlotLike]
     ) -> PersonaDefinition | None:
         by_name = {slot.name: slot for slot in slots}
         persona_slots = [
@@ -538,10 +538,17 @@ def adapt_personal_persistent_state(
 
 
 def adapt_persona_collector_slots(
-    slots: Sequence[ContextSlot],
+    slots: Sequence[PersonaContextSlotLike],
 ) -> PersonaDefinition | None:
     """Adapt PersonaCollector output without retaining slot metadata or owners."""
     return PersonaDefinition.from_context_slots(slots)
+
+
+def adapt_persona_context_seed(
+    seed: PersonaContextSeed,
+) -> PersonaDefinition | None:
+    """Adapt a Runtime-owned seed without materializing Prompt slots."""
+    return PersonaDefinition.from_context_slots(seed.slots)
 
 
 def adapt_memory_snapshot(
@@ -575,6 +582,29 @@ def build_effective_persona_context(
     )
 
 
+def build_effective_persona_context_from_slots(
+    slots: Sequence[PersonaContextSlotLike],
+    *,
+    definition: PersonaDefinition | None = None,
+    memory_snapshot: MemorySnapshot | None = None,
+    memory_snapshot_provider: Callable[[], MemorySnapshot | None] | None = None,
+    runtime_snapshot: PersonalStateSnapshot | None = None,
+    scope_key: str | None = None,
+) -> EffectivePersonaContext | None:
+    """Build one effective persona snapshot from collected prompt slots."""
+    definition = definition or adapt_persona_collector_slots(slots)
+    if definition is None:
+        return None
+    if memory_snapshot_provider is not None:
+        memory_snapshot = memory_snapshot_provider()
+    return build_effective_persona_context(
+        definition=definition,
+        memory_snapshot=memory_snapshot,
+        runtime_snapshot=runtime_snapshot,
+        scope_key=scope_key,
+    )
+
+
 __all__ = [
     "EffectivePersonaContext",
     "PERSONA_DOMAIN_SCHEMA_VERSION",
@@ -582,8 +612,10 @@ __all__ = [
     "PersonaRelationshipState",
     "RuntimeControlSnapshot",
     "adapt_memory_snapshot",
+    "adapt_persona_context_seed",
     "adapt_persona_collector_slots",
     "adapt_personal_persistent_state",
     "build_effective_persona_context",
+    "build_effective_persona_context_from_slots",
     "build_persona_scope_key",
 ]

@@ -27,8 +27,8 @@ from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_K
 from astrbot.core.prompt.context_types import ContextPack
 
 from .types import (
-    CoreRouterDecision,
     CorePlanningDecision,
+    CoreRouterDecision,
     CoreTaskSpec,
     InteractionAgentConfig,
     InteractionRouteDecision,
@@ -37,11 +37,14 @@ from .types import (
 
 if TYPE_CHECKING:
     from astrbot.core.message.message_chain_delivery import MessageChainDeliveryResult
+    from astrbot.core.persona_context import PersonaContextSeed
+    from astrbot.core.persona_resolution import PersonaResolution
     from astrbot.core.plugin_admission import PluginAdmissionSnapshot
 
     from .execution_capability_summary import ExecutionCapabilitySummary
     from .persona_domain import EffectivePersonaContext, PersonaDefinition
     from .personal_runtime import PersonalRuntimeKey
+    from .personal_state import PersonalStateSnapshot
 
 INTERACTION_TURN_STATE_EXTRA_KEY = "_interaction_turn_state"
 INTERACTION_CORE_EXECUTION_JOURNAL_HEAD_EXTRA_KEY = "_interaction_core_execution_journal_head"
@@ -299,6 +302,10 @@ class InteractionTurnState:
     runtime_config_snapshot: Mapping[str, Any] | None = None
     persona_id: str = ""
     personal_runtime_key: PersonalRuntimeKey | None = None
+    personal_runtime_persona_resolution: PersonaResolution | None = None
+    personal_runtime_persona_context_seed: PersonaContextSeed | None = None
+    personal_runtime_persona_definition: PersonaDefinition | None = None
+    personal_runtime_state_snapshot: PersonalStateSnapshot | None = None
     runtime_config_id: str = ""
     runtime_adapter_binding_id: str = ""
     runtime_provider_references: Mapping[str, str] = field(

@@ -9,18 +9,18 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
+from astrbot.core.persona_context import PersonaContextSeed
+from astrbot.core.persona_resolution import PersonaResolution
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.prompt.builder import PromptContextBuilder
 from astrbot.core.prompt.collectors import (
     ConversationHistoryCollector,
-    MemoryCollector,
-    PersonaCollector,
-    PersonaRelationshipCollector,
     RuntimeContextCollector,
 )
 from astrbot.core.prompt.collectors.memory_collector import (
     get_cached_prompt_memory_snapshot,
 )
+from astrbot.core.prompt.context_collect import persona_context_collectors
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
     PromptRenderProfile,
@@ -31,8 +31,8 @@ from astrbot.core.provider.entities import LLMResponse, ProviderRequest
 
 from .observation_inbox import ObservationBatch
 from .persona_domain import (
-    adapt_persona_collector_slots,
-    build_effective_persona_context,
+    PersonaDefinition,
+    build_effective_persona_context_from_slots,
 )
 from .personal_gate import ObservationGateResult, ObservationGateSettings
 from .personal_state import PersonalStateSnapshot
@@ -305,6 +305,9 @@ class PersonalPolicyAgent:
         runtime_config: Mapping[str, Any],
         interaction_config: InteractionAgentConfig,
         on_provider_call_started: Callable[[], Awaitable[None]],
+        persona_resolution: PersonaResolution | None = None,
+        persona_context_seed: PersonaContextSeed | None = None,
+        persona_definition: PersonaDefinition | None = None,
     ) -> PersonalPolicyEvaluation | None:
         if not interaction_config.personal_policy_enabled:
             return None
@@ -333,6 +336,9 @@ class PersonalPolicyAgent:
                 batch=batch,
                 gate_result=gate_result,
                 state=state,
+                persona_resolution=persona_resolution,
+                persona_context_seed=persona_context_seed,
+                persona_definition=persona_definition,
                 gate_settings=gate_settings,
                 plugin_context=plugin_context,
                 runtime_config=runtime_config,
@@ -471,6 +477,9 @@ class PersonalPolicyAgent:
         batch: ObservationBatch,
         gate_result: ObservationGateResult,
         state: PersonalStateSnapshot,
+        persona_resolution: PersonaResolution | None,
+        persona_context_seed: PersonaContextSeed | None,
+        persona_definition: PersonaDefinition | None,
         gate_settings: ObservationGateSettings,
         plugin_context: Context,
         runtime_config: Mapping[str, Any],
@@ -508,10 +517,11 @@ class PersonalPolicyAgent:
             build_config,
         ).build(
             collectors=[
-                PersonaCollector(),
-                ConversationHistoryCollector(),
-                MemoryCollector(include_persona_state=False),
-                PersonaRelationshipCollector(),
+                *persona_context_collectors(
+                    after_persona=(ConversationHistoryCollector(),),
+                    persona_resolution=persona_resolution,
+                    persona_context_seed=persona_context_seed,
+                ),
                 runtime_collector,
             ],
             provider_request=request,
@@ -532,17 +542,23 @@ class PersonalPolicyAgent:
                 output_contract=build_personal_policy_output_contract(),
             ),
         )
-        definition = adapt_persona_collector_slots(tuple(pack.slots.values()))
-        if definition is not None:
+        effective_persona_context = build_effective_persona_context_from_slots(
+            tuple(pack.slots.values()),
+            definition=persona_definition,
+            memory_snapshot_provider=lambda: get_cached_prompt_memory_snapshot(
+                event,
+                provider_request=request,
+            ),
+            runtime_snapshot=state,
+            scope_key=(
+                persona_context_seed.scope_key
+                if persona_context_seed is not None
+                else None
+            ),
+        )
+        if effective_persona_context is not None:
             render_result.metadata["effective_persona_context"] = (
-                build_effective_persona_context(
-                    definition=definition,
-                    memory_snapshot=get_cached_prompt_memory_snapshot(
-                        event,
-                        provider_request=request,
-                    ),
-                    runtime_snapshot=state,
-                ).to_dict()
+                effective_persona_context.to_dict()
             )
         return render_result
 

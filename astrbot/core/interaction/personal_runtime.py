@@ -20,9 +20,18 @@ from astrbot.core.execution import (
     CoreFollowUpTicket,
     get_core_execution_head,
 )
+from astrbot.core.persona_context import (
+    PersonaContextSeed,
+    build_persona_context_seed,
+)
 from astrbot.core.persona_error_reply import (
     resolve_conversation_persona_id,
     resolve_event_conversation_persona_id,
+)
+from astrbot.core.persona_resolution import (
+    PersonaResolution,
+    resolve_event_persona,
+    resolve_persona_selection,
 )
 from astrbot.core.platform.astr_message_event import (
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
@@ -41,6 +50,11 @@ from .observation_inbox import (
     ObservationAdmissionStatus,
     ObservationBatch,
     ObservationInbox,
+)
+from .persona_domain import (
+    PersonaDefinition,
+    adapt_persona_context_seed,
+    build_persona_scope_key,
 )
 from .personal_action import (
     PersonalActionCoordinator,
@@ -120,6 +134,12 @@ class PersonalRuntimeKey:
 
 
 @dataclass(frozen=True, slots=True)
+class _ResolvedPersonalRuntimeKey:
+    key: PersonalRuntimeKey
+    persona_resolution: PersonaResolution
+
+
+@dataclass(frozen=True, slots=True)
 class _GroupConversationOwnerKey:
     config_id: str
     audience_key: str
@@ -153,6 +173,29 @@ def _runtime_key_hash(key: PersonalRuntimeKey) -> str:
         )
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _build_runtime_persona_context_seed(
+    key: PersonalRuntimeKey,
+    resolution: PersonaResolution,
+) -> PersonaContextSeed | None:
+    return build_persona_context_seed(
+        resolution,
+        scope_key=build_persona_scope_key(
+            config_id=key.config_id,
+            persona_id=key.persona_id,
+            audience_key=key.audience_key,
+            privacy_scope=key.privacy_scope,
+        ),
+    )
+
+
+def _build_runtime_persona_definition(
+    seed: PersonaContextSeed | None,
+) -> PersonaDefinition | None:
+    if seed is None:
+        return None
+    return adapt_persona_context_seed(seed)
 
 
 def _stable_observation_payload_fingerprint(payload: Mapping[str, Any]) -> str:
@@ -637,9 +680,15 @@ class PersonalSessionRuntime:
         state_repository: PersonalStateRepository | None = None,
         persistent_state: PersonalPersistentState | None = None,
         state_restore_pending: bool = False,
+        persona_resolution: PersonaResolution | None = None,
+        persona_context_seed: PersonaContextSeed | None = None,
+        persona_definition: PersonaDefinition | None = None,
     ) -> None:
         now = time.time()
         self.key = key
+        self.persona_resolution = persona_resolution
+        self.persona_context_seed = persona_context_seed
+        self.persona_definition = persona_definition
         self.turn_lock = _TurnAdmissionGate()
         self.active_turn_id: str | None = None
         self._active_turn_context: PersonalTurnContext | None = None
@@ -1246,6 +1295,9 @@ class PersonalSessionRuntime:
                     batch=batch,
                     gate_result=gate_result,
                     state=state_snapshot,
+                    persona_resolution=self.persona_resolution,
+                    persona_context_seed=self.persona_context_seed,
+                    persona_definition=self.persona_definition,
                     gate_settings=self.observation_gate_settings,
                     plugin_context=plugin_context,
                     runtime_config=self._runtime_config,
@@ -1986,12 +2038,12 @@ class PersonalRuntimeManager:
             target = observations[-1].target_session
             platform = context.get_platform_inst(target.platform_id)
             metadata = platform.meta() if platform is not None else None
-            current_key = await self._resolve_observation_target_runtime_key(
+            resolved_runtime = await self._resolve_observation_target_runtime_key(
                 target, config_id=selection.config_id, plugin_context=context,
                 runtime_config=selection.runtime_config,
             )
             if (
-                current_key != key
+                resolved_runtime.key != key
                 or not settings.enabled
                 or not settings.personal_policy_enabled
                 or metadata is None
@@ -2025,7 +2077,10 @@ class PersonalRuntimeManager:
                 runtime.observation_inbox.pending_count
             )
             await self._get_or_create_runtime(
-                key, plugin_context=context, runtime_config=selection.runtime_config
+                key,
+                plugin_context=context,
+                runtime_config=selection.runtime_config,
+                persona_resolution=resolved_runtime.persona_resolution,
             )
         except Exception:
             logger.exception(
@@ -2050,7 +2105,7 @@ class PersonalRuntimeManager:
         self._ensure_accepting()
         if not isinstance(observation, RuntimeObservation):
             raise TypeError("observation must be a RuntimeObservation")
-        key = await self._resolve_observation_runtime_key(
+        resolved_runtime = await self._resolve_observation_runtime_key(
             observation,
             config_id=config_id,
             plugin_context=plugin_context,
@@ -2059,9 +2114,10 @@ class PersonalRuntimeManager:
         now = time.time()
         self._evict_idle_sessions(now=now)
         runtime = await self._get_or_create_runtime(
-            key,
+            resolved_runtime.key,
             plugin_context=plugin_context,
             runtime_config=runtime_config,
+            persona_resolution=resolved_runtime.persona_resolution,
         )
         return runtime.submit_observation(observation, now=now)
 
@@ -2077,7 +2133,7 @@ class PersonalRuntimeManager:
     ) -> ObservationAdmissionResult:
         """Submit a bounded idle fact without creating a platform event."""
         self._ensure_accepting()
-        key = await self._resolve_observation_target_runtime_key(
+        resolved_runtime = await self._resolve_observation_target_runtime_key(
             target_session,
             config_id=config_id,
             plugin_context=plugin_context,
@@ -2085,9 +2141,10 @@ class PersonalRuntimeManager:
         )
         self._evict_idle_sessions(now=occurred_at)
         runtime = await self._get_or_create_runtime(
-            key,
+            resolved_runtime.key,
             plugin_context=plugin_context,
             runtime_config=runtime_config,
+            persona_resolution=resolved_runtime.persona_resolution,
         )
         return await runtime.submit_idle_initiation(
             target_session,
@@ -2445,6 +2502,7 @@ class PersonalRuntimeManager:
             key,
             plugin_context=turn.plugin_context,
             runtime_config=turn.runtime_config,
+            persona_resolution=turn.state.personal_runtime_persona_resolution,
         )
         self._bind_to_runtime(reservation, runtime)
         return runtime
@@ -2473,6 +2531,11 @@ class PersonalRuntimeManager:
         reservation.transition(PendingTurnState.BOUND)
         self._event_sessions[event] = runtime
         turn.state.personal_runtime_key = runtime.key
+        if runtime.persona_resolution is not None:
+            turn.state.personal_runtime_persona_resolution = runtime.persona_resolution
+        turn.state.personal_runtime_persona_context_seed = runtime.persona_context_seed
+        turn.state.personal_runtime_persona_definition = runtime.persona_definition
+        turn.state.personal_runtime_state_snapshot = runtime.state.snapshot()
         set_interaction_turn_persona_id(event, runtime.key.persona_id)
 
     async def _admit(
@@ -2827,6 +2890,7 @@ class PersonalRuntimeManager:
         *,
         plugin_context: Any,
         runtime_config: Mapping[str, Any],
+        persona_resolution: PersonaResolution | None = None,
     ) -> PersonalSessionRuntime:
         async with self._runtime_creation_lock:
             runtime = self._sessions.get(key)
@@ -2845,6 +2909,14 @@ class PersonalRuntimeManager:
                             key.persona_id,
                             key.audience_key,
                         )
+                persona_context_seed = (
+                    _build_runtime_persona_context_seed(key, persona_resolution)
+                    if persona_resolution is not None
+                    else None
+                )
+                persona_definition = _build_runtime_persona_definition(
+                    persona_context_seed
+                )
                 runtime = PersonalSessionRuntime(
                     key,
                     max_pending_observations=self._max_pending_observations,
@@ -2853,6 +2925,9 @@ class PersonalRuntimeManager:
                     state_repository=self._state_repository,
                     persistent_state=persistent_state,
                     state_restore_pending=restore_pending,
+                    persona_resolution=persona_resolution,
+                    persona_context_seed=persona_context_seed,
+                    persona_definition=persona_definition,
                 )
                 self._sessions[key] = runtime
             elif runtime._state_restore_pending:
@@ -2863,6 +2938,18 @@ class PersonalRuntimeManager:
                         "Personal Runtime state restore retry failed: config_id=%s audience=%s",
                         key.config_id, key.audience_key,
                     )
+            if (
+                persona_resolution is not None
+                and runtime.persona_resolution != persona_resolution
+            ):
+                runtime.persona_resolution = persona_resolution
+                runtime.persona_context_seed = _build_runtime_persona_context_seed(
+                    key,
+                    persona_resolution,
+                )
+                runtime.persona_definition = _build_runtime_persona_definition(
+                    runtime.persona_context_seed
+                )
         interaction_config = load_interaction_agent_config(runtime_config)
         runtime.configure_personal_policy(
             agent=self._personal_policy_agent,
@@ -2959,14 +3046,16 @@ class PersonalRuntimeManager:
                     event,
                     turn.plugin_context.conversation_manager,
                 )
-            return await self._resolve_selected_persona_id(
-                unified_msg_origin=turn.session.unified_msg_origin,
-                platform_name=turn.session.platform_name,
+            resolution = await resolve_event_persona(
+                event=event,
+                persona_manager=turn.plugin_context.persona_manager,
                 conversation_persona_id=conversation_persona_id,
-                plugin_context=turn.plugin_context,
                 provider_settings=turn.runtime_config.get("provider_settings", {}),
             )
+            turn.state.personal_runtime_persona_resolution = resolution
+            return str(resolution.persona_id or "default")
         except Exception as exc:
+            turn.state.personal_runtime_persona_resolution = None
             logger.warning(
                 "Personal Runtime persona resolution failed; isolating turn: session_id=%s error=%s",
                 event.unified_msg_origin,
@@ -2981,7 +3070,7 @@ class PersonalRuntimeManager:
         config_id: str,
         plugin_context: Any,
         runtime_config: Mapping[str, Any],
-    ) -> PersonalRuntimeKey:
+    ) -> _ResolvedPersonalRuntimeKey:
         return await self._resolve_observation_target_runtime_key(
             observation.target_session,
             config_id=config_id,
@@ -2996,47 +3085,27 @@ class PersonalRuntimeManager:
         config_id: str,
         plugin_context: Any,
         runtime_config: Mapping[str, Any],
-    ) -> PersonalRuntimeKey:
+    ) -> _ResolvedPersonalRuntimeKey:
         conversation_persona_id = await resolve_conversation_persona_id(
             target.unified_msg_origin,
             plugin_context.conversation_manager,
         )
-        persona_id = await self._resolve_selected_persona_id(
+        persona_resolution = await resolve_persona_selection(
             unified_msg_origin=target.unified_msg_origin,
             platform_name=target.platform_name,
             conversation_persona_id=conversation_persona_id,
-            plugin_context=plugin_context,
+            persona_manager=plugin_context.persona_manager,
             provider_settings=runtime_config.get("provider_settings", {}),
         )
-        return PersonalRuntimeKey(
-            config_id=str(config_id or "default"),
-            persona_id=persona_id,
-            audience_key=target.unified_msg_origin,
-            privacy_scope=resolve_privacy_scope(target.message_type),
+        return _ResolvedPersonalRuntimeKey(
+            key=PersonalRuntimeKey(
+                config_id=str(config_id or "default"),
+                persona_id=str(persona_resolution.persona_id or "default"),
+                audience_key=target.unified_msg_origin,
+                privacy_scope=resolve_privacy_scope(target.message_type),
+            ),
+            persona_resolution=persona_resolution,
         )
-
-    @staticmethod
-    async def _resolve_selected_persona_id(
-        *,
-        unified_msg_origin: str,
-        platform_name: str,
-        conversation_persona_id: str | None,
-        plugin_context: Any,
-        provider_settings: Mapping[str, Any] | None,
-    ) -> str:
-        (
-            persona_id,
-            _,
-            _,
-            _,
-        ) = await plugin_context.persona_manager.resolve_selected_persona(
-            umo=unified_msg_origin,
-            conversation_persona_id=conversation_persona_id,
-            platform_name=platform_name,
-            provider_settings=dict(provider_settings or {}),
-        )
-        return str(persona_id or "default")
-
 
 __all__ = [
     "PendingTurnReservation",

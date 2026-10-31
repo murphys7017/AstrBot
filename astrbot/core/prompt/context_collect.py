@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from astrbot.core import logger
 from astrbot.core.capabilities import CapabilitySnapshot
+from astrbot.core.persona_context import PersonaContextSeed
+from astrbot.core.persona_resolution import PersonaResolution
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.plugin_admission import build_plugin_admission_snapshot
 from astrbot.core.plugin_runtime import resolve_plugin_prompt_extension_target
@@ -92,7 +94,11 @@ def _default_collectors(
     ]
 
 
-def interaction_base_collectors() -> list[ContextCollectorInterface]:
+def interaction_base_collectors(
+    *,
+    persona_resolution: PersonaResolution | None = None,
+    persona_context_seed: PersonaContextSeed | None = None,
+) -> list[ContextCollectorInterface]:
     """Return facts needed before Personal resolves the response plan.
 
     Core execution resources are collected later, after delegation. This keeps
@@ -100,14 +106,40 @@ def interaction_base_collectors() -> list[ContextCollectorInterface]:
     """
     return [
         SystemCollector(base_only=True),
-        PersonaCollector(),
-        InputCollector(include_media_enrichment=False),
-        SessionCollector(),
-        MemoryCollector(include_persona_state=False),
-        PersonaRelationshipCollector(),
+        *persona_context_collectors(
+            after_persona=(
+                InputCollector(include_media_enrichment=False),
+                SessionCollector(),
+            ),
+            persona_resolution=persona_resolution,
+            persona_context_seed=persona_context_seed,
+        ),
         ConversationHistoryCollector(),
         PersonaExecutionContinuityCollector(),
         ExplicitContextCollector(),
+    ]
+
+
+def persona_context_collectors(
+    *,
+    after_persona: Iterable[ContextCollectorInterface] = (),
+    persona_resolution: PersonaResolution | None = None,
+    persona_context_seed: PersonaContextSeed | None = None,
+) -> list[ContextCollectorInterface]:
+    """Return the shared Persona and relationship collector sequence.
+
+    ``after_persona`` preserves each caller's existing slot and dependency
+    order while keeping the Persona/Memory/relationship combination defined in
+    one place.
+    """
+    return [
+        PersonaCollector(
+            persona_resolution=persona_resolution,
+            persona_context_seed=persona_context_seed,
+        ),
+        *after_persona,
+        MemoryCollector(include_persona_state=False),
+        PersonaRelationshipCollector(),
     ]
 
 

@@ -10,23 +10,22 @@ from copy import deepcopy
 from typing import TYPE_CHECKING
 
 from astrbot.core import logger
+from astrbot.core.persona_context import (
+    PersonaContextSeed,
+    PersonaContextSlot,
+    build_persona_slots_from_resolution,
+)
 from astrbot.core.persona_resolution import (
+    PersonaResolution,
     build_event_persona_resolution_key,
     resolve_event_persona,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
-from astrbot.core.prompt.resources import (
-    CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
-)
 from astrbot.core.provider.entities import ProviderRequest
 from astrbot.core.star.context import Context
 
 from ..context_types import ContextSlot
 from ..interfaces.context_collector_inferface import ContextCollectorInterface
-from ..persona_segments import (
-    build_persona_prompt_projection,
-    parse_legacy_persona_prompt,
-)
 
 if TYPE_CHECKING:
     from astrbot.core.astr_main_agent import MainAgentBuildConfig
@@ -48,9 +47,20 @@ class PersonaCollector(ContextCollectorInterface):
 
     parallel_safe = True
 
+    def __init__(
+        self,
+        persona_resolution: PersonaResolution | None = None,
+        persona_context_seed: PersonaContextSeed | None = None,
+    ) -> None:
+        self.persona_resolution = persona_resolution
+        self.persona_context_seed = persona_context_seed
+
     @property
     def lifecycle(self) -> str:
-        return "static"
+        # Runtime-owned Seeds already have an event-local cache below. Keeping
+        # that path out of Prompt's generic static cache avoids a second deep
+        # copy of the same immutable persona projection.
+        return "dynamic" if self.persona_context_seed is not None else "static"
 
     async def collect(
         self,
@@ -64,10 +74,22 @@ class PersonaCollector(ContextCollectorInterface):
 
         流程:
         1. 从 event 中获取 provider_request（如果有），从中获取 conversation
-        2. 调用 persona_manager.resolve_selected_persona() 解析当前生效的 persona
+        2. 优先使用 Runtime/Interaction 已解析的人格；否则调用
+           persona_manager.resolve_selected_persona() 解析当前生效的 persona
         3. 从 persona 对象中提取 4 个 context items
         4. 构造 ContextSlot 列表返回
         """
+        if self.persona_context_seed is not None:
+            seed_cache_key = ("runtime_seed", id(self.persona_context_seed))
+            cached_slots = _get_cached_resolution_slots(event, seed_cache_key)
+            if cached_slots is not None:
+                return cached_slots
+            slots = _materialize_prompt_slots(
+                self.persona_context_seed.materialize_slots()
+            )
+            _store_resolution_slots(event, seed_cache_key, slots)
+            return slots
+
         slots: list[ContextSlot] = []
 
         # Persona is a required collector. Let collection failures reach the
@@ -79,7 +101,7 @@ class PersonaCollector(ContextCollectorInterface):
         if req and hasattr(req, "conversation") and req.conversation:
             conversation_persona_id = req.conversation.persona_id
 
-        # 步骤 2: 调用 persona_manager.resolve_selected_persona()
+        # 步骤 2: 复用上游已解析的人格，只有兼容路径才重新解析。
         persona_mgr = getattr(plugin_context, "persona_manager", None)
         if not persona_mgr:
             raise RuntimeError("PersonaManager not available")
@@ -94,148 +116,42 @@ class PersonaCollector(ContextCollectorInterface):
         if cached_slots is not None:
             return cached_slots
 
-        resolution = await resolve_event_persona(
-            event=event,
-            persona_manager=persona_mgr,
-            conversation_persona_id=conversation_persona_id,
-            provider_settings=config.provider_settings,
-        )
-        persona_id = resolution.persona_id
-        persona = resolution.persona
-        force_applied_persona_id = resolution.force_applied_persona_id
-        use_webchat_special_default = resolution.use_webchat_special_default
-
-        if not persona and not use_webchat_special_default:
-            logger.debug(f"No persona resolved (persona_id={persona_id})")
-            _store_resolution_slots(event, resolution_key, slots)
-            return slots
-
-        # 步骤 3: 提取并构造 ContextSlot
-
-        # persona.prompt
-        if use_webchat_special_default:
-            slots.append(
-                ContextSlot(
-                    name="persona.prompt",
-                    value=CHATUI_SPECIAL_DEFAULT_PERSONA_PROMPT,
-                    category="persona",
-                    source="persona_mgr",
-                    meta={
-                        "persona_id": persona_id,
-                        "force_applied": force_applied_persona_id is not None,
-                        "use_webchat_special_default": True,
-                    },
-                )
+        resolution = self.persona_resolution
+        if resolution is None and self.persona_context_seed is None:
+            resolution = await resolve_event_persona(
+                event=event,
+                persona_manager=persona_mgr,
+                conversation_persona_id=conversation_persona_id,
+                provider_settings=config.provider_settings,
             )
-        elif persona and "prompt" in persona and persona["prompt"]:
-            slots.append(
-                ContextSlot(
-                    name="persona.prompt",
-                    value=persona["prompt"],
-                    category="persona",
-                    source="persona_mgr",
-                    meta={
-                        "persona_id": persona_id,
-                        "force_applied": force_applied_persona_id is not None,
-                    },
-                )
-            )
-
-        prompt_slot = next(
-            (slot for slot in slots if slot.name == "persona.prompt"), None
-        )
-        if (
-            prompt_slot
-            and isinstance(prompt_slot.value, str)
-            and prompt_slot.value.strip()
-        ):
-            persona_segments = parse_legacy_persona_prompt(prompt_slot.value)
-            slots.append(
-                ContextSlot(
-                    name="persona.segments",
-                    value=persona_segments,
-                    category="persona",
-                    source="persona_parser",
-                    meta={
-                        "persona_id": persona_id,
-                        "source_slot": "persona.prompt",
-                        "parser": "legacy_prompt_v1",
-                    },
-                )
-            )
-            slots.append(
-                ContextSlot(
-                    name="persona.summary",
-                    value=build_persona_prompt_projection(persona_segments),
-                    category="persona",
-                    source="persona_parser",
-                    meta={
-                        "persona_id": persona_id,
-                        "source_slot": "persona.segments",
-                        "format": "persona_summary_v1",
-                    },
-                )
-            )
-
-        # persona.begin_dialogs
-        if (
-            persona
-            and "_begin_dialogs_processed" in persona
-            and persona["_begin_dialogs_processed"]
-        ):
-            slots.append(
-                ContextSlot(
-                    name="persona.begin_dialogs",
-                    value=persona["_begin_dialogs_processed"],
-                    category="persona",
-                    source="persona_mgr",
-                    meta={
-                        "persona_id": persona_id,
-                        "raw_begin_dialogs": persona.get("begin_dialogs", []),
-                    },
-                )
-            )
-
-        # persona.tools_whitelist
-        if persona and "tools" in persona:
-            # tools 可能是 None（使用所有）、[]（不使用）、或列表
-            slots.append(
-                ContextSlot(
-                    name="persona.tools_whitelist",
-                    value=persona["tools"],
-                    category="persona",
-                    source="persona_mgr",
-                    meta={
-                        "persona_id": persona_id,
-                        "semantics": "None=all, []=none, [...]=specific",
-                    },
-                )
-            )
-
-        # persona.skills_whitelist
-        if persona and "skills" in persona:
-            # skills 可能是 None（使用所有）、[]（不使用）、或列表
-            slots.append(
-                ContextSlot(
-                    name="persona.skills_whitelist",
-                    value=persona["skills"],
-                    category="persona",
-                    source="persona_mgr",
-                    meta={
-                        "persona_id": persona_id,
-                        "semantics": "None=all, []=none, [...]=specific",
-                    },
-                )
-            )
-
-        # 记录 webchat special default
-        if use_webchat_special_default:
-            for slot in slots:
-                slot.meta["use_webchat_special_default"] = True
-
+        if self.persona_context_seed is not None:
+            projected_slots = self.persona_context_seed.materialize_slots()
+        else:
+            assert resolution is not None
+            projected_slots = build_persona_slots_from_resolution(resolution)
+        slots = _materialize_prompt_slots(projected_slots)
         _store_resolution_slots(event, resolution_key, slots)
-
         return slots
+
+
+def _materialize_prompt_slots(
+    projected_slots: list[PersonaContextSlot],
+) -> list[ContextSlot]:
+    """Adapt core persona projections to the Prompt transport model."""
+    return [
+        ContextSlot(
+            name=slot.name,
+            value=slot.value,
+            category=slot.category,
+            source=slot.source,
+            llm_exposure=slot.llm_exposure,
+            placement=slot.placement,
+            render_mode=slot.render_mode,
+            priority=slot.priority,
+            meta=slot.meta,
+        )
+        for slot in projected_slots
+    ]
 
 
 def _get_cached_resolution_slots(
