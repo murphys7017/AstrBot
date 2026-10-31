@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
@@ -117,18 +117,15 @@ class PersonalHeartbeatSource:
         self._idle_initiation_stats: dict[str, _IdleInitiationStats] = {}
 
     def _prune_inactive_targets(self, active_targets: set[str]) -> None:
-        for target_key in tuple(self._next_tick_at):
-            if target_key not in active_targets:
-                del self._next_tick_at[target_key]
-        for target_key in tuple(self._last_submissions):
-            if target_key not in active_targets:
-                del self._last_submissions[target_key]
-        for target_key in tuple(self._last_idle_initiation_submissions):
-            if target_key not in active_targets:
-                del self._last_idle_initiation_submissions[target_key]
-        for target_key in tuple(self._idle_initiation_stats):
-            if target_key not in active_targets:
-                del self._idle_initiation_stats[target_key]
+        for state in (
+            self._next_tick_at,
+            self._last_submissions,
+            self._last_idle_initiation_submissions,
+            self._idle_initiation_stats,
+        ):
+            for target_key in tuple(state):
+                if target_key not in active_targets:
+                    del state[target_key]
 
     def _record_submission(
         self,
@@ -545,29 +542,9 @@ class PersonalHeartbeatSource:
                         if last_idle_initiation is not None
                         else None
                     ),
-                    "idle_initiation_stats": (
-                        {
-                            "attempts": stats.attempts,
-                            "admitted": stats.admitted,
-                            "coalesced": stats.coalesced,
-                            "ignored": stats.ignored,
-                            "expired": stats.expired,
-                            "failed": stats.failed,
-                            "last_attempt_id": stats.last_attempt_id,
-                            "last_observation_id": stats.last_observation_id,
-                        }
-                        if (stats := self._idle_initiation_stats.get(target_key))
-                        is not None
-                        else {
-                            "attempts": 0,
-                            "admitted": 0,
-                            "coalesced": 0,
-                            "ignored": 0,
-                            "expired": 0,
-                            "failed": 0,
-                            "last_attempt_id": None,
-                            "last_observation_id": None,
-                        }
+                    "idle_initiation_stats": asdict(
+                        self._idle_initiation_stats.get(target_key)
+                        or _IdleInitiationStats()
                     ),
                 }
             )

@@ -7,7 +7,7 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-10-23
+Last updated: 2026-10-30
 
 Last recorded comparison baseline:
 
@@ -27,6 +27,29 @@ Important interpretation:
   rewrite may be preferable to copying the upstream implementation when AG99 has a different
   owner boundary.
 - Historical entries preserve the Prompt terminology used at review time. References to `ContentPack`, Prompt Selector, shadow mode, or three targets are not current architecture; the current protected chain is `ContextPack -> target projection -> Render Profile -> Layout/PromptTree -> Provider Renderer -> Apply` for Router, Core Planner, Persona, and Core.
+
+## 2026-10-30 Selected Compatibility Updates
+
+Reference: upstream `abf683071952375ec36baa4cad6b6f3d9c9bb03f` (2026-10-28).
+This is a topic-based selection, not a classification of every upstream commit.
+
+Changes in the working tree, not yet committed:
+
+- `bd084a16a`: stop implicitly trusting the default PyPI mirror; explicit pip
+  trust and certificate options remain available for private mirrors.
+- `0e997ccd9`: recognize and decode 0x03-prefixed Tencent SILK, including the
+  fork's separate MiMo WAV-validation path.
+- `077b93262`: preserve dots in NVIDIA rerank model paths, except for the
+  upstream-listed legacy models that require underscores.
+
+Further evaluation: Anthropic-compatible API-key headers need a separate review
+of this fork's key switching and custom-header precedence. Gemini generation
+parameters and plugin reload reporting likewise need behavior-level comparison.
+No decision is implied here for the other upstream changes.
+
+Validation: 17 focused media, pip, and NVIDIA tests passed; two MiMo validation
+cases passed. A broader media/pip run had 93 passes and one failure in an existing
+test that treats a `win32` environment marker as unmatched on Windows.
 
 Current local reference-intake commits:
 

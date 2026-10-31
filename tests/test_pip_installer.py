@@ -1854,7 +1854,7 @@ async def test_install_does_not_add_aliyun_trusted_host_for_default_index(monkey
 
 
 @pytest.mark.asyncio
-async def test_install_adds_aliyun_trusted_host_only_for_aliyun_index(monkeypatch):
+async def test_install_verifies_tls_for_aliyun_index(monkeypatch):
     run_pip = _make_run_pip_mock()
 
     monkeypatch.setattr(PipInstaller, "_run_pip_in_process", run_pip)
@@ -1867,8 +1867,19 @@ async def test_install_adds_aliyun_trusted_host_only_for_aliyun_index(monkeypatc
 
     assert "-i" in recorded_args
     assert "https://mirrors.aliyun.com/simple" in recorded_args
-    trusted_host_index = recorded_args.index("--trusted-host")
-    assert recorded_args[trusted_host_index + 1] == "mirrors.aliyun.com"
+    assert "--trusted-host" not in recorded_args
+
+
+@pytest.mark.asyncio
+async def test_install_preserves_explicit_trusted_host(monkeypatch):
+    run_pip = _make_run_pip_mock()
+    monkeypatch.setattr(PipInstaller, "_run_pip_in_process", run_pip)
+
+    installer = PipInstaller("--trusted-host mirrors.aliyun.com")
+    await installer.install(package_name="demo-package")
+
+    args = run_pip.await_args_list[0].args[0]
+    assert args[args.index("--trusted-host") + 1] == "mirrors.aliyun.com"
 
 
 def test_prefer_module_skips_loaded_c_extension(monkeypatch):

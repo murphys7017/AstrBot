@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from astrbot.core.utils import media_utils
-from astrbot.core.utils.tencent_record_helper import wav_to_tencent_silk
+from astrbot.core.utils.tencent_record_helper import (
+    tencent_silk_to_wav,
+    wav_to_tencent_silk,
+)
 
 
 def test_get_audio_magic_type_detects_standard_silk(tmp_path):
@@ -17,11 +20,34 @@ def test_get_audio_magic_type_detects_standard_silk(tmp_path):
     assert media_utils._get_audio_magic_type(str(audio_path)) == "silk"
 
 
-def test_get_audio_magic_type_detects_tencent_silk(tmp_path):
+@pytest.mark.parametrize("marker", [b"\x02", b"\x03"])
+def test_get_audio_magic_type_detects_tencent_silk(tmp_path, marker):
     audio_path = tmp_path / "voice.silk"
-    audio_path.write_bytes(b"\x02#!SILK_V3" + b"\x00" * 16)
+    audio_path.write_bytes(marker + b"#!SILK_V3" + b"\x00" * 16)
 
     assert media_utils._get_audio_magic_type(str(audio_path)) == "silk"
+
+
+@pytest.mark.asyncio
+async def test_tencent_silk_to_wav_decodes_03_prefixed_header(tmp_path, monkeypatch):
+    captured = []
+
+    class Decoder:
+        @staticmethod
+        def decode(source, target, sample_rate):
+            captured.append((source.read(), sample_rate))
+            target.write(b"\x00\x00")
+
+    monkeypatch.setitem(sys.modules, "pysilk", Decoder)
+    source = tmp_path / "voice.silk"
+    source.write_bytes(b"\x03#!SILK_V3payload")
+    target = tmp_path / "voice.wav"
+
+    await tencent_silk_to_wav(str(source), str(target))
+
+    assert captured == [(b"#!SILK_V3payload", 24000)]
+    with wave.open(str(target), "rb") as audio:
+        assert audio.readframes(1) == b"\x00\x00"
 
 
 @pytest.mark.asyncio

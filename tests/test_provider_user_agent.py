@@ -166,6 +166,47 @@ async def test_aiohttp_provider_sends_user_agent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "expected_path"),
+    [
+        ("nvidia/new-rerank-1.5", "nvidia/new-rerank-1.5/reranking"),
+        (
+            "nvidia/llama-3.2-nv-rerankqa-1b-v1",
+            "nvidia/llama-3_2-nv-rerankqa-1b-v1/reranking",
+        ),
+    ],
+)
+async def test_nvidia_rerank_uses_model_specific_endpoint(model, expected_path):
+    paths = []
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def json(self):
+            return {"rankings": [{"index": 0, "relevance_score": 0.5}]}
+
+    class Client:
+        closed = False
+
+        def post(self, url, **kwargs):
+            paths.append(url)
+            return Response()
+
+    provider = NvidiaRerankProvider({"nvidia_rerank_model": model}, {})
+    provider.client = Client()
+    result = await provider.rerank("query", ["document"])
+
+    assert paths == [f"https://ai.api.nvidia.com/v1/retrieval/{expected_path}"]
+    assert result[0].index == 0
+
+
+@pytest.mark.asyncio
 async def test_edge_tts_synthesis_preserves_library_user_agent(
     monkeypatch,
     unused_tcp_port,

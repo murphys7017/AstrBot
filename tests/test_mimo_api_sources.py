@@ -535,9 +535,10 @@ async def test_mimo_stt_prepare_audio_input_returns_data_url(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_mimo_stt_prepare_audio_input_rejects_non_wav_payload(tmp_path):
+@pytest.mark.parametrize("marker", [b"\x02", b"\x03"])
+async def test_mimo_stt_prepare_audio_input_rejects_non_wav_payload(tmp_path, marker):
     audio_path = tmp_path / "test.wav"
-    audio_path.write_bytes(b"\x02#!SILK_V3" + b"\x00" * 16)
+    audio_path.write_bytes(marker + b"#!SILK_V3" + b"\x00" * 16)
 
     with pytest.raises(MiMoAPIError, match="SILK"):
         await prepare_audio_input(str(audio_path))
