@@ -867,7 +867,11 @@ class InteractionMiddleware:
         turn_state = ensure_interaction_turn_state(event)
         router_task = turn_state.core_router_task
         try:
-            route = await router_task if router_task is not None else None
+            route = await self._await_router_or_personal(
+                event,
+                persona_task,
+                router_task,
+            )
         except TurnDeadlineExceeded:
             await self.complete_persona_after_control_timeout(
                 event,
@@ -884,6 +888,65 @@ class InteractionMiddleware:
             persona_task,
             route,
         )
+
+    async def _cancel_core_router_after_personal(
+        self,
+        event: AstrMessageEvent,
+        router_task: asyncio.Task[Any],
+    ) -> InteractionRouteDecision:
+        if not router_task.done():
+            router_task.cancel()
+            await asyncio.gather(router_task, return_exceptions=True)
+        route = InteractionRouteDecision(
+            route_mode=InteractionRouteMode.PERSONA,
+            reason="personal_completed_before_core_router",
+        )
+        set_interaction_turn_route_decision(event, route)
+        event.set_extra(
+            "_interaction_core_router_cancelled_after_personal",
+            True,
+        )
+        logger.debug(
+            "DIAG interaction.core_router_cancelled_after_personal: "
+            "platform_id=%s session_id=%s turn_id=%s",
+            event.get_platform_id(),
+            event.session_id,
+            event.get_extra("_turn_id", ""),
+        )
+        return route
+
+    async def _await_router_or_personal(
+        self,
+        event: AstrMessageEvent,
+        persona_task: asyncio.Task[PersonaExpressionResult | None],
+        router_task: asyncio.Task[Any] | None,
+    ) -> InteractionRouteDecision | None:
+        if router_task is None:
+            await persona_task
+            route = ensure_interaction_turn_state(event).route_decision
+            if route is None:
+                return InteractionRouteDecision(
+                    route_mode=InteractionRouteMode.PERSONA,
+                    reason="personal_completed_without_core_router",
+                )
+            return route
+        done, _ = await asyncio.wait(
+            {router_task, persona_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        turn_state = ensure_interaction_turn_state(event)
+        if (
+            persona_task in done
+            and router_task not in done
+            and turn_state.speculative_persona_status
+            is InteractionSpeculativePersonaStatus.EMITTED
+        ):
+            return await self._cancel_core_router_after_personal(
+                event,
+                router_task,
+            )
+        await router_task
+        return turn_state.route_decision
 
     def prepare_parallel_turn_control(self, event: AstrMessageEvent) -> None:
         self.attach_event_context(
@@ -1034,11 +1097,50 @@ class InteractionMiddleware:
 
         planning_decision = None
         if route.route_mode == InteractionRouteMode.HYBRID:
+            planner_task = turn_state.execution_scope.create_task(
+                self._plan_core_execution(event, interaction_config),
+                role="core_planner",
+                name=(
+                    f"interaction_core_planner_{event.get_platform_id()}_"
+                    f"{turn_state.turn_id}"
+                ),
+            )
             try:
-                planning_decision = await self._plan_core_execution(
-                    event,
-                    interaction_config,
+                done, _ = await asyncio.wait(
+                    {planner_task, persona_task},
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
+                if (
+                    persona_task in done
+                    and planner_task not in done
+                    and turn_state.speculative_persona_status
+                    is InteractionSpeculativePersonaStatus.EMITTED
+                ):
+                    planner_task.cancel()
+                    await asyncio.gather(planner_task, return_exceptions=True)
+                    route = InteractionRouteDecision(
+                        route_mode=InteractionRouteMode.PERSONA,
+                        reason="personal_completed_before_core_planner",
+                    )
+                    set_interaction_turn_route_decision(event, route)
+                    event.set_extra(
+                        "_interaction_core_planner_cancelled_after_personal",
+                        True,
+                    )
+                    logger.debug(
+                        "DIAG interaction.core_planner_cancelled_after_personal: "
+                        "platform_id=%s session_id=%s turn_id=%s",
+                        event.get_platform_id(),
+                        event.session_id,
+                        turn_state.turn_id,
+                    )
+                else:
+                    planning_decision = await planner_task
+            except asyncio.CancelledError:
+                if not planner_task.done():
+                    planner_task.cancel()
+                    await asyncio.gather(planner_task, return_exceptions=True)
+                raise
             except TurnDeadlineExceeded:
                 expression = await self._suppress_or_await_speculative_persona(
                     event,
@@ -1048,13 +1150,6 @@ class InteractionMiddleware:
                 await self._complete_emitted_persona_after_control_timeout(
                     event,
                     expression,
-                )
-                raise
-            except asyncio.CancelledError:
-                await self._suppress_or_await_speculative_persona(
-                    event,
-                    persona_task,
-                    propagate_failure=False,
                 )
                 raise
             except Exception as planner_error:

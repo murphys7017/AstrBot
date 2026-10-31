@@ -1419,10 +1419,26 @@ class PersonaSegmentStreamParser:
 
     @property
     def diagnostics(self) -> dict[str, Any]:
+        stripped = self._wire_text.lstrip()
+        first_line = stripped.splitlines()[0] if stripped else ""
+        first_line_kind = (
+            "empty"
+            if not stripped
+            else "markdown_fence"
+            if stripped.startswith("```")
+            else "json_object"
+            if stripped.startswith("{")
+            else "plain_text"
+        )
+        lines = self._wire_text.splitlines()
         return {
             "record_count": self._record_count,
             "received_chars": len(self._wire_text),
             "header_seen": self._turn_action is not None,
+            "first_line_kind": first_line_kind,
+            "first_line_length": len(first_line),
+            "line_count": len(lines),
+            "blank_line_count": sum(not line.strip() for line in lines),
             **self._last_record_shape,
         }
 
@@ -1569,6 +1585,13 @@ class PersonaSegmentStreamParser:
         result: dict[str, Any] = {}
         for key, value in pairs:
             if key in result:
+                previous = result[key]
+                # Some providers occasionally repeat an already emitted field
+                # verbatim while serializing a streamed record. This is
+                # redundant but unambiguous; accept it. Conflicting values
+                # remain a protocol violation and fail closed.
+                if type(previous) is type(value) and previous == value:
+                    continue
                 raise InteractionExpressionError("persona_stream_duplicate_field")
             result[key] = value
         return result
@@ -1594,6 +1617,23 @@ def _log_persona_segment_stream_failure(
             response_tail=parser.wire_text[-2048:],
             response_truncated=len(parser.wire_text) > 2048,
         )
+
+
+def _persona_response_shape(text: str) -> dict[str, Any]:
+    stripped = text.lstrip()
+    first_line = stripped.splitlines()[0] if stripped else ""
+    return {
+        "received_chars": len(text),
+        "line_count": len(text.splitlines()),
+        "blank_line_count": sum(not line.strip() for line in text.splitlines()),
+        "starts_with_json_object": stripped.startswith("{"),
+        "starts_with_markdown_fence": stripped.startswith("```"),
+        "has_carriage_return": "\r" in text,
+        "has_raw_control_chars": any(
+            ord(char) < 0x20 and char not in "\n\r\t" for char in text
+        ),
+        "first_line_length": len(first_line),
+    }
 
 
 def _build_persona_segment_stream_prompt(
@@ -1628,6 +1668,7 @@ def _build_persona_segment_stream_prompt(
         'tendency 必须且只能包含八维整数，键为 '
         f"{dimensions}，取值 0 到 10。"
         '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
+        "每个 JSON 对象中的字段名只能出现一次；禁止重复键。"
         "同一 segment 内的 speech_delta 按原文顺序拼接。"
         "reply 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"
         "effect_calls 必须为空；不要调用工具。"
@@ -2852,6 +2893,9 @@ class InteractionExpressionAgent:
                     model=_resolve_provider_model(provider),
                     output_format=output_format,
                     reason=exc.reason,
+                    response_shape=_persona_response_shape(
+                        str(llm_resp.completion_text or "")
+                    ),
                     response_text=response_text[:64_000],
                     response_truncated=len(response_text) > 64_000,
                     response_media=response_media,

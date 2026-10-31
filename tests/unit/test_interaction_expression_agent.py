@@ -196,6 +196,33 @@ def test_repaired_stream_rejects_duplicate_fields_and_missing_speech_content():
     asyncio.run(run())
 
 
+def test_persona_segment_stream_accepts_identical_redundant_fields():
+    import asyncio
+
+    async def run():
+        parser = PersonaSegmentStreamParser(
+            PersonaExpressionRequest(require_turn_action=True)
+        )
+        wire = (
+            '{"v":1,"record":"header","record":"header","turn_action":"reply"}\n'
+            '{"v":1,"record":"segment_start","actions":[],"actions":[],"tendency":'
+            + json.dumps(dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), ensure_ascii=False)
+            + '}\n'
+            '{"v":1,"record":"speech_delta","text":"可以。"}\n'
+            '{"v":1,"record":"segment_end"}\n'
+            '{"v":1,"record":"finish","effect_calls":[]}\n'
+        )
+        _ = [record async for record in parser.feed_async(
+            wire, plugin_context=None, event=None, final=True,
+        )]
+
+        result = parser.finish()
+
+        assert result.speech == "可以。"
+
+    asyncio.run(run())
+
+
 def test_persona_segment_stream_parser_rejects_empty_reply():
     parser = PersonaSegmentStreamParser(
         PersonaExpressionRequest(require_turn_action=True)

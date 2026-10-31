@@ -25,8 +25,10 @@ from .turn_state import (
     InteractionSpeculativePersonaStatus,
     ensure_interaction_turn_state,
     get_interaction_turn_personal_emitted_monotonic,
+    set_interaction_turn_route_decision,
     suppress_interaction_turn_pending_persona,
 )
+from .types import InteractionRouteDecision, InteractionRouteMode
 
 TurnTaskFactory = Callable[[], Awaitable[Any]]
 PluginProviderRequestSubmitter = Callable[[ProviderRequest], Awaitable[None]]
@@ -156,6 +158,34 @@ class InteractionTurnCoordinator:
 
     def __init__(self, plugin_runtime: PluginExecutionRuntime) -> None:
         self.plugin_runtime = plugin_runtime
+
+    async def _cancel_router_after_personal(
+        self,
+        turn: InteractionCoordinatedTurn,
+        router_task: asyncio.Task[Any],
+    ) -> bool:
+        """Stop Core routing once Personal has already produced its reply."""
+        if router_task.done():
+            return False
+        router_task.cancel()
+        await asyncio.gather(router_task, return_exceptions=True)
+        route = InteractionRouteDecision(
+            route_mode=InteractionRouteMode.PERSONA,
+            reason="personal_completed_before_core_router",
+        )
+        set_interaction_turn_route_decision(turn.event, route)
+        turn.event.set_extra(
+            "_interaction_core_router_cancelled_after_personal",
+            True,
+        )
+        logger.debug(
+            "DIAG interaction.core_router_cancelled_after_personal: "
+            "platform_id=%s session_id=%s turn_id=%s",
+            turn.event.get_platform_id(),
+            turn.event.session_id,
+            ensure_interaction_turn_state(turn.event).turn_id,
+        )
+        return True
 
     async def start(
         self,
@@ -442,10 +472,32 @@ class InteractionTurnCoordinator:
         gate_task = turn.plugin_watcher_task
         if gate_task is None:
             if router_task is not None:
-                await router_task
+                done, _ = await asyncio.wait(
+                    {router_task, turn.personal_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if (
+                    turn.personal_task in done
+                    and router_task not in done
+                    and turn_state.speculative_persona_status
+                    is InteractionSpeculativePersonaStatus.EMITTED
+                ):
+                    await self._cancel_router_after_personal(turn, router_task)
+                else:
+                    await router_task
             else:
                 await turn.personal_task
             route = turn_state.route_decision
+            if (
+                route is None
+                and turn_state.speculative_persona_status
+                is InteractionSpeculativePersonaStatus.EMITTED
+            ):
+                route = InteractionRouteDecision(
+                    route_mode=InteractionRouteMode.PERSONA,
+                    reason="personal_completed_without_core_router",
+                )
+                set_interaction_turn_route_decision(turn.event, route)
             personal_completed_at = turn.task_completed_at.get("personal")
             router_completed_at = (
                 turn_state.core_router_completed_monotonic or loop.time()
@@ -458,11 +510,9 @@ class InteractionTurnCoordinator:
                 core_gate_monotonic=router_completed_at,
             )
 
-        wait_tasks = {gate_task}
+        wait_tasks = {gate_task, turn.personal_task}
         if router_task is not None:
             wait_tasks.add(router_task)
-        else:
-            wait_tasks.add(turn.personal_task)
         done, _ = await asyncio.wait(
             wait_tasks,
             return_when=asyncio.FIRST_COMPLETED,
@@ -494,8 +544,18 @@ class InteractionTurnCoordinator:
                     core_gate_monotonic=plugin_resolved_at,
                 )
 
+        if (
+            router_task is not None
+            and turn.personal_task in done
+            and router_task not in done
+            and turn_state.speculative_persona_status
+            is InteractionSpeculativePersonaStatus.EMITTED
+        ):
+            await self._cancel_router_after_personal(turn, router_task)
+            route = turn_state.route_decision
+
         route_task = router_task or turn.personal_task
-        if route_task in done:
+        if route is None and route_task in done:
             await route_task
             route = turn_state.route_decision
             personal_completed_at = turn.task_completed_at.get("personal")
