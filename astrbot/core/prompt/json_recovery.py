@@ -10,8 +10,7 @@ from time import perf_counter
 from typing import Any
 
 from astrbot import logger
-
-from .structured_json import extract_json_object
+from astrbot.core.json_parsing import extract_json_object
 
 _TOKENS = re.compile(
     r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?P<bare_key>[A-Za-z_$][\w$]*(?=\s*:))|true|false|null|True|False|None|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"""

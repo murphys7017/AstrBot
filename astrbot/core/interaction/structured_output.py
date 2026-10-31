@@ -10,12 +10,42 @@ from dataclasses import dataclass, field
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from astrbot.core.json_parsing import strip_json_code_fence
+
 _HEADING = re.compile(r"^(?P<level>#{1,6})[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[ \t]*$")
 _FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _INTEGER = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 _NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
 _MAX_LENGTH = 64_000
 _ITEM_NAMES = {"segments": "segment", "actions": "action", "effect_calls": "effect_call"}
+
+
+def _escape_json_string_controls(text: str) -> str:
+    """Escape raw control characters in strings while preserving their values."""
+    result = []
+    in_string = False
+    escaped = False
+    for char in text:
+        codepoint = ord(char)
+        if in_string and codepoint < 0x20:
+            if escaped:
+                result.append(char)
+                escaped = False
+                continue
+            result.append(f"\\u{codepoint:04x}")
+            continue
+        result.append(char)
+        if not in_string:
+            if char == '"':
+                in_string = True
+            continue
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            in_string = False
+    return "".join(result)
 
 
 def _reject_constant(value: str):
@@ -32,8 +62,7 @@ def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _default_schema() -> dict[str, Any]:
-    # Import lazily: the expression agent also imports this parser.
-    from .expression_agent import build_persona_expression_tool_parameters
+    from .persona_expression_schema import build_persona_expression_tool_parameters
 
     return build_persona_expression_tool_parameters()
 
@@ -194,8 +223,13 @@ def parse_persona_text(
     if len(output) > _MAX_LENGTH:
         raise ValueError("output_too_large")
     if output_format == "json":
+        output = strip_json_code_fence(output)
         try:
-            value = json.loads(output, object_pairs_hook=_unique_pairs, parse_constant=_reject_constant)
+            value = json.loads(
+                _escape_json_string_controls(output),
+                object_pairs_hook=_unique_pairs,
+                parse_constant=_reject_constant,
+            )
         except json.JSONDecodeError as exc:
             raise ValueError("invalid_json") from exc
     elif output_format == "xml":

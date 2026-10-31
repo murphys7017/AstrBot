@@ -8,18 +8,12 @@ import logging
 import math
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, Literal
 
-from astrbot.core.agent.hooks import BaseAgentRunHooks
-
-try:
-    from json_repair import repair_json
-except ImportError:  # pragma: no cover - optional runtime dependency
-    repair_json = None
-
 from astrbot import logger
+from astrbot.core.agent.hooks import BaseAgentRunHooks
 from astrbot.core.agent.message import ImageURLPart, TextPart
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner
@@ -64,14 +58,12 @@ from astrbot.core.prompt.context_views import (
     resolve_prompt_context_view,
 )
 from astrbot.core.prompt.extensions.types import PROMPT_EXTENSION_MOUNTS
-from astrbot.core.prompt.json_recovery import parse_json_record, recover_json_record
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
     PromptRenderProfile,
     PromptTarget,
     apply_render_result_to_request,
 )
-from astrbot.core.prompt.structured_json import extract_json_object
 from astrbot.core.provider import (
     Provider,
     resolve_fallback_chat_providers,
@@ -107,8 +99,62 @@ from .context_builder import (
 from .effects import (
     PersonaEffectCall,
     PersonaEffectSpec,
-    normalize_persona_effect_parameters_schema,
-    parse_persona_effect_calls_with_issues,
+)
+from .persona_expression_codec import (
+    extract_persona_effect_calls,
+)
+from .persona_expression_codec import (
+    extract_persona_expression_result as _extract_persona_expression_result,
+)
+from .persona_expression_contract import (
+    PERSONA_EFFECT_BATCH_TOOL_NAME,
+    PERSONA_EXPRESSION_TOOL_NAME,
+    _build_persona_effect_terminal_tools,
+    _build_persona_expression_output_contract,
+    _enabled_persona_effects,
+    build_persona_effect_batch_output_contract,
+    build_persona_expression_output_contract,
+)
+from .persona_expression_schema import (
+    _PERSONA_ACTION_GUIDANCE,
+    _PERSONA_SEGMENT_GUIDANCE,
+    _PERSONA_TENDENCY_GUIDANCE,
+)
+from .persona_expression_types import (
+    InteractionExpressionError,
+    PersonaExpressionRequest,
+    PersonaExpressionResult,
+)
+from .persona_expression_types import (
+    PersonaExpressionIntent as _PersonaExpressionIntent,
+)
+from .persona_expression_types import (
+    PersonaExpressionKind as _PersonaExpressionKind,
+)
+from .persona_expression_types import (
+    PersonaExpressionPhase as _PersonaExpressionPhase,
+)
+from .persona_expression_types import (
+    PersonaExpressionSegment as _PersonaExpressionSegment,
+)
+from .persona_expression_types import (
+    PersonaExpressionSource as _PersonaExpressionSource,
+)
+from .persona_expression_types import (
+    PersonaProgressStage as _PersonaProgressStage,
+)
+from .persona_expression_validation import (
+    allowed_persona_turn_actions,
+    validate_persona_expression_result,
+    validated_persona_segment,
+    validated_persona_segments,
+)
+from .persona_stream_parser import PersonaSegmentStreamParser
+from .persona_stream_protocol import (
+    build_persona_segment_stream_prompt as _build_persona_segment_stream_prompt,
+)
+from .persona_stream_protocol import (
+    persona_response_shape as _persona_response_shape,
 )
 from .personal_expression_guard import (
     PREVIOUS_EXPRESSION_FINGERPRINT_METADATA_KEY,
@@ -122,8 +168,6 @@ from .provider_resolution import resolve_interaction_chat_provider
 from .structured_output import (
     build_native_persona_schema,
     build_persona_text_example,
-    parse_persona_text,
-    restore_native_optional_fields,
 )
 from .turn_state import (
     get_interaction_turn_deadline,
@@ -133,319 +177,21 @@ from .turn_state import (
 )
 from .types import InteractionAgentConfig, PersonalResponseAction
 
-PersonaExpressionKind = Literal["reply", "proactive", "interjection"]
-PersonaExpressionSource = Literal[
-    "user_message",
-    "core_result",
-    "plugin_output",
-    "runtime_observation",
-    "stream_observation",
-    "tool_observation",
-    "direct",
-]
-PersonaExpressionPhase = Literal[
-    "immediate",
-    "final",
-    "proactive",
-    "interjection",
-    "plugin",
-    "standalone",
-]
-PersonaProgressStage = Literal["stream_text", "tool_running", "tool_completed"]
-PERSONA_EXPRESSION_TOOL_NAME = "persona_expression"
-PERSONA_EFFECT_BATCH_TOOL_NAME = "persona_effect_batch"
-PERSONA_RESULT_ID_METADATA_KEY = "interaction.persona_result_id"
-
-
-@dataclass(frozen=True, slots=True)
-class PersonaExpressionIntent:
-    """Describe one invocation of the shared Persona expression surface."""
-
-    kind: PersonaExpressionKind = "reply"
-    source: PersonaExpressionSource = "direct"
-    phase: PersonaExpressionPhase = "standalone"
-
-    def as_metadata(self) -> dict[str, str]:
-        return {
-            "kind": self.kind,
-            "source": self.source,
-            "phase": self.phase,
-        }
-
-
-@dataclass(slots=True)
-class PersonaExpressionRequest:
-    source_text: str = ""
-    progress_context: str = ""
-    immediate_reply: str = ""
-    observed_text: str = ""
-    total_text: str = ""
-    pending_text: str = ""
-    progress_stage: PersonaProgressStage | None = None
-    preserve_facts: bool = False
-    short_reply: bool = False
-    allow_empty: bool = False
-    allow_action_only: bool = False
-    intent: PersonaExpressionIntent = field(default_factory=PersonaExpressionIntent)
-    avoid_previous_reply: bool = False
-    # Ordinary turns use this action only for Personal's visible reply; the
-    # independent Core Router decides whether work is delegated.
-    require_turn_action: bool = False
-    allow_silent: bool = False
-
-    @classmethod
-    def core_final(
-        cls,
-        source_text: str,
-        *,
-        immediate_reply: str | None = None,
-    ) -> PersonaExpressionRequest:
-        return cls(
-            source_text=source_text,
-            immediate_reply=immediate_reply or "",
-            preserve_facts=True,
-            short_reply=True,
-            intent=PersonaExpressionIntent(
-                source="core_result",
-                phase="final",
-            ),
-        )
-
+PersonaExpressionIntent = _PersonaExpressionIntent
+PersonaExpressionKind = _PersonaExpressionKind
+PersonaExpressionPhase = _PersonaExpressionPhase
+PersonaExpressionSource = _PersonaExpressionSource
+PersonaProgressStage = _PersonaProgressStage
+PersonaExpressionSegment = _PersonaExpressionSegment
+_allowed_persona_turn_actions = allowed_persona_turn_actions
+_validated_persona_segment = validated_persona_segment
+_validated_persona_segments = validated_persona_segments
 
 _PERSONA_FUNCTION_TOOL_INTENTS = frozenset({"reply"})
 _PERSONA_EXPRESSION_INTENT_METADATA_KEY = "interaction.persona_expression_intent"
 _FALLBACK_IMAGE_REFS_METADATA_KEY = "interaction.fallback_image_refs"
 _FALLBACK_EXTRA_PARTS_METADATA_KEY = "interaction.fallback_extra_parts"
-PERSONA_TENDENCY_DIMENSIONS: tuple[str, ...] = (
-    "Joy",
-    "Trust",
-    "Fear",
-    "Surprise",
-    "Sadness",
-    "Disgust",
-    "Anger",
-    "Anticipation",
-)
-
-
-# Shared semantics for human guidance and machine-readable field descriptions.
-_PERSONA_SEGMENT_GUIDANCE = "按说话时动作或情绪变化分段；没有状态变化时不必拆段，不为凑段数重复文本或添加动作。"
-_PERSONA_ACTION_GUIDANCE = (
-    "actions 是同段同时发生的简单动作意图数组，可含自然方向；先后配合话语的动作须拆段。"
-    "不写角度、坐标、速度、时长或插件 effect 数据。"
-)
-_PERSONA_TENDENCY_GUIDANCE = "tendency 只评估这一段内容引起的情绪强度，不计入之前积累的情绪，不照抄参考状态数值。"
-
-
-def _default_persona_tendency() -> dict[str, int]:
-    return dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
-
-
-def _clamp_persona_tendency_value(value: int) -> int:
-    return max(0, min(10, value))
-
-
-@dataclass(slots=True)
-class PersonaExpressionSegment:
-    speech: str = ""
-    actions: list[str] = field(default_factory=list)
-    tendency: dict[str, int] = field(default_factory=_default_persona_tendency)
-
-    def to_mapping(self) -> dict[str, Any]:
-        """Return the stable public representation of one expression segment."""
-
-        return {
-            "speech": self.speech,
-            "actions": list(self.actions),
-            "tendency": dict(self.tendency),
-        }
-
-
-@dataclass(slots=True, init=False)
-class PersonaExpressionResult:
-    segments: list[PersonaExpressionSegment]
-    effect_calls: list[PersonaEffectCall]
-    metadata: dict[str, Any]
-    turn_action: PersonalResponseAction | None
-
-    def __init__(
-        self,
-        *,
-        segments: Sequence[PersonaExpressionSegment] | None = None,
-        speech: str | None = None,
-        actions: list[str] | None = None,
-        tendency: dict[str, int] | None = None,
-        effect_calls: list[PersonaEffectCall] | None = None,
-        metadata: dict[str, Any] | None = None,
-        turn_action: PersonalResponseAction | None = PersonalResponseAction.REPLY,
-    ) -> None:
-        if segments is None:
-            if speech is None and actions is None and tendency is None:
-                segments = []
-            else:
-                segments = [
-                    PersonaExpressionSegment(
-                        speech=speech or "",
-                        actions=list(actions or []),
-                        tendency=dict(tendency or _default_persona_tendency()),
-                    )
-                ]
-        self.segments = list(segments)
-        self.effect_calls = list(effect_calls or [])
-        self.metadata = dict(metadata or {})
-        self.turn_action = turn_action
-
-    @property
-    def speech(self) -> str:
-        return "".join(segment.speech for segment in self.segments)
-
-    @property
-    def speech_segments(self) -> tuple[str, ...]:
-        """Return speech in model-provided segment order for TTS consumers."""
-
-        return tuple(segment.speech for segment in self.segments)
-
-    def speech_segments_for_text(
-        self,
-        value: str,
-        *,
-        segment_texts: Sequence[str] | None = None,
-    ) -> tuple[str, ...]:
-        """Resolve unchanged, truncated, or explicitly boundary-preserving text."""
-
-        text = str(value or "")
-        if not self.segments:
-            return (text,) if text else ()
-        if segment_texts is not None:
-            resolved_segments = tuple(segment_texts)
-            if (
-                len(resolved_segments) != len(self.segments)
-                or any(not isinstance(segment, str) for segment in resolved_segments)
-                or "".join(resolved_segments) != text
-            ):
-                raise InteractionExpressionError(
-                    "persona_segment_text_override_invalid"
-                )
-            return resolved_segments
-        if not text:
-            return tuple("" for _ in self.segments)
-        if self.speech.startswith(text):
-            remaining = len(text)
-            projected = []
-            for segment in self.segments:
-                segment_text = segment.speech[:remaining]
-                projected.append(segment_text)
-                remaining -= len(segment_text)
-            return tuple(projected)
-        raise InteractionExpressionError(
-            "persona_text_rewrite_requires_segment_boundaries"
-        )
-
-    @property
-    def actions(self) -> list[str]:
-        return [action for segment in self.segments for action in segment.actions]
-
-    @property
-    def tendency(self) -> dict[str, int]:
-        if not self.segments:
-            return _default_persona_tendency()
-        return dict(self.segments[-1].tendency)
-
-    @property
-    def segment_mappings(self) -> tuple[dict[str, Any], ...]:
-        return tuple(segment.to_mapping() for segment in self.segments)
-
-    def to_mapping(self) -> dict[str, Any]:
-        """Return the canonical structured output shape."""
-
-        return {
-            "turn_action": (
-                self.turn_action.value if self.turn_action is not None else None
-            ),
-            "segments": [segment.to_mapping() for segment in self.segments],
-            "effect_calls": [
-                {
-                    "name": call.name,
-                    "arguments": copy.deepcopy(call.arguments),
-                    **(
-                        {"segment_index": call.segment_index}
-                        if call.segment_index is not None
-                        else {}
-                    ),
-                }
-                for call in self.effect_calls
-            ],
-        }
-
-    def replace_visible_speech(self, value: str) -> None:
-        """Apply unchanged speech or prefix truncation without guessing boundaries."""
-
-        text = str(value or "")
-        if not self.segments:
-            self.segments = [PersonaExpressionSegment(speech=text)] if text else []
-            return
-        if not text:
-            for segment in self.segments:
-                segment.speech = ""
-            return
-        for segment, projected in zip(
-            self.segments,
-            self.speech_segments_for_text(text),
-        ):
-            segment.speech = projected
-
-    def truncate_speech(self, max_length: int) -> None:
-        """Truncate the concatenated speech without discarding segment metadata."""
-
-        if max_length < 0:
-            max_length = 0
-        self.replace_visible_speech(self.speech[:max_length])
-
-    @speech.setter
-    def speech(self, value: str) -> None:
-        """Accept boundary-preserving mutations from legacy response hooks."""
-
-        try:
-            self.replace_visible_speech(str(value or ""))
-        except InteractionExpressionError as exc:
-            logger.warning(
-                "Rejected Persona response-hook text rewrite; preserving original "
-                "speech segments and action bindings: reason=%s",
-                exc.reason,
-            )
-
-    @actions.setter
-    def actions(self, value: Sequence[str]) -> None:
-        if not self.segments:
-            self.segments = [PersonaExpressionSegment()]
-        self.segments[0].actions = list(value)
-
-    @tendency.setter
-    def tendency(self, value: dict[str, int]) -> None:
-        if not self.segments:
-            self.segments = [PersonaExpressionSegment()]
-        self.segments[0].tendency = dict(value)
-
-
-class InteractionExpressionError(RuntimeError):
-    def __init__(
-        self,
-        reason: str,
-        message: str | None = None,
-        *,
-        tool_execution_count: int = 0,
-        side_effects_started: bool = False,
-        prepared: Any | None = None,
-    ) -> None:
-        self.reason = reason
-        self.tool_execution_count = tool_execution_count
-        self.side_effects_started = side_effects_started
-        self.prepared = prepared
-        super().__init__(message or reason)
-
-    @property
-    def has_side_effects(self) -> bool:
-        return self.side_effects_started or self.tool_execution_count > 0
+PERSONA_RESULT_ID_METADATA_KEY = "interaction.persona_result_id"
 
 
 class _PersonaFailureKind(str, enum.Enum):
@@ -590,118 +336,6 @@ _DEEPSEEK_INNER_OS_MARKER = (
     '2. 用第一人称描写角色的内心感受，例如"我心想""我觉得""我暗自"等\n'
     "3. 思考内容应沉浸在角色中，通过内心独白分析剧情和规划回复"
 )
-
-
-def validate_persona_expression_result(
-    req: PersonaExpressionRequest,
-    result: PersonaExpressionResult,
-    *,
-    effects: Sequence[PersonaEffectSpec] = (),
-) -> None:
-    if not isinstance(result.segments, list):
-        raise InteractionExpressionError("invalid_persona_segments")
-    for segment in result.segments:
-        if not isinstance(segment, PersonaExpressionSegment):
-            raise InteractionExpressionError("invalid_persona_segment")
-        if not isinstance(segment.speech, str):
-            raise InteractionExpressionError("invalid_persona_speech")
-        if not isinstance(segment.actions, list) or any(
-            not isinstance(action, str) or not action.strip()
-            for action in segment.actions
-        ):
-            raise InteractionExpressionError("invalid_persona_actions")
-        if not isinstance(segment.tendency, dict):
-            raise InteractionExpressionError("invalid_persona_tendency")
-        if set(segment.tendency) != set(PERSONA_TENDENCY_DIMENSIONS):
-            raise InteractionExpressionError("invalid_persona_tendency")
-        for dimension, value in segment.tendency.items():
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise InteractionExpressionError("invalid_persona_tendency")
-            segment.tendency[dimension] = _clamp_persona_tendency_value(value)
-
-    action = result.turn_action
-    if not isinstance(action, PersonalResponseAction):
-        raise InteractionExpressionError("missing_personal_response_action")
-    if not req.require_turn_action and action is not PersonalResponseAction.REPLY:
-        raise InteractionExpressionError("disallowed_personal_response_action")
-    if action is PersonalResponseAction.SILENT:
-        if not req.allow_silent:
-            raise InteractionExpressionError("disallowed_personal_response_action")
-        if (
-            result.segments
-            or result.effect_calls
-            or result.metadata.get("effect_parse_issues")
-        ):
-            raise InteractionExpressionError("invalid_silent_personal_response")
-        return
-    if not result.speech.strip() and not (
-        req.allow_empty
-        or (req.allow_action_only and any(segment.actions for segment in result.segments))
-    ):
-        raise InteractionExpressionError("empty_output")
-    required_effects = [
-        effect
-        for effect in effects
-        if isinstance(effect, PersonaEffectSpec)
-        and effect.enabled
-        and is_hard_contribution(effect.metadata)
-    ]
-    if not required_effects:
-        return
-
-    calls_by_name: dict[str, int] = {}
-    calls_by_segment: dict[tuple[str, int], int] = {}
-    for call in result.effect_calls:
-        calls_by_name[call.name] = calls_by_name.get(call.name, 0) + 1
-        if call.segment_index is not None:
-            key = (call.name, call.segment_index)
-            calls_by_segment[key] = calls_by_segment.get(key, 0) + 1
-    parse_issue_names = {
-        str(issue.get("name", "") or "").strip()
-        for issue in (result.metadata.get("effect_parse_issues", []) or [])
-        if isinstance(issue, dict)
-    }
-    for effect in required_effects:
-        if effect.metadata.get("required_per_segment") is True:
-            for segment_index in range(len(result.segments)):
-                call_count = calls_by_segment.get((effect.name, segment_index), 0)
-                if call_count == 0:
-                    reason = (
-                        "invalid_required_persona_effect"
-                        if effect.name in parse_issue_names
-                        else "missing_required_persona_effect"
-                    )
-                    raise InteractionExpressionError(
-                        reason,
-                        f"required persona effect is not valid: {effect.name} "
-                        f"for segment {segment_index}",
-                    )
-                if (
-                    effect.metadata.get("exactly_one_per_segment") is True
-                    and call_count != 1
-                ):
-                    raise InteractionExpressionError(
-                        "required_persona_effect_count",
-                        f"required persona effect must occur exactly once "
-                        f"for segment {segment_index}: {effect.name}",
-                    )
-            continue
-        call_count = calls_by_name.get(effect.name, 0)
-        if call_count == 0:
-            reason = (
-                "invalid_required_persona_effect"
-                if effect.name in parse_issue_names
-                else "missing_required_persona_effect"
-            )
-            raise InteractionExpressionError(
-                reason,
-                f"required persona effect is not valid: {effect.name}",
-            )
-        if effect.metadata.get("exactly_one_per_segment") is True and call_count != 1:
-            raise InteractionExpressionError(
-                "required_persona_effect_count",
-                f"required persona effect must occur exactly once: {effect.name}",
-            )
 
 
 def build_persona_runtime_system_prompt(
@@ -857,266 +491,6 @@ def resolve_deepseek_first_turn_reasoning_marker(
     return _DEEPSEEK_INNER_OS_MARKER
 
 
-def build_persona_expression_tool_parameters(
-    *,
-    allowed_turn_actions: Sequence[PersonalResponseAction] | None = None,
-) -> dict[str, Any]:
-    segment_schema = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "speech": {
-                "type": "string",
-                "description": "本段用户可见表达文本；按动作或状态变化进行分段。",
-            },
-            "actions": {
-                "type": "array",
-                "items": {"type": "string", "minLength": 1},
-                "description": _PERSONA_ACTION_GUIDANCE,
-            },
-            "tendency": {
-                "type": "object",
-                "description": _PERSONA_TENDENCY_GUIDANCE,
-                "additionalProperties": False,
-                "properties": {
-                    dimension: {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 10,
-                    }
-                    for dimension in PERSONA_TENDENCY_DIMENSIONS
-                },
-                "required": list(PERSONA_TENDENCY_DIMENSIONS),
-            },
-        },
-        "required": ["speech", "actions", "tendency"],
-    }
-    properties: dict[str, Any] = {
-        "segments": {
-            "type": "array",
-            "items": segment_schema,
-            "minItems": 0,
-            "description": _PERSONA_SEGMENT_GUIDANCE,
-        },
-    }
-    actions = [
-        action.value
-        for action in (
-            allowed_turn_actions
-            if allowed_turn_actions is not None
-            else (PersonalResponseAction.REPLY,)
-        )
-    ]
-    properties["turn_action"] = {
-        "type": "string",
-        "enum": actions,
-        "description": "Allowed turn_action values: "
-        + "; ".join(
-            {
-                "reply": "complete the visible response in Personal",
-                "silent": "emit no visible response; segments must be empty",
-            }[action]
-            for action in actions
-        ),
-    }
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": copy.deepcopy(properties),
-        "required": ["turn_action", "segments"],
-    }
-
-
-def build_persona_effect_batch_tool_parameters(
-    effects: Sequence[PersonaEffectSpec] = (),
-    *,
-    allow_silent: bool = False,
-) -> dict[str, Any]:
-    enabled_effects = sorted(
-        (
-            effect
-            for effect in effects
-            if isinstance(effect, PersonaEffectSpec) and effect.enabled
-        ),
-        key=lambda effect: effect.name,
-    )
-    properties: dict[str, Any] = {
-        "effect_calls": {
-            "type": "array",
-            "items": False,
-            "description": "只包含本轮注册 effect 的调用；可以为空数组。",
-        },
-    }
-    effect_schemas = []
-    for effect in enabled_effects:
-        per_segment = effect.metadata.get("required_per_segment") is True
-        effect_schemas.append(
-            {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "name": {
-                        "const": effect.name,
-                        "description": effect.description,
-                    },
-                    "arguments": normalize_persona_effect_parameters_schema(
-                        effect.parameters
-                    ),
-                    "segment_index": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "0-based index into segments for this effect call.",
-                    },
-                },
-                "required": [
-                    "name",
-                    "arguments",
-                    *(["segment_index"] if per_segment else []),
-                ],
-            }
-        )
-    if effect_schemas:
-        properties["effect_calls"] = {
-            "type": "array",
-            "items": {"oneOf": copy.deepcopy(effect_schemas)},
-            "description": "只包含本轮注册 effect 的调用；可以为空数组。",
-        }
-        required_effect_count = sum(
-            1 for effect in enabled_effects if is_hard_contribution(effect.metadata)
-        )
-        if required_effect_count and not allow_silent:
-            required_names = [
-                effect.name
-                for effect in enabled_effects
-                if is_hard_contribution(effect.metadata)
-            ]
-            if required_names:
-                properties["effect_calls"]["description"] = (
-                    "Required Persona Effects: "
-                    + ", ".join(required_names)
-                    + ". For required_per_segment effects, provide one call for each "
-                    "segments entry with its 0-based segment_index. Always provide schema-valid "
-                    "and complete arguments. Semantic labels or annotations do not "
-                    "replace an execution shape or other required fields defined by "
-                    "the effect schema; do not invent default values."
-                )
-        elif required_effect_count:
-            properties["effect_calls"]["description"] = (
-                "Required Persona Effects apply to non-silent replies. For silent, "
-                "return an empty effect_calls array."
-            )
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": copy.deepcopy(properties),
-        "required": ["effect_calls"],
-    }
-
-
-def build_persona_expression_output_contract(
-    *,
-    allowed_turn_actions: Sequence[PersonalResponseAction] | None = None,
-) -> OutputContract:
-    return OutputContract(
-        mode="tool_call",
-        strict=True,
-        schema=build_persona_expression_tool_parameters(
-            allowed_turn_actions=allowed_turn_actions,
-        ),
-        preferred_tool_name=PERSONA_EXPRESSION_TOOL_NAME,
-        allow_text_fallback=False,
-    )
-
-
-def build_persona_effect_batch_output_contract(
-    effects: Sequence[PersonaEffectSpec],
-    *,
-    allow_silent: bool = False,
-) -> OutputContract:
-    return OutputContract(
-        mode="tool_call",
-        strict=True,
-        schema=build_persona_effect_batch_tool_parameters(
-            effects,
-            allow_silent=allow_silent,
-        ),
-        preferred_tool_name=PERSONA_EFFECT_BATCH_TOOL_NAME,
-        allow_text_fallback=False,
-    )
-
-
-def _allowed_persona_turn_actions(
-    req: PersonaExpressionRequest,
-) -> tuple[PersonalResponseAction, ...]:
-    if not req.require_turn_action:
-        return (PersonalResponseAction.REPLY,)
-    if req.allow_silent:
-        return (
-            PersonalResponseAction.REPLY,
-            PersonalResponseAction.SILENT,
-        )
-    return (PersonalResponseAction.REPLY,)
-
-
-def _enabled_persona_effects(
-    effects: Sequence[PersonaEffectSpec],
-) -> list[PersonaEffectSpec]:
-    return [
-        effect
-        for effect in effects
-        if isinstance(effect, PersonaEffectSpec) and effect.enabled
-    ]
-
-
-def _build_persona_effect_terminal_tools(
-    effects: Sequence[PersonaEffectSpec],
-    *,
-    allow_silent: bool = False,
-) -> ToolSet | None:
-    if not _enabled_persona_effects(effects):
-        return None
-    contract = build_persona_effect_batch_output_contract(
-        effects,
-        allow_silent=allow_silent,
-    )
-    return build_single_tool_set_from_contract(
-        contract,
-        description="Return registered Persona Effect calls for this turn.",
-    )
-
-
-def _build_persona_expression_output_contract(
-    output_format: str,
-    *,
-    allowed_turn_actions: Sequence[PersonalResponseAction] | None = None,
-) -> OutputContract:
-    """Build the output contract for the Persona expression channel only."""
-    schema = build_persona_expression_tool_parameters(
-        allowed_turn_actions=allowed_turn_actions,
-    )
-    if output_format == "tool_call":
-        return OutputContract(
-            mode="tool_call",
-            strict=True,
-            schema=schema,
-            preferred_tool_name=PERSONA_EXPRESSION_TOOL_NAME,
-            allow_text_fallback=False,
-        )
-    if output_format == "json":
-        return OutputContract(
-            mode="json_object",
-            strict=True,
-            schema=schema,
-            allow_text_fallback=False,
-        )
-    return OutputContract(
-        mode="text",
-        strict=True,
-        schema=schema,
-        allow_text_fallback=False,
-    )
-
-
 def _supports_persona_output_format(
     provider: Provider,
     output_format: str,
@@ -1209,394 +583,6 @@ def _build_persona_text_output_prompt(output_format: str) -> str:
     return ""
 
 
-def _coerce_json_like(value: object) -> Any:
-    if isinstance(value, dict | list):
-        return copy.deepcopy(value)
-    if not isinstance(value, str):
-        return value
-
-    cleaned = value.strip()
-    if not cleaned:
-        return value
-    try:
-        return json.loads(cleaned)
-    except (ValueError, TypeError):
-        pass
-
-    extracted = extract_json_object(cleaned)
-    if extracted is not None:
-        return extracted
-
-    if repair_json is None:
-        return value
-    try:
-        repaired = repair_json(cleaned, return_objects=True)
-    except Exception:  # noqa: BLE001
-        return value
-    return repaired
-
-
-def _coerce_tool_call_payload(tool_arg: object) -> dict[str, Any] | None:
-    payload = _coerce_json_like(tool_arg)
-    return payload if isinstance(payload, dict) else None
-
-
-def _validated_persona_segment(
-    payload: object,
-    *,
-    discard_invalid_actions: bool = False,
-) -> PersonaExpressionSegment:
-    if not isinstance(payload, dict):
-        raise InteractionExpressionError("invalid_persona_segment")
-    if set(payload) != {"speech", "actions", "tendency"}:
-        raise InteractionExpressionError("invalid_persona_segment_fields")
-    speech = payload.get("speech")
-    if not isinstance(speech, str):
-        raise InteractionExpressionError("invalid_persona_speech")
-    actions = payload.get("actions")
-    if not isinstance(actions, list) or any(
-        not isinstance(action, str) or not action.strip() for action in actions
-    ):
-        if not discard_invalid_actions:
-            raise InteractionExpressionError("invalid_persona_actions")
-        logger.warning(
-            "Persona segment action hints rejected; ignoring malformed actions"
-        )
-        actions = []
-    return PersonaExpressionSegment(
-        speech=speech,
-        actions=[action.strip() for action in actions],
-        tendency=_validated_persona_tendency(payload),
-    )
-
-
-def _validated_persona_segments(payload: dict[str, Any]) -> list[PersonaExpressionSegment]:
-    segments = payload.get("segments")
-    if not isinstance(segments, list):
-        raise InteractionExpressionError("invalid_persona_segments")
-    return [_validated_persona_segment(segment) for segment in segments]
-
-
-def _validated_persona_tendency(payload: dict[str, Any]) -> dict[str, int]:
-    tendency = payload.get("tendency")
-    if not isinstance(tendency, dict) or set(tendency) != set(
-        PERSONA_TENDENCY_DIMENSIONS
-    ):
-        raise InteractionExpressionError("invalid_persona_tendency")
-    normalized: dict[str, int] = {}
-    for dimension in PERSONA_TENDENCY_DIMENSIONS:
-        value = tendency[dimension]
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise InteractionExpressionError("invalid_persona_tendency")
-        normalized[dimension] = _clamp_persona_tendency_value(value)
-    return normalized
-
-
-def _build_persona_expression_result_from_payload(
-    payload: dict[str, Any],
-) -> PersonaExpressionResult:
-    expected_fields = {"turn_action", "segments"}
-    if set(payload) != expected_fields:
-        raise InteractionExpressionError("invalid_persona_expression_fields")
-    segments = _validated_persona_segments(payload)
-    metadata: dict[str, Any] = {}
-    raw_action = payload.get("turn_action")
-    try:
-        turn_action = (
-            PersonalResponseAction(str(raw_action))
-            if raw_action is not None
-            else None
-        )
-    except ValueError:
-        turn_action = None
-        metadata["personal_response_action_parse_issue"] = str(raw_action)
-    return PersonaExpressionResult(
-        segments=segments,
-        metadata=metadata,
-        turn_action=turn_action,
-    )
-
-
-class PersonaSegmentStreamParser:
-    """Parse and validate the line-framed segment_stream_v1 model protocol."""
-
-    MAX_RECORD_CHARS = 64_000
-    MAX_RECORDS = 2_048
-    MAX_SEGMENTS = 128
-    MAX_STREAM_CHARS = 256_000
-
-    def __init__(self, req: PersonaExpressionRequest) -> None:
-        self.req = req
-        self._buffer = ""
-        self._wire_text = ""
-        self._record_count = 0
-        self._turn_action: PersonalResponseAction | None = None
-        self._segments: list[PersonaExpressionSegment] = []
-        self._current_segment: PersonaExpressionSegment | None = None
-        self._delta_index = 0
-        self._finished = False
-        self._last_record_shape: dict[str, Any] = {}
-        self._repaired_records: dict[str, dict[str, Any]] = {}
-
-    def _append_text(self, text: str, *, final: bool = False) -> list[str]:
-        if self._finished and text.strip():
-            raise InteractionExpressionError("persona_stream_data_after_finish")
-        if len(self._wire_text) + len(text) > self.MAX_STREAM_CHARS:
-            raise InteractionExpressionError("persona_stream_too_large")
-        self._wire_text += text
-        self._buffer += text
-        records = self._buffer.split("\n")
-        self._buffer = records.pop()
-        if final and self._buffer:
-            records.append(self._buffer)
-            self._buffer = ""
-        if len(self._buffer) > self.MAX_RECORD_CHARS:
-            raise InteractionExpressionError("persona_stream_record_too_large")
-        return records
-
-    def feed(self, text: str) -> list[dict[str, Any]]:
-        events = []
-        for line in self._append_text(text):
-            event = self._consume_line(line)
-            if event is not None and event.get("type") != "finish":
-                events.append(event)
-        return events
-
-    async def feed_async(self, text: str, *, plugin_context, event, final: bool = False):
-        """Repair only complete lines; retain original wire bytes for auditing."""
-        for line in self._append_text(text, final=final):
-            if len(line) > self.MAX_RECORD_CHARS:
-                raise InteractionExpressionError("persona_stream_record_too_large")
-            if line.strip():
-                try:
-                    json.loads(line, object_pairs_hook=self._unique_object)
-                except json.JSONDecodeError:
-                    recovered = await recover_json_record(
-                        line, plugin_context=plugin_context, event=event,
-                        scope="persona_stream_record",
-                    )
-                    if recovered is None:
-                        raise InteractionExpressionError("persona_stream_invalid_json") from None
-                    self._repaired_records[line] = recovered
-            record = self._consume_line(line)
-            if record is not None and record.get("type") != "finish":
-                yield record
-
-    def recover_normal_end(self) -> list[dict[str, Any]]:
-        """Close existing content after a verified normal Provider stop only."""
-        if self._finished or self._buffer or self._turn_action is None:
-            return []
-        events = []
-        if self._current_segment is not None:
-            if not self._current_segment.speech:
-                return []
-            event = self._consume_line('{"v":1,"record":"segment_end"}')
-            if event is not None:
-                events.append(event)
-        if not self._segments and self._turn_action is not PersonalResponseAction.SILENT:
-            return []
-        self._consume_line('{"v":1,"record":"finish","effect_calls":[]}')
-        return events
-
-    def finish(self) -> PersonaExpressionResult:
-        if self._buffer:
-            event = self._consume_line(self._buffer)
-            self._buffer = ""
-            if event is not None and event.get("type") == "finish":
-                self._finished = True
-        if not self._finished:
-            raise InteractionExpressionError("persona_stream_missing_finish")
-        result = PersonaExpressionResult(
-            segments=self._segments,
-            turn_action=self._turn_action,
-        )
-        validate_persona_expression_result(self.req, result)
-        return result
-
-    @property
-    def wire_text(self) -> str:
-        return self._wire_text
-
-    @property
-    def diagnostics(self) -> dict[str, Any]:
-        stripped = self._wire_text.lstrip()
-        first_line = stripped.splitlines()[0] if stripped else ""
-        first_line_kind = (
-            "empty"
-            if not stripped
-            else "markdown_fence"
-            if stripped.startswith("```")
-            else "json_object"
-            if stripped.startswith("{")
-            else "plain_text"
-        )
-        lines = self._wire_text.splitlines()
-        return {
-            "record_count": self._record_count,
-            "received_chars": len(self._wire_text),
-            "header_seen": self._turn_action is not None,
-            "first_line_kind": first_line_kind,
-            "first_line_length": len(first_line),
-            "line_count": len(lines),
-            "blank_line_count": sum(not line.strip() for line in lines),
-            **self._last_record_shape,
-        }
-
-    def _consume_line(self, line: str) -> dict[str, Any] | None:
-        if len(line) > self.MAX_RECORD_CHARS:
-            raise InteractionExpressionError("persona_stream_record_too_large")
-        if not line.strip():
-            # Blank separators carry no record and must not cancel the turn.
-            return None
-        self._record_count += 1
-        self._last_record_shape = {}
-        if self._record_count > self.MAX_RECORDS:
-            raise InteractionExpressionError("persona_stream_too_many_records")
-        try:
-            record = json.loads(line, object_pairs_hook=self._unique_object)
-        except InteractionExpressionError:
-            raise
-        except (json.JSONDecodeError, TypeError) as exc:
-            record = self._repaired_records.pop(line, None)
-            if record is None:
-                try:
-                    record = parse_json_record(line)
-                except ValueError as duplicate:
-                    raise InteractionExpressionError("persona_stream_duplicate_field") from duplicate
-            if record is None:
-                raise InteractionExpressionError(
-                    "persona_stream_invalid_json", str(exc)
-                ) from exc
-        if not isinstance(record, dict):
-            raise InteractionExpressionError("persona_stream_record_not_object")
-        self._last_record_shape = {
-            "field_count": len(record),
-            "has_version": "v" in record,
-            "version_type": type(record.get("v")).__name__,
-            "version": record["v"] if type(record.get("v")) is int else None,
-            "has_segments": "segments" in record,
-            "has_turn_action": "turn_action" in record,
-        }
-        if self._finished:
-            raise InteractionExpressionError("persona_stream_data_after_finish")
-        if "v" not in record:
-            reason = (
-                "persona_stream_nonstream_expression"
-                if "turn_action" in record and "segments" in record
-                else "persona_stream_missing_version"
-            )
-            raise InteractionExpressionError(reason)
-        if type(record["v"]) is not int:
-            raise InteractionExpressionError("persona_stream_invalid_version_type")
-        if record["v"] != 1:
-            raise InteractionExpressionError("persona_stream_unsupported_version")
-        record_type = record.get("record")
-
-        if self._turn_action is None:
-            if record_type != "header" or set(record) != {"v", "record", "turn_action"}:
-                raise InteractionExpressionError("persona_stream_header_required")
-            try:
-                action = PersonalResponseAction(str(record["turn_action"]))
-            except ValueError as exc:
-                raise InteractionExpressionError(
-                    "persona_stream_invalid_turn_action"
-                ) from exc
-            if action not in _allowed_persona_turn_actions(self.req):
-                raise InteractionExpressionError(
-                    "persona_stream_disallowed_turn_action"
-                )
-            self._turn_action = action
-            return {"type": "header", "turn_action": action.value}
-
-        if record_type == "header":
-            raise InteractionExpressionError("persona_stream_duplicate_header")
-        if record_type == "segment_start":
-            if self._turn_action is PersonalResponseAction.SILENT:
-                raise InteractionExpressionError(
-                    "persona_stream_segment_without_reply"
-                )
-            if self._current_segment is not None:
-                raise InteractionExpressionError("persona_stream_nested_segment")
-            if set(record) != {"v", "record", "actions", "tendency"}:
-                raise InteractionExpressionError("persona_stream_invalid_segment_start")
-            if len(self._segments) >= self.MAX_SEGMENTS:
-                raise InteractionExpressionError("persona_stream_too_many_segments")
-            self._current_segment = _validated_persona_segment(
-                {
-                    "speech": "",
-                    "actions": record.get("actions"),
-                    "tendency": record.get("tendency"),
-                },
-                discard_invalid_actions=True,
-            )
-            return {
-                "type": "segment_start",
-                "segment_index": len(self._segments),
-                "actions": list(self._current_segment.actions),
-                "tendency": dict(self._current_segment.tendency),
-            }
-        if record_type == "speech_delta":
-            if self._current_segment is None:
-                raise InteractionExpressionError("persona_stream_delta_outside_segment")
-            if set(record) != {"v", "record", "text"}:
-                raise InteractionExpressionError("persona_stream_invalid_speech_delta")
-            delta = record.get("text")
-            if not isinstance(delta, str) or not delta:
-                raise InteractionExpressionError("persona_stream_invalid_speech_delta")
-            self._current_segment.speech += delta
-            event = {
-                "type": "speech_delta",
-                "segment_index": len(self._segments),
-                "delta_index": self._delta_index,
-                "text": delta,
-            }
-            self._delta_index += 1
-            return event
-        if record_type == "segment_end":
-            if self._current_segment is None:
-                raise InteractionExpressionError("persona_stream_end_without_segment")
-            if set(record) != {"v", "record"}:
-                raise InteractionExpressionError("persona_stream_invalid_segment_end")
-            segment = _validated_persona_segment(
-                self._current_segment.to_mapping(),
-                discard_invalid_actions=True,
-            )
-            self._segments.append(segment)
-            self._current_segment = None
-            self._delta_index = 0
-            return {
-                "type": "segment_end",
-                "segment_index": len(self._segments) - 1,
-                "segment": segment.to_mapping(),
-            }
-        if record_type == "finish":
-            if self._current_segment is not None:
-                raise InteractionExpressionError("persona_stream_unclosed_segment")
-            if set(record) != {"v", "record", "effect_calls"}:
-                raise InteractionExpressionError("persona_stream_invalid_finish")
-            if record.get("effect_calls") != []:
-                raise InteractionExpressionError("persona_stream_effects_unsupported")
-            self._finished = True
-            return {"type": "finish", "segment_count": len(self._segments)}
-        raise InteractionExpressionError("persona_stream_unknown_record")
-
-    @staticmethod
-    def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                previous = result[key]
-                # Some providers occasionally repeat an already emitted field
-                # verbatim while serializing a streamed record. This is
-                # redundant but unambiguous; accept it. Conflicting values
-                # remain a protocol violation and fail closed.
-                if type(previous) is type(value) and previous == value:
-                    continue
-                raise InteractionExpressionError("persona_stream_duplicate_field")
-            result[key] = value
-        return result
-
-
 def _log_persona_segment_stream_failure(
     event,
     parser: PersonaSegmentStreamParser,
@@ -1619,69 +605,6 @@ def _log_persona_segment_stream_failure(
         )
 
 
-def _persona_response_shape(text: str) -> dict[str, Any]:
-    stripped = text.lstrip()
-    first_line = stripped.splitlines()[0] if stripped else ""
-    return {
-        "received_chars": len(text),
-        "line_count": len(text.splitlines()),
-        "blank_line_count": sum(not line.strip() for line in text.splitlines()),
-        "starts_with_json_object": stripped.startswith("{"),
-        "starts_with_markdown_fence": stripped.startswith("```"),
-        "has_carriage_return": "\r" in text,
-        "has_raw_control_chars": any(
-            ord(char) < 0x20 and char not in "\n\r\t" for char in text
-        ),
-        "first_line_length": len(first_line),
-    }
-
-
-def _build_persona_segment_stream_prompt(
-    *, allowed_actions: Sequence[str], allow_action_only: bool,
-) -> str:
-    dimensions = ", ".join(PERSONA_TENDENCY_DIMENSIONS)
-    action_choices = ", ".join(f'"{action}"' for action in allowed_actions)
-    example = "\n".join(
-        json.dumps(record, ensure_ascii=False)
-        for record in (
-            {"v": 1, "record": "header", "turn_action": "reply"},
-            {
-                "v": 1,
-                "record": "segment_start",
-                "actions": [],
-                "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
-            },
-            {"v": 1, "record": "speech_delta", "text": "本段要说的话。"},
-            {"v": 1, "record": "segment_end"},
-            {"v": 1, "record": "finish", "effect_calls": []},
-        )
-    )
-    return (
-        "\n\n【本轮输出协议：segment_stream_v1】"
-        "只输出逐行 JSONL 记录，不要 Markdown、"
-        "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
-        '第一条必须是 {"v":1,"record":"header","turn_action":"..."}；'
-        f"turn_action 必须从 {action_choices} 中选择，并遵守本轮回复规则。"
-        '每段依次输出 {"v":1,"record":"segment_start","actions":[],"tendency":{...}}，'
-        '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
-            '再输出 {"v":1,"record":"segment_end"}。'
-        'tendency 必须且只能包含八维整数，键为 '
-        f"{dimensions}，取值 0 到 10。"
-        '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
-        "每个 JSON 对象中的字段名只能出现一次；禁止重复键。"
-        "同一 segment 内的 speech_delta 按原文顺序拼接。"
-        "reply 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"
-        "effect_calls 必须为空；不要调用工具。"
-        + (
-            "reply 时允许纯动作回复：可以不输出 speech_delta，但至少一段必须包含动作。"
-            if allow_action_only else "reply 时必须包含非空语音文本。"
-        )
-        + "\n以下是完整 JSONL 格式示例；文本、动作和情绪按本轮事实生成，不要复述示例内容：\n"
-        + example
-        + "\n"
-    )
-
-
 def extract_persona_expression_result(
     text: object,
     *,
@@ -1690,144 +613,13 @@ def extract_persona_expression_result(
     compiled_output_contract: CompiledOutputContract | None = None,
     output_format: str = "legacy",
 ) -> PersonaExpressionResult:
-    """优先解析结构化输出；严格 JSON 合约下不接受自由文本。"""
-    preferred = (
-        output_contract.preferred_tool_name
-        if isinstance(output_contract, OutputContract)
-        else None
+    return _extract_persona_expression_result(
+        text,
+        llm_response=llm_response,
+        output_contract=output_contract,
+        compiled_output_contract=compiled_output_contract,
+        output_format=output_format,
     )
-    strict_tool_call = (
-        isinstance(output_contract, OutputContract)
-        and output_contract.mode == "tool_call"
-        and not output_contract.allow_text_fallback
-    )
-    strict_json_object = (
-        isinstance(output_contract, OutputContract)
-        and output_contract.mode == "json_object"
-        and output_contract.strict
-    )
-    # 1. Protocol tool call. Expression is exactly one terminal payload.
-    if strict_tool_call and llm_response is not None:
-        names = list(getattr(llm_response, "tools_call_name", []) or [])
-        args = list(getattr(llm_response, "tools_call_args", []) or [])
-        indexes = [index for index, name in enumerate(names) if name == preferred]
-        if len(indexes) > 1:
-            raise InteractionExpressionError(
-                "duplicate_persona_expression_tool_call",
-                "persona_expression tool call must occur exactly once",
-            )
-        if indexes:
-            index = indexes[0]
-            payload = _coerce_tool_call_payload(args[index]) if index < len(args) else None
-            if payload is not None:
-                return _build_persona_expression_result_from_payload(payload)
-    if strict_tool_call:
-        raise InteractionExpressionError(
-            "missing_persona_expression_tool_call",
-            "persona_expression tool call missing",
-        )
-    # 2. Configured text format fallback
-    if output_format in {"json", "xml", "markdown"}:
-        try:
-            payload = parse_persona_text(
-                text,
-                output_format,
-                schema=(
-                    output_contract.schema
-                    if isinstance(output_contract, OutputContract)
-                    else build_persona_expression_tool_parameters()
-                ),
-            )
-        except ValueError as exc:
-            raise InteractionExpressionError(
-                "invalid_persona_expression_format",
-                f"invalid {output_format} persona expression: {exc}",
-            ) from exc
-        if (
-            output_format == "json"
-            and isinstance(output_contract, OutputContract)
-            and output_contract.schema is not None
-            and output_contract.schema
-        ):
-            payload = restore_native_optional_fields(payload, output_contract.schema)
-    else:
-        payload = extract_json_object(text)
-    if isinstance(payload, dict):
-        return _build_persona_expression_result_from_payload(payload)
-    if strict_tool_call or strict_json_object or output_format in {"xml", "markdown"}:
-        raise InteractionExpressionError(
-            "invalid_persona_expression_json",
-            "persona expression must be a single JSON object",
-        )
-    # 3. 纯文本兼容
-    return PersonaExpressionResult(
-        segments=[
-            PersonaExpressionSegment(
-                speech=(str(text or "")).strip(),
-            )
-        ],
-        turn_action=PersonalResponseAction.REPLY,
-    )
-
-
-def extract_persona_effect_calls(
-    llm_response,
-    effects: Sequence[PersonaEffectSpec],
-    *,
-    segment_count: int | None,
-) -> tuple[list[PersonaEffectCall], dict[str, Any]]:
-    enabled_effects = [
-        effect
-        for effect in effects
-        if isinstance(effect, PersonaEffectSpec) and effect.enabled
-    ]
-    if llm_response is None:
-        if not enabled_effects:
-            return [], {}
-        raise InteractionExpressionError("missing_persona_effect_batch_tool_call")
-
-    names = list(getattr(llm_response, "tools_call_name", []) or [])
-    args = list(getattr(llm_response, "tools_call_args", []) or [])
-    indexes = [
-        index
-        for index, name in enumerate(names)
-        if name == PERSONA_EFFECT_BATCH_TOOL_NAME
-    ]
-    if not enabled_effects:
-        if indexes:
-            raise InteractionExpressionError(
-                "unexpected_persona_effect_batch_tool_call",
-                "persona_effect_batch was not registered for this turn",
-            )
-        return [], {}
-    if not indexes:
-        raise InteractionExpressionError(
-            "missing_persona_effect_batch_tool_call",
-            "persona_effect_batch tool call missing",
-        )
-    if len(indexes) != 1:
-        raise InteractionExpressionError(
-            "duplicate_persona_effect_batch_tool_call",
-            "persona_effect_batch tool call must occur exactly once",
-        )
-    index = indexes[0]
-    payload = _coerce_tool_call_payload(args[index]) if index < len(args) else None
-    if payload is None or set(payload) != {"effect_calls"}:
-        raise InteractionExpressionError("invalid_persona_effect_batch")
-    raw_effect_calls = _coerce_json_like(payload.get("effect_calls"))
-    if not isinstance(raw_effect_calls, list):
-        raise InteractionExpressionError("invalid_persona_effect_batch")
-    calls, issues = parse_persona_effect_calls_with_issues(
-        raw_effect_calls,
-        enabled_effects,
-        segment_count=segment_count,
-    )
-    metadata = (
-        {"effect_parse_issues": [issue.to_dict() for issue in issues]}
-        if issues
-        else {}
-    )
-    return calls, metadata
 
 
 def _build_expression_prompt(
