@@ -9,6 +9,7 @@ from io import BytesIO
 
 from astrbot.core import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.core.utils.audio_signatures import strip_tencent_silk_prefix
 
 _PYSILK_SUPPORTED_RATES = frozenset({8000, 12000, 16000, 24000, 32000, 48000})
 
@@ -18,8 +19,7 @@ async def tencent_silk_to_wav(silk_path: str, output_path: str) -> str:
 
     with open(silk_path, "rb") as f:
         input_data = f.read()
-        if input_data.startswith(b"\x02"):
-            input_data = input_data[1:]
+        input_data = strip_tencent_silk_prefix(input_data)
         input_io = BytesIO(input_data)
         output_io = BytesIO()
         pysilk.decode(input_io, output_io, 24000)

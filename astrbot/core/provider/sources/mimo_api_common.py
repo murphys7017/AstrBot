@@ -7,6 +7,7 @@ import httpx
 
 from astrbot import logger
 from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+from astrbot.core.utils.audio_signatures import is_tencent_silk_header
 from astrbot.core.utils.io import download_file
 from astrbot.core.utils.tencent_record_helper import (
     convert_to_pcm_wav,
@@ -146,7 +147,7 @@ def _validate_wav_payload(base64_data: str, audio_source: str) -> None:
     if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE":
         return
 
-    if header.startswith((b"#!SILK_V3", b"\x02#!SILK_V3")):
+    if is_tencent_silk_header(header):
         raise MiMoAPIError(
             "Audio for MiMo STT is still Tencent SILK data after WAV conversion; "
             "check that silk-python is installed and working: "
