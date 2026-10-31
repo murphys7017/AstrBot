@@ -918,7 +918,7 @@ async def consider_group_message(self, event: AstrMessageEvent):
         request_group_reply_candidate(event)
 ```
 
-该接口仅对群消息返回 `True`。插件 Handler 完成后，Personal Response Plan 会在 `reply`、`delegate` 和合格群聊候选的 `silent` 中做最终选择；候选资格不授予插件回复所有权，也不会直接调用 LLM。未调用此接口的旧插件保持原有唤醒行为。
+该接口仅对群消息返回 `True`。插件 Handler 完成后，Personal Expression 只在 `reply` 和合格群聊候选的 `silent` 中生成表达；是否进入 Core 由独立 Core Router 决定。候选资格不授予插件回复所有权，也不会直接调用 LLM。未调用此接口的旧插件保持原有唤醒行为。
 
 ### 插件配置
 

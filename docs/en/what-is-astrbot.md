@@ -16,21 +16,21 @@ The AG99 desktop application organizes the user entry point, Persona, sessions, 
 Platform Adapter
   -> EventBus / Pipeline / Handler
   -> Interaction Middleware
-  -> Personal Runtime + Personal Response Plan
-  -> Core Planner (delegated turns only)
+  -> Personal Runtime + Personal Expression
+  -> Core Router
+  -> Core Planner (routed-to-Core turns only)
   -> Core Head / Core Execution
   -> Persona Expression
   -> Output Runtime
   -> Conversation / Memory
 ```
 
-Normal messages and bounded unaddressed group candidates enter Interaction Middleware. Personal Runtime owns turn admission and session state. One structured Persona response plan returns `reply`, `delegate`, or (only for an eligible group candidate) `silent`:
+Normal messages and bounded unaddressed group candidates enter Interaction Middleware. Personal Runtime owns turn admission and session state. Personal Expression returns `reply` or (only for an eligible group candidate) `silent`; an independent Core Router decides whether the turn enters Core:
 
 - `reply`: complete the visible response in Personal without starting Core.
-- `delegate`: send one natural, brief acknowledgement, then let Core Planner prepare the delegated work for Core tools, knowledge, Skills, and other substantial work.
 - `silent`: emit no visible output; it is available only to eligible group candidates.
 
-Core Planner does not make a second admission decision: it only prepares an executable `CoreTaskSpec` for a delegated turn. The Core Head coordinates task, event, cancellation, and execution lifecycle in-process. It is currently a synchronous entry point: it does not create a separate queue or send platform messages directly. Core results never bypass Persona Expression. Immediate replies, plugin persona output, and Core-final results share one visible-language and output boundary.
+Core Planner prepares an executable `CoreTaskSpec` only after the Router sends the turn to Core. The Core Head coordinates task, event, cancellation, and execution lifecycle in-process. It is currently a synchronous entry point: it does not create a separate queue or send platform messages directly. Core results never bypass Persona Expression. Immediate replies, plugin persona output, and Core-final results share one visible-language and output boundary.
 
 ## Plugin Participation
 

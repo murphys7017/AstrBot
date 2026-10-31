@@ -15,7 +15,8 @@ whose parameters contain only `effect_calls`. Core aggregates both channels; it
 does not make a second model request for effects. Action intents and plugin-owned
 effect calls remain separate. When no effect applies, the effect tool is omitted
 and the aggregated result contains an empty `effect_calls` array. The Personal
-Response Plan selects `reply`, `delegate`, or an eligible-group `silent`.
+Personal Expression generates `reply` or an eligible-group `silent`; an independent
+Core Router decides whether the turn enters Core.
 
 ## Register an Effect
 

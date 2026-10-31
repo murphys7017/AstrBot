@@ -419,7 +419,7 @@ Personal、人格层和 Core，不会把群成员消息当作系统指令。
 - `possibility_reply`: 候选抽样概率。默认为 `0.1`。
 - `whitelist`: 候选白名单。仅在此列表中的 ID 才会形成候选。为空时表示不启用白名单过滤。可以使用 `/sid` 指令获取在某个平台上的会话 ID。
 
-候选不会直接调用独立分类模型。它们会由一次 Personal 结构化回复计划判断 `reply`、`delegate` 或 `silent`；允许静默的群聊候选只有在确实无需参与时才返回 `silent`。
+候选不会直接调用独立分类模型。Personal Expression 只判断 `reply` 或 `silent`，独立 Core Router 再判断是否进入 Core；允许静默的群聊候选只有在确实无需参与时才返回 `silent`。
 
 ### `interaction_middleware`
 
@@ -476,10 +476,10 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
   `conversation_activity` 事实；通过白名单和会话状态检查后，最多 800 字符且标记为不可信的原文片段
   可供 Personal Policy 理解话题。它不会作为普通消息进入插件、Personal 计划或 Core。
 - `personal_runtime_direct_continuation_seconds`：Bot 成功回复明确触发它的用户后，仅该用户可在这段
-  窗口内无需再次 `@`；Personal 仍判断 `reply` 或 `delegate`，但不能选择 `silent`。默认 `10` 秒，
+  窗口内无需再次 `@`；Personal 仍生成 `reply`，但不能选择 `silent`。是否进入 Core 由独立 Router 决定。默认 `10` 秒，
   且不会超过连续对话总窗口。
 - `personal_runtime_conversation_continuation_seconds`：直接续接窗口结束后，仍只允许上述同一用户的
-  未唤醒消息进入 Personal，由其判断 `reply`、`delegate` 或 `silent`。默认 `120` 秒，设为 `0` 可关闭。
+  未唤醒消息进入 Personal，由其生成 `reply` 或 `silent`；是否进入 Core 由独立 Router 决定。默认 `120` 秒，设为 `0` 可关闭。
 - `personal_runtime_muted`、`personal_runtime_quiet_hours_*`、
   `personal_runtime_reply_cooldown_seconds`、`personal_runtime_no_action_cooldown_seconds` 与
   `personal_runtime_daily_proactive_output_limit`：控制静音、安静时段、重试节流和每日主动表达上限。

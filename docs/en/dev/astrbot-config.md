@@ -505,12 +505,13 @@ are configured under **Extension Config → Automation → Personal Engagement**
   normal plugin, Personal, or Core path.
 - `personal_runtime_direct_continuation_seconds`: After a successful visible
   reply, only the same user who explicitly triggered the Bot may continue
-  without addressing it again. Personal may choose `reply` or `delegate`, but not
-  `silent`. The default is `10` seconds and is capped by the total
+  without addressing it again. Personal generates `reply`, but not `silent`; an
+  independent Core Router decides whether the turn enters Core. The default is `10` seconds and is capped by the total
   continuation window.
 - `personal_runtime_conversation_continuation_seconds`: After the direct window,
-  only that same trigger user remains eligible and Personal may choose `reply`,
-  `delegate`, or `silent`. The default is `120` seconds; set it to `0` to disable.
+  only that same trigger user remains eligible. Personal generates `reply` or
+  `silent`, while an independent Core Router decides whether the turn enters Core.
+  The default is `120` seconds; set it to `0` to disable.
 - `personal_runtime_muted`, `personal_runtime_quiet_hours_*`,
   `personal_runtime_reply_cooldown_seconds`,
   `personal_runtime_no_action_cooldown_seconds`, and

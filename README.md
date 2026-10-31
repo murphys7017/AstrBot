@@ -41,15 +41,14 @@ AG99 把 Persona 作为所有用户可见输出的统一边界。即时回复、
 
 ```text
 Platform message
-  -> Personal Response Plan
-      -> reply ---------------------> Persona Expression -> Output
-      -> delegate -> Core execution -> Persona Expression -> Output
-      -> silent (eligible group only)
+  -> Personal Runtime
+      -> Personal Expression (reply / eligible-group silent) -> Output
+      -> Core Router -> Core execution -> Persona Expression -> Output
 ```
 
 | 层级 | 职责 |
 | --- | --- |
-| **Personal Response Plan** | 为当前消息选择 `reply`、`delegate` 或允许场景下的 `silent`。 |
+| **Personal Expression** | 为当前消息生成 `reply`，或在允许的群聊候选中生成 `silent`；是否进入 Core 由独立 Router 决定。 |
 | **Core** | 执行已委派的工具、检索、计划任务与其他复杂工作。 |
 | **Persona Expression** | 统一生成所有用户可见的自然语言与结构化表现。 |
 | **Prompt Runtime** | 按调用阶段投影所需事实，避免轻量表达携带完整执行上下文。 |
