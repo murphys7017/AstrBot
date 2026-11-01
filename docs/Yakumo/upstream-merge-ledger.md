@@ -103,6 +103,29 @@ Validation:
 - Pip self-update constraint bypass and TLS behavior: 2 focused tests passed.
 - Ruff and `git diff --check` passed for the full batch.
 
+## 2026-11-01 Provider Compatibility Batch
+
+Reviewed against upstream `62e4dbfd7` and `59e44a76d`.
+
+Absorbed by local rewrite:
+
+- `ea61e9136` (`62e4dbfd7`): Anthropic-compatible providers now always send
+  the selected key as `X-Api-Key`, while a user-supplied case-insensitive
+  custom header can intentionally override its value without creating a
+  duplicate header.
+- `836cce3f7` (`59e44a76d`): Web Search key rotation skips duplicate keys within
+  one request and uses provider-specific retryable status sets for Tavily,
+  Firecrawl, and Exa. The existing shared failover architecture was retained.
+
+Validation:
+
+- Anthropic Header/request tests: 4 passed.
+- Web Search unit suite: 29 passed.
+- Ruff and `git diff --check` passed.
+- Two older Anthropic prompt tests still use a fake `_query` that lacks the
+  already-supported `conversation_id` keyword; they fail before exercising the
+  Header change and remain separate test maintenance work.
+
 Current local reference-intake commits:
 
 - `e302356b` Add NVIDIA and Ollama embedding providers
