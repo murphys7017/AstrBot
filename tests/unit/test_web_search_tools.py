@@ -131,6 +131,15 @@ async def test_key_rotator_resets_index_when_key_list_shrinks():
 
 
 @pytest.mark.asyncio
+async def test_key_rotator_skips_duplicate_keys_within_one_request():
+    rotator = tools._KeyRotator("demo_keys", "Demo")
+    tried_keys: set[str] = set()
+
+    assert await rotator.get({"demo_keys": ["same", "same", "next"]}, tried_keys) == "same"
+    assert await rotator.get({"demo_keys": ["same", "same", "next"]}, tried_keys) == "next"
+
+
+@pytest.mark.asyncio
 async def test_firecrawl_search_maps_web_results(monkeypatch):
     async def fake_firecrawl_search(provider_settings, payload):
         assert provider_settings["websearch_firecrawl_key"] == ["firecrawl-key"]

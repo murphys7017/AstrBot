@@ -76,7 +76,11 @@ class _KeyRotator:
     index: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    async def get(self, provider_settings: dict) -> str:
+    async def get(
+        self,
+        provider_settings: dict,
+        tried_keys: set[str] | None = None,
+    ) -> str:
         keys = provider_settings.get(self.setting_name, [])
         if not keys:
             raise ValueError(
@@ -84,14 +88,22 @@ class _KeyRotator:
             )
 
         async with self.lock:
-            if self.index >= len(keys):
-                self.index = 0
-            key = keys[self.index]
-            self.index = (self.index + 1) % len(keys)
-            return key
+            self.index %= len(keys)
+            for _ in range(len(keys)):
+                key = keys[self.index]
+                self.index = (self.index + 1) % len(keys)
+                if tried_keys is None or key not in tried_keys:
+                    if tried_keys is not None:
+                        tried_keys.add(key)
+                    return key
+
+        raise ValueError(f"Error: No untried {self.provider_name} API keys remain.")
 
 
 _RETRYABLE_HTTP_STATUSES = frozenset({401, 403, 429, 432})
+_TAVILY_RETRYABLE_HTTP_STATUSES = frozenset({401, 403, 429, 432, 433})
+_FIRECRAWL_RETRYABLE_HTTP_STATUSES = frozenset({401, 402, 403, 429})
+_EXA_RETRYABLE_HTTP_STATUSES = frozenset({401, 402, 429})
 
 
 class _WebSearchHTTPError(Exception):
@@ -108,19 +120,21 @@ async def _run_with_key_failover(
     rotator: _KeyRotator,
     request_once,
     exhausted_message: str,
+    retryable_statuses: frozenset[int] = _RETRYABLE_HTTP_STATUSES,
 ):
     keys = provider_settings.get(setting_name, [])
     if not keys:
         raise ValueError(f"Error: {provider_name} API key is not configured in AstrBot.")
 
     last_error: Exception | None = None
+    tried_keys: set[str] = set()
     async with aiohttp.ClientSession(trust_env=True) as session:
-        for _ in range(len(keys)):
-            api_key = await rotator.get(provider_settings)
+        for _ in range(len(set(keys))):
+            api_key = await rotator.get(provider_settings, tried_keys)
             try:
                 return await request_once(session, api_key)
             except _WebSearchHTTPError as exc:
-                if exc.status not in _RETRYABLE_HTTP_STATUSES:
+                if exc.status not in retryable_statuses:
                     raise
                 last_error = exc
 
@@ -252,6 +266,7 @@ async def _tavily_search(
         rotator=_TAVILY_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Tavily web search failed with all configured keys.",
+        retryable_statuses=_TAVILY_RETRYABLE_HTTP_STATUSES,
     )
 
 
@@ -290,6 +305,7 @@ async def _tavily_extract(provider_settings: dict, payload: dict) -> list[dict]:
         rotator=_TAVILY_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Tavily web extract failed with all configured keys.",
+        retryable_statuses=_TAVILY_RETRYABLE_HTTP_STATUSES,
     )
 
 
@@ -435,6 +451,7 @@ async def _firecrawl_search(
         rotator=_FIRECRAWL_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Firecrawl web search failed with all configured keys.",
+        retryable_statuses=_FIRECRAWL_RETRYABLE_HTTP_STATUSES,
     )
 
 
@@ -473,6 +490,7 @@ async def _firecrawl_scrape(provider_settings: dict, payload: dict) -> dict:
         rotator=_FIRECRAWL_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Firecrawl web scraper failed with all configured keys.",
+        retryable_statuses=_FIRECRAWL_RETRYABLE_HTTP_STATUSES,
     )
 
 
@@ -1011,6 +1029,7 @@ async def _exa_search(
         rotator=_EXA_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Exa web search failed with all configured keys.",
+        retryable_statuses=_EXA_RETRYABLE_HTTP_STATUSES,
     )
 
 
@@ -1047,6 +1066,7 @@ async def _exa_get_contents(
         rotator=_EXA_KEY_ROTATOR,
         request_once=request_once,
         exhausted_message="Exa get contents failed with all configured keys.",
+        retryable_statuses=_EXA_RETRYABLE_HTTP_STATUSES,
     )
 
 
