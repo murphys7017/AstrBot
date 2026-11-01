@@ -126,6 +126,16 @@ Validation:
   already-supported `conversation_id` keyword; they fail before exercising the
   Header change and remain separate test maintenance work.
 
+- `8e0952cd1` (`d95047926`): Gemini generation parameters now merge request
+  values with `custom_extra_body`, preserve explicit zero values, reject unknown
+  custom parameters, and retry recitation without mutating the requested
+  generation settings.
+
+Validation:
+
+- Gemini Provider suite: 21 passed.
+- Ruff and `git diff --check` passed.
+
 Current local reference-intake commits:
 
 - `e302356b` Add NVIDIA and Ollama embedding providers
