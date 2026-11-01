@@ -1060,8 +1060,14 @@ class PluginManager:
                     )
                 except Exception as e:
                     error_trace = traceback.format_exc()
-                    logger.error(error_trace)
-                    logger.error(f"插件 {root_dir_name} 导入失败。原因：{e!s}")
+                    logger.error(
+                        error_trace,
+                        extra={"plugin_name": root_dir_name},
+                    )
+                    logger.error(
+                        f"插件 {root_dir_name} 导入失败。原因：{e!s}",
+                        extra={"plugin_name": root_dir_name},
+                    )
                     has_load_error = True
                     self.failed_plugin_dict[root_dir_name] = (
                         self._build_failed_plugin_record(

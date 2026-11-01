@@ -143,8 +143,14 @@ class StarRequestSubStage(Stage):
                 event.clear_result()  # 清除上一个 handler 的结果
             except Exception as e:
                 traceback_text = traceback.format_exc()
-                logger.error(traceback_text)
-                logger.error(f"Star {handler.handler_full_name} handle error: {e}")
+                logger.error(
+                    traceback_text,
+                    extra={"plugin_name": md.name},
+                )
+                logger.error(
+                    f"Star {handler.handler_full_name} handle error: {e}",
+                    extra={"plugin_name": md.name},
+                )
 
                 await call_event_hook(
                     event,

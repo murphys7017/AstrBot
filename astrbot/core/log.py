@@ -28,7 +28,12 @@ class _RecordEnricherFilter(logging.Filter):
     """为 logging.LogRecord 注入 AstrBot 日志字段。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.plugin_tag = "[Plug]" if _is_plugin_path(record.pathname) else "[Core]"
+        explicit_plugin_name = getattr(record, "plugin_name", None)
+        record.plugin_tag = (
+            f"[{explicit_plugin_name}]"
+            if explicit_plugin_name
+            else ("[Plug]" if _is_plugin_path(record.pathname) else "[Core]")
+        )
         record.short_levelname = _get_short_level_name(record.levelname)
         record.astrbot_version_tag = (
             f" [v{VERSION}]" if record.levelno >= logging.WARNING else ""

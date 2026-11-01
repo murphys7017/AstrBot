@@ -214,7 +214,10 @@ async def call_event_hook(
                 await handler.handler(event, *args, **kwargs)
             handler_succeeded = True
         except Exception:
-            logger.error(traceback.format_exc())
+            logger.error(
+                traceback.format_exc(),
+                extra={"plugin_name": plugin_name},
+            )
         finally:
             if handler_succeeded and request_before is not None:
                 try:
