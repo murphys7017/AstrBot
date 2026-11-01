@@ -492,7 +492,7 @@ async def export_file(self):
 
 ### `subscribeSSE(endpoint, handlers, params)`
 
-订阅插件后端 SSE，返回 `Promise<subscriptionId>`。`handlers` 可以包含 `onOpen`、`onMessage`、`onError`。
+订阅插件后端 SSE，返回 `Promise<subscriptionId>`。`handlers` 可以包含 `onOpen`、`onMessage`、`onClose`、`onError`。
 
 ```js
 const subscriptionId = await bridge.subscribeSSE(

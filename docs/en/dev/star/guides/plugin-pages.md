@@ -492,7 +492,7 @@ async def export_file(self):
 
 ### `subscribeSSE(endpoint, handlers, params)`
 
-Subscribes to plugin backend SSE and returns `Promise<subscriptionId>`. `handlers` may include `onOpen`, `onMessage`, and `onError`.
+Subscribes to plugin backend SSE and returns `Promise<subscriptionId>`. `handlers` may include `onOpen`, `onMessage`, `onClose`, and `onError`.
 
 ```js
 const subscriptionId = await bridge.subscribeSSE(
