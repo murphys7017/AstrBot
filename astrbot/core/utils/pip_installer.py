@@ -999,6 +999,7 @@ class PipInstaller:
         requirements_path: str | None = None,
         mirror: str | None = None,
         allow_target_upgrade: bool = True,
+        bypass_core_constraints: bool = False,
     ) -> None:
         args, requested_requirements = self._build_pip_args(
             package_name, requirements_path, mirror
@@ -1024,7 +1025,11 @@ class PipInstaller:
                     ]
                 )
 
-        with self._core_constraints.constraints_file() as constraints_file_path:
+        with (
+            contextlib.nullcontext(None)
+            if bypass_core_constraints
+            else self._core_constraints.constraints_file()
+        ) as constraints_file_path:
             if constraints_file_path:
                 args.extend(["-c", constraints_file_path])
 

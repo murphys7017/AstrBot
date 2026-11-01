@@ -341,7 +341,10 @@ class UpdateService(DashboardService):
                     92,
                 )
                 try:
-                    await pip_installer.install(requirements_path="requirements.txt")
+                    await pip_installer.install(
+                        requirements_path="requirements.txt",
+                        bypass_core_constraints=True,
+                    )
                 except Exception as e:
                     logger.error(f"更新依赖失败: {e}")
                 self._set_update_stage(

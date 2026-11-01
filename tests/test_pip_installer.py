@@ -1871,6 +1871,30 @@ async def test_install_verifies_tls_for_aliyun_index(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_install_can_bypass_core_constraints(monkeypatch):
+    installer = PipInstaller("")
+    captured = []
+
+    async def capture(args):
+        captured.append(args)
+
+    monkeypatch.setattr(installer, "_run_pip_with_classification", capture)
+    monkeypatch.setattr(
+        installer._core_constraints,
+        "constraints_file",
+        lambda: (_ for _ in ()).throw(AssertionError("constraints should be bypassed")),
+    )
+
+    await installer.install(
+        package_name="demo-package",
+        bypass_core_constraints=True,
+    )
+
+    assert captured
+    assert "-c" not in captured[0]
+
+
+@pytest.mark.asyncio
 async def test_install_preserves_explicit_trusted_host(monkeypatch):
     run_pip = _make_run_pip_mock()
     monkeypatch.setattr(PipInstaller, "_run_pip_in_process", run_pip)
