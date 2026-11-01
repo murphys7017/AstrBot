@@ -65,6 +65,37 @@ async def test_gemini_native_json_mode_is_available_only_for_diagnostic_calls():
 
 
 @pytest.mark.asyncio
+async def test_gemini_custom_extra_body_maps_parameters_and_preserves_zero():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {
+        "custom_extra_body": {"temperature": 0, "topP": 0, "max_tokens": 64}
+    }
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+
+    config = await provider._prepare_query_config(
+        {"model": "gemini-test", "temperature": 0.2}
+    )
+
+    assert config.temperature == 0.2
+    assert config.top_p == 0
+    assert config.max_output_tokens == 64
+
+
+@pytest.mark.asyncio
+async def test_gemini_custom_extra_body_rejects_unknown_parameters():
+    provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
+    provider.provider_config = {"custom_extra_body": {"unknown": True}}
+    provider.provider_settings = {}
+    provider.model_name = "gemini-test"
+    provider.safety_settings = []
+
+    with pytest.raises(ValueError, match="Unsupported Gemini custom_extra_body"):
+        await provider._prepare_query_config({"model": "gemini-test"})
+
+
+@pytest.mark.asyncio
 async def test_gemini_native_json_probe_does_not_retry_inside_query():
     provider = ProviderGoogleGenAI.__new__(ProviderGoogleGenAI)
     provider.provider_config = {}

@@ -258,7 +258,6 @@ class ProviderGoogleGenAI(Provider):
         tool_choice: Literal["auto", "required"] = "auto",
         system_instruction: str | None = None,
         modalities: list[str] | None = None,
-        temperature: float = 0.7,
     ) -> types.GenerateContentConfig:
         """准备查询配置"""
         if not modalities:
@@ -392,23 +391,46 @@ class ProviderGoogleGenAI(Provider):
                     thinking_level=types.ThinkingLevel(thinking_level)
                 )
 
+        parameter_aliases = {
+            "temperature": ("temperature",),
+            "max_output_tokens": ("max_output_tokens", "max_tokens", "maxOutputTokens"),
+            "top_p": ("top_p", "topP"),
+            "top_k": ("top_k", "topK"),
+            "frequency_penalty": ("frequency_penalty", "frequencyPenalty"),
+            "presence_penalty": ("presence_penalty", "presencePenalty"),
+            "stop_sequences": ("stop_sequences", "stop", "stopSequences"),
+            "response_logprobs": ("response_logprobs", "responseLogprobs"),
+            "logprobs": ("logprobs",),
+            "seed": ("seed",),
+        }
+        extra_body = self.provider_config.get("custom_extra_body", {}) or {}
+        if not isinstance(extra_body, dict):
+            raise ValueError("Gemini custom_extra_body must be a JSON object.")
+        supported_keys = {
+            alias for aliases in parameter_aliases.values() for alias in aliases
+        }
+        unsupported_keys = set(extra_body) - supported_keys
+        if unsupported_keys:
+            raise ValueError(
+                "Unsupported Gemini custom_extra_body parameters: "
+                + ", ".join(sorted(unsupported_keys))
+            )
+
+        generation_config = {"temperature": 0.7}
+        for field, aliases in parameter_aliases.items():
+            for source in (payloads, extra_body):
+                for alias in aliases:
+                    if alias in source:
+                        generation_config[field] = source[alias]
+                        break
+                else:
+                    continue
+                break
+
         return types.GenerateContentConfig(
             system_instruction=system_instruction,
             response_mime_type=payloads.get("response_mime_type"),
-            temperature=temperature,
-            max_output_tokens=payloads.get("max_tokens")
-            or payloads.get("maxOutputTokens"),
-            top_p=payloads.get("top_p") or payloads.get("topP"),
-            top_k=payloads.get("top_k") or payloads.get("topK"),
-            frequency_penalty=payloads.get("frequency_penalty")
-            or payloads.get("frequencyPenalty"),
-            presence_penalty=payloads.get("presence_penalty")
-            or payloads.get("presencePenalty"),
-            stop_sequences=payloads.get("stop") or payloads.get("stopSequences"),
-            response_logprobs=payloads.get("response_logprobs")
-            or payloads.get("responseLogprobs"),
-            logprobs=payloads.get("logprobs"),
-            seed=payloads.get("seed"),
+            **generation_config,
             response_modalities=modalities,
             tools=cast(types.ToolListUnion | None, tool_list),
             tool_config=tool_config,
@@ -748,7 +770,7 @@ class ProviderGoogleGenAI(Provider):
             modalities.append("IMAGE")
 
         conversation = await self._prepare_conversation(payloads)
-        temperature = payloads.get("temperature", 0.7)
+        recitation_retries = 0
 
         result: types.GenerateContentResponse | None = None
         while True:
@@ -759,7 +781,6 @@ class ProviderGoogleGenAI(Provider):
                     payloads.get("tool_choice", "auto"),
                     system_instruction,
                     modalities,
-                    temperature,
                 )
                 async with self._conversation_header(conversation_id):
                     result = await self.client.models.generate_content(
@@ -786,11 +807,13 @@ class ProviderGoogleGenAI(Provider):
                         or payloads.get("_json_output_test_mode") is not None
                     ):
                         raise RuntimeError("json_output_test_recitation")
-                    if temperature > 2:
-                        raise Exception("温度参数已超过最大值2，仍然发生recitation")
-                    temperature += 0.2
+                    if recitation_retries >= 2:
+                        raise Exception("Gemini recitation 在 2 次重试后仍未消失")
+                    recitation_retries += 1
                     logger.warning(
-                        f"发生了recitation，正在提高温度至{temperature:.1f}重试...",
+                        "Gemini recitation detected; retrying with unchanged "
+                        "generation parameters (%s/2).",
+                        recitation_retries,
                     )
                     continue
 
