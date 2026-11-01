@@ -3809,3 +3809,30 @@ log_privacy_history_cleanup_and_runtime_load_20261030:
     bodies and exception stacks were removed from the four log files. The pytest
     root isolation prevents future synthetic test traces from entering the runtime
     log.
+olv_cache_identity_and_prompt_stability_20261102:
+  date: '2026-11-02'
+  class: bugfix
+  risk: high
+  status: deployed_pending_reload
+  decision: >-
+    OLV Persona result callbacks use PersonaTurnIdentity at the AG99live source
+    boundary. Dynamic NeuroBrain prompt messages may opt into after-user
+    placement, while OLV history keeps a small chronological prefix ahead of the
+    rolling recent projection. Desktop screenshots use a bounded 1024x576 JPEG
+    capture and a deterministic wrapper without per-turn timestamps.
+  scope: >-
+    Core prompt extension placement, OLV Persona history projection, AG99live
+    result identity, NeuroBrain source, and AG99live frontend capture/input
+    paths. QQ, SQLite maintenance, unrelated dirty source files, and saved user
+    data were preserved.
+  validation: >-
+    Core Ruff and py_compile passed for changed prompt modules; AG99live and
+    NeuroBrain Python static checks passed; AG99live frontend typecheck and
+    production build passed; source/deployment hashes match for NeuroBrain main,
+    AG99live main, and platform_event. No full test suite or live OLV acceptance
+    was run.
+  limitations: >-
+    Runtime reload/reconnect and a new 40-turn OLV cache sample remain pending.
+    Cache improvement must be measured from fresh DeepSeek usage logs; the
+    fixed history prefix is intentionally small to avoid growing realtime
+    prompts. Existing unrelated dirty files remain untouched and uncommitted.

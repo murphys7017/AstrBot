@@ -131,6 +131,14 @@ def project_context_pack(
         projected=projected,
         target=resolved_target.value,
         budget=budget,
+        # OLV keeps a tiny chronological prefix ahead of the rolling recent
+        # window so provider prefix caches have an append-stable history anchor.
+        stable_history_prefix_turns=(
+            2
+            if resolved_target is PromptTarget.PERSONA
+            and projected.meta.get("context_view") == "olv_stream"
+            else 0
+        ),
     )
 
     _remove_prompt_internal_identifiers(projected)

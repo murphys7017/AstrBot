@@ -106,6 +106,7 @@ def apply_target_budget(
     projected: ContextPack,
     target: str,
     budget: PromptTargetBudget,
+    stable_history_prefix_turns: int = 0,
 ) -> None:
     """Apply one budget and attach diagnostics to the isolated projection."""
     history = projected.get_slot("conversation.history")
@@ -115,6 +116,7 @@ def apply_target_budget(
             budget,
             target=target,
             relevance_terms=_extract_persona_relevance_terms(source_slots),
+            stable_history_prefix_turns=stable_history_prefix_turns,
         )
 
     group_recent = projected.get_slot("conversation.group_recent")
@@ -132,6 +134,7 @@ def _project_history(
     *,
     target: str,
     relevance_terms: set[str],
+    stable_history_prefix_turns: int = 0,
 ) -> None:
     if not isinstance(slot.value, dict):
         return
@@ -172,6 +175,7 @@ def _project_history(
             candidate_turns,
             budget=budget,
             relevance_terms=relevance_terms,
+            stable_history_prefix_turns=stable_history_prefix_turns,
         )
         slot.meta["persona_history_projection"] = projection_meta
         if projection_meta["anchor_turn_count"]:
@@ -212,6 +216,7 @@ def _select_persona_history_turns(
     *,
     budget: PromptTargetBudget,
     relevance_terms: set[str],
+    stable_history_prefix_turns: int = 0,
 ) -> tuple[list[object], list[object], dict[str, int]]:
     """Keep a recent dialogue run, then add a few relevant older anchors."""
 
@@ -251,13 +256,29 @@ def _select_persona_history_turns(
     # Its discarded prefix becomes eligible as an older relevance anchor; using
     # the original recent_start here would leave a silent history gap.
     retained_recent_start = min(selected_indexes)
+    stable_prefix_indexes = set(
+        range(min(max(0, stable_history_prefix_turns), retained_recent_start))
+    )
+    stable_prefix_turns = [normalized_turns[index] for index in sorted(stable_prefix_indexes)]
+    if stable_prefix_turns:
+        stable_prefix_tokens = _estimate_value_tokens(stable_prefix_turns)
+        while (
+            stable_prefix_turns
+            and used_tokens + stable_prefix_tokens > budget.history_max_estimated_tokens
+        ):
+            stable_prefix_turns.pop()
+            stable_prefix_tokens = _estimate_value_tokens(stable_prefix_turns)
+
     anchor_candidates: list[tuple[int, int, int]] = []
     for index, turn in enumerate(normalized_turns[:retained_recent_start]):
+        if index in stable_prefix_indexes:
+            continue
         score = _score_history_turn_relevance(turn, relevance_terms)
         if score:
             anchor_candidates.append((score, index, _estimate_value_tokens(turn)))
     anchor_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    anchor_count = 0
+    anchor_count = len(stable_prefix_turns)
+    used_tokens += _estimate_value_tokens(stable_prefix_turns)
     for _, index, turn_tokens in anchor_candidates:
         if used_tokens + turn_tokens > budget.history_max_estimated_tokens:
             continue
@@ -272,7 +293,7 @@ def _select_persona_history_turns(
     anchor_indexes = sorted(
         index for index in selected_indexes if index < retained_recent_start
     )
-    anchor_turns = [normalized_turns[index] for index in anchor_indexes]
+    anchor_turns = [*stable_prefix_turns, *(normalized_turns[index] for index in anchor_indexes)]
     recent_count = sum(
         index >= retained_recent_start for index in selected_indexes
     )

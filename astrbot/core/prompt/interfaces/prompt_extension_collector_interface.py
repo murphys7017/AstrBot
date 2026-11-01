@@ -54,6 +54,16 @@ class PromptExtensionCollectorInterface(ABC):
         """
         return frozenset()
 
+    @property
+    def prompt_message_placement(self) -> str:
+        """Return where transient messages are placed around the current user turn.
+
+        ``before_user`` preserves the historical placement. A request-local
+        state message may opt into ``after_user`` so it cannot invalidate the
+        stable prefix before the current user content.
+        """
+        return "before_user"
+
     @abstractmethod
     async def collect(
         self,

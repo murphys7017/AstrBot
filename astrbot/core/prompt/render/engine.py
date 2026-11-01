@@ -235,7 +235,8 @@ class PromptRenderEngine:
                         type(collectors).__name__,
                     )
 
-        transient_messages: list[dict[str, object]] = []
+        transient_messages_before_user: list[dict[str, object]] = []
+        transient_messages_after_user: list[dict[str, object]] = []
         transient_timings: list[dict[str, object]] = []
         transient_sources: set[str] = set()
         runtime_config = (
@@ -266,6 +267,12 @@ class PromptRenderEngine:
                 allowed_targets.intersection_update({target_override})
             if target not in allowed_targets:
                 continue
+            placement = str(
+                getattr(collector, "prompt_message_placement", "before_user")
+                or "before_user"
+            ).strip().lower()
+            if placement not in {"before_user", "after_user"}:
+                placement = "before_user"
             started_at = perf_counter()
             try:
                 messages = collect_messages(
@@ -316,7 +323,13 @@ class PromptRenderEngine:
             for message in messages:
                 normalized = self._normalize_transient_prompt_message(message)
                 if normalized is not None:
-                    transient_messages.append(normalized)
+                    normalized["_prompt_transient_placement"] = placement
+                    target_messages = (
+                        transient_messages_after_user
+                        if placement == "after_user"
+                        else transient_messages_before_user
+                    )
+                    target_messages.append(normalized)
                     transient_sources.add(plugin_id)
 
         for mutation in legacy_prompt_mutations:
@@ -324,12 +337,13 @@ class PromptRenderEngine:
             for message in getattr(mutation, "context_messages", ()) or ():
                 normalized = self._normalize_transient_prompt_message(message)
                 if normalized is not None:
-                    transient_messages.append(normalized)
+                    normalized["_prompt_transient_placement"] = "before_user"
+                    transient_messages_before_user.append(normalized)
                     transient_sources.add(source)
 
         if transient_timings:
             result.metadata["transient_prompt_message_timings"] = transient_timings
-        if not transient_messages:
+        if not transient_messages_before_user and not transient_messages_after_user:
             return
 
         existing_messages = list(result.messages)
@@ -338,10 +352,13 @@ class PromptRenderEngine:
             insertion_index -= 1
         result.messages = (
             existing_messages[:insertion_index]
-            + transient_messages
+            + transient_messages_before_user
             + existing_messages[insertion_index:]
+            + transient_messages_after_user
         )
-        result.metadata["transient_prompt_message_count"] = len(transient_messages)
+        result.metadata["transient_prompt_message_count"] = (
+            len(transient_messages_before_user) + len(transient_messages_after_user)
+        )
         result.metadata["transient_prompt_message_providers"] = sorted(
             transient_sources
         )
@@ -405,18 +422,37 @@ class PromptRenderEngine:
                 if not getattr(part, "_prompt_transient", False)
             ]
 
-        fresh_messages: list[dict[str, object]] = []
-        fresh_models: list[Message] = []
+        fresh_messages_before_user: list[dict[str, object]] = []
+        fresh_messages_after_user: list[dict[str, object]] = []
+        fresh_models_before_user: list[Message] = []
+        fresh_models_after_user: list[Message] = []
         for message in scratch.messages:
+            placement = str(
+                message.get("_prompt_transient_placement", "before_user")
+                or "before_user"
+            ).strip().lower()
+            if placement not in {"before_user", "after_user"}:
+                placement = "before_user"
             normalized = self._normalize_transient_prompt_message(message)
             if normalized is None:
                 continue
             normalized.pop("_prompt_transient", None)
+            normalized.pop("_prompt_transient_placement", None)
             model = Message.model_validate(normalized)
             model._no_save = True
             model._prompt_transient = True
-            fresh_messages.append(normalized)
-            fresh_models.append(model)
+            target_messages = (
+                fresh_messages_after_user
+                if placement == "after_user"
+                else fresh_messages_before_user
+            )
+            target_models = (
+                fresh_models_after_user
+                if placement == "after_user"
+                else fresh_models_before_user
+            )
+            target_messages.append(normalized)
+            target_models.append(model)
 
         legacy_extra_parts = [
             deepcopy(part)
@@ -462,14 +498,42 @@ class PromptRenderEngine:
             if index not in old_indices
         ]
         insertion_index = min(insertion_index, len(retained_contexts))
-        provider_request.contexts = (
+        contexts_with_before = (
             retained_contexts[:insertion_index]
-            + fresh_messages
+            + fresh_messages_before_user
             + retained_contexts[insertion_index:]
         )
-        if fresh_messages:
-            request_metadata[PROMPT_TRANSIENT_MESSAGE_INDICES_KEY] = list(
-                range(insertion_index, insertion_index + len(fresh_messages))
+        last_user_context_index = next(
+            (
+                index
+                for index in range(len(contexts_with_before) - 1, -1, -1)
+                if contexts_with_before[index].get("role") == "user"
+            ),
+            None,
+        )
+        after_context_index = (
+            last_user_context_index + 1
+            if last_user_context_index is not None
+            else len(contexts_with_before)
+        )
+        provider_request.contexts = (
+            contexts_with_before[:after_context_index]
+            + fresh_messages_after_user
+            + contexts_with_before[after_context_index:]
+        )
+        transient_count = len(fresh_messages_before_user) + len(
+            fresh_messages_after_user
+        )
+        if transient_count:
+            before_indices = list(
+                range(insertion_index, insertion_index + len(fresh_messages_before_user))
+            )
+            after_start = after_context_index + len(fresh_messages_after_user)
+            after_indices = list(
+                range(after_start - len(fresh_messages_after_user), after_start)
+            )
+            request_metadata[PROMPT_TRANSIENT_MESSAGE_INDICES_KEY] = sorted(
+                before_indices + after_indices
             )
         else:
             request_metadata.pop(PROMPT_TRANSIENT_MESSAGE_INDICES_KEY, None)
@@ -488,9 +552,11 @@ class PromptRenderEngine:
             for message in retained_messages[last_user_index + 1 :]
         )
         if last_user_index is not None and not has_follow_up:
-            retained_messages[last_user_index:last_user_index] = fresh_models
+            retained_messages[last_user_index:last_user_index] = fresh_models_before_user
+            retained_messages.extend(fresh_models_after_user)
         else:
-            retained_messages.extend(fresh_models)
+            retained_messages.extend(fresh_models_before_user)
+            retained_messages.extend(fresh_models_after_user)
         run_context_messages[:] = retained_messages
 
     @staticmethod
