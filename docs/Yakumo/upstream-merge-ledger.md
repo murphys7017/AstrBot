@@ -7,7 +7,7 @@ updates, so old decisions remain easy to revisit without treating them as missin
 
 ## Reference Intake Board
 
-Last updated: 2026-10-30
+Last updated: 2026-11-01
 
 Last recorded comparison baseline:
 
@@ -67,6 +67,41 @@ current structure is summarized in
 These changes preserve the existing Prompt and Provider contracts. Static checks
 were used for the architecture refactors; no live Provider, platform, TTS or
 Live2D acceptance is implied by this ledger entry.
+
+## 2026-11-01 First Reliability and Security Batch
+
+Reviewed against upstream `d203f84b7` / official `4.29.4`.
+
+Absorbed by local rewrite:
+
+- `e91d4239d` (`3b4fbbce8`): DashScope Agent requests now pass the configured
+  timeout to `Application.call`.
+- `4f654e699` (`82f914b4a`): plugin configuration saves distinguish successful
+  persistence from failed hot reloads and return an actionable error.
+- `4bdcd3a0d` (`15e1b9996`): Plugin View SSE bridges expose `onClose` and clean
+  completed subscriptions; English and Chinese bridge docs were updated.
+- `e6e378bc3` (`d203f84b7`): framework-side plugin failures carry plugin
+  attribution into the log label, including load and handler failures.
+- `6ba62fd01` (`f3cd58493`): the shared system temp path avoids an existing
+  `.astrbot` marker file and ignores the fallback directory in Git and Docker.
+- `e7dcc7f28` (`73c28f79c`): self-update dependency installation can bypass
+  generated Core constraints while plugin dependency installation remains
+  constrained by default.
+
+Already equivalent locally:
+
+- `a90f203f` (OpenAI final-retry success): the local recovery loop returns on
+  success and has no retry-counter postcondition that can discard the final
+  response, so no duplicate patch was made.
+
+Validation:
+
+- DashScope timeout: 1 focused test passed.
+- Plugin reload failure: 1 focused test passed.
+- Plugin log attribution: 1 focused test passed.
+- Temp-path safety: 3 focused tests passed.
+- Pip self-update constraint bypass and TLS behavior: 2 focused tests passed.
+- Ruff and `git diff --check` passed for the full batch.
 
 Current local reference-intake commits:
 
