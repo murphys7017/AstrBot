@@ -1305,6 +1305,22 @@ class ConfigService(DashboardService):
             # 获取模型列表
             models = await inst.get_models()
             models = models or []
+            if not models and provider_type == "deepseek_chat_completion":
+                configured_models = sorted(
+                    {
+                        model_config["model"].strip()
+                        for model_config in self.global_resource_config.get(
+                            "provider", []
+                        )
+                        if isinstance(model_config, dict)
+                        and model_config.get("provider_source_id")
+                        == provider_source_id
+                        and isinstance(model_config.get("model"), str)
+                        and model_config["model"].strip()
+                    }
+                )
+                if configured_models:
+                    models = configured_models
 
             metadata_map = {}
             for model_id in models:

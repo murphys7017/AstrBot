@@ -350,6 +350,20 @@ def _normalize_deepseek_strict_schema(schema: object) -> dict[str, Any]:
     prompt_renderer_family="deepseek",
 )
 class ProviderDeepSeek(ProviderOpenAIOfficial):
+    async def get_models(self) -> list[str]:
+        """Avoid model discovery on DeepSeek's beta chat endpoint.
+
+        The beta chat endpoint supports completion requests but does not expose
+        the OpenAI-compatible ``/v1/models`` route.  The shared OpenAI adapter
+        would therefore request ``/beta/v1/models`` and turn a harmless model
+        discovery action into a 404.  The dashboard can fall back to models
+        already configured for this provider source, while non-beta endpoints
+        retain the shared remote discovery behavior.
+        """
+        if self._is_beta_endpoint():
+            return []
+        return await super().get_models()
+
     def supports_output_format_test_mode(
         self, output_format: str, mode: str
     ) -> bool:
