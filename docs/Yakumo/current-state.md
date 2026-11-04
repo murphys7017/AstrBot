@@ -176,8 +176,7 @@ Native Core 已有进程内的执行事实、命令、事件、取消和终态�
   任务失败回传，再验证创建任务、触发、Personal 表达、TTS 与投递回执的完整链路。
 
 2026-09-13 整改进度：第一阶段 Turn state 收敛已完成，Interaction turn 的完整运行配置也在
-准入时深拷贝为独立快照并由 TurnState 统一提供，范围和验收见
-[架构整改实施记录](架构整改实施记录.md)。兼容 extra、Event 方法拦截和旧串行插件路径
+准入时深拷贝为独立快照并由 TurnState 统一提供。兼容 extra、Event 方法拦截和旧串行插件路径
 保留；Prompt/Core 主链路已统一通过 typed helper 读取 TurnState，Core 构建配置、Core Provider
 选择及网页搜索工具运行时也会投影当轮快照。Core 内部解耦已进入 Phase 9：
 `CoreCommand`、`CoreEvent`、`CoreExecutionHead`、`CoreExecutionSession` 与

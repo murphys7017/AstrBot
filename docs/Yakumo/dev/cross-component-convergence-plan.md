@@ -655,7 +655,7 @@ B2a/B2b 是同一契约的两批接线；中间不得宣称全部输出一致性
 
 - `execution-backend-preparation-plan.md`
 - `current-state.md`
-- `全局架构审计-当前问题.md`
+- `current-state.md` 和 `modules/interaction.md`
 - 必要时更新 `.ai/state.yaml` 中本轮实际范围和验证缺口。
 
 历史实施记录保留日期，不把旧断言原地改成“当时已完成”。
