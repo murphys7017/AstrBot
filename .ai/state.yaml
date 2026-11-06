@@ -3895,3 +3895,27 @@ livingmemory_sqlite_rollback_journal_root_fix_20261104:
     Rollback journal permits one writer and can serialize large concurrent writes;
     busy_timeout remains 30000 ms. WAL backups remain available if a future
     controlled benchmark justifies reintroducing WAL with a single connection owner.
+memory_neutral_personal_path_20261107:
+  date: '2026-11-07'
+  class: bugfix
+  risk: high
+  status: deployed_pending_restart_and_live_acceptance
+  decision: >-
+    LivingMemory remains the writer and owner of the prompt recall snapshot.
+    Personal expression requests only read the last completed snapshot; the
+    legacy synchronous LLM recall is skipped for Personal.
+  scope: >-
+    Add a synchronous LivingMemory prompt-cache reader, schedule cache refresh
+    after Personal expression in the background, and expose the active
+    execution surface to the legacy hook so it can skip Personal. Source
+    changes follow the LivingMemory source/deployment rule; runtime data is
+    preserved.
+  validation: >-
+    Changed Python files compiled successfully, the source/deployment plugin
+    sync was applied, and git diff --check passed. No test suite or live
+    provider roundtrip was run.
+  remaining: >-
+    Reload or restart AstrBot so the prompt collector and hook boundary take
+    effect. Confirm Personal logs no longer show synchronous LivingMemory
+    recall before provider start, and that the next turn uses the last completed
+    LivingMemory snapshot while a background refresh runs.

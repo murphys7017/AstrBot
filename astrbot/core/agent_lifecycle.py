@@ -23,7 +23,10 @@ from astrbot.core.pipeline.context_utils import call_event_hook
 from astrbot.core.platform.astr_message_event import (
     INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
 )
-from astrbot.core.plugin_runtime import PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION
+from astrbot.core.plugin_runtime import (
+    INTERACTION_EXECUTION_SURFACE_EXTRA_KEY,
+    PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
+)
 from astrbot.core.postprocess import dispatch_postprocess
 from astrbot.core.postprocess.types import PostProcessTrigger
 from astrbot.core.prompt.render import PROMPT_APPLY_RESULT_EXTRA_KEY
@@ -291,7 +294,14 @@ class AgentRequestLifecycle:
             previous_apply_result = self._capture_extra(
                 PROMPT_APPLY_RESULT_EXTRA_KEY,
             )
+            previous_execution_surface = self._capture_extra(
+                INTERACTION_EXECUTION_SURFACE_EXTRA_KEY,
+            )
             self.event.set_extra("provider_request", request)
+            self.event.set_extra(
+                INTERACTION_EXECUTION_SURFACE_EXTRA_KEY,
+                self.execution_surface,
+            )
             if self.prompt_apply_result is not _MISSING:
                 self.event.set_extra(
                     PROMPT_APPLY_RESULT_EXTRA_KEY,
@@ -306,6 +316,10 @@ class AgentRequestLifecycle:
                         PROMPT_APPLY_RESULT_EXTRA_KEY,
                         previous_apply_result,
                     )
+                self._restore_extra(
+                    INTERACTION_EXECUTION_SURFACE_EXTRA_KEY,
+                    previous_execution_surface,
+                )
 
     async def dispatch_waiting(self) -> bool:
         if self._waiting_dispatched:

@@ -23,6 +23,7 @@ from astrbot.core.tools.web_search_tools import is_web_search_tool_name
 PluginRuntimeTarget = Literal["core", "personal_expression"]
 PLUGIN_RUNTIME_TARGET_CORE: PluginRuntimeTarget = "core"
 PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION: PluginRuntimeTarget = "personal_expression"
+INTERACTION_EXECUTION_SURFACE_EXTRA_KEY = "_interaction_execution_surface"
 PLUGIN_CAPABILITY_TARGETS_CONFIG_KEY = "plugin_capability_targets"
 PROMPT_EXTENSION_TARGETS = frozenset({"core", "persona"})
 # A per-turn plugin target override for modes that change the active LLM path.
