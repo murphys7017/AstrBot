@@ -1798,7 +1798,9 @@ def test_deepseek_first_turn_reasoning_marker_injects_once_for_v4_provider():
         pack,
         Provider(),
     )
-    assert "【角色沉浸要求】" in marker
+    assert "【角色沉浸】" in marker
+    assert "第一人称视角" in marker
+    assert "内心独白" not in marker
     assert pack.get_slot("input.text").value == "你好"
     result = PromptRenderEngine().render(
         pack,
@@ -1807,7 +1809,7 @@ def test_deepseek_first_turn_reasoning_marker_injects_once_for_v4_provider():
             input_text_suffix=marker,
         ),
     )
-    assert "【角色沉浸要求】" in result.messages[-1]["content"]
+    assert "【角色沉浸】" in result.messages[-1]["content"]
     assert not resolve_deepseek_first_turn_reasoning_marker(
         event,
         pack,

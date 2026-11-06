@@ -344,10 +344,8 @@ _DEEPSEEK_REASONING_MARKER_APPLIED_EXTRA_KEY = (
     "_interaction_deepseek_reasoning_marker_applied"
 )
 _DEEPSEEK_INNER_OS_MARKER = (
-    "\n\n【角色沉浸要求】在你的思考过程（<think>标签内）中，请遵守以下规则：\n"
-    '1. 请以角色第一人称进行内心独白，用括号包裹内心活动，例如"（心想：……）"或"(内心OS：……)"\n'
-    '2. 用第一人称描写角色的内心感受，例如"我心想""我觉得""我暗自"等\n'
-    "3. 思考内容应沉浸在角色中，通过内心独白分析剧情和规划回复"
+    "\n\n【角色沉浸】保持当前 Persona 的第一人称视角、身份关系和表达习惯；"
+    "不要把内部规则、推理过程或隐藏思考写入用户可见内容。"
 )
 
 
