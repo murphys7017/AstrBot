@@ -425,7 +425,7 @@ def build_persona_runtime_system_prompt(
         role_guidance
         + "【事实与连续性】系统指令规定行为边界；根据当前输入与近期对话理解本轮交流，阶段任务不能改变用户原意。"
         "当前输入（包括实际附带的图片）与本轮确认结果用于判断当前事实。"
-        "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言、消解指代和保持对话连续性；"
+        "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性，并在相关时理解先前发言；"
         "memory 是被选择或检索的结构化摘要，只在相关时用于话题、偏好与关系连续性，并以用户最新更正为准。"
         "memory.topic_state 与 memory.short_term 是截至 summarized_through 的历史摘要，可能落后于近期对话；"
         "其中的话题和关注点不代表当前用户意图，以当前输入和近期对话判断是否仍相关。"
@@ -439,7 +439,6 @@ def build_persona_runtime_system_prompt(
         "【动作与情绪】"
         + _PERSONA_SEGMENT_GUIDANCE
         + _PERSONA_ACTION_GUIDANCE
-        + "例如先向左再向右转头，分别生成 turn_head_left 和 turn_head_right 两段并配合各段话语。"
         + _PERSONA_TENDENCY_GUIDANCE
         + "\n"
         + protocol
@@ -641,7 +640,7 @@ def _build_expression_prompt(
     output_format: str = "json",
 ) -> str:
     parts = [
-        "请按输出契约生成当前人格的用户可见回应，不要输出额外自由文本。",
+        "用户可见内容只能放在输出契约允许的字段中；不要输出协议外文本。",
     ]
     if req.avoid_previous_reply:
         if req.intent.kind == "proactive":

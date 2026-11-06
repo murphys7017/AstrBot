@@ -1403,6 +1403,8 @@ def test_persona_expression_prompt_keeps_unverified_operations_grounded():
     assert "不得编造结果或声称操作已完成" in prompt
     assert "Core" not in prompt
     assert "直接回应当前用户输入" not in prompt
+    assert "用户可见内容只能放在输出契约允许的字段中" in prompt
+    assert "请按输出契约生成当前人格的用户可见回应" not in prompt
 
     result_prompt = _build_expression_prompt(
         PersonaExpressionRequest(
@@ -1421,7 +1423,7 @@ def test_persona_system_prompt_keeps_expression_role_and_fact_boundaries():
     assert "唯一的对外人格交流窗口" in prompt
     assert "只能从 reply 中选择 turn_action" in prompt
     assert "Core" not in prompt
-    assert "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言" in prompt
+    assert "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性" in prompt
     assert "当前用户输入确定意图" not in prompt
     assert "根据当前输入与近期对话理解本轮交流" in prompt
     assert "memory 是被选择或检索的结构化摘要" in prompt
@@ -1451,8 +1453,15 @@ def test_persona_progress_prompt_keeps_single_tool_completion_local():
 def test_persona_expression_prompt_separates_history_continuity_from_facts():
     prompt = build_persona_runtime_system_prompt()
 
-    assert "可用于回答当前明确指向的先前发言" in prompt
+    assert "用于保持话题、关系和表达连续性" in prompt
     assert "包括实际附带的图片" in prompt
+
+
+def test_persona_system_prompt_does_not_include_concrete_motion_example():
+    prompt = build_persona_runtime_system_prompt()
+
+    assert "turn_head_left" not in prompt
+    assert "turn_head_right" not in prompt
 
 
 def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
