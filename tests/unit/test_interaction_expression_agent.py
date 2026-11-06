@@ -1425,7 +1425,9 @@ def test_persona_system_prompt_keeps_expression_role_and_fact_boundaries():
     assert "Core" not in prompt
     assert "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性" in prompt
     assert "当前用户输入确定意图" not in prompt
-    assert "根据当前输入与近期对话理解本轮交流" in prompt
+    assert "当前输入与近期对话共同构成交流上下文" in prompt
+    assert "根据当前请求和已提供材料生成当前人格的用户可见表达" not in prompt
+    assert "用户可见表达应体现当前人格，并只使用本轮允许的材料" in prompt
     assert "memory 是被选择或检索的结构化摘要" in prompt
     assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
 

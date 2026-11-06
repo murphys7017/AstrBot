@@ -413,7 +413,7 @@ def build_persona_runtime_system_prompt(
             if require_turn_action
             else "当前调用只允许使用 turn_action=reply；"
         )
-        + "根据当前请求和已提供材料生成当前人格的用户可见表达。\n"
+        + "用户可见表达应体现当前人格，并只使用本轮允许的材料。\n"
     )
     # JSONL examples stay in the final request: system-tree serialization
     # escapes quotes, which would change the literal wire-format example.
@@ -423,7 +423,7 @@ def build_persona_runtime_system_prompt(
     speech_field = "speech_delta.text" if output_format == "segment_stream_v1" else "segments[].speech"
     return (
         role_guidance
-        + "【事实与连续性】系统指令规定行为边界；根据当前输入与近期对话理解本轮交流，阶段任务不能改变用户原意。"
+        + "【事实与连续性】系统指令规定事实与安全边界；当前输入与近期对话共同构成交流上下文，阶段任务不能改变用户原意。"
         "当前输入（包括实际附带的图片）与本轮确认结果用于判断当前事实。"
         "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性，并在相关时理解先前发言；"
         "memory 是被选择或检索的结构化摘要，只在相关时用于话题、偏好与关系连续性，并以用户最新更正为准。"
