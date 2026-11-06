@@ -1402,7 +1402,7 @@ def test_persona_expression_prompt_keeps_unverified_operations_grounded():
 
     assert "不得编造结果或声称操作已完成" in prompt
     assert "Core" not in prompt
-    assert "直接回应当前用户输入" in prompt
+    assert "直接回应当前用户输入" not in prompt
 
     result_prompt = _build_expression_prompt(
         PersonaExpressionRequest(
@@ -1422,6 +1422,8 @@ def test_persona_system_prompt_keeps_expression_role_and_fact_boundaries():
     assert "只能从 reply 中选择 turn_action" in prompt
     assert "Core" not in prompt
     assert "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言" in prompt
+    assert "当前用户输入确定意图" not in prompt
+    assert "根据当前输入与近期对话理解本轮交流" in prompt
     assert "memory 是被选择或检索的结构化摘要" in prompt
     assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
 

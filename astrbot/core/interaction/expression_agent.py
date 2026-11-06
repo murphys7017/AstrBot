@@ -423,7 +423,7 @@ def build_persona_runtime_system_prompt(
     speech_field = "speech_delta.text" if output_format == "segment_stream_v1" else "segments[].speech"
     return (
         role_guidance
-        + "【事实与连续性】系统指令规定行为边界，当前用户输入确定意图；阶段任务不能改变用户原意。"
+        + "【事实与连续性】系统指令规定行为边界；根据当前输入与近期对话理解本轮交流，阶段任务不能改变用户原意。"
         "当前输入（包括实际附带的图片）与本轮确认结果用于判断当前事实。"
         "conversation.history 是官方对话记录，可用于回答当前明确指向的先前发言、消解指代和保持对话连续性；"
         "memory 是被选择或检索的结构化摘要，只在相关时用于话题、偏好与关系连续性，并以用户最新更正为准。"
@@ -696,8 +696,6 @@ def _build_expression_prompt(
             "\n【结果表达】source_text 是本次回应唯一的权威事实来源。选择 reply，不再次委派或重试；保留其中的事实、数字和结论；"
             "不得用 history、memory、人格能力声明或先前回复否定、替换或扩展它。"
         )
-    else:
-        parts.append("\n【当前表达】直接回应当前用户输入。")
     if req.immediate_reply.strip():
         parts.append(
             "\n【同轮连续性】immediate_reply 是本轮此前已经发送的表达；保持语义连续，必要时自然补充或纠正，但不要机械重复。"
