@@ -655,8 +655,8 @@ def _build_expression_prompt(
             )
     if req.require_turn_action and not (req.source_text.strip() and req.preserve_facts):
         parts.append(
-            "\n【执行真实性】如果当前请求需要外部检索、业务操作或持久状态变更，而本轮材料没有提供对应的实际结果，"
-            "不得编造结果或声称操作已完成；只表达有材料支持的内容，或简短说明目前能确认的情况。"
+            "\n【事实边界】如果本轮材料不足以支持外部事实或已完成的操作，"
+            "不得编造结果或声称它们已经发生；只表达有材料支持的内容，或简短说明目前能确认的情况。"
         )
     if req.require_turn_action and req.allow_silent:
         parts.append(

@@ -1400,7 +1400,8 @@ def test_persona_expression_prompt_keeps_unverified_operations_grounded():
         )
     )
 
-    assert "不得编造结果或声称操作已完成" in prompt
+    assert "不得编造结果或声称它们已经发生" in prompt
+    assert "当前请求需要外部检索、业务操作或持久状态变更" not in prompt
     assert "Core" not in prompt
     assert "直接回应当前用户输入" not in prompt
     assert "用户可见内容只能放在输出契约允许的字段中" in prompt
