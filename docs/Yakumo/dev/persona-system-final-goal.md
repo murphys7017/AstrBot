@@ -21,7 +21,7 @@ Platform Adapter
        -> ordinary addressed turn
            -> Personal Response Plan -> immediate output
                 -> reply --------------------------+-> complete
-                -> delegate -> Core Planner
+                -> Core Router -> Core Planner
                     -> execute -> Execution Backend -> Persona Expression
                 -> silent (eligible group only) ---+-> complete
   -> Output Runtime

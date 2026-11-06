@@ -21,7 +21,7 @@
 
 | 状态 | 当前结论 |
 | --- | --- |
-| 已完成 | Persona Expression 已是 visible-reply 的统一入口；普通消息由一次 Personal 结构化计划决定 `reply/delegate/silent`，Core-final 回到 Persona，Delivery Receipt 驱动冷却和额度等主语义已经存在 |
+| 已完成 | Persona Expression 已是 visible-reply 的统一入口；普通消息由 Personal 结构化表达决定 `reply / silent`，独立 Core Router 并行判断是否进入 Core，Core-final 回到 Persona，Delivery Receipt 驱动冷却和额度等主语义已经存在 |
 | 已完成 | PersonalState 已区分进程态快照与 `PersonalPersistentState`，并由 `PersonalStateRepository` 持久化最小控制字段；Heartbeat/idle initiation 的安静结果已经不再逐次以 INFO 输出 |
 | 部分完成 | 静态 Persona、Memory PersonaState、Personal Runtime 控制状态已经有独立代码位置，但领域命名、作用域和 Prompt 槽位仍未完全统一 |
 | 部分完成 | Prompt target、ContextPack single-flight、插件 enrichment、主动 Observation Inbox 和 Wake Scheduler 已存在，但仍需要把数据所有权和失败语义写成稳定契约 |
@@ -68,7 +68,7 @@
 | 静态人格 | `astrbot/core/prompt/collectors/persona_collector.py`、`persona_segments.py` | 负责内容收集，但容易被误认为拥有全部人格状态 |
 | 关系与长期状态 | `astrbot/core/memory/persona_state_service.py`、`memory.persona_state` | 与静态 Persona、Conversation、PersonalState 的命名边界不够清楚 |
 | 本轮运行状态 | `astrbot/core/interaction/personal_state.py`、`personal_runtime.py` | 同时承载忙闲、冷却、观察、表达和诊断字段，容易形成大状态对象 |
-| 普通回复计划 | `expression_agent.py`、`persona_runtime.py` | 同一次结构化 Persona 输出决定可见表达与 `reply/delegate/silent`，不得扩展为任务规划或 Core 工具执行 |
+| 普通回复计划 | `expression_agent.py`、`persona_runtime.py` | Personal 结构化表达决定 `reply / silent`；是否进入 Core 由独立 Core Router 判断，不得扩展为任务规划或 Core 工具执行 |
 | Core 是否执行 | `core_planner.py` | 负责执行计划，不应拥有可见表达权限 |
 | 主动观察决策 | `personal_policy.py`、`personal_gate.py` | 负责是否形成行动意图，但必须与普通回复人格表达隔离 |
 | 用户可见表达 | `expression_agent.py`、`persona_runtime.py` | 已经接近统一入口，但请求字段和调用来源仍较平铺 |
@@ -127,7 +127,7 @@ PersonaDefinition
     -> EffectivePersonaContext
          ├─ Ordinary turn: Personal Response Plan
          │       ├─ reply -> Output Controller -> Delivery Receipt
-         │       ├─ delegate -> Core Planner -> Core -> PersonaExpression -> Delivery Receipt
+         │       ├─ Core Router -> Core Planner -> Core -> PersonaExpression -> Delivery Receipt
          │       └─ silent (eligible group only) -> complete without visible output
 
 Observation branch:
@@ -369,7 +369,7 @@ Collectors -> ContextPack -> target projection -> Render Profile -> Layout -> Pr
   -> Personal Runtime lease
   -> Personal Response Plan（结构化 Persona Expression）
   -> reply：Personal 获得输出 reservation 后直接表达
-  -> delegate：Personal 先给出简短确认，再进入 Core Planner / Core 执行
+  -> Core Router 判定进入 Core：Personal 可先给出简短确认，再进入 Core Planner / Core 执行
   -> silent：仅允许的群聊候选零输出完成
   -> Core 结果回到 Persona Expression
   -> Output Controller
@@ -379,7 +379,7 @@ Collectors -> ContextPack -> target projection -> Render Profile -> Layout -> Pr
 
 规则：
 
-- Personal 负责即时可见回复与本轮动作选择；`reply` 不进入 Core，`delegate` 才启动 Planner。
+- Personal 负责即时可见回复；`reply` 直接完成表达，是否启动 Planner 由独立 Core Router 判断。
 - `silent` 只能在允许的群聊候选且 Personal 尚未提交表达时形成零输出，不得撤回已提交或已送达表达。
 - Core Planner 不能压制已经获得发送权的 Persona 回复，也不重新判断是否需要 Core。
 - Core 成功、失败、工具错误都作为表达材料交给 Persona，不由 Core 自行拼最终台词。
@@ -744,7 +744,7 @@ personal_wake_skipped
 
 至少验证四条真实路径：
 
-1. 私聊明确消息：Personal 在一次结构化输出中选择 `reply` 或 `delegate`；`delegate` 的确认可以先于 Planner 和 Core 表达。
+1. 私聊明确消息：Personal 在一次结构化输出中选择 `reply`；Core Router 可并行判定是否进入 Core，必要时 Personal 的确认可以先于 Planner 和 Core 表达。
 2. 群聊未唤醒消息：不满足资格时不调用 Persona、不调用 Core、不产生平台输出。
 3. 主动观察：空 Inbox 不调用 Provider；Policy express 只在送达成功后更新控制状态。
 4. 插件委派：ProviderRequest 只执行一次，Core 结果只经过一次 Persona Expression。

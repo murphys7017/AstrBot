@@ -45,7 +45,7 @@ Platform Adapter
        -> Personal Response Plan -> immediate Output
        -> Official Plugin Job -------------------+
             reply / silent ---------------------+-> complete
-            delegate -> Core Planner
+            Core Router -> Core Planner
                  -> execute: CoreExecutionSpec -> Core Head / execution lifecycle -> selected Core Executor
                              -> Persona Expression -> final Output
 

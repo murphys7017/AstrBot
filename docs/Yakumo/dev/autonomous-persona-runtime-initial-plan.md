@@ -30,7 +30,7 @@
    接管的群聊候选也遵循同一计划；`silent` 不产生可见输出。
 4. Personal Policy 只处理 Heartbeat、环境活动、计划任务、执行反馈和插件 Sensor 等内部
    Observation，不取代 Personal Response Plan。
-5. Personal Response Plan 只判断普通入站消息是否需要 Core 委派路径；Personal Policy 与该计划不共享模型
+5. Personal Response Plan 只负责普通入站消息的即时表达；是否进入 Core 由独立 Core Router 判断。Personal Policy 与该计划不共享模型
    决策、临时 Prompt 或执行状态。
 6. Persona Expression 是唯一人格表达层。Policy、Personal Response Plan、Planner、Core 和插件都不直接生成
    最终人格文案。
@@ -126,7 +126,7 @@ official EventBus / Pipeline
   -> Personal Runtime admission
   -> Personal Response Plan
       -> reply -> Persona Expression
-      -> delegate -> Core Planner
+      -> Core Router -> Core Planner
           -> execute -> Execution Backend -> Persona Expression
       -> silent -> no visible output
   -> Output Runtime

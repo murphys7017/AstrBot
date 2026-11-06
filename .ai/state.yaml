@@ -3836,3 +3836,62 @@ olv_cache_identity_and_prompt_stability_20261102:
     Cache improvement must be measured from fresh DeepSeek usage logs; the
     fixed history prefix is intentionally small to avoid growing realtime
     prompts. Existing unrelated dirty files remain untouched and uncommitted.
+
+livingmemory_sqlite_materialized_rebuild_20261102:
+  date: '2026-11-02'
+  class: bugfix
+  risk: high
+  status: deployed_pending_restart_and_runtime_acceptance
+  decision: >-
+    Stop-time repair used the AstrBot runtime SQLite 3.49.1. The live database
+    was backed up, rebuilt into a fresh file, and atomically replaced only after
+    full integrity and access-update probes passed. JSON expression indexes were
+    replaced by ordinary indexes over materialized lmem_* columns synchronized
+    by metadata INSERT/UPDATE triggers.
+  scope: >-
+    Repair data/plugin_data/astrbot_plugin_livingmemory/livingmemory.db and
+    synchronize the LivingMemory source checkout to its generated deployment.
+    Preserve unrelated AstrBot worktree changes and all LivingMemory runtime
+    data, FTS rows, graph rows, and backups.
+  validation: >-
+    Runtime SQLite integrity_check and quick_check both returned ok; documents
+    has 475 rows, graph and FTS row counts were preserved, all eight lmem_* columns
+    are ordinary columns, seven stable indexes and two sync triggers exist, no
+    JSON expression index remains, and db_version is 10. Changed source modules
+    and the offline script compile; source/deployment hashes match; no tests ran.
+  remaining: >-
+    AstrBot was stopped and has not been restarted. Reload/restart LivingMemory,
+    then observe maintenance and access-time updates for absence of SQLITE_CANTOPEN
+    or CORRUPT_INDEX. Backups remain under the LivingMemory plugin backups directory.
+
+livingmemory_sqlite_rollback_journal_root_fix_20261104:
+  date: '2026-11-04'
+  class: bugfix
+  risk: high
+  status: runtime_validated
+  decision: >-
+    The repeated SQLITE_CANTOPEN was caused by the LivingMemory main database
+    running WAL with several independent aiosqlite and SQLAlchemy connections on
+    Windows. Startup recovery and daily decay also exposed the contention. The
+    main LivingMemory database now uses rollback journal mode; plugin startup no
+    longer renegotiates WAL, and live maintenance no longer runs TRUNCATE
+    checkpoints or VACUUM.
+  scope: >-
+    Remove online WAL/SHM negotiation from MemoryEngine, BM25, GraphStore and
+    AtomStore; make online maintain_storage FTS-only and diagnostic; stop the
+    service, back up and checkpoint the database offline, switch journal mode
+    to DELETE, deploy the source and restart AstrBot. Preserve all memory,
+    graph, atom and FTS data and unrelated worktree changes.
+  validation: >-
+    Offline backup completed; runtime SQLite reported integrity_check=ok before
+    and after switching to journal_mode=delete, with no WAL/SHM sidecars. After
+    restart, startup compensation decay completed for 475 records, daily backup
+    completed, and online storage maintenance completed. No new CANTOPEN errors
+    occurred after the 05:31 restart; older log matches are from the prior WAL
+    run. Changed Python sources compile and the LivingMemory source diff check
+    passes; no test suite was run.
+  remaining: >-
+    Keep monitoring the next live memory write and AtomStore maintenance cycle.
+    Rollback journal permits one writer and can serialize large concurrent writes;
+    busy_timeout remains 30000 ms. WAL backups remain available if a future
+    controlled benchmark justifies reintroducing WAL with a single connection owner.

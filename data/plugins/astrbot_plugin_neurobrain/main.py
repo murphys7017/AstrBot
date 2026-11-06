@@ -48,6 +48,11 @@ class _CurrentStatePromptCollector(PromptExtensionCollectorInterface):
         return frozenset({"persona"})
 
     @property
+    def prompt_message_placement(self) -> str:
+        """Keep volatile state after the stable user-turn prefix."""
+        return "after_user"
+
+    @property
     def lifecycle(self) -> str:
         return "dynamic"
 

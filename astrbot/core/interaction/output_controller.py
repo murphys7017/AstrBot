@@ -3892,7 +3892,21 @@ class InteractionOutputController:
             return
 
         core_result_text = message.get_plain_text()
-        if self._uses_task_stream(event):
+        # An OLV turn that already emitted an immediate Persona reply must not
+        # open a second segment/TTS stream for the delegated Core final.  Keep
+        # the Core final on the transactional path so the existing duplicate
+        # guard can compare the rendered Persona text before any audio starts.
+        olv_immediate_reply_committed = (
+            self._uses_task_stream(event)
+            and bool(get_interaction_turn_immediate_reply(event))
+        )
+        if olv_immediate_reply_committed:
+            logger.debug(
+                "DIAG interaction.olv_core_final_stream_bypassed: "
+                "turn_id=%s reason=immediate_persona_already_delivered",
+                event.get_extra("_turn_id"),
+            )
+        if self._uses_task_stream(event) and not olv_immediate_reply_committed:
             await self._stream_task_reply(
                 event, message_kind="core_reply",
                 request=PersonaExpressionRequest.core_final(
@@ -3995,11 +4009,12 @@ class InteractionOutputController:
         same_persona_state = tuple(result.segment_mappings) == tuple(
             immediate_persona_segments
         )
+        olv_stream_turn = self._uses_task_stream(event)
         if (
             immediate_reply
             and fingerprint_personal_expression(result.speech)
             == fingerprint_personal_expression(immediate_reply)
-            and same_persona_state
+            and (same_persona_state or olv_stream_turn)
             and not result.effect_calls
             and not result.metadata.get("persona_tool_attachments")
             and not any(
