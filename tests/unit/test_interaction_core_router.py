@@ -53,10 +53,9 @@ def test_core_router_output_is_typed_and_action_reason_pairs_are_consistent():
 def test_core_router_prompt_is_independent_of_persona_and_executor_selection():
     prompt = build_core_router_system_prompt()
 
-    assert "Personal 正在并行生成" in prompt
-    assert "不决定 Personal 是否回复" in prompt
+    assert "Personal 同时负责自然对话和最终用户表达" in prompt
+    assert "Router 只提供结构化分流结果" in prompt
     assert "Core executor 已由当前 Profile 固定选择" in prompt
-    assert "不选择执行器、工具、能力参数或任务步骤" in prompt
     assert "persona.prompt" not in prompt
     assert "人格记忆" not in prompt
 

@@ -6,9 +6,11 @@ from typing import Any
 
 
 class InteractionRouteMode(str, Enum):
+    """Execution scheduling mode; Personal remains the visible output owner."""
+
     SILENT = "silent"
     PERSONA = "persona"
-    HYBRID = "hybrid"
+    HYBRID = "hybrid"  # Personal dialogue alongside a delegated Core task.
 
 
 class PersonalResponseAction(str, Enum):
@@ -261,6 +263,7 @@ class InteractionRouteDecision:
         cls,
         decision: CoreRouterDecision,
     ) -> InteractionRouteDecision:
+        """Map Router's task admission to scheduling, not output ownership."""
         route_mode = (
             InteractionRouteMode.HYBRID
             if decision.should_route_to_core

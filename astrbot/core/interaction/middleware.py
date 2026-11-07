@@ -594,13 +594,10 @@ class InteractionMiddleware:
         if not await reserve_interaction_turn_final_output(event):
             return False
         try:
-            # Proactive plain text belongs to the unified Persona output surface.
-            # Keep media-bearing plugin output direct so attachments are not rewritten.
-            has_non_plain = any(
-                not isinstance(component, Plain)
-                for component in (message.chain or [])
-            )
-            output_mode = "direct" if has_non_plain else "persona"
+            # Text-bearing plugin material, including text with attachments,
+            # belongs to the unified Personal output surface. Attachment-only
+            # payloads remain protocol material until a Personal sentence exists.
+            output_mode = "persona" if message.get_plain_text().strip() else "direct"
             delivered = await self.output_controller.capture_plugin_output(
                 message,
                 event,
@@ -637,7 +634,7 @@ class InteractionMiddleware:
             return await self.output_controller.capture_plugin_output(
                 message,
                 turn.event,
-                mode="direct",
+                mode="persona",
                 finalize=False,
             )
         if not await reserve_interaction_turn_final_output(turn.event):
@@ -646,7 +643,7 @@ class InteractionMiddleware:
             delivered = await self.output_controller.capture_plugin_output(
                 message,
                 turn.event,
-                mode="direct",
+                mode="persona",
                 finalize=True,
             )
         except BaseException:

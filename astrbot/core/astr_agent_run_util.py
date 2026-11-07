@@ -24,15 +24,9 @@ from astrbot.core.executors.contracts import (
     ExecutionResult,
     ExecutionUpdate,
 )
-from astrbot.core.interaction.output_modes import (
-    CoreOutputDelivery,
-    OutputOrigin,
-    temporary_core_output_delivery,
-    temporary_output_origin,
-)
+from astrbot.core.interaction.output_modes import CoreOutputDelivery
 from astrbot.core.interaction.turn_state import (
     get_interaction_turn_deadline,
-    is_interaction_turn_core_delegated,
     record_interaction_turn_core_execution_event,
 )
 from astrbot.core.message.components import BaseMessageComponent, Json, Plain
@@ -43,6 +37,9 @@ from astrbot.core.message.message_event_result import (
 )
 from astrbot.core.persona_error_reply import (
     extract_persona_custom_error_message_from_event,
+)
+from astrbot.core.platform.astr_message_event import (
+    INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY,
 )
 from astrbot.core.provider.entities import LLMResponse, TokenUsage
 from astrbot.core.provider.provider import Provider, TTSProvider
@@ -663,17 +660,22 @@ async def _send_core_event_message(
     *,
     delivery: CoreOutputDelivery,
 ) -> None:
-    if (
-        delivery is CoreOutputDelivery.PROGRESS
-        and is_interaction_turn_core_delegated(astr_event)
-    ):
-        # Personal owns the user-visible Interaction surface. Non-visible
-        # execution progress is emitted by NativeExecutorAdapter.
+    if delivery is CoreOutputDelivery.PROGRESS:
+        # Core progress is execution state. Personal owns the user-visible
+        # interaction surface, so progress never becomes a direct message.
         return
 
-    with temporary_output_origin(astr_event, OutputOrigin.CORE.value):
-        with temporary_core_output_delivery(astr_event, delivery.value):
-            await astr_event.send(message)
+    if delivery is CoreOutputDelivery.FINAL:
+        controller = astr_event.get_extra(INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY)
+        deliver_result = getattr(controller, "deliver_core_execution_result", None)
+        if callable(deliver_result):
+            await deliver_result(message, astr_event)
+        else:
+            logger.error(
+                "Core final output has no Personal boundary; suppressing direct "
+                "message: turn_id=%s",
+                astr_event.get_extra("_turn_id"),
+            )
 
 
 def _truncate_tool_result(text: str, limit: int = 70) -> str:

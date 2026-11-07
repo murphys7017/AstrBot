@@ -82,7 +82,6 @@ from .output_modes import (
     CoreOutputDelivery,
     OutputOrigin,
     PluginOutputMode,
-    temporary_core_output_delivery,
     temporary_output_origin,
 )
 from .personal_expression_guard import fingerprint_personal_expression
@@ -2439,17 +2438,15 @@ class InteractionOutputController:
         message: MessageChain | None,
         event: AstrMessageEvent,
         *,
-        mode: str = PluginOutputMode.DIRECT.value,
+        mode: str = PluginOutputMode.PERSONA.value,
         finalize: bool = True,
         platform_extras: dict[str, Any] | None = None,
     ) -> bool:
         """Entry point for plugin-origin output through the Output Runtime.
 
-        Two modes are supported:
-
-        * **direct** — deliver the message as-is.
-        * **persona** — extract plain text, pass it through the unified
-          visible-reply persona layer, then deliver the rewritten text.
+        Text-bearing plugin output always enters the Personal expression path.
+        ``direct`` remains available for protocol or attachment-only data that
+        has no dialogue text.
 
         ``finalize=False`` is for a visible progress update that will be
         followed by another output in the same interaction turn.
@@ -2457,9 +2454,17 @@ class InteractionOutputController:
         if message is None:
             return False
 
-        set_interaction_turn_plugin_output_metadata(event, mode=mode)
+        requested_mode = PluginOutputMode(mode)
+        resolved_mode = (
+            PluginOutputMode.PERSONA
+            if message.get_plain_text().strip()
+            else requested_mode
+        )
+        set_interaction_turn_plugin_output_metadata(
+            event,
+            mode=resolved_mode.value,
+        )
         resolved_kind = "plugin_direct"
-        resolved_mode = PluginOutputMode(mode)
         result_contribution = None
         message_id = None
         persona_result_id = None
@@ -2609,15 +2614,15 @@ class InteractionOutputController:
         generator: AsyncGenerator[MessageChain, None],
         event: AstrMessageEvent,
         *,
-        mode: str = PluginOutputMode.DIRECT.value,
+        mode: str = PluginOutputMode.PERSONA.value,
         use_fallback: bool = False,
     ) -> bool:
         """Deliver plugin-origin streaming output without core stream semantics.
 
         Persona rewriting needs the complete semantic text before it can form one
-        coherent reply. Therefore an explicitly persona-routed plugin stream is
-        buffered and delivered through ``capture_plugin_output`` once, while
-        direct plugin streams retain their regular low-latency delivery path.
+        coherent reply. Persona-routed plugin streams are buffered and delivered
+        through ``capture_plugin_output`` once; direct streams remain reserved
+        for protocol or attachment-only payloads.
         """
         resolved_mode = PluginOutputMode(mode)
         if resolved_mode is PluginOutputMode.PERSONA:
@@ -3856,7 +3861,12 @@ class InteractionOutputController:
         stage: str,
         event: AstrMessageEvent,
     ) -> bool:
-        """Send one allowlisted, non-final Core execution progress stage."""
+        """Record one allowlisted, non-final Core execution progress stage.
+
+        Core progress is execution state, not a user-visible dialogue output.
+        Personal owns the visible interaction surface, so this method only
+        records the stage for lifecycle/diagnostic consumers.
+        """
 
         normalized_stage = str(stage or "").strip().lower()
         text = _CORE_EXECUTION_PROGRESS_LABELS.get(normalized_stage)
@@ -3866,12 +3876,16 @@ class InteractionOutputController:
             return False
 
         event.set_extra(_CORE_EXECUTION_PROGRESS_STAGE_EXTRA_KEY, normalized_stage)
-        with temporary_output_origin(event, OutputOrigin.CORE.value):
-            with temporary_core_output_delivery(
-                event,
-                CoreOutputDelivery.PROGRESS.value,
-            ):
-                await event.send(MessageChain().message(text))
+        event.set_extra(
+            "_interaction_core_execution_progress_text",
+            text,
+        )
+        logger.debug(
+            "Core execution progress retained as internal state: "
+            "turn_id=%s stage=%s",
+            event.get_extra("_turn_id"),
+            normalized_stage,
+        )
         return True
 
     async def _deliver_core_reply(
@@ -3879,18 +3893,6 @@ class InteractionOutputController:
         message: MessageChain,
         event: AstrMessageEvent,
     ) -> None:
-        if (
-            event.get_extra("_interaction_protocol_core_bypass_reason")
-            == "ag99live_independent_motion"
-        ):
-            logger.info(
-                "Skipping Persona Core-final rewrite for AG99live independent motion: "
-                "turn_id=%s",
-                event.get_extra("_turn_id"),
-            )
-            await self.deliver_raw_core_reply(message, event)
-            return
-
         core_result_text = message.get_plain_text()
         # An OLV turn that already emitted an immediate Persona reply must not
         # open a second segment/TTS stream for the delegated Core final.  Keep
@@ -3953,12 +3955,13 @@ class InteractionOutputController:
         reason: str,
         exception: BaseException,
     ) -> None:
-        """Finish the current output transaction without another Persona call."""
+        """Finish the transaction through Personal after expression failure."""
         failure_kind = (
             InteractionFailureKind.TURN_TIMEOUT
             if isinstance(exception, TurnDeadlineExceeded)
             else InteractionFailureKind.PERSONA_EXPRESSION_FAILED
         )
+        should_emit_fallback = should_emit_failure_reply(event, failure_kind)
         record_interaction_turn_failure(
             event,
             stage=stage,
@@ -3966,35 +3969,38 @@ class InteractionOutputController:
             failure_kind=failure_kind.value,
             exception=exception,
             user_visible_action=(
-                "failure_reply_suppressed"
-                if not message.chain
-                and not should_emit_failure_reply(event, failure_kind)
-                else "deliver_core_result_without_persona"
+                "persona_failure_reply_pending"
+                if should_emit_fallback
+                else "failure_reply_suppressed"
             ),
         )
         logger.warning(
-            "Core result Persona rendering failed; delivering the existing Core "
-            "result without another model call: turn_id=%s stage=%s reason=%s",
+            "Core result Persona rendering failed; suppressing raw Core output and "
+            "using the Personal-owned failure reply: turn_id=%s stage=%s reason=%s",
             event.get_extra("_turn_id"),
             stage,
             reason,
         )
-        fallback_message = message
-        if not fallback_message.chain:
-            if not should_emit_failure_reply(
-                event,
-                failure_kind,
-            ):
-                set_interaction_turn_pipeline_output_suppressed(event)
-                logger.warning(
-                    "Core result fallback suppressed for group message: "
-                    "turn_id=%s stage=%s",
-                    event.get_extra("_turn_id"),
-                    stage,
-                )
-                return
-            fallback_message = message.derive([Plain(CORE_REPLY_FALLBACK_TEXT)])
-        await self.deliver_raw_core_reply(fallback_message, event)
+        if not should_emit_fallback:
+            set_interaction_turn_pipeline_output_suppressed(event)
+            logger.warning(
+                "Personal-owned Core failure reply suppressed by policy: "
+                "turn_id=%s stage=%s",
+                event.get_extra("_turn_id"),
+                stage,
+            )
+            return
+
+        fallback_result = PersonaExpressionResult(
+            speech=CORE_REPLY_FALLBACK_TEXT,
+            turn_action=PersonalResponseAction.REPLY,
+            metadata={"persona_fallback": True, "failure_stage": stage},
+        )
+        await self.deliver_prepared_core_reply(
+            MessageChain().message(CORE_REPLY_FALLBACK_TEXT),
+            fallback_result,
+            event,
+        )
 
     async def deliver_prepared_core_reply(
         self,
@@ -4049,23 +4055,6 @@ class InteractionOutputController:
             event,
             effect_calls=result.effect_calls,
             persona_expression=result,
-        )
-
-    async def deliver_raw_core_reply(
-        self,
-        source_message: MessageChain,
-        event: AstrMessageEvent,
-    ) -> None:
-        """Deliver an existing Core result without Persona rewriting it."""
-        if self._uses_task_stream(event):
-            await self._stream_task_reply(event, message_kind="core_reply", text=source_message.get_plain_text())
-            self._materialize_finalized_turn(event)
-            await self._persist_interaction_turn(event)
-            return
-        await self._deliver_core_final_message(
-            source_message,
-            source_message,
-            event,
         )
 
     async def _deliver_core_final_message(

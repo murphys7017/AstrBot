@@ -1307,7 +1307,7 @@ async def test_core_result_returns_through_unified_persona_expression():
 
 
 @pytest.mark.asyncio
-async def test_ag99_independent_motion_core_bypass_skips_persona_rewrite():
+async def test_ag99_independent_motion_core_result_still_uses_persona_rewrite():
     class Event:
         def get_extra(self, key, default=None):
             extras = {
@@ -1318,16 +1318,22 @@ async def test_ag99_independent_motion_core_bypass_skips_persona_rewrite():
             }
             return extras.get(key, default)
 
-    renderer = AsyncMock()
+    renderer = AsyncMock(
+        return_value=PersonaExpressionResult(speech="人格化后的执行结果")
+    )
     controller = InteractionOutputController(visible_reply_renderer=renderer)
-    controller.deliver_raw_core_reply = AsyncMock()
+    controller.deliver_prepared_core_reply = AsyncMock()
     event = Event()
     source_message = MessageChain([Plain("Core execution completed")])
 
     await controller._deliver_core_reply(source_message, event)
 
-    renderer.assert_not_awaited()
-    controller.deliver_raw_core_reply.assert_awaited_once_with(source_message, event)
+    renderer.assert_awaited_once()
+    controller.deliver_prepared_core_reply.assert_awaited_once_with(
+        source_message,
+        PersonaExpressionResult(speech="人格化后的执行结果"),
+        event,
+    )
 
 
 @pytest.mark.asyncio
@@ -1474,7 +1480,7 @@ async def test_immediate_output_records_persona_state_for_duplicate_arbitration(
 
 
 @pytest.mark.asyncio
-async def test_core_persona_failure_falls_back_to_raw_core_output():
+async def test_core_persona_failure_uses_personal_owned_failure_output():
     class Event:
         def __init__(self):
             self._extras = {"_turn_id": "turn-core-fallback"}
@@ -1489,21 +1495,23 @@ async def test_core_persona_failure_falls_back_to_raw_core_output():
         visible_reply_renderer=AsyncMock(side_effect=RuntimeError("provider unavailable")),
     )
     controller.deliver_prepared_core_reply = AsyncMock()
-    controller.deliver_raw_core_reply = AsyncMock()
     event = Event()
     source_message = MessageChain([Plain("Core execution completed")])
 
     await controller._deliver_core_reply(source_message, event)
 
-    controller.deliver_prepared_core_reply.assert_not_awaited()
-    controller.deliver_raw_core_reply.assert_awaited_once_with(
-        source_message,
-        event,
+    controller.deliver_prepared_core_reply.assert_awaited_once()
+    fallback_message, fallback_result, fallback_event = (
+        controller.deliver_prepared_core_reply.await_args.args
     )
+    assert fallback_message.get_plain_text() == "模型服务暂时不可用，请稍后再试。"
+    assert fallback_result.speech == "模型服务暂时不可用，请稍后再试。"
+    assert fallback_result.metadata["persona_fallback"] is True
+    assert fallback_event is event
     state = get_interaction_turn_state(event)
     assert state is not None
     assert state.failures[-1].stage == "core_persona_render"
-    assert state.failures[-1].user_visible_action == "deliver_core_result_without_persona"
+    assert state.failures[-1].user_visible_action == "persona_failure_reply_pending"
 
 
 @pytest.mark.asyncio

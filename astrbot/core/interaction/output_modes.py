@@ -5,7 +5,8 @@ This module defines the minimal identity model for outbound interaction output:
 
     output_origin:  core | plugin   (who produced the output)
     core_output_delivery: progress | final  (whether Core output may finalize a turn)
-    plugin_output_mode: direct | persona  (whether to persona-rewrite first)
+    plugin_output_mode: persona | direct  (whether text enters the Personal
+    expression path; direct is reserved for protocol or attachment-only data)
 """
 
 from __future__ import annotations
@@ -22,8 +23,8 @@ from astrbot.core.message.message_event_result import MessageChain
 class PluginOutputMode(str, Enum):
     """Plugin output mode enumeration.
 
-    DIRECT:  deliver the message as-is without persona rewriting.
-    PERSONA: run the message through a persona expression path first.
+    PERSONA: run user-visible text through the Personal expression path.
+    DIRECT: preserve protocol or attachment-only data that has no dialogue text.
     """
 
     DIRECT = "direct"
@@ -53,7 +54,7 @@ class PluginOutputRequest:
     """Encapsulates a plugin output request for the Output Runtime."""
 
     message: MessageChain
-    mode: PluginOutputMode = PluginOutputMode.DIRECT
+    mode: PluginOutputMode = PluginOutputMode.PERSONA
     source: str = "plugin"
 
 

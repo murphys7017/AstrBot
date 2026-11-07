@@ -1215,7 +1215,8 @@ async def test_core_executor_progress_uses_allowlisted_nonfinal_output():
     assert await controller.deliver_core_execution_progress("working", event) is True
     assert await controller.deliver_core_execution_progress("working", event) is False
     assert await controller.deliver_core_execution_progress("raw command output", event) is False
-    assert [message.get_plain_text() for message in event.sent] == ["正在执行任务。"]
+    assert event.sent == []
+    assert event.get_extra("_interaction_core_execution_progress_text") == "正在执行任务。"
     assert event.get_extra(OUTPUT_ORIGIN_EXTRA_KEY) is None
     assert event.get_extra(CORE_OUTPUT_DELIVERY_EXTRA_KEY) is None
 

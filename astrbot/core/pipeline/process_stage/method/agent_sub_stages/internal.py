@@ -43,7 +43,6 @@ from astrbot.core.executors.assembly import build_native_executor_assembly
 from astrbot.core.executors.coordinator import execute_external_core_turn
 from astrbot.core.executors.registry import resolve_core_executor_selection
 from astrbot.core.interaction.core_bridge import get_core_task_spec
-from astrbot.core.interaction.output_modes import OutputOrigin, temporary_output_origin
 from astrbot.core.interaction.turn_state import (
     bind_interaction_turn_core_execution_journal,
     get_interaction_turn_core_execution_spec,
@@ -55,7 +54,6 @@ from astrbot.core.interaction.turn_state import (
 )
 from astrbot.core.message.components import File, Image, Record, Reply, Video
 from astrbot.core.message.message_event_result import (
-    MessageChain,
     MessageEventResult,
     ResultContentType,
 )
@@ -212,7 +210,15 @@ class InternalAgentSubStage(Stage):
     async def _send_llm_error_message(
         self, event: AstrMessageEvent, message: object
     ) -> None:
-        await event.send(MessageChain().message(str(message)))
+        controller = event.get_extra(INTERACTION_OUTPUT_CONTROLLER_EXTRA_KEY)
+        emit_failure_reply = getattr(controller, "emit_failure_reply", None)
+        if callable(emit_failure_reply):
+            await emit_failure_reply(str(message), event)
+            return
+        logger.error(
+            "Core error has no Personal output boundary; suppressing direct reply: %s",
+            message,
+        )
 
     async def process(
         self, event: AstrMessageEvent, provider_wake_prefix: str
@@ -750,8 +756,7 @@ class InternalAgentSubStage(Stage):
             error_text = custom_error_message or (
                 f"Error occurred while processing agent request: {e}"
             )
-            with temporary_output_origin(event, OutputOrigin.CORE.value):
-                await event.send(MessageChain().message(error_text))
+            await self._send_llm_error_message(event, error_text)
         finally:
             if build_result is not None:
                 build_result.discard_pending_reset()

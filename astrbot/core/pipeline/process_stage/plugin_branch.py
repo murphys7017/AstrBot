@@ -225,7 +225,7 @@ class PluginBranchOutputSink:
         message: MessageChain,
         _event: AstrMessageEvent,
         *,
-        mode: str = "direct",
+        mode: str = "persona",
         finalize: bool = True,
     ) -> bool:
         self._append(
@@ -256,7 +256,7 @@ class PluginBranchOutputSink:
         generator: AsyncGenerator[MessageChain, None],
         *,
         event: AstrMessageEvent | None = None,
-        mode: str = "direct",
+        mode: str = "persona",
     ) -> None:
         combined = MessageChain()
         async for chunk in generator:
@@ -290,7 +290,8 @@ class PluginBranchOutputSink:
             message,
             event=event,
             mode=str(
-                event.get_extra("_interaction_plugin_output_mode", "direct") or "direct"
+                event.get_extra("_interaction_plugin_output_mode", "persona")
+                or "persona"
             ),
             finalize=True,
         )

@@ -8,7 +8,6 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext, AstrMessageEvent
 from astrbot.core.computer.computer_client import get_booter, get_local_booter
-from astrbot.core.message.message_event_result import MessageChain
 
 from ..registry import builtin_tool
 from .util import (
@@ -70,8 +69,6 @@ async def handle_result(result: dict, event: AstrMessageEvent) -> ToolExecResult
                 )
             )
 
-            if event.get_platform_name() == "webchat":
-                await event.send(message=MessageChain().base64_image(img["image/png"]))
     if text:
         resp.content.append(mcp.types.TextContent(type="text", text=text))
 

@@ -74,7 +74,7 @@ class InteractionEventOutputAdapter:
             delivered = await controller.capture_plugin_output(
                 message,
                 event,
-                mode=event.get_extra("_interaction_plugin_output_mode", "direct"),
+                mode=event.get_extra("_interaction_plugin_output_mode", "persona"),
             )
         event._has_send_oper = (
             previous_has_send_oper
@@ -110,7 +110,7 @@ class InteractionEventOutputAdapter:
             delivered = await controller.capture_plugin_streaming(
                 generator,
                 event,
-                mode=event.get_extra("_interaction_plugin_output_mode", "direct"),
+                mode=event.get_extra("_interaction_plugin_output_mode", "persona"),
                 use_fallback=use_fallback,
             )
         event._has_send_oper = (
