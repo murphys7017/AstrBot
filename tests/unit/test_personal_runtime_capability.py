@@ -1302,7 +1302,7 @@ async def test_router_routes_personal_reply_to_core_after_planner(monkeypatch):
     middleware.core_router.route = AsyncMock(
         return_value=CoreRouterDecision(
             CoreRouterAction.ROUTE_TO_CORE,
-            CoreRouterReason.VISUAL_UNDERSTANDING,
+            CoreRouterReason.EXTERNAL_ACTION,
         )
     )
     middleware.persona_runtime.express_visible_reply = AsyncMock(

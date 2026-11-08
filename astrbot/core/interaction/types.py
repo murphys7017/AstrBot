@@ -31,7 +31,6 @@ class CoreRouterReason(str, Enum):
     EXTERNAL_INFORMATION = "external_information"
     EXTERNAL_ACTION = "external_action"
     WORKSPACE_OPERATION = "workspace_operation"
-    VISUAL_UNDERSTANDING = "visual_understanding"
     COMPLEX_COMPUTATION = "complex_computation"
     CONTINUED_TASK = "continued_task"
     CLARIFICATION = "clarification"
@@ -43,7 +42,6 @@ _CORE_ROUTER_REASONS = {
             CoreRouterReason.EXTERNAL_INFORMATION,
             CoreRouterReason.EXTERNAL_ACTION,
             CoreRouterReason.WORKSPACE_OPERATION,
-            CoreRouterReason.VISUAL_UNDERSTANDING,
             CoreRouterReason.COMPLEX_COMPUTATION,
             CoreRouterReason.CONTINUED_TASK,
         }

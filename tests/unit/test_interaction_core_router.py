@@ -30,10 +30,10 @@ def test_core_router_output_is_typed_and_action_reason_pairs_are_consistent():
         branch["additionalProperties"] is False for branch in contract.schema["anyOf"]
     )
     assert extract_core_router_decision(
-        '{"action":"route_to_core","reason_code":"visual_understanding"}'
+        '{"action":"route_to_core","reason_code":"external_action"}'
     ) == CoreRouterDecision(
         CoreRouterAction.ROUTE_TO_CORE,
-        CoreRouterReason.VISUAL_UNDERSTANDING,
+        CoreRouterReason.EXTERNAL_ACTION,
     )
     assert extract_core_router_decision(
         '{"action":"personal_only","reason_code":"conversation"}'
@@ -42,6 +42,10 @@ def test_core_router_output_is_typed_and_action_reason_pairs_are_consistent():
     with pytest.raises(CoreRouterError, match="invalid structured decision"):
         extract_core_router_decision(
             '{"action":"personal_only","reason_code":"external_action"}'
+        )
+    with pytest.raises(CoreRouterError, match="invalid structured decision"):
+        extract_core_router_decision(
+            '{"action":"route_to_core","reason_code":"visual_understanding"}'
         )
     with pytest.raises(CoreRouterError, match="invalid structured decision"):
         extract_core_router_decision(

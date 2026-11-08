@@ -46,9 +46,9 @@ def build_core_router_system_prompt() -> str:
         "你是独立的 Core Router，任务是判断当前用户请求属于日常对话还是需要执行的操作。"
         "Personal 同时负责自然对话和最终用户表达；Router 只提供结构化分流结果。\n"
         "需要实时或外部信息检索、业务操作或持久状态变更、工作区文件处理、"
-        "当前附件实质理解、复杂计算，或续接已开始的 Core 任务时，返回 route_to_core。"
+        "复杂计算，或续接已开始的 Core 任务时，返回 route_to_core。"
         "问候、闲聊、意见交流、简单直接回答和澄清请求时，返回 personal_only。"
-        "当前请求是路由判断的主依据；历史、当前时间和附件概况用于理解上下文。"
+        "当前请求是路由判断的主依据；已有任务状态只用于确认当前文字是否明确续接。"
         "Core executor 已由当前 Profile 固定选择，Router 只返回 action 与 reason_code。"
     )
 
@@ -64,7 +64,6 @@ def build_core_router_output_contract() -> OutputContract:
             CoreRouterReason.EXTERNAL_INFORMATION,
             CoreRouterReason.EXTERNAL_ACTION,
             CoreRouterReason.WORKSPACE_OPERATION,
-            CoreRouterReason.VISUAL_UNDERSTANDING,
             CoreRouterReason.COMPLEX_COMPUTATION,
             CoreRouterReason.CONTINUED_TASK,
         )

@@ -457,17 +457,12 @@ def test_core_router_projection_is_bounded_and_excludes_persona_context():
     assert set(projected.slots) == {
         "input.text",
         "input.quoted_text",
-        "input.attachment_summary",
         "session.datetime",
-        "conversation.history",
         "conversation.pending_execution_continuity",
     }
     assert projected.get_slot("capability.core_execution") is None
     assert projected.get_slot("capability.tools_schema") is None
-    history_turns = projected.get_slot("conversation.history").value["turns"]
-    assert len(history_turns) == 3
-    assert all(len(turn["user_message"]["content"]) <= 600 for turn in history_turns)
-    assert history_turns[-1]["user_message"]["content"].startswith("user-5-")
+    assert projected.get_slot("conversation.history") is None
     assert projected.get_slot("conversation.pending_execution_continuity").value == {
         "task_summary": "unfinished task",
         "task_intent": "research",
