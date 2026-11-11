@@ -159,33 +159,21 @@ class InteractionTurnCoordinator:
     def __init__(self, plugin_runtime: PluginExecutionRuntime) -> None:
         self.plugin_runtime = plugin_runtime
 
-    async def _cancel_router_after_personal(
+    async def _await_router_after_personal(
         self,
         turn: InteractionCoordinatedTurn,
         router_task: asyncio.Task[Any],
-    ) -> bool:
-        """Stop Core routing once Personal has already produced its reply."""
-        if router_task.done():
-            return False
-        router_task.cancel()
-        await asyncio.gather(router_task, return_exceptions=True)
-        route = InteractionRouteDecision(
-            route_mode=InteractionRouteMode.PERSONA,
-            reason="personal_completed_before_core_router",
-        )
-        set_interaction_turn_route_decision(turn.event, route)
-        turn.event.set_extra(
-            "_interaction_core_router_cancelled_after_personal",
-            True,
-        )
+    ) -> None:
+        """Keep Core routing authoritative after speculative Persona output."""
+        if not router_task.done():
+            await router_task
         logger.debug(
-            "DIAG interaction.core_router_cancelled_after_personal: "
+            "DIAG interaction.core_router_completed_after_personal: "
             "platform_id=%s session_id=%s turn_id=%s",
             turn.event.get_platform_id(),
             turn.event.session_id,
             ensure_interaction_turn_state(turn.event).turn_id,
         )
-        return True
 
     async def start(
         self,
@@ -482,7 +470,7 @@ class InteractionTurnCoordinator:
                     and turn_state.speculative_persona_status
                     is InteractionSpeculativePersonaStatus.EMITTED
                 ):
-                    await self._cancel_router_after_personal(turn, router_task)
+                    await self._await_router_after_personal(turn, router_task)
                 else:
                     await router_task
             else:
@@ -551,7 +539,7 @@ class InteractionTurnCoordinator:
             and turn_state.speculative_persona_status
             is InteractionSpeculativePersonaStatus.EMITTED
         ):
-            await self._cancel_router_after_personal(turn, router_task)
+            await self._await_router_after_personal(turn, router_task)
             route = turn_state.route_decision
 
         route_task = router_task or turn.personal_task

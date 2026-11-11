@@ -28,6 +28,15 @@ WEB_SEARCH_TOOL_NAMES = frozenset(
     }
 )
 
+_WEB_SEARCH_PROVIDER_KEY_FIELDS = {
+    "tavily": "websearch_tavily_key",
+    "bocha": "websearch_bocha_key",
+    "brave": "websearch_brave_key",
+    "firecrawl": "websearch_firecrawl_key",
+    "baidu_ai_search": "websearch_baidu_app_builder_key",
+    "exa": "websearch_exa_key",
+}
+
 
 def is_web_search_tool_name(name: object) -> bool:
     """Return whether a tool is authorized to perform direct web research."""
@@ -150,21 +159,37 @@ _FIRECRAWL_KEY_ROTATOR = _KeyRotator("websearch_firecrawl_key", "Firecrawl")
 _EXA_KEY_ROTATOR = _KeyRotator("websearch_exa_key", "Exa")
 
 
+def normalize_legacy_web_search_provider_settings(provider_settings: dict) -> bool:
+    """Migrate the removed ``default`` provider without dropping search tools."""
+    if not provider_settings or not provider_settings.get("web_search", False):
+        return False
+    if provider_settings.get("websearch_provider") != "default":
+        return False
+
+    provider = "tavily"
+    for candidate, key_name in _WEB_SEARCH_PROVIDER_KEY_FIELDS.items():
+        value = provider_settings.get(key_name)
+        if (isinstance(value, list) and any(value)) or (
+            isinstance(value, str) and value
+        ):
+            provider = candidate
+            break
+
+    provider_settings["websearch_provider"] = provider
+    logger.warning(
+        "The removed default websearch provider was migrated to %s. "
+        "Configure its API key to use web search.",
+        provider,
+    )
+    return True
+
+
 def normalize_legacy_web_search_config(cfg) -> None:
     provider_settings = cfg.get("provider_settings")
     if not provider_settings:
         return
 
-    changed = False
-    if provider_settings.get(
-        "websearch_provider"
-    ) == "default" and provider_settings.get("web_search", False):
-        provider_settings["web_search"] = False
-        changed = True
-        logger.warning(
-            "The default websearch provider is no longer supported. "
-            "Web search has been disabled and the config was saved.",
-        )
+    changed = normalize_legacy_web_search_provider_settings(provider_settings)
 
     for setting_name in (
         "websearch_tavily_key",
@@ -1242,4 +1267,5 @@ __all__ = [
     "WEB_SEARCH_TOOL_NAMES",
     "is_web_search_tool_name",
     "normalize_legacy_web_search_config",
+    "normalize_legacy_web_search_provider_settings",
 ]

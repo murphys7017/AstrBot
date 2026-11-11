@@ -2,6 +2,7 @@ import json
 import os
 import shlex
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from pydantic import Field
@@ -18,6 +19,7 @@ from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.tools.computer_tools.util import (
     check_admin_permission,
     is_local_runtime,
+    runtime_config_for_context,
     workspace_root,
     workspace_root_for_context,
 )
@@ -51,10 +53,10 @@ def _is_path_within(path: Path, roots: tuple[Path, ...]) -> bool:
 def _is_restricted_local_env(context: ContextWrapper[AstrAgentContext]) -> bool:
     if not is_local_runtime(context):
         return False
-    cfg = context.context.context.get_config(
-        umo=context.context.event.unified_msg_origin
-    )
+    cfg = runtime_config_for_context(context)
     provider_settings = cfg.get("provider_settings", {})
+    if not isinstance(provider_settings, Mapping):
+        provider_settings = {}
     require_admin = provider_settings.get("computer_use_require_admin", True)
     return require_admin and context.context.event.role != "admin"
 

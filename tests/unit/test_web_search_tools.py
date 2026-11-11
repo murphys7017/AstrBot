@@ -36,6 +36,36 @@ def test_normalize_legacy_web_search_config_migrates_exa_key():
     assert config.saved is True
 
 
+def test_normalize_legacy_web_search_config_migrates_removed_default_provider():
+    config = _FakeConfig(
+        {
+            "provider_settings": {
+                "web_search": True,
+                "websearch_provider": "default",
+                "websearch_brave_key": ["brave-key"],
+            }
+        }
+    )
+
+    tools.normalize_legacy_web_search_config(config)
+
+    assert config["provider_settings"]["websearch_provider"] == "brave"
+    assert config["provider_settings"]["web_search"] is True
+    assert config.saved is True
+
+
+def test_normalize_legacy_web_search_provider_settings_keeps_enabled_without_key():
+    provider_settings = {"web_search": True, "websearch_provider": "default"}
+
+    changed = tools.normalize_legacy_web_search_provider_settings(provider_settings)
+
+    assert changed is True
+    assert provider_settings == {
+        "web_search": True,
+        "websearch_provider": "tavily",
+    }
+
+
 def test_web_search_runtime_prefers_admitted_interaction_snapshot():
     event = SimpleNamespace(unified_msg_origin="test:private:session", _extras={})
     event.get_extra = lambda key, default=None: event._extras.get(key, default)

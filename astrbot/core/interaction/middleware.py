@@ -886,25 +886,18 @@ class InteractionMiddleware:
             route,
         )
 
-    async def _cancel_core_router_after_personal(
+    async def _await_core_router_after_personal(
         self,
         event: AstrMessageEvent,
         router_task: asyncio.Task[Any],
     ) -> InteractionRouteDecision:
-        if not router_task.done():
-            router_task.cancel()
-            await asyncio.gather(router_task, return_exceptions=True)
-        route = InteractionRouteDecision(
-            route_mode=InteractionRouteMode.PERSONA,
-            reason="personal_completed_before_core_router",
-        )
-        set_interaction_turn_route_decision(event, route)
-        event.set_extra(
-            "_interaction_core_router_cancelled_after_personal",
-            True,
-        )
+        """Keep the Router authoritative when speculative Persona finishes first."""
+        await router_task
+        route = ensure_interaction_turn_state(event).route_decision
+        if not isinstance(route, InteractionRouteDecision):
+            raise RuntimeError("Core Router did not publish a route")
         logger.debug(
-            "DIAG interaction.core_router_cancelled_after_personal: "
+            "DIAG interaction.core_router_completed_after_personal: "
             "platform_id=%s session_id=%s turn_id=%s",
             event.get_platform_id(),
             event.session_id,
@@ -938,7 +931,7 @@ class InteractionMiddleware:
             and turn_state.speculative_persona_status
             is InteractionSpeculativePersonaStatus.EMITTED
         ):
-            return await self._cancel_core_router_after_personal(
+            return await self._await_core_router_after_personal(
                 event,
                 router_task,
             )
@@ -1107,32 +1100,10 @@ class InteractionMiddleware:
                     {planner_task, persona_task},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if (
-                    persona_task in done
-                    and planner_task not in done
-                    and turn_state.speculative_persona_status
-                    is InteractionSpeculativePersonaStatus.EMITTED
-                ):
-                    planner_task.cancel()
-                    await asyncio.gather(planner_task, return_exceptions=True)
-                    route = InteractionRouteDecision(
-                        route_mode=InteractionRouteMode.PERSONA,
-                        reason="personal_completed_before_core_planner",
-                    )
-                    set_interaction_turn_route_decision(event, route)
-                    event.set_extra(
-                        "_interaction_core_planner_cancelled_after_personal",
-                        True,
-                    )
-                    logger.debug(
-                        "DIAG interaction.core_planner_cancelled_after_personal: "
-                        "platform_id=%s session_id=%s turn_id=%s",
-                        event.get_platform_id(),
-                        event.session_id,
-                        turn_state.turn_id,
-                    )
-                else:
-                    planning_decision = await planner_task
+                # Router has already selected the Core path. A speculative
+                # Persona acknowledgement must not cancel the authoritative
+                # Core Planner, even when it finishes first.
+                planning_decision = await planner_task
             except asyncio.CancelledError:
                 if not planner_task.done():
                     planner_task.cancel()

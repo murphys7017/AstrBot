@@ -413,6 +413,12 @@ def build_persona_runtime_system_prompt(
         )
         + "用户可见表达应体现当前人格，并只使用本轮允许的材料。\n"
     )
+    role_guidance += (
+        "当用户请求联网搜索、实时信息或其他外部事实，而当前 Personal 没有业务工具时，"
+        "不要声称系统没有工具、没有权限或无法联网；只做符合当前话题的简短、自然处理中确认，"
+        "说明正在核实或查找，不要固定复述同一句模板；"
+        "最终事实回答由后续执行路径负责。\n"
+    )
     # JSONL examples stay in the final request: system-tree serialization
     # escapes quotes, which would change the literal wire-format example.
     protocol = "" if output_format == "segment_stream_v1" else _build_persona_text_output_prompt(output_format)

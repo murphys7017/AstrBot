@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
@@ -6,6 +8,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.knowledge_base.kb_helper import KBHelper
+from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 from astrbot.core.star.context import Context
 from astrbot.core.tools.registry import builtin_tool
 
@@ -32,10 +35,18 @@ async def retrieve_knowledge_base(
     query: str,
     umo: str,
     context: Context,
+    *,
+    event: object | None = None,
 ) -> str | None:
     """Retrieve knowledge base context for the given query."""
     kb_mgr = context.kb_manager
-    config = context.get_config(umo=umo)
+    config, _ = (
+        resolve_event_runtime_configuration(event)
+        if event is not None and callable(getattr(event, "get_extra", None))
+        else (None, "default")
+    )
+    if not isinstance(config, Mapping):
+        config = context.get_config(umo=umo)
 
     session_config = await sp.session_get(umo, "kb_config", default={})
     if session_config and "kb_ids" in session_config:
@@ -143,6 +154,7 @@ async def retrieve_knowledge_base_with_cache(
         query=normalized_query,
         umo=umo,
         context=context,
+        event=event,
     )
     if cache is not None:
         cache[normalized_query] = result
@@ -182,6 +194,7 @@ class KnowledgeBaseQueryTool(FunctionTool[AstrAgentContext]):
             query=query,
             umo=context.context.event.unified_msg_origin,
             context=context.context.context,
+            event=context.context.event,
         )
         if not result:
             return "No relevant knowledge found."

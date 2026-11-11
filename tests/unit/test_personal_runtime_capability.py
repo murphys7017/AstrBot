@@ -1125,7 +1125,9 @@ async def test_personal_reply_completes_with_one_reply_plan(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_personal_visible_reply_does_not_wait_for_core_router(monkeypatch):
+async def test_personal_visible_reply_waits_for_core_router_before_committing_route(
+    monkeypatch,
+):
     metadata = _metadata(support_personal_runtime=True)
     event = _DirectEvent(metadata)
     runtime_config = {"interaction_middleware": {"enabled": True}}
@@ -1135,18 +1137,27 @@ async def test_personal_visible_reply_does_not_wait_for_core_router(monkeypatch)
         SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
     )
     router_started = asyncio.Event()
+    release_router = asyncio.Event()
     router_completed = asyncio.Event()
 
     async def wait_for_route(*_args, **_kwargs):
         router_started.set()
-        await asyncio.Future()
+        await release_router.wait()
         router_completed.set()
         return CoreRouterDecision(
-            CoreRouterAction.PERSONAL_ONLY,
-            CoreRouterReason.CONVERSATION,
+            CoreRouterAction.ROUTE_TO_CORE,
+            CoreRouterReason.EXTERNAL_INFORMATION,
         )
 
     middleware.core_router.route = AsyncMock(side_effect=wait_for_route)
+    middleware.core_planner.plan = AsyncMock(
+        return_value=CorePlanningDecision(
+            action=CorePlanningAction.EXECUTE,
+            task_spec=CoreTaskSpec(task_summary="search the web"),
+        )
+    )
+    middleware._emit_delegated = AsyncMock()
+    middleware._forward_to_core = Mock()
     middleware.persona_runtime.express_visible_reply = AsyncMock(
         return_value=PersonaExpressionResult(speech="我在。")
     )
@@ -1162,11 +1173,14 @@ async def test_personal_visible_reply_does_not_wait_for_core_router(monkeypatch)
 
     assert event.sent[0].get_plain_text() == "我在。"
     assert router_completed.is_set() is False
-    assert handle_task.done() is True
+    assert handle_task.done() is False
+    release_router.set()
+    await asyncio.wait_for(handle_task, timeout=1.0)
     turn_state = get_interaction_turn_state(event)
     assert turn_state is not None
-    assert turn_state.route_decision.route_mode is InteractionRouteMode.PERSONA
-    assert event.get_extra("_interaction_core_router_cancelled_after_personal") is True
+    assert turn_state.route_decision.route_mode is InteractionRouteMode.HYBRID
+    assert event.get_extra("_interaction_core_router_cancelled_after_personal") is None
+    middleware._forward_to_core.assert_called_once_with(event)
     await turn_state.execution_scope.close()
 
 

@@ -3503,7 +3503,7 @@ CONFIG_METADATA_3 = {
             },
             "websearch": {
                 "description": "网页搜索",
-                "hint": "",
+                "hint": "为模型提供网页搜索工具；需要选择搜索提供商并配置对应的 API Key。Agent Computer Use 的网络权限不等于网页搜索。",
                 "type": "object",
                 "items": {
                     "provider_settings.web_search": {

@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -6,6 +7,7 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.astr_agent_context import AstrAgentContext
 from astrbot.core.config.default import get_local_permission_defaults
 from astrbot.core.db import BaseDatabase
+from astrbot.core.runtime_config_projection import resolve_event_runtime_configuration
 from astrbot.core.utils.astrbot_path import get_astrbot_workspaces_path
 from astrbot.core.workspace import (
     normalize_umo_for_workspace,
@@ -33,6 +35,20 @@ def workspace_root(umo: str) -> Path:
     return (Path(get_astrbot_workspaces_path()) / normalized_umo).resolve(strict=False)
 
 
+def runtime_config_for_context(
+    context: ContextWrapper[AstrAgentContext],
+) -> Mapping[str, object]:
+    """Resolve the admitted turn config before falling back to live config."""
+    event = context.context.event
+    config = None
+    if callable(getattr(event, "get_extra", None)):
+        config, _ = resolve_event_runtime_configuration(event)
+    if isinstance(config, Mapping):
+        return config
+    config = context.context.context.get_config(umo=event.unified_msg_origin)
+    return config if isinstance(config, Mapping) else {}
+
+
 async def workspace_root_for_context(
     context: ContextWrapper[AstrAgentContext],
 ) -> Path:
@@ -47,9 +63,7 @@ async def workspace_root_for_context(
 
 
 def is_local_runtime(context: ContextWrapper[AstrAgentContext]) -> bool:
-    cfg = context.context.context.get_config(
-        umo=context.context.event.unified_msg_origin
-    )
+    cfg = runtime_config_for_context(context)
     provider_settings = cfg.get("provider_settings", {})
     runtime = str(provider_settings.get("computer_use_runtime", "none"))
     return runtime == "local"
@@ -61,11 +75,9 @@ def get_local_permission_policy(
     role: Literal["admin", "member"] | None = None,
 ) -> LocalPermissionPolicy:
     """Resolve the Local permission policy for the caller's role."""
-    cfg = context.context.context.get_config(
-        umo=context.context.event.unified_msg_origin
-    )
+    cfg = runtime_config_for_context(context)
     provider_settings = cfg.get("provider_settings", {})
-    if not isinstance(provider_settings, dict):
+    if not isinstance(provider_settings, Mapping):
         provider_settings = {}
 
     role = role or ("admin" if context.context.event.role == "admin" else "member")
@@ -123,9 +135,7 @@ def check_local_file_permission(
 def check_admin_permission(
     context: ContextWrapper[AstrAgentContext], operation_name: str
 ) -> str | None:
-    cfg = context.context.context.get_config(
-        umo=context.context.event.unified_msg_origin
-    )
+    cfg = runtime_config_for_context(context)
     provider_settings = cfg.get("provider_settings", {})
     require_admin = provider_settings.get("computer_use_require_admin", True)
     if require_admin and context.context.event.role != "admin":

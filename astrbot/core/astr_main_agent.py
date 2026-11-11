@@ -132,6 +132,7 @@ from astrbot.core.tools.web_search_tools import (
     TavilyExtractWebPageTool,
     TavilyWebSearchTool,
     normalize_legacy_web_search_config,
+    normalize_legacy_web_search_provider_settings,
 )
 from astrbot.core.utils.astrbot_path import (
     get_astrbot_system_tmp_path,
@@ -1304,6 +1305,12 @@ async def _apply_web_search_tools(
     else:
         prov_settings = provider_settings
 
+    # Interaction Core passes an immutable per-turn settings projection instead
+    # of the mutable config object. Apply the same legacy migration in both
+    # paths so an old ``default`` provider cannot silently leave the model with
+    # an empty tool set.
+    normalize_legacy_web_search_provider_settings(prov_settings)
+
     if not prov_settings.get("web_search", False):
         return
 
@@ -1312,6 +1319,19 @@ async def _apply_web_search_tools(
 
     tool_mgr = plugin_context.get_llm_tool_manager()
     provider = prov_settings.get("websearch_provider", "tavily")
+    if provider not in {
+        "tavily",
+        "bocha",
+        "brave",
+        "firecrawl",
+        "baidu_ai_search",
+        "exa",
+    }:
+        logger.warning(
+            "Unknown websearch provider %r; falling back to Tavily.",
+            provider,
+        )
+        provider = "tavily"
     if provider == "tavily":
         req.func_tool.add_tool(tool_mgr.get_builtin_tool(TavilyWebSearchTool))
         req.func_tool.add_tool(tool_mgr.get_builtin_tool(TavilyExtractWebPageTool))

@@ -564,6 +564,32 @@ class TestBuiltinToolInjection:
         assert req.func_tool.get_tool("web_search_exa") is exa_search_tool
         assert req.func_tool.get_tool("exa_get_contents") is exa_contents_tool
 
+    @pytest.mark.asyncio
+    async def test_apply_web_search_tools_migrates_legacy_default_provider(
+        self, mock_event, mock_context
+    ):
+        req = ProviderRequest()
+        tavily_tool = MagicMock(spec=FunctionTool)
+        tavily_tool.name = "web_search_tavily"
+        tool_mgr = MagicMock()
+        tool_mgr.get_builtin_tool.return_value = tavily_tool
+        mock_context.get_llm_tool_manager.return_value = tool_mgr
+        provider_settings = {
+            "web_search": True,
+            "websearch_provider": "default",
+        }
+
+        await ama._apply_web_search_tools(
+            mock_event,
+            req,
+            mock_context,
+            provider_settings=provider_settings,
+        )
+
+        assert provider_settings["websearch_provider"] == "tavily"
+        assert req.func_tool is not None
+        assert req.func_tool.get_tool("web_search_tavily") is tavily_tool
+
     def test_proactive_cron_job_tools_uses_builtin_tool_manager(self, mock_context):
         """Test cron tool injection through the builtin tool manager."""
         module = ama

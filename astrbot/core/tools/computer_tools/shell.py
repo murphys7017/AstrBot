@@ -20,6 +20,7 @@ from .util import (
     check_local_execution_permission,
     get_local_permission_policy,
     is_local_runtime,
+    runtime_config_for_context,
     workspace_root_for_context,
 )
 
@@ -41,12 +42,9 @@ def _local_shell_permissions_still_valid(
     if not is_local_runtime(context):
         return False
 
-    event = context.context.event
     if creator_is_admin:
-        config = context.context.context.get_config(
-            umo=event.unified_msg_origin,
-        )
-        admin_ids = config.get("admins_id") if isinstance(config, dict) else None
+        config = runtime_config_for_context(context)
+        admin_ids = config.get("admins_id")
         if not isinstance(admin_ids, list) or str(sender_id) not in {
             str(admin_id) for admin_id in admin_ids
         }:
