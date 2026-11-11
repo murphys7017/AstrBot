@@ -8,6 +8,14 @@ Yakumo 是作者名，完整名称为 YakumoAki。`docs/Yakumo` 路径和相关�
 
 > AG99 是一个以桌面体验为中心的 Persona-first 智能体主应用，内含持续运行的对话 Runtime，并兼容 AstrBot 的平台适配器、Provider、插件和 CLI 基础设施。AG99live 是它的身体运行时，负责本地感知、即时反应、Live2D 表现、语音播放和设备交互。
 
+## AG99live 身体运行时
+
+AG99live 是 AG99 的配套桌面身体运行时。它负责本地感知、即时反应、Live2D 渲染、字幕、TTS 播放、动作编排以及桌面设备连接。AG99 负责对话、Persona、Memory、工具和主动策略，AG99live 通过 `astrbot_plugin_ag99live_adapter` 接入 AG99 的统一输出链路。源码仓库是 [AG99live](https://github.com/murphys7017/AG99live)。
+
+AG99live 不维护独立的对话、Memory 或主动策略宿主。Adapter 的 WebSocket 默认使用 `127.0.0.1:12396`，HTTP 静态资源服务默认使用 `127.0.0.1:12397`。当前完整段交付使用 `output.segment.v6`，动作契约使用 `engine.motion_intent.v4`，协议版本和 Schema 清单以 AG99live 源码中的 `astrbot_plugin_ag99live_adapter/protocol/schema_manifest.json` 为准。
+
+AG99live 的桌面端、Adapter 和协议文档必须在 AG99live 源码仓库维护。AG99 仓库只记录双方的产品边界、接入关系和当前已知验收边界，不编辑 `data/plugins/astrbot_plugin_ag99live_adapter` 这样的运行时部署副本。
+
 ## AG99 与 AstrBot 的关系
 
 本仓库源自 AstrBot，并继续保留以下兼容边界：

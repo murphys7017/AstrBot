@@ -113,6 +113,7 @@ pnpm dev
 ## 想了解得更深
 
 - [AG99 项目身份](./docs/Yakumo/project-identity.md)：项目定位，以及与 AstrBot 的兼容边界。
+- [AG99live 身体运行时](./docs/Yakumo/project-identity.md#ag99live-身体运行时)：桌面表现端、Adapter 边界和配套源码仓库。
 - [Yakumo 架构索引](./docs/Yakumo/README.md)：当前运行时边界、模块说明与推荐阅读顺序。
 - [2026-10-31 架构同步基线](./docs/Yakumo/dev/architecture-sync-2026-10-31.md)：PersonaContext、Persona Expression、JSON 和流式协议的当前代码分层。
 - [当前状态](./docs/Yakumo/current-state.md)：已实现能力、仍在验证的边界和准确限制。

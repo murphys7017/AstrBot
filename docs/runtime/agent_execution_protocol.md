@@ -10,11 +10,11 @@ The project has three intended layers:
 
 1. Human-readable governance spec
    - Explains the engineering-cybernetics principles behind the runtime.
-   - Lives mainly in `ai_governance_runtime_overview_manifest.md`, `docs/`, and `.ai/constitution/`.
+   - Lives mainly in `AGENTS.md`, `.ai/index.md`, and the current project documentation.
 
 2. Agent-readable runtime protocol
    - Defines how an agent should classify, route, execute, review, and report work.
-   - Lives in `AGENTS.md`, `.ai/router/`, `.ai/workflows/`, `.ai/state/`, `.ai/checklists/`, `.ai/evaluation/`, and this document.
+   - Lives in `AGENTS.md`, `.ai/index.md`, `.ai/state.yaml`, and this document.
 
 3. Future machine-readable control layer
    - Intended for scripts, MCP servers, CI checks, or adapter tooling that can validate governance behavior.
@@ -26,16 +26,11 @@ For any non-trivial task, the agent should run this loop:
 
 1. Load the entry point.
    - Read `AGENTS.md`.
-   - Read `.ai/README.md`.
    - Read `.ai/index.md`.
-   - Read `.ai/constitution/core.md`.
-   - Read `.ai/invariants/core.md`.
-   - Read `.ai/runtime/continuity.md` for long-running, multi-turn, interrupted, or resumed work.
+   - For resumed or long-running work, re-check scope, assumptions, validation, and user changes using the continuity guidance in `AGENTS.md` and `.ai/index.md`.
 
 2. Route the task.
-   - Classify the task with `.ai/router/task_classification.md`.
-   - Estimate risk with `.ai/router/risk_levels.md` and `.ai/router/disturbance_model.md`.
-   - Select governance material using `.ai/router/loading_rules.md`.
+   - Classify the task using the task classes and risk levels in `AGENTS.md` and `.ai/index.md`.
    - Identify the task objective, success criteria, and non-goals when they affect execution.
 
 3. Load only the selected material.
@@ -49,9 +44,7 @@ For any non-trivial task, the agent should run this loop:
    - Run a continuity checkpoint when scope, risk, context, validation status, or user intent changes.
 
 5. Maintain explicit state when required.
-   - Review the state files selected by the router.
-   - Update state only when the router path recommends or requires it, or when an update trigger in `.ai/state/README.md` occurs.
-   - Ask before changing project-scoped state if the update records a long-lived architecture decision, persistent risk, or governance constraint.
+   - Update `.ai/state.yaml` only when scope, risk, architecture impact, assumptions, or validation status would otherwise be hidden.
 
 6. Apply checklists and evaluation.
    - Apply required checklists before completion.

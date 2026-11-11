@@ -86,8 +86,7 @@ Applicability = 平台 / 设备 / 运行时匹配（能力自身 event_filter）
 
 官方 Handler 仍然是插件接管消息的第一边界。Handler 如果产生终止结果或停止事件，可以阻止
 后续 Personal 与 Core；如果 `yield ProviderRequest`，则进入同一个 Core 执行边界，Core 完成后
-恢复 Handler 生成器，不会再次进入默认 Core。Handler 的输出所有权取决于输出模式：`direct`
-保留插件结果，`persona` 把语义材料交给 Persona 改写；两者都不会让 Personal Plan 或 Planner 重新
+恢复 Handler 生成器，不会再次进入默认 Core。含有可见文本的插件输出会进入统一 Personal 表达路径，纯协议或附件输出才保留 `direct`。两者都不会让 Personal Plan 或 Planner 重新
 决定一次。
 
 默认关闭 `parallel_plugin_runtime_enabled` 时，保持 Handler-first 兼容路径。开启后，完成
@@ -454,7 +453,7 @@ Input Runtime / Observation
 
 - 捕获 interaction turn 的 `send` / `send_streaming`
 - 分类 immediate reply、passthrough、core reply、core stream、streaming finish marker
-- **新增** `capture_plugin_output()` — 插件输出的独立入口，支持 `direct` / `persona` 两种模式；默认 finalizes turn，`finalize=False` 仅用于随后还会有最终输出的进度消息
+- **新增** `capture_plugin_output()` — 插件输出的独立入口，支持 `persona` / `direct` 两种模式；默认使用 `persona`。即使调用方请求 `direct`，含有可见文本的消息也会解析为 `persona`，纯协议或附件消息才保留 `direct`。默认 finalizes turn，`finalize=False` 仅用于随后还会有最终输出的进度消息
 - 插件流式输出选择 `persona` 时先收集完整文本，再走一次 `capture_plugin_output(..., mode="persona")`；
   它不会先发送原始流，`direct` 流则保持原有实时发送。
 - 统一 visible-reply persona 入口、result contributor、reply prefix、reasoning display、TTS、t2i
@@ -474,8 +473,8 @@ Input Runtime / Observation
 
 输出分类中的新 message kind：
 
-- `plugin_direct` — 插件输出，不经人格改写
-- `plugin_persona` — 插件输出，经人格改写
+- `plugin_persona` — 含有可见文本的插件输出，经统一 Personal 表达
+- `plugin_direct` — 纯协议或附件型插件输出，不经过 Personal 表达
 
 插件输出所有权约束：
 
@@ -646,9 +645,9 @@ Canonical Persona 结果包含表达和是否发出可见回复的选择，不�
 
 表达可以使用 Prompt-only JSON，也可以在配置明确选择 XML、Markdown 或严格 Tool Call；Provider 页的 10 次格式诊断只提供稳定性参考，不会自动修改配置。适用 effect 始终由独立 `persona_effect_batch` terminal tool 提供；无适用 effect 时不提供 effect 工具，Core 聚合结果中仍提供空 `effect_calls` 数组。若本轮同时有表达 Tool Call 和 effect Tool Call，两者须在同一响应返回；若表达使用 JSON/XML/Markdown，适用的 effect 仍须通过独立工具调用返回。双通道首轮漏项时，Core 会用隔离请求只补缺失通道一次；两路都缺失时依次补表达和 effect，补全后仍不符合契约则失败。正常生成时不为 effect 单独请求模型，已解析的必发 effect 未通过校验时也可沿用一次 effect batch 校正。
 
-`turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要；不包含 Persona 提示、人格式记忆、Personal 回复、插件目录或工具清单。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。即时用户回复不设约 40 字限制；Personal 自主接话偏好简短口语，通常不超过两句、约 40 个汉字，这是 Prompt 风格软偏好，不是字数截断。用户明确要求展开，或准确说明事实、步骤、限制、失败原因及复杂情绪确有需要时可以扩展。Core 不再接受 `spoken_reply` 或 `speech_cues`。
+`turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入、引用文本、会话时间和待续执行任务摘要，不接收普通对话历史、附件概况或能力摘要；不包含 Persona 提示、人格记忆、Personal 回复、插件目录或工具清单。当前附件需要视觉理解时，由 Planner 和 Core 目标在路由后处理。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。即时用户回复不设约 40 字限制；Personal 自主接话偏好简短口语，通常不超过两句、约 40 个汉字，这是 Prompt 风格软偏好，不是字数截断。用户明确要求展开，或准确说明事实、步骤、限制、失败原因及复杂情绪确有需要时可以扩展。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
-开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。Persona 改写的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 不经过 Persona 改写，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
+开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。含有文本的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 只用于纯协议或附件输出，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 
@@ -866,7 +865,7 @@ return InteractionResultContribution(
 
 effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source`；`call_id` 可为空。
 
-插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。Persona 改写插件输出使用 plugin_reply；plugin_direct 不经过 Persona 改写，没有这组 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
+插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。含有文本的插件输出使用 plugin_reply；纯协议或附件输出使用 plugin_direct。后者没有 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
 
 `InteractionResultContribution` 字段语义：
 

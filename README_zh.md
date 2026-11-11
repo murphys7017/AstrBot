@@ -25,13 +25,13 @@ AG99 不是只修改默认配置的 AstrBot 分支，而是在兼容基础设施
 ```
 
 - **Personal Runtime**：跨 turn 保留有界状态，管理准入、会话租约、连续对话窗口、冷却、预算和主动观察。
-- **Router**：只做轻量的 `persona / hybrid / silent` 判断；`silent` 仅对有界群聊候选开放，只取消尚未发送的表达。
-- **Core Planner**：独立判断 hybrid 是否需要执行层，不复用 Router 的模型决策或 Prompt。
+- **Router**：只返回 `personal_only` 或 `route_to_core`；它独立判断当前请求是否进入 Core，不负责选择是否向用户表达。
+- **Core Planner**：在 Router 已选择 `route_to_core` 后整理固定为 `execute` 的 CoreTaskSpec，不复用 Router 的模型决策或 Prompt。
 - **Persona Expression**：所有用户可见自然语言统一经过同一个表达入口，即时回复、插件人格输出和 Core 结果不会各走一套文案生成器。
 - **结构化 Prompt**：一次采集规范事实，再投影到 Router、Planner、Persona 和 Core，各 Provider 只负责格式渲染。
 - **主动观察**：遵循 `Observation -> Gate -> Policy -> ActionIntent -> Persona -> Output`，不会直接调用 Core、工具或 Output。
 
-普通消息可以先得到即时 Persona 表达；只有 Router 选择 `hybrid` 且 Core Planner 判断确有必要时，才进入 Core。Core 的结果仍然回到同一个 Persona Expression。
+普通消息可以先得到即时 Persona 表达；Router 选择 `route_to_core` 后进入 Planner 和 Core 执行链。群聊候选的 `silent` 仍由 Personal Expression 在允许场景中决定。Core 的结果仍然回到同一个 Persona Expression。
 
 ## 兼容边界
 
@@ -77,6 +77,7 @@ pnpm dev
 ## 文档入口
 
 - [项目身份](./docs/Yakumo/project-identity.md)：名称、定位、兼容边界和术语。
+- [AG99live 身体运行时](./docs/Yakumo/project-identity.md#ag99live-身体运行时)：桌面表现端、Adapter 边界和配套源码仓库。
 - [Yakumo 架构索引](./docs/Yakumo/README.md)：当前边界和推荐阅读顺序。
 - [架构同步基线](./docs/Yakumo/dev/architecture-sync-2026-10-31.md)：PersonaContext、Persona Expression、JSON 和流式协议的当前代码分层。
 - [当前状态](./docs/Yakumo/current-state.md)：已经实现的代码事实。

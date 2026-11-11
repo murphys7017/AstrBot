@@ -6,7 +6,7 @@
 
 职责：
 
-- 创建 Quart 应用
+- 创建 FastAPI 应用，并通过 ASGI 适配层保留旧插件的 Quart 兼容请求上下文
 - 初始化认证中间件
 - 注册 API routes
 - 绑定核心运行时对象
@@ -14,8 +14,9 @@
 
 说明：
 
-- 这是 Dashboard 服务端入口
-- 也是 WebUI 和核心运行时之间的接口层
+- `astrbot/dashboard/api/app.py` 中的 `create_dashboard_app()` 创建 FastAPI 应用
+- `astrbot/dashboard/server.py` 绑定服务、静态资源和 Hypercorn 生命周期
+- `astrbot/dashboard/asgi_runtime.py` 提供旧插件所需的 Quart 兼容请求适配
 
 ### 认证与改密状态
 

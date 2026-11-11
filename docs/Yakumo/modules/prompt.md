@@ -131,7 +131,7 @@ Persona 的 Prompt 分成两层，避免让一次调用同时解释彼此无关�
 - `system_prompt` 只声明稳定职责、`persona_expression` 输出契约，以及当前事件有适用 effect 时使用的 `persona_effect_batch` schema 和不泄露内部材料的共同边界。
 - `request_prompt` 只声明本次阶段任务：Personal 即时表达只允许按场景选择 `reply` 或 `silent`，不决定是否进入 Core；独立 Core Router 使用自己的结构化契约判断路由。结果表达以 `source_text` 为唯一事实来源；进度表达区分流式观察、单个工具运行中和单个工具完成。
 
-Core Router 使用独立的 `CORE_ROUTER` PromptTarget：只接收当前输入与引用文本、有限近期历史、待续执行任务摘要、附件概况和时间，不接收能力摘要。Persona 提示、人格记忆、Personal 回复、插件目录及工具清单不会进入该目标；实际能力在路由后由 Core 执行阶段解析。
+Core Router 使用独立的 `CORE_ROUTER` PromptTarget：只接收当前输入、引用文本、会话时间和待续执行任务摘要，不接收普通对话历史、附件概况或能力摘要。Persona 提示、人格记忆、Personal 回复、插件目录及工具清单不会进入该目标；当前附件需要视觉理解时，由 Planner 和 Core 目标在路由后处理。实际能力在路由后由 Core 执行阶段解析。
 
 流式观察不是工具回执，因此不能宣称工具、来源、结果或整轮任务已完成。单个工具完成也只代表该步骤结束；只有 Core 最终结果才可表达为整轮完成。`input.visible_reply_material.progress_stage` 是这一语义的结构化事实，不能再依靠文案猜测。
 

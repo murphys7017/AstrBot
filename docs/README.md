@@ -5,6 +5,7 @@
 ## 先读 AG99
 
 - [项目身份](./Yakumo/project-identity.md)：项目名称、定位、与 AstrBot 的关系和术语边界。
+- [AG99live 身体运行时](./Yakumo/project-identity.md#ag99live-身体运行时)：桌面表现端、Adapter 边界和配套源码仓库。
 - [架构索引](./Yakumo/README.md)：当前模块边界与推荐阅读顺序。
 - [架构同步基线](./Yakumo/dev/architecture-sync-2026-10-31.md)：最近源码重构后的 Persona、JSON 和流式协议边界。
 - [当前状态](./Yakumo/current-state.md)：以代码为依据的实现事实。
