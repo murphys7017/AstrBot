@@ -14,9 +14,27 @@
 
 这批结构改造没有增加 Provider 调用或跨回合 Prompt 快照。真实 Provider、平台、TTS 和 Live2D 行为仍需在重启后的运行环境中单独验收。
 
+## 2026-11-12 AG99 与 AG99live 版本关联
+
+当前代码基线的版本信息分别以两个源码仓库为准：
+
+| 组件 | 当前基线 | 唯一来源 |
+|---|---|---|
+| AG99 主应用 | `4.29.0-beta.1` | `pyproject.toml` |
+| AG99live 产品 | `1.0.0` | AG99live 根目录 `VERSION` |
+| AG99live Adapter | `1.0.0` | AG99live `astrbot_plugin_ag99live_adapter/metadata.yaml` |
+| WebSocket 封套 | `v2` | AG99live `protocol/schema_manifest.json` |
+| 完整输出段 | `output.segment.v6` | 同上 |
+| 动作意图 | `engine.motion_intent.v4` | 同上 |
+| 参数计划 | `engine.parameter_plan.v3` | 同上 |
+
+AG99live 的 TypeScript 桌面运行时负责持续开发和表现迭代，C++ 运行时负责冻结大版本后的高性能稳定实现。AG99 仓库只记录产品边界和配套版本关系；Adapter 源码仍以 [AG99live 源码仓库](https://github.com/murphys7017/AG99live) 为准，`data/plugins/astrbot_plugin_ag99live_adapter` 只是部署副本。
+
+这组版本信息只表示代码和协议基线，不代表 AG99、TTS、Electron、Live2D、Spout 或真实设备联合验收已经完成。
+
 ## 2026-10-12 当前交付基线
 
-本节是结合当前 HEAD `f9fa8472b` 对源码、测试和近期运行边界的同步说明。
+本节是 2026-10-12 形成的历史快照；其中涉及当时 HEAD 的描述保留用于追溯，当前版本关系以上方 2026-11-12 基线和各仓库源码为准。
 
 - Persona Expression 的默认表达传输是 JSON 文本加 Prompt-only 约束；严格 `persona_expression` Tool Call 是显式配置选项。当前事件有已注册且适用的 Persona Effect 时，才额外注册独立的 `persona_effect_batch` Tool Call；它只承载 `effect_calls`，不属于表达字段，也不进入业务工具执行器。无适用 effect 时不向模型提供该工具，内部聚合结果仍保留空数组。
 - JSON、语义 XML 和语义 Markdown 都解析为同一 Canonical Persona 结果。Provider 页面可对编辑后的结构执行最多 10 次稳定性诊断；结果只供用户判断，不持久化、不自动改生产配置，也不证明 effect 双通道或真实平台链路已经通过。
