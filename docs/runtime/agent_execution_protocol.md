@@ -34,7 +34,7 @@ For any non-trivial task, the agent should run this loop:
    - Identify the task objective, success criteria, and non-goals when they affect execution.
 
 3. Load only the selected material.
-   - Load the selected policies, workflow, skills, checklists, evaluation files, and state files.
+   - Load the relevant project instructions, skills, and state files that actually exist in the repository.
    - Avoid loading unrelated governance files unless the user requests a broader review.
 
 4. Execute the selected workflow.
@@ -46,11 +46,9 @@ For any non-trivial task, the agent should run this loop:
 5. Maintain explicit state when required.
    - Update `.ai/state.yaml` only when scope, risk, architecture impact, assumptions, or validation status would otherwise be hidden.
 
-6. Apply checklists and evaluation.
-   - Apply required checklists before completion.
-   - Apply `checklists/objective_satisfaction.md` when the requested objective, success criteria, or non-goals affect completion.
-   - Apply `checklists/continuity.md` when execution has been long-running, multi-turn, interrupted, or resumed.
-   - Use the evaluation schema when evaluation is required or useful.
+6. Apply validation.
+   - Apply the practical validation required by the project instructions and the selected workflow.
+   - Use repository checks and review evidence when evaluation is required or useful.
    - Report validation gaps honestly instead of implying full verification.
 
 7. Report completion.
@@ -59,18 +57,18 @@ For any non-trivial task, the agent should run this loop:
 
 ## Adapter Responsibilities
 
-Each adapter in `.ai/adapters/` should preserve the same control loop while translating it into runtime-specific guidance.
+Each project adapter should preserve the same control loop while translating it into runtime-specific guidance.
 
 Adapters should specify:
 
 - required load order
-- router usage
+- project entry-point usage
 - selected workflow execution
 - state update expectations
-- checklist and evaluation expectations
+- validation expectations
 - fallback behavior when the agent cannot update files or run validation
 
-Adapters should not duplicate the whole governance system. They should point agents back to the router and selected runtime files.
+Adapters should not duplicate the whole governance system. They should point agents back to the project entry points and selected runtime files.
 
 ## Degraded Execution
 
@@ -87,7 +85,7 @@ A task is complete only when:
 
 - the requested objective is satisfied or the remaining gap is explicit
 - the selected workflow exit conditions are satisfied or the unresolved boundary is explicit
-- required checklists have been applied
+- required validation has been applied
 - validation status is known
 - residual risk is visible
 - no required correction remains unaddressed

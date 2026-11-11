@@ -86,7 +86,7 @@ Applicability = 平台 / 设备 / 运行时匹配（能力自身 event_filter）
 
 官方 Handler 仍然是插件接管消息的第一边界。Handler 如果产生终止结果或停止事件，可以阻止
 后续 Personal 与 Core；如果 `yield ProviderRequest`，则进入同一个 Core 执行边界，Core 完成后
-恢复 Handler 生成器，不会再次进入默认 Core。含有可见文本的插件输出会进入统一 Personal 表达路径，纯协议或附件输出才保留 `direct`。两者都不会让 Personal Plan 或 Planner 重新
+恢复 Handler 生成器，不会再次进入默认 Core。普通插件文本输出进入统一 Personal 表达路径，纯协议或附件输出保留 `direct`；插件流式输出沿用调用方的模式，`persona` 流先收集完整文本再交给 Personal，`direct` 流保持原始实时发送。两者都不会让 Personal Plan 或 Planner 重新
 决定一次。
 
 默认关闭 `parallel_plugin_runtime_enabled` 时，保持 Handler-first 兼容路径。开启后，完成
@@ -473,8 +473,8 @@ Input Runtime / Observation
 
 输出分类中的新 message kind：
 
-- `plugin_persona` — 含有可见文本的插件输出，经统一 Personal 表达
-- `plugin_direct` — 纯协议或附件型插件输出，不经过 Personal 表达
+- `plugin_persona` — 普通文本插件输出，或显式使用 `persona` 的插件流，经统一 Personal 表达
+- `plugin_direct` — 纯协议或附件型插件输出，以及显式使用 `direct` 的插件流，不经过 Personal 表达
 
 插件输出所有权约束：
 
@@ -647,7 +647,7 @@ Canonical Persona 结果包含表达和是否发出可见回复的选择，不�
 
 `turn_action` 是单值字符串，普通表达仅允许 `reply`；允许静默的群聊候选还可选择 `silent`，且 `silent` 时 `segments` 必须为空。它不决定是否进入 Core，Core Router 使用独立结构化结果作出路由判断。Router 的 `CORE_ROUTER` PromptTarget 仅包含当前输入、引用文本、会话时间和待续执行任务摘要，不接收普通对话历史、附件概况或能力摘要；不包含 Persona 提示、人格记忆、Personal 回复、插件目录或工具清单。当前附件需要视觉理解时，由 Planner 和 Core 目标在路由后处理。实际可用能力在路由后由 Core 执行阶段解析。`segments[].speech` 按顺序拼接后是文本平台使用的整合文本；启用 TTS 时，输出层保留分段，不把拼接文本作为单个合成请求。普通物化路径逐段合成；声明段级 finalizer 与提前 flush 的 OLV 路径可最大并发 2 合成并按索引投递。TTS 标签注入与清理尚未接入 Persona 请求。`actions` 是简单动作意图数组，Schema 只校验元素为非空字符串，具体动作由独立模型解释；`tendency` 表示扮演角色当前的 Plutchik 八维情绪，八项均为 `0..10` 整数，Core 对整数越界值按边界裁剪。即时用户回复不设约 40 字限制；Personal 自主接话偏好简短口语，通常不超过两句、约 40 个汉字，这是 Prompt 风格软偏好，不是字数截断。用户明确要求展开，或准确说明事实、步骤、限制、失败原因及复杂情绪确有需要时可以扩展。Core 不再接受 `spoken_reply` 或 `speech_cues`。
 
-开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。含有文本的插件输出以 `plugin_reply` purpose 进入贡献阶段；`plugin_direct` 只用于纯协议或附件输出，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
+开发新功能需要消费本轮 Persona 状态时，应注册 Result Contributor 并读取只读 `InteractionResultView` 的 `actions`、`tendency`、`turn_action` 或本插件自己的 `effect_calls`。这些字段由 AstrBot Core 生成和校验，插件只能读取快照；NeuroBrain 等外部状态引擎应在适配层转换输入，不反向写回 Persona 状态。然后由插件显式返回 `platform_extras` 或 `client_objects`；Core 不会自动把这些字段投递到平台。普通文本插件输出以 `plugin_reply` purpose 进入贡献阶段；纯协议、附件输出和显式 `direct` 流使用 `plugin_direct`，因此没有这组 Persona 结果字段。注册和代码示例见本节下方的 Result Contributor。
 
 补充约束：
 
@@ -865,7 +865,7 @@ return InteractionResultContribution(
 
 effect mapping 可含 `name`、`arguments`、`call_id`、`plugin_id` 和 `source`；`call_id` 可为空。
 
-插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。含有文本的插件输出使用 plugin_reply；纯协议或附件输出使用 plugin_direct。后者没有 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
+插件应按 view.purpose 过滤自己支持的输出阶段，并只发布所需字段。普通文本插件输出使用 plugin_reply；纯协议、附件输出和显式 direct 流使用 plugin_direct。后者没有 Persona 字段。effect 插件则应检查 view.effect_calls 中属于自己注册的 effect，并从对应 mapping 的 name 和 arguments 读取调用信息。
 
 `InteractionResultContribution` 字段语义：
 
