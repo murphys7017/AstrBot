@@ -32,7 +32,6 @@ PERSONA_RECENT_HISTORY_TURNS = 28
 PERSONA_RECENT_TOKEN_SHARE = 0.75
 _TARGET_MEMORY_TOKEN_LIMITS = {
     "core_router": 0,
-    "core_planner": 4000,
     "personal_policy": 4000,
     "persona": 10000,
     "core": 12000,
@@ -60,9 +59,6 @@ def resolve_target_budget(
     elif target == "core_router":
         selected_history_turns = 4
         history_limit_reason = "core_router_disambiguation_window"
-    elif target == "core_planner":
-        selected_history_turns = 8
-        history_limit_reason = "core_planner_history_limit"
     elif target == "persona":
         selected_history_turns = 300
         history_limit_reason = "persona_history_candidate_limit"
@@ -79,7 +75,6 @@ def resolve_target_budget(
     history_token_limit = {
         "personal_policy": 3000,
         "core_router": 1200,
-        "core_planner": 4000,
         "persona": 16000,
         "core": 16000,
     }[target]

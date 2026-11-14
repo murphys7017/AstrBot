@@ -384,7 +384,7 @@ Whether to enable group chat context awareness. Default is `false`. When enabled
 
 Capture happens only after the official whitelist and session-status checks. The
 messages are supplied as structured, untrusted group context to Persona, Core
-Planner, and Core; group messages are never treated as system instructions.
+Core; group messages are never treated as system instructions.
 
 #### `provider_ltm_settings.group_message_max_cnt`
 
@@ -443,15 +443,13 @@ are configured under **Extension Config → Automation → Personal Engagement**
 
 - `enabled`: Enable Interaction Middleware. Omit it to use the default; set it to
   `false` to retain Core-only behavior.
-- `expression_provider_id`, `router_provider_id`, and `planner_provider_id`:
-  Optional per-stage model overrides. Leave a field empty to reuse the current
-  session's configured chat provider; an explicit ID takes precedence.
+- `expression_provider_id` and `router_provider_id`: Optional per-stage model
+  overrides. Leave a field empty to reuse the current session's configured chat
+  provider; an explicit ID takes precedence.
 - `router_provider_id`, `router_temperature`, and `router_timeout` configure the
-  independent Core Router. `planner_provider_id`, `planner_temperature`, and
-  `planner_timeout` configure the Core Planner. An empty Router provider reuses
-  the Planner provider; an empty Planner provider reuses the Persona provider.
-  The Router runs alongside Personal and only invokes the Planner after routing
-  a request to Core.
+  independent Core Router. The Router runs alongside Personal; once it admits a
+  request, Core uses the Executor selected by the current Profile without a
+  second built-in planning-model call.
 - `parallel_plugin_runtime_enabled`: Enable the concurrent Personal and Official
   Plugin Job path. It defaults to `false` and applies to the complete
   plugin path, not individual plugins. Disabled keeps the Handler-first
@@ -465,7 +463,7 @@ are configured under **Extension Config → Automation → Personal Engagement**
   history, defaulting to `300`. Persona keeps a contiguous recent dialogue run,
   adds a few older anchors relevant to the current input and Memory, then trims to
   its token budget. It neither replaces semantic Memory retrieval nor changes the
-  Core Planner or Core history budgets.
+  Core history budget.
 - `plugin_capability_targets`: Capability targets keyed by the registered plugin
   name. `llm_hooks` overrides LLM lifecycle targets (declaration, then Personal by
   default); `tools` independently overrides FunctionTool targets (declaration,

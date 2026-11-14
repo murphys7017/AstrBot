@@ -270,9 +270,6 @@ DEFAULT_CONFIG = {
         "router_provider_id": "",
         "router_temperature": 0.1,
         "router_timeout": 8.0,
-        "planner_provider_id": "",
-        "planner_temperature": 0.1,
-        "planner_timeout": 8.0,
         "personal_policy_enabled": False,
         "personal_policy_provider_id": "",
         "personal_policy_temperature": 0.1,
@@ -4500,7 +4497,7 @@ CONFIG_METADATA_3 = {
                     "interaction_middleware.turn_timeout": {
                         "description": "单轮总超时秒数",
                         "type": "float",
-                        "hint": "从进入 Personal Runtime 排队开始计时，Personal、Planner、Core、插件工具、重试与 fallback 共用这一总预算。默认 120 秒，子阶段不会重置计时。",
+                        "hint": "从进入 Personal Runtime 排队开始计时，Personal、Router、Core、插件工具、重试与 fallback 共用这一总预算。默认 120 秒，子阶段不会重置计时。",
                     },
                 },
             },
@@ -4619,16 +4616,16 @@ CONFIG_METADATA_3 = {
                     },
                 },
             },
-            "planner": {
-                "description": "Core Router and Planner",
+            "router": {
+                "description": "Core Router",
                 "type": "object",
-                "hint": "独立 Router 判断当前请求是否进入 Core；Planner 只为已路由请求生成 CoreTaskSpec。Personal 不决定路由。",
+                "hint": "Router 判断当前请求是否进入 Core；Core Executor 使用当前 Profile 的固定选择。Personal 不决定路由。",
                 "items": {
                     "interaction_middleware.router_provider_id": {
                         "description": "Core Router 模型提供商",
                         "type": "string",
                         "_special": "select_provider",
-                        "hint": "留空时复用 Planner 模型；Planner 也留空时使用 Persona 表达模型。",
+                        "hint": "留空时使用 Persona 表达模型。",
                     },
                     "interaction_middleware.router_temperature": {
                         "description": "Core Router 温度",
@@ -4637,21 +4634,6 @@ CONFIG_METADATA_3 = {
                     },
                     "interaction_middleware.router_timeout": {
                         "description": "Core Router 超时秒数",
-                        "type": "float",
-                    },
-                    "interaction_middleware.planner_provider_id": {
-                        "description": "Core Planner 模型提供商",
-                        "type": "string",
-                        "_special": "select_provider",
-                        "hint": "Planner 使用严格 Prompt-only JSON；留空时使用 Persona 表达模型。",
-                    },
-                    "interaction_middleware.planner_temperature": {
-                        "description": "Core Planner 温度",
-                        "type": "float",
-                        "slider": {"min": 0, "max": 2, "step": 0.05},
-                    },
-                    "interaction_middleware.planner_timeout": {
-                        "description": "Core Planner 超时秒数",
                         "type": "float",
                     },
                 },

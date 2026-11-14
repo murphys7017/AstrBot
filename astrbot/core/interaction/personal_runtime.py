@@ -2660,7 +2660,7 @@ class PersonalRuntimeManager:
             "DIAG interaction.turn: phase=settling turn_id=%s session_id=%s "
             "umo=%s status=%s route=%s "
             "personal_first_output_ms=%s turn_total_ms=%.0f persona_ms=%.0f provider_ms=%.0f "
-            "plugin_enrichment_ms=%.0f planner_ms=%.0f core_executor_ms=%.0f "
+            "plugin_enrichment_ms=%.0f core_executor_ms=%.0f "
             "deadline_remaining_ms=%s deadline_expired=%s delivery=%s failures=%s "
             "timing_covered_ms=%.0f timing_unattributed_ms=%.0f timing_gaps_ms=%s "
             "audio_drain_ms=%.0f motion_drain_ms=%.0f timing_basis=interval_union",
@@ -2674,7 +2674,6 @@ class PersonalRuntimeManager:
             stage_elapsed.get("persona_expression", 0.0) * 1000,
             stage_elapsed.get("provider_request", 0.0) * 1000,
             stage_elapsed.get("plugin_enrichment", 0.0) * 1000,
-            stage_elapsed.get("core_planner", 0.0) * 1000,
             stage_elapsed.get("core_executor_run", 0.0)
             * 1000
             + stage_elapsed.get("proactive_core_execution", 0.0) * 1000,

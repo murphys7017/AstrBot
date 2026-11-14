@@ -186,7 +186,7 @@ def test_transient_prompt_message_is_near_current_input_and_not_cached_in_pack()
 
     core_result = PromptRenderEngine().render(
         pack,
-        target="core_planner",
+        target="core",
         plugin_context=PluginContext(),
     )
     assert core_result.metadata.get("transient_prompt_message_count", 0) == 0

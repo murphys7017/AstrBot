@@ -280,9 +280,9 @@ def _canonical_pack() -> ContextPack:
                 {
                     "plugins": [
                         {
-                            "name": "Planner Plugin",
-                            "description": "Planner-visible capability",
-                            "targets": ["core_planner"],
+                            "name": "Core Plugin",
+                            "description": "Core-visible capability",
+                            "targets": ["core"],
                         },
                     ]
                 },
@@ -376,162 +376,12 @@ def test_persona_projection_drops_execution_capability_extensions():
     assert core.get_slot("extension.capability") is not None
 
 
-def test_core_planner_projection_uses_facts_without_router_or_persona_decisions():
-    projected = project_context_pack(_canonical_pack(), PromptTarget.CORE_PLANNER)
-
-    assert projected.get_slot("input.text") is not None
-    assert projected.get_slot("conversation.history") is not None
-    assert projected.get_slot("memory.short_term") is not None
-    assert projected.get_slot("capability.plugin_directory") is None
-    assert projected.get_slot("persona.summary") is None
-    assert projected.get_slot("conversation.pending_execution_continuity") is not None
-    assert projected.get_slot("interaction.route_decision") is None
-    assert projected.get_slot("system.core_execution_context") is None
 
 
-def test_core_router_projection_is_bounded_and_excludes_persona_context():
-    history = {
-        "turns": [
-            {
-                "user_message": {"role": "user", "content": f"user-{index}-" + "x" * 900},
-                "assistant_message": {"role": "assistant", "content": f"reply-{index}"},
-            }
-            for index in range(6)
-        ]
-    }
-    pack = ContextPack(
-        slots={
-            "system.global": _slot("system.global", "global identity", "system"),
-            "system.base": _slot("system.base", "base instructions", "system"),
-            "persona.prompt": _slot("persona.prompt", "persona identity", "persona"),
-            "memory.persona_state": _slot("memory.persona_state", {"name": "Alice"}, "memory"),
-            "memory.short_term": _slot("memory.short_term", {"summary": "personal memory"}, "memory"),
-            "input.text": _slot("input.text", "Continue that task", "input"),
-            "input.quoted_text": _slot("input.quoted_text", "quoted request", "input"),
-            "input.images": _slot("input.images", [{"ref": "image"}], "input"),
-            "input.attachment_summary": _slot("input.attachment_summary", {"images": 1}, "input"),
-            "input.visible_reply_material": _slot("input.visible_reply_material", {"text": "already sent"}, "input"),
-            "session.datetime": _slot("session.datetime", {"text": "2026-10-23"}, "session"),
-            "conversation.history": _slot("conversation.history", history, "conversation"),
-            "conversation.group_recent": _slot("conversation.group_recent", {"records": ["ambient"]}, "conversation"),
-            "conversation.pending_execution_continuity": ContextSlot(
-                name="conversation.pending_execution_continuity",
-                value={
-                    "instruction": "do not expose this instruction",
-                    "task_summary": "unfinished task",
-                    "task_intent": "research",
-                    "status": "cancelled",
-                    "resume_recommended": True,
-                    "cancellation_reason": "private diagnostic",
-                },
-                category="conversation",
-                source="test",
-                meta={"targets": ["core_router", "core_planner"]},
-            ),
-            "capability.core_execution": ContextSlot(
-                name="capability.core_execution",
-                value={"executor_policy": "fixed_by_profile"},
-                category="capability",
-                source="test",
-                meta={"targets": ["core_router"]},
-            ),
-            "capability.tools_schema": ContextSlot(
-                name="capability.tools_schema",
-                value={"tools": [{"name": "shell", "description": "run commands"}]},
-                category="capability",
-                source="test",
-                meta={"targets": ["core_router"]},
-            ),
-            "capability.plugin_directory": ContextSlot(
-                name="capability.plugin_directory",
-                value={"plugins": [{"name": "internal plugin"}]},
-                category="capability",
-                source="test",
-                meta={"targets": ["core_router"]},
-            ),
-        }
-    )
-
-    projected = project_context_pack(pack, PromptTarget.CORE_ROUTER)
-
-    assert set(projected.slots) == {
-        "input.text",
-        "input.quoted_text",
-        "session.datetime",
-        "conversation.pending_execution_continuity",
-    }
-    assert projected.get_slot("capability.core_execution") is None
-    assert projected.get_slot("capability.tools_schema") is None
-    assert projected.get_slot("conversation.history") is None
-    assert projected.get_slot("conversation.pending_execution_continuity").value == {
-        "task_summary": "unfinished task",
-        "task_intent": "research",
-        "status": "cancelled",
-        "resume_recommended": True,
-    }
-    assert len(pack.get_slot("conversation.history").value["turns"]) == 6
-    assert "global identity" not in _rendered_prompt_text(
-        PromptRenderEngine().render(
-            pack,
-            target=PromptTarget.CORE_ROUTER,
-            profile=PromptRenderProfile(
-                name="router_isolation",
-                system_prompt="isolated router instructions",
-            ),
-        )
-    )
 
 
-def test_plugin_directory_entries_remain_hidden_from_core_planner():
-    pack = ContextPack(
-        slots={
-            "capability.plugin_directory": ContextSlot(
-                name="capability.plugin_directory",
-                value={
-                    "plugins": [
-                        {
-                            "name": "Direct Plugin",
-                            "description": "Direct capability",
-                        }
-                    ]
-                },
-                category="capability",
-                source="plugin",
-                meta={"targets": ["core_planner"]},
-            )
-        }
-    )
-
-    planner = project_context_pack(pack, PromptTarget.CORE_PLANNER)
-
-    assert planner.get_slot("capability.plugin_directory") is None
 
 
-def test_direct_slot_targets_are_enforced_before_target_rules():
-    pack = ContextPack(
-        slots={
-            "conversation.group_recent": ContextSlot(
-                name="conversation.group_recent",
-                value={"records": ["ambient"]},
-                category="conversation",
-                source="plugin",
-                meta={"targets": ["core"]},
-            )
-        }
-    )
-
-    assert (
-        project_context_pack(pack, PromptTarget.CORE_PLANNER).get_slot(
-            "conversation.group_recent"
-        )
-        is None
-    )
-    assert (
-        project_context_pack(pack, PromptTarget.CORE).get_slot(
-            "conversation.group_recent"
-        )
-        is not None
-    )
 
 
 def test_targetless_render_defaults_to_core_projection():
@@ -762,84 +612,8 @@ def test_persona_proactive_view_enforces_its_history_token_budget():
     assert "persona_recent_token_budget" in history_budget["truncation_reasons"]
 
 
-def test_plugin_prompt_extensions_do_not_reach_core_planner():
-    pack = ContextPack(
-        slots={
-            "extension.system": ContextSlot(
-                name="extension.system",
-                value={
-                    "items": [
-                        {
-                            "value": "route rule",
-                            "meta": {
-                                "targets": [
-                                    "core_planner",
-                                    "persona",
-                                    "core",
-                                ]
-                            },
-                        }
-                    ]
-                },
-                category="extension",
-                source="plugin",
-                meta={
-                    "targets": [
-                        "core_planner",
-                        "persona",
-                        "core",
-                    ]
-                },
-            )
-        }
-    )
-
-    assert project_context_pack(pack, PromptTarget.CORE_PLANNER).get_slot("extension.system") is None
-    assert project_context_pack(pack, PromptTarget.PERSONA).get_slot("extension.system") is not None
-    assert project_context_pack(pack, PromptTarget.CORE).get_slot("extension.system") is not None
 
 
-def test_render_profile_replaces_local_base_without_dropping_global_instructions():
-    pack = ContextPack(
-        slots={
-            "system.global": _slot(
-                "system.global",
-                "Stable global instructions.",
-                "system",
-            ),
-            "system.base": _slot(
-                "system.base",
-                "Stale target instructions.",
-                "system",
-            )
-        }
-    )
-
-    result = PromptRenderEngine().render(
-        pack,
-        target=PromptTarget.CORE_PLANNER,
-        profile=PromptRenderProfile(
-            name="planner_boundary",
-            system_prompt="Planner instruction.",
-        ),
-    )
-
-    assert "Planner instruction." in result.system_prompt
-    assert "Stable global instructions." in result.system_prompt
-    assert "Stale target instructions." not in result.system_prompt
-
-    persona_result = PromptRenderEngine().render(
-        pack,
-        target=PromptTarget.PERSONA,
-        profile=PromptRenderProfile(
-            name="persona_compatibility",
-            system_prompt="Persona instruction.",
-        ),
-    )
-
-    assert "Persona instruction." in persona_result.system_prompt
-    assert "Stable global instructions." in persona_result.system_prompt
-    assert "Stale target instructions." not in persona_result.system_prompt
 
 
 def test_direct_slot_with_malformed_targets_is_hidden():
@@ -859,43 +633,6 @@ def test_direct_slot_with_malformed_targets_is_hidden():
         assert project_context_pack(pack, target).get_slot("input.text") is None
 
 
-def test_planner_preserves_reported_errors_without_private_reasoning_or_calls():
-    source = _canonical_pack()
-    history = source.get_slot("conversation.history")
-    history.value["turns"][-1] = {
-        "user_message": {
-            "role": "user",
-            "content": "请修复 Error code: 400，失败时保留原始配置。",
-        },
-        "assistant_message": {
-            "role": "assistant",
-            "content": "Traceback (most recent call last): failed",
-            "reasoning_content": "private",
-            "tool_calls": [{"name": "internal"}],
-        },
-    }
-    group_recent = source.get_slot("conversation.group_recent")
-    group_recent.value = {
-        "records": [
-            "user_id=1: hello",
-            "bot: 获取图片描述失败: invalid image input",
-        ],
-        "text": "raw diagnostics",
-    }
-
-    planner = project_context_pack(source, PromptTarget.CORE_PLANNER)
-
-    assistant = planner.get_slot("conversation.history").value["turns"][-1][
-        "assistant_message"
-    ]
-    assert assistant["content"] == "Traceback (most recent call last): failed"
-    assert "保留原始配置" in planner.get_slot("conversation.history").value["turns"][-1]["user_message"]["content"]
-    assert "reasoning_content" not in assistant
-    assert "tool_calls" not in assistant
-    assert planner.get_slot("conversation.group_recent").value["records"][-1] == {
-        "content": "bot: 获取图片描述失败: invalid image input"
-    }
-    assert "Traceback" in history.value["turns"][-1]["assistant_message"]["content"]
 
 
 def test_core_projection_keeps_execution_context_without_persona_material():
@@ -912,86 +649,6 @@ def test_core_projection_keeps_execution_context_without_persona_material():
     assert projected.get_slot("system.core_execution_context") is not None
 
 
-def test_target_budgets_bound_history_and_execution_without_mutating_facts():
-    turns = [
-        {
-            "user_message": {"role": "user", "content": f"user-{index}"},
-            "assistant_message": {
-                "role": "assistant",
-                "content": f"assistant-{index}",
-            },
-        }
-        for index in range(80)
-    ]
-    pack = ContextPack(
-        slots={
-            "conversation.history": _slot(
-                "conversation.history",
-                {"turn_count": len(turns), "turns": turns},
-                "memory",
-            ),
-            "conversation.core_execution_history": ContextSlot(
-                name="conversation.core_execution_history",
-                value={
-                    "record_count": 6,
-                    "records": [{"execution_id": index} for index in range(6)],
-                },
-                category="conversation",
-                source="test",
-                meta={"targets": ["core"]},
-            ),
-            "capability.tools_schema": _slot(
-                "capability.tools_schema",
-                {"tool_count": 2, "tools": [{"name": "a"}, {"name": "b"}]},
-                "tools",
-            ),
-        }
-    )
-
-    planner = project_context_pack(pack, PromptTarget.CORE_PLANNER)
-    persona = project_context_pack(pack, PromptTarget.PERSONA)
-    core = project_context_pack(
-        pack,
-        PromptTarget.CORE,
-        config=SimpleNamespace(max_context_length=-1),
-    )
-    configured_core = project_context_pack(
-        pack,
-        PromptTarget.CORE,
-        config=SimpleNamespace(max_context_length=12),
-    )
-    compatibility_render = PromptRenderEngine().render(
-        pack,
-        config=SimpleNamespace(max_context_length=-1),
-    )
-
-    assert len(planner.get_slot("conversation.history").value["turns"]) == 8
-    assert len(persona.get_slot("conversation.history").value["turns"]) == 28
-    assert len(core.get_slot("conversation.history").value["turns"]) == 64
-    assert len(
-        configured_core.get_slot("conversation.history").value["turns"]
-    ) == 12
-    assert len(
-        core.get_slot("conversation.core_execution_history").value["records"]
-    ) == 4
-    assert len(pack.get_slot("conversation.history").value["turns"]) == 80
-    assert (
-        core.meta["context_budgets"]["conversation_history"]["truncation_reasons"]
-        == ["core_history_hard_fallback"]
-    )
-    assert configured_core.meta["context_budgets"]["conversation_history"][
-        "truncation_reasons"
-    ] == ["configured_core_history_limit"]
-    assert core.meta["context_budgets"]["conversation_history"][
-        "original_message_count"
-    ] == 160
-    assert core.meta["context_budgets"]["conversation_history"][
-        "retained_message_count"
-    ] == 128
-    assert core.meta["context_budgets"]["tool_schema"]["enforced"] is False
-    assert compatibility_render.metadata["context_budgets"][
-        "conversation_history"
-    ]["retained_amount"] == 64
 
 
 def test_persona_history_keeps_relevant_old_anchor_after_recent_compaction():
@@ -1066,34 +723,94 @@ def test_group_context_records_remain_structured_in_all_rendered_targets():
         assert "Alice" in rendered
 
 
-def test_extension_targets_are_filtered_for_extension_enabled_prompt_targets():
+def test_core_router_projection_is_bounded_and_excludes_persona_context():
+    history = {
+        "turns": [
+            {
+                "user_message": {"role": "user", "content": f"user-{index}-" + "x" * 900},
+                "assistant_message": {"role": "assistant", "content": f"reply-{index}"},
+            }
+            for index in range(6)
+        ]
+    }
     pack = ContextPack(
         slots={
-            "extension.context": _slot(
-                "extension.context",
-                {
-                    "items": [
-                        {
-                            "plugin_id": "core_planner",
-                            "meta": {"targets": ["core_planner"]},
-                        },
-                        {"plugin_id": "persona", "meta": {"targets": ["persona"]}},
-                        {"plugin_id": "core", "meta": {"targets": ["core"]}},
-                    ]
+            "system.global": _slot("system.global", "global identity", "system"),
+            "system.base": _slot("system.base", "base instructions", "system"),
+            "persona.prompt": _slot("persona.prompt", "persona identity", "persona"),
+            "memory.persona_state": _slot("memory.persona_state", {"name": "Alice"}, "memory"),
+            "memory.short_term": _slot("memory.short_term", {"summary": "personal memory"}, "memory"),
+            "input.text": _slot("input.text", "Continue that task", "input"),
+            "input.quoted_text": _slot("input.quoted_text", "quoted request", "input"),
+            "input.images": _slot("input.images", [{"ref": "image"}], "input"),
+            "input.attachment_summary": _slot("input.attachment_summary", {"images": 1}, "input"),
+            "input.visible_reply_material": _slot("input.visible_reply_material", {"text": "already sent"}, "input"),
+            "session.datetime": _slot("session.datetime", {"text": "2026-10-23"}, "session"),
+            "conversation.history": _slot("conversation.history", history, "conversation"),
+            "conversation.group_recent": _slot("conversation.group_recent", {"records": ["ambient"]}, "conversation"),
+            "conversation.pending_execution_continuity": ContextSlot(
+                name="conversation.pending_execution_continuity",
+                value={
+                    "instruction": "do not expose this instruction",
+                    "task_summary": "unfinished task",
+                    "task_intent": "research",
+                    "status": "cancelled",
+                    "resume_recommended": True,
+                    "cancellation_reason": "private diagnostic",
                 },
-                "extension",
-            )
+                category="conversation",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+            "capability.core_execution": ContextSlot(
+                name="capability.core_execution",
+                value={"executor_policy": "fixed_by_profile"},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+            "capability.tools_schema": ContextSlot(
+                name="capability.tools_schema",
+                value={"tools": [{"name": "shell", "description": "run commands"}]},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
+            "capability.plugin_directory": ContextSlot(
+                name="capability.plugin_directory",
+                value={"plugins": [{"name": "internal plugin"}]},
+                category="capability",
+                source="test",
+                meta={"targets": ["core_router"]},
+            ),
         }
     )
 
-    assert project_context_pack(pack, PromptTarget.CORE_PLANNER).get_slot(
-        "extension.context"
-    ) is None
+    projected = project_context_pack(pack, PromptTarget.CORE_ROUTER)
 
-    for target in (PromptTarget.PERSONA, PromptTarget.CORE):
-        projected = project_context_pack(pack, target)
-        items = projected.get_slot("extension.context").value["items"]
-        assert [item["plugin_id"] for item in items] == [target.value]
-
-    policy = project_context_pack(pack, PromptTarget.PERSONAL_POLICY)
-    assert policy.get_slot("extension.context") is None
+    assert set(projected.slots) == {
+        "input.text",
+        "input.quoted_text",
+        "session.datetime",
+        "conversation.pending_execution_continuity",
+    }
+    assert projected.get_slot("capability.core_execution") is None
+    assert projected.get_slot("capability.tools_schema") is None
+    assert projected.get_slot("conversation.history") is None
+    assert projected.get_slot("conversation.pending_execution_continuity").value == {
+        "task_summary": "unfinished task",
+        "task_intent": "research",
+        "status": "cancelled",
+        "resume_recommended": True,
+    }
+    assert len(pack.get_slot("conversation.history").value["turns"]) == 6
+    assert "global identity" not in _rendered_prompt_text(
+        PromptRenderEngine().render(
+            pack,
+            target=PromptTarget.CORE_ROUTER,
+            profile=PromptRenderProfile(
+                name="router_isolation",
+                system_prompt="isolated router instructions",
+            ),
+        )
+    )

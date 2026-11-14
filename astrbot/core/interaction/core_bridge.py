@@ -32,6 +32,34 @@ def get_core_task_spec(event: AstrMessageEvent) -> CoreTaskSpec | None:
     return None
 
 
+def build_interaction_core_task_spec(event: AstrMessageEvent) -> CoreTaskSpec:
+    """Build the executor handoff snapshot after Router admission.
+
+    Router owns the admission decision; this local projection only preserves
+    the user's request and whether the canonical context contains visual input.
+    It deliberately performs no provider call and no capability selection.
+    """
+
+    text = str(getattr(event, "message_str", "") or "").strip()
+    if not text:
+        text = "执行当前用户请求。"
+    turn_state = get_interaction_turn_state(event)
+    material = getattr(turn_state, "context_material", None)
+    context_pack = getattr(material, "prompt_context_pack", None)
+    slots = getattr(context_pack, "slots", {})
+    requires_visual_understanding = any(
+        bool(getattr(slots.get(name), "value", None))
+        for name in ("input.images", "input.quoted_images")
+        if isinstance(slots, dict)
+    )
+    return CoreTaskSpec(
+        task_intent="user_request",
+        task_summary=text,
+        execution_prompt=text,
+        requires_visual_understanding=requires_visual_understanding,
+    )
+
+
 def build_core_execution_context_block(
     event: AstrMessageEvent,
     task_spec: CoreTaskSpec,
@@ -109,6 +137,7 @@ def ensure_interaction_core_execution_prompt(
 
 __all__ = [
     "apply_interaction_core_task_spec",
+    "build_interaction_core_task_spec",
     "build_core_execution_context_block",
     "ensure_interaction_core_execution_prompt",
     "get_core_task_spec",

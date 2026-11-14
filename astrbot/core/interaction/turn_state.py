@@ -27,7 +27,6 @@ from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_K
 from astrbot.core.prompt.context_types import ContextPack
 
 from .types import (
-    CorePlanningDecision,
     CoreRouterDecision,
     CoreTaskSpec,
     InteractionAgentConfig,
@@ -333,9 +332,6 @@ class InteractionTurnState:
     stt_transcribed: bool = False
     stt_failed: bool = False
     stt_failure_reason: str | None = None
-    core_planner_failed: bool = False
-    core_planner_failure_reason: str | None = None
-    core_planner_recovered_via_persona: bool = False
     core_router_failed: bool = False
     core_router_failure_reason: str | None = None
     core_router_decision: CoreRouterDecision | None = None
@@ -347,7 +343,6 @@ class InteractionTurnState:
     expression_primary_failure_reason: str | None = None
     expression_fallback_provider_id: str | None = None
     route_decision: InteractionRouteDecision | None = None
-    core_planning_decision: CorePlanningDecision | None = None
     core_task_spec: CoreTaskSpec | None = None
     core_execution_spec: CoreExecutionSpec | None = None
     core_delegated: bool = False
@@ -951,33 +946,6 @@ def get_interaction_turn_stt_failure_reason(event) -> str | None:
     return str(reason).strip() if reason else None
 
 
-def record_interaction_turn_core_planner_failure(
-    event,
-    reason: str | None = None,
-) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.core_planner_failed = True
-    state.core_planner_failure_reason = str(reason or "").strip() or None
-    event.set_extra("_interaction_core_planner_failed", True)
-    if state.core_planner_failure_reason is not None:
-        event.set_extra(
-            "_interaction_core_planner_failure_reason",
-            state.core_planner_failure_reason,
-        )
-
-
-def mark_interaction_turn_core_planner_recovered_via_persona(
-    event,
-    recovered: bool = True,
-) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.core_planner_recovered_via_persona = bool(recovered)
-    event.set_extra(
-        "_interaction_core_planner_recovered_via_persona",
-        bool(recovered),
-    )
-
-
 def record_interaction_turn_expression_failure(
     event,
     reason: str | None = None,
@@ -1024,14 +992,6 @@ def set_interaction_turn_route_decision(
 ) -> None:
     state = ensure_interaction_turn_state(event)
     state.route_decision = decision
-
-
-def set_interaction_turn_core_planning_decision(
-    event,
-    decision: CorePlanningDecision | None,
-) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.core_planning_decision = decision
 
 
 def set_interaction_turn_core_task_spec(

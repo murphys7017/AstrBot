@@ -87,12 +87,9 @@ from astrbot.core.interaction.turn_state import (
     set_interaction_turn_configuration_selection,
 )
 from astrbot.core.interaction.types import (
-    CorePlanningAction,
-    CorePlanningDecision,
     CoreRouterAction,
     CoreRouterDecision,
     CoreRouterReason,
-    CoreTaskSpec,
     InteractionRouteDecision,
     InteractionRouteMode,
     PersonalResponseAction,
@@ -1124,64 +1121,6 @@ async def test_personal_reply_completes_with_one_reply_plan(monkeypatch):
     assert event.is_stopped()
 
 
-@pytest.mark.asyncio
-async def test_personal_visible_reply_waits_for_core_router_before_committing_route(
-    monkeypatch,
-):
-    metadata = _metadata(support_personal_runtime=True)
-    event = _DirectEvent(metadata)
-    runtime_config = {"interaction_middleware": {"enabled": True}}
-    middleware = InteractionMiddleware(
-        runtime_config,
-        InteractionOutputController(),
-        SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
-    )
-    router_started = asyncio.Event()
-    release_router = asyncio.Event()
-    router_completed = asyncio.Event()
-
-    async def wait_for_route(*_args, **_kwargs):
-        router_started.set()
-        await release_router.wait()
-        router_completed.set()
-        return CoreRouterDecision(
-            CoreRouterAction.ROUTE_TO_CORE,
-            CoreRouterReason.EXTERNAL_INFORMATION,
-        )
-
-    middleware.core_router.route = AsyncMock(side_effect=wait_for_route)
-    middleware.core_planner.plan = AsyncMock(
-        return_value=CorePlanningDecision(
-            action=CorePlanningAction.EXECUTE,
-            task_spec=CoreTaskSpec(task_summary="search the web"),
-        )
-    )
-    middleware._emit_delegated = AsyncMock()
-    middleware._forward_to_core = Mock()
-    middleware.persona_runtime.express_visible_reply = AsyncMock(
-        return_value=PersonaExpressionResult(speech="我在。")
-    )
-    middleware._materialize_inbound_media = AsyncMock()
-    monkeypatch.setattr(
-        "astrbot.core.interaction.middleware.dispatch_interaction_lifecycle",
-        AsyncMock(),
-    )
-
-    handle_task = asyncio.create_task(middleware.handle_pipeline_event(event))
-    await asyncio.wait_for(router_started.wait(), timeout=1.0)
-    await asyncio.wait_for(event.send_completed.wait(), timeout=1.0)
-
-    assert event.sent[0].get_plain_text() == "我在。"
-    assert router_completed.is_set() is False
-    assert handle_task.done() is False
-    release_router.set()
-    await asyncio.wait_for(handle_task, timeout=1.0)
-    turn_state = get_interaction_turn_state(event)
-    assert turn_state is not None
-    assert turn_state.route_decision.route_mode is InteractionRouteMode.HYBRID
-    assert event.get_extra("_interaction_core_router_cancelled_after_personal") is None
-    middleware._forward_to_core.assert_called_once_with(event)
-    await turn_state.execution_scope.close()
 
 
 @pytest.mark.asyncio
@@ -1288,116 +1227,8 @@ async def test_plugin_gate_can_suppress_pending_personal_before_completion():
         await plugin_runtime.shutdown()
 
 
-@pytest.mark.asyncio
-async def test_router_routes_personal_reply_to_core_after_planner(monkeypatch):
-    metadata = _metadata(support_personal_runtime=True)
-    event = _DirectEvent(metadata)
-    event.set_extra("selected_provider", "test-provider")
-    event.message_obj.message.append(Image(file="input.png"))
-    runtime_config = {"interaction_middleware": {"enabled": True}}
-    middleware = InteractionMiddleware(
-        runtime_config,
-        InteractionOutputController(),
-        SimpleNamespace(get_config=lambda **_kwargs: runtime_config),
-    )
-    async def generate_personal(*_args, **_kwargs):
-        return PersonaExpressionResult(
-            speech="我来查一下。",
-            turn_action=PersonalResponseAction.REPLY,
-        )
-
-    async def execute_core(*_args, **_kwargs):
-        return CorePlanningDecision(
-            action=CorePlanningAction.EXECUTE,
-            task_spec=CoreTaskSpec(task_summary="inspect image"),
-        )
-
-    middleware.core_planner.plan = AsyncMock(side_effect=execute_core)
-    middleware.core_router.route = AsyncMock(
-        return_value=CoreRouterDecision(
-            CoreRouterAction.ROUTE_TO_CORE,
-            CoreRouterReason.EXTERNAL_ACTION,
-        )
-    )
-    middleware.persona_runtime.express_visible_reply = AsyncMock(
-        side_effect=generate_personal
-    )
-    middleware._materialize_inbound_media = AsyncMock()
-    monkeypatch.setattr(
-        "astrbot.core.interaction.middleware.dispatch_interaction_lifecycle",
-        AsyncMock(),
-    )
-
-    await middleware.handle_pipeline_event(event)
-    await asyncio.wait_for(event.send_completed.wait(), timeout=1.0)
-
-    turn_state = get_interaction_turn_state(event)
-    assert turn_state is not None
-    assert [message.get_plain_text() for message in event.sent] == ["我来查一下。"]
-    assert turn_state.core_delegated is True
-    assert turn_state.core_router_decision is not None
-    assert turn_state.core_router_decision.should_route_to_core is True
-    assert turn_state.speculative_persona_status.value == "emitted"
-    await turn_state.execution_scope.close()
 
 
-@pytest.mark.asyncio
-async def test_handoff_review_revises_same_turn_before_core_forward():
-    event = _DirectEvent(_metadata(support_personal_runtime=True))
-    event.set_extra("_turn_id", "turn-review")
-    review_audio = AsyncMock(return_value="corrected task request")
-    event.set_extra("_ag99live_handoff_asr_review", review_audio)
-    middleware = InteractionMiddleware(
-        {"interaction_middleware": {"enabled": True}},
-        InteractionOutputController(),
-        SimpleNamespace(),
-    )
-    planner_inputs = []
-    planner_decisions = iter(
-        [
-            CorePlanningDecision(
-                action=CorePlanningAction.EXECUTE,
-                task_spec=CoreTaskSpec(task_summary="fast transcript"),
-            ),
-            CorePlanningDecision(
-                action=CorePlanningAction.EXECUTE,
-                task_spec=CoreTaskSpec(task_summary="reviewed transcript"),
-            ),
-        ]
-    )
-
-    async def plan(event, *_args):
-        planner_inputs.append(event.message_str)
-        return next(planner_decisions)
-
-    middleware.core_planner.plan = AsyncMock(side_effect=plan)
-    middleware.core_router.route = AsyncMock(
-        return_value=CoreRouterDecision(
-            CoreRouterAction.ROUTE_TO_CORE,
-            CoreRouterReason.EXTERNAL_INFORMATION,
-        )
-    )
-    middleware._emit_delegated = AsyncMock()
-    middleware._forward_to_core = Mock()
-    persona_task = asyncio.create_task(asyncio.sleep(0, result=None))
-
-    await middleware.complete_routed_turn(
-        event,
-        interaction_config=None,
-        persona_task=persona_task,
-        route=InteractionRouteDecision(route_mode=InteractionRouteMode.HYBRID),
-    )
-
-    review_audio.assert_awaited_once_with()
-    assert middleware.core_planner.plan.await_count == 2
-    assert planner_inputs == ["hello", "corrected task request"]
-    assert event.message_str == "corrected task request"
-    assert event.message_obj.message_str == "corrected task request"
-    assert event.message_obj.message[0].text == "corrected task request"
-    turn_state = get_interaction_turn_state(event)
-    assert turn_state is not None
-    assert turn_state.core_task_spec.task_summary == "reviewed transcript"
-    middleware._forward_to_core.assert_called_once_with(event)
 
 
 @pytest.mark.asyncio

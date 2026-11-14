@@ -40,7 +40,7 @@ const EXTENSION_ONLY_GROUPS = new Set([
 // tabs while allowing the model routing sections to appear in Intelligence.
 const INTELLIGENCE_INTERACTION_SECTIONS = new Set([
   'expression',
-  'planner',
+  'router',
   'personal_policy',
 ]);
 
@@ -79,7 +79,7 @@ const CONFIG_SECTION_REGISTRY: Record<string, ConfigSectionRegistryEntry> = {
   'interaction_middleware_group.plugin': { group: 'interaction_middleware_group', section: 'plugin', workspace: 'capabilities', scope: 'system', order: 15 },
   'interaction_middleware_group.context': { group: 'interaction_middleware_group', section: 'context', workspace: 'persona', scope: 'persona', order: 15 },
   'interaction_middleware_group.expression': { group: 'interaction_middleware_group', section: 'expression', workspace: 'intelligence', scope: 'profile', order: 50 },
-  'interaction_middleware_group.planner': { group: 'interaction_middleware_group', section: 'planner', workspace: 'intelligence', scope: 'profile', order: 60 },
+  'interaction_middleware_group.router': { group: 'interaction_middleware_group', section: 'router', workspace: 'intelligence', scope: 'profile', order: 60 },
   'interaction_middleware_group.personal_policy': { group: 'interaction_middleware_group', section: 'personal_policy', workspace: 'intelligence', scope: 'profile', order: 70 },
   'interaction_middleware_group.personal_engagement': { group: 'interaction_middleware_group', section: 'personal_engagement', workspace: 'automation', scope: 'persona', order: 20 },
   'interaction_middleware_group.progress': { group: 'interaction_middleware_group', section: 'progress', workspace: 'operations', scope: 'system', order: 20 },

@@ -545,7 +545,7 @@ async def _execute_external_proactive_turn(
     from astrbot.core.interaction.turn_state import set_interaction_turn_core_task_spec
     from astrbot.core.interaction.types import CoreTaskSpec
 
-    # Synthetic turns do not pass through the Personal planner. Carry the
+    # Synthetic turns do not pass through normal Personal routing. Carry the
     # caller's task into the same neutral contract used by delegated turns.
     extra_text = "\n".join(
         str(getattr(part, "text", "") or "").strip()

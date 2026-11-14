@@ -10,10 +10,10 @@ from .contributors import (
 )
 from .core_bridge import (
     apply_interaction_core_task_spec,
+    build_interaction_core_task_spec,
     get_core_task_spec,
     get_interaction_route_decision,
 )
-from .core_planner import CorePlannerAgent, CorePlannerError
 from .core_router import CoreRouterAgent, CoreRouterError
 from .effects import (
     PersonaEffectCall,
@@ -78,8 +78,6 @@ from .turn_state import (
     get_interaction_turn_state,
 )
 from .types import (
-    CorePlanningAction,
-    CorePlanningDecision,
     CoreRouterAction,
     CoreRouterDecision,
     CoreRouterReason,
@@ -91,15 +89,11 @@ from .types import (
 )
 
 __all__ = [
-    "CorePlannerAgent",
-    "CorePlannerError",
     "CoreRouterAction",
     "CoreRouterAgent",
     "CoreRouterDecision",
     "CoreRouterError",
     "CoreRouterReason",
-    "CorePlanningAction",
-    "CorePlanningDecision",
     "CoreTaskSpec",
     "OUTPUT_ORIGIN_EXTRA_KEY",
     "OutputOrigin",
@@ -162,6 +156,7 @@ __all__ = [
     "PluginJobLaunch",
     "PluginProviderRequestRejected",
     "apply_interaction_core_task_spec",
+    "build_interaction_core_task_spec",
     "ensure_interaction_turn_state",
     "get_interaction_turn_state",
     "get_core_task_spec",

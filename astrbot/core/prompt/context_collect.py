@@ -64,7 +64,6 @@ PROMPT_EXTENSION_SLOT_NAMES: dict[str, str] = {
 }
 _PROMPT_CONTEXT_COLLECTOR_CONCURRENCY = 4
 PLUGIN_PROMPT_TARGETS = frozenset({"persona", "core"})
-CONTROL_PLANE_PROMPT_TARGETS = frozenset({"core_planner"})
 PromptExtensionCollectorScope = Literal["all", "control_plane", "plugin"]
 _CONTROL_PLANE_COLLECTOR_MODULE_PREFIXES = (
     "astrbot.core.",
@@ -410,10 +409,9 @@ def _build_normalized_prompt_extension_slots(
 def _normalize_plugin_prompt_extension(
     extension: PromptExtension,
     *,
-    allow_control_plane_targets: bool = False,
     target_override: str | None = None,
 ) -> PromptExtension | None:
-    """Keep third-party prompt contributions off Core Planner."""
+    """Keep third-party prompt contributions on their declared targets."""
     normalized = deepcopy(extension)
     meta = dict(normalized.meta)
     raw_targets = meta.get("targets")
@@ -422,8 +420,6 @@ def _normalize_plugin_prompt_extension(
     elif isinstance(raw_targets, list | tuple | set | frozenset):
         targets = {str(target).strip() for target in raw_targets if str(target).strip()}
         allowed_targets = set(PLUGIN_PROMPT_TARGETS)
-        if allow_control_plane_targets:
-            allowed_targets.update(CONTROL_PLANE_PROMPT_TARGETS)
         targets.intersection_update(allowed_targets)
     else:
         return None
@@ -676,7 +672,6 @@ async def _run_prompt_extension_collectors(
             for extension in cached_extensions:
                 normalized = _normalize_plugin_prompt_extension(
                     extension,
-                    allow_control_plane_targets=allow_control_plane_targets,
                     target_override=target_override,
                 )
                 if normalized is None or not extension_visible_in_context_view(
@@ -760,7 +755,6 @@ async def _run_prompt_extension_collectors(
 
             normalized = _normalize_plugin_prompt_extension(
                 extension,
-                allow_control_plane_targets=allow_control_plane_targets,
                 target_override=target_override,
             )
             if normalized is not None and extension_visible_in_context_view(

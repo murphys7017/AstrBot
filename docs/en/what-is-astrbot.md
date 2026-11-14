@@ -18,7 +18,6 @@ Platform Adapter
   -> Interaction Middleware
   -> Personal Runtime + Personal Expression
   -> Core Router
-  -> Core Planner (routed-to-Core turns only)
   -> Core Head / Core Execution
   -> Persona Expression
   -> Output Runtime
@@ -30,7 +29,7 @@ Normal messages and bounded unaddressed group candidates enter Interaction Middl
 - `reply`: complete the visible response in Personal without starting Core.
 - `silent`: emit no visible output; it is available only to eligible group candidates.
 
-Core Planner prepares an executable `CoreTaskSpec` only after the Router sends the turn to Core. The Core Head coordinates task, event, cancellation, and execution lifecycle in-process. It is currently a synchronous entry point: it does not create a separate queue or send platform messages directly. Core results never bypass Persona Expression. Immediate replies, plugin persona output, and Core-final results share one visible-language and output boundary.
+Once the Router sends the turn to Core, the runtime creates an executor-neutral `CoreTaskSpec` locally and uses the Executor selected by the current Profile. The Core Head coordinates task, event, cancellation, and execution lifecycle in-process. It is currently a synchronous entry point: it does not create a separate queue or send platform messages directly. Core results never bypass Persona Expression. Immediate replies, plugin persona output, and Core-final results share one visible-language and output boundary.
 
 ## Plugin Participation
 

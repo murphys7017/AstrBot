@@ -30,7 +30,7 @@ AG99live 的桌面端、Adapter 和协议文档必须在 AG99live 源码仓库�
 
 - **Interaction Middleware**：在官方 EventBus / Pipeline 完成过滤、权限和 Handler 准入后统一维护 interaction turn。
 - **Personal Runtime**：按人格、会话和隐私范围复用跨 turn 状态，管理主动观察、冷却、预算和连续对话 owner。
-- **Personal、Core Router 与 Core Planner**：Personal 的结构化 Persona Expression 只决定 `reply / silent`；独立 Core Router 判断是否进入 Core，Core Planner 在路由后生成执行规格。
+- **Personal、Core Router 与 Core**：Personal 的结构化 Persona Expression 只决定 `reply / silent`；独立 Core Router 判断是否进入 Core，运行时随后本地生成执行规格并交给当前 Profile 的 Executor。
 - **Persona Expression**：所有用户可见自然语言统一经过同一个表达入口，Core 结果也回到该入口。
 - **Structured Prompt**：通过 `collect → build → project → render → apply` 生成目标明确的 Prompt 视图。
 - **Observation 链路**：后台事实经过 `Observation → Gate → Policy → ActionIntent → Persona → Output`，不会直接唤醒模型或发送消息。
@@ -45,14 +45,13 @@ Platform Adapter
   -> Interaction Middleware
   -> Personal Runtime
   -> Personal Expression || Core Router
-  -> Core Planner (when routed)
   -> Core Execution
   -> Persona Expression
   -> Output Runtime
   -> Conversation / Memory
 ```
 
-普通消息由 Personal 的结构化 Persona Expression 与独立 Core Router 并行处理。Personal 生成即时表达，`turn_action` 只表示是否发出回复（`reply` 或允许场景下的 `silent`）；Router 独立判断是否进入 Core。Core Planner 只在路由后准备执行任务；Core 的结果不会绕过 Persona 直接发送。
+普通消息由 Personal 的结构化 Persona Expression 与独立 Core Router 并行处理。Personal 生成即时表达，`turn_action` 只表示是否发出回复（`reply` 或允许场景下的 `silent`）；Router 独立判断是否进入 Core。路由到 Core 后，运行时从当前输入和规范上下文事实本地生成执行规格；Core 的结果不会绕过 Persona 直接发送。
 
 ## 术语边界
 
@@ -69,7 +68,7 @@ Platform Adapter
 
 1. [当前状态](./current-state.md)：代码已经实现的事实。
 2. [模块索引](./modules/README.md)：Interaction、Prompt、Runtime 等职责边界。
-3. [交互中间件](./modules/interaction.md)：一轮消息如何进入 Personal、Planner 和 Core。
+3. [交互中间件](./modules/interaction.md)：一轮消息如何进入 Personal、Router 和 Core。
 4. [结构化 Prompt](./modules/prompt.md)：事实收集、目标投影和 Provider 渲染。
 5. `dev/`、`target-state.md`：明确标记为设计或后续计划的内容。
 

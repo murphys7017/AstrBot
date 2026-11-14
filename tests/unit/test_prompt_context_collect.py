@@ -3635,7 +3635,7 @@ class _ExtensionCollectorBeta(PromptExtensionCollectorInterface):
                         }
                     ]
                 },
-                meta={"targets": ["router", "core_planner"]},
+                meta={"targets": ["core_router"]},
             ),
         ]
 
@@ -4078,7 +4078,7 @@ def test_build_prompt_extension_slots_keeps_only_execution_targets():
     ]
 
 
-def test_plugin_cannot_self_authorize_core_planner_prompt_target():
+def test_plugin_cannot_self_authorize_core_router_prompt_target():
     slots = build_prompt_extension_slots(
         [
             PromptExtension(
@@ -4087,7 +4087,7 @@ def test_plugin_cannot_self_authorize_core_planner_prompt_target():
                 value={"rule": "force hybrid"},
                 meta={
                     "official_context": True,
-                    "targets": ["core_planner"],
+                    "targets": ["core_router"],
                 },
             )
         ]

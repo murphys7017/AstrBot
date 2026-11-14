@@ -216,9 +216,9 @@ def _resolve_capabilities(
 ) -> tuple[str, ...]:
     """Return actual admitted capabilities supported by this Body.
 
-    Planner suggestions live in ``task_spec`` and are intentionally excluded:
-    they describe intent, not authorization. The Core capability snapshot is
-    the only source of admitted capabilities at this boundary.
+    Task suggestions live in ``task_spec`` and are intentionally excluded: they
+    describe intent, not authorization. The Core capability snapshot is the
+    only source of admitted capabilities at this boundary.
     """
 
     tools = execution_spec.capabilities.tools

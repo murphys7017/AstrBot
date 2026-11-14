@@ -434,10 +434,11 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
 目标会话、Heartbeat、私聊空闲联系和群聊观察在“自动化 → 自动化配置 → Personal 主动互动”中统一设置。
 
 - `enabled`：是否启用 Interaction Middleware。省略时启用；设为 `false` 可保留原有 Core-only 行为。
-- `expression_provider_id`、`router_provider_id` 与 `planner_provider_id`：可选的分阶段模型覆盖。
+- `expression_provider_id` 与 `router_provider_id`：可选的分阶段模型覆盖。
   留空时复用当前会话已配置的聊天模型；显式填写 ID 时优先使用该模型。
-- `router_provider_id`、`router_temperature` 与 `router_timeout` 控制独立 Core Router；`planner_provider_id`、`planner_temperature` 与 `planner_timeout` 控制 Core Planner。
-  Router 与 Personal 并行判断是否进入 Core；只有路由到 Core 后才会调用 Planner。Router 留空时复用 Planner，Planner 留空时复用 Persona 表达模型。
+- `router_provider_id`、`router_temperature` 与 `router_timeout` 控制独立 Core Router。
+  Router 与 Personal 并行判断是否进入 Core；Core 直接使用当前 Profile 配置的 Executor，
+  不再经过内置任务规划模型二次调用。
 - `parallel_plugin_runtime_enabled`：是否启用 Personal 与 Official Plugin Job 的并行路径。
   默认 `false`，且是整条插件路径的全局开关，不支持按单个插件半启用。关闭时保留 Handler 先接管的
   兼容路径；开启前应先检查 `DIAG interaction.parallel_turn` 等运行日志。
@@ -445,7 +446,7 @@ Dashboard 可在“配置文件 → 交互中间件 → 基础开关”中编辑
   解除本轮对插件决定的等待，不会取消仍在运行的插件 Job；迟到产物按插件输出协议处理。
 - `persona_history_window_size`：Persona Expression 的历史候选池上限，默认 `300`。系统优先保留
   最近连续上下文，再从较早记录中选择少量与当前输入和 Memory 相关的锚点，并按 token 预算动态裁剪；
-  它不替代 Memory 的语义检索，也不改变 Core Planner 或 Core 的独立历史预算。
+  它不替代 Memory 的语义检索，也不改变 Core 的独立历史预算。
 - `plugin_capability_targets`：按插件注册名称配置能力生效位置。`llm_hooks` 覆盖 LLM Hook 目标，
   未配置时使用插件声明，再回退到 Personal；`tools` 独立覆盖 FunctionTool 目标，工具名优先于 `*`，
   未配置时使用工具声明，再回退到 Core。保存拒绝无效结构和值，不再读取旧两张 target 映射。

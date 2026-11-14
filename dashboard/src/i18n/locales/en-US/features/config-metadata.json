@@ -1098,7 +1098,7 @@
     "name": "Interaction Middleware",
     "general": {
       "description": "General",
-      "hint": "Controls the interaction middleware path. Personal uses one structured response plan to choose a direct reply, Core delegation, or allowed group silence; Core Planner and Core handle delegated work only.",
+      "hint": "Controls the interaction middleware path. Personal uses one structured response plan to choose a direct reply, Core delegation, or allowed group silence; Core handles delegated work only.",
       "interaction_middleware": {
         "enabled": {
           "description": "Enable Interaction Middleware"
@@ -1224,29 +1224,19 @@
         }
       }
     },
-    "planner": {
-      "description": "Core Router and Planner",
-      "hint": "The independent Router decides whether a request enters Core; the Planner builds CoreTaskSpec only for routed requests. Personal does not route.",
+    "router": {
+      "description": "Core Router",
+      "hint": "The Router decides whether a request enters Core; Core uses the Executor selected by the current Profile. Personal does not route.",
       "interaction_middleware": {
         "router_provider_id": {
           "description": "Core Router Model Provider",
-          "hint": "Empty reuses the Planner provider; if Planner is also empty, the Persona provider is used."
+          "hint": "Empty reuses the Persona provider."
         },
         "router_temperature": {
           "description": "Core Router Temperature"
         },
         "router_timeout": {
           "description": "Core Router Timeout Seconds"
-        },
-        "planner_provider_id": {
-          "description": "Core Planner Model Provider",
-          "hint": "The Planner uses strict Prompt-only JSON; empty uses the Persona expression model."
-        },
-        "planner_temperature": {
-          "description": "Core Planner Temperature"
-        },
-        "planner_timeout": {
-          "description": "Core Planner Timeout Seconds"
         }
       }
     },

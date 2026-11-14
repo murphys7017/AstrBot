@@ -18,7 +18,6 @@ class PromptTarget(str, Enum):
     """A model-facing role that consumes prompt context."""
 
     CORE_ROUTER = "core_router"
-    CORE_PLANNER = "core_planner"
     PERSONAL_POLICY = "personal_policy"
     PERSONA = "persona"
     CORE = "core"
@@ -30,27 +29,6 @@ _CORE_BLOCKED_SLOT_NAMES = frozenset(
         "input.visible_reply_material",
         "input.attachment_summary",
         "capability.plugin_directory",
-    }
-)
-
-_CORE_PLANNER_SLOT_NAMES = frozenset(
-    {
-        "system.global",
-        "system.base",
-        "input.text",
-        "input.quoted_text",
-        "input.images",
-        "input.quoted_images",
-        "input.image_captions",
-        "input.quoted_image_captions",
-        "input.attachment_summary",
-        "session.datetime",
-        "session.user_info",
-        "conversation.history",
-        "conversation.group_recent",
-        "conversation.pending_execution_continuity",
-        "memory.topic_state",
-        "memory.short_term",
     }
 )
 
@@ -290,9 +268,6 @@ def _slot_is_visible(slot: ContextSlot, target: PromptTarget) -> bool:
     if target is PromptTarget.CORE_ROUTER:
         return slot.name in _CORE_ROUTER_SLOT_NAMES
 
-    if target is PromptTarget.CORE_PLANNER:
-        return slot.name in _CORE_PLANNER_SLOT_NAMES
-
     if target is PromptTarget.PERSONAL_POLICY:
         return slot.name in _PERSONAL_POLICY_SLOT_NAMES
 
@@ -319,7 +294,7 @@ def _project_slot(
     projected = deepcopy(slot)
     if (
         projected.name == "conversation.pending_execution_continuity"
-        and target in {PromptTarget.CORE_ROUTER, PromptTarget.CORE_PLANNER}
+        and target is PromptTarget.CORE_ROUTER
         and isinstance(projected.value, dict)
     ):
         projected.value = {

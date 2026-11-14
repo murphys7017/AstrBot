@@ -29,7 +29,7 @@ from astrbot.core.voice import (
 from .config import is_middleware_enabled, load_interaction_agent_config
 from .context_builder import get_interaction_prompt_source_request
 from .conversation_history import commit_interaction_conversation_turn
-from .core_planner import CorePlannerAgent, CorePlannerError
+from .core_bridge import build_interaction_core_task_spec
 from .core_router import CoreRouterAgent, CoreRouterError
 from .dialogue import build_canonical_user_message
 from .expression_agent import (
@@ -79,14 +79,12 @@ from .turn_state import (
     mark_interaction_turn_cancelled,
     mark_interaction_turn_completed,
     mark_interaction_turn_core_delegated,
-    mark_interaction_turn_core_planner_recovered_via_persona,
     mark_interaction_turn_failed,
     mark_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_postprocess_dispatched,
     mark_interaction_turn_stt_transcribed,
     project_interaction_turn_runtime_config_legacy,
     record_interaction_turn_completion_failure,
-    record_interaction_turn_core_planner_failure,
     record_interaction_turn_expression_failure,
     record_interaction_turn_failure,
     record_interaction_turn_finalization_failure,
@@ -95,7 +93,6 @@ from .turn_state import (
     reserve_interaction_turn_final_output,
     reserve_interaction_turn_immediate_output,
     set_interaction_turn_config,
-    set_interaction_turn_core_planning_decision,
     set_interaction_turn_core_provider_id,
     set_interaction_turn_core_task_spec,
     set_interaction_turn_finalized_material,
@@ -105,8 +102,6 @@ from .turn_state import (
     suppress_interaction_turn_pending_persona,
 )
 from .types import (
-    CorePlanningAction,
-    CorePlanningDecision,
     InteractionAgentConfig,
     InteractionRouteDecision,
     InteractionRouteMode,
@@ -138,7 +133,6 @@ class InteractionMiddleware:
         self.expression_agent = InteractionExpressionAgent()
         self.persona_runtime = InteractionPersonaRuntime(self.expression_agent)
         self.core_router = CoreRouterAgent()
-        self.core_planner = CorePlannerAgent()
         self.output_controller.interaction_config = self.interaction_config
         self.output_controller.plugin_context = plugin_context
         self.output_controller._persist_callback = self._on_output_persist_requested
@@ -967,54 +961,18 @@ class InteractionMiddleware:
         interaction_config: InteractionAgentConfig,
     ) -> InteractionRouteDecision:
         turn_state = ensure_interaction_turn_state(event)
+        router_decision = None
         try:
             if self.plugin_context is None:
                 raise CoreRouterError("plugin_context_unavailable")
-            planner_preflight_required = bool(
-                interaction_config.expression_provider_id
-                or interaction_config.planner_provider_id
-                or interaction_config.router_provider_id
+            router_decision = await self.core_router.route(
+                event,
+                self.plugin_context,
+                interaction_config,
             )
-            if planner_preflight_required:
-                try:
-                    await self.core_planner.ensure_available(
-                        event,
-                        self.plugin_context,
-                        interaction_config,
-                    )
-                except CorePlannerError as exc:
-                    record_interaction_turn_core_planner_failure(event, exc.reason)
-                    mark_interaction_turn_core_planner_recovered_via_persona(event)
-                    logger.warning(
-                        "Core Router skipped because Planner is unavailable: "
-                        "turn_id=%s platform_id=%s reason=%s",
-                        turn_state.turn_id,
-                        event.get_platform_id(),
-                        exc.reason,
-                    )
-                    route = InteractionRouteDecision(
-                        route_mode=InteractionRouteMode.PERSONA,
-                        reason=f"core_planner_unavailable:{exc.reason}",
-                    )
-                    router_decision = None
-                else:
-                    router_decision = await self.core_router.route(
-                        event,
-                        self.plugin_context,
-                        interaction_config,
-                    )
-                    route = InteractionRouteDecision.from_core_router_decision(
-                        router_decision
-                    )
-            else:
-                router_decision = await self.core_router.route(
-                    event,
-                    self.plugin_context,
-                    interaction_config,
-                )
-                route = InteractionRouteDecision.from_core_router_decision(
-                    router_decision
-                )
+            route = InteractionRouteDecision.from_core_router_decision(
+                router_decision
+            )
         except asyncio.CancelledError:
             raise
         except TurnDeadlineExceeded:
@@ -1085,70 +1043,11 @@ class InteractionMiddleware:
             await self._complete_silent_or_committed_persona_turn(event, expression)
             return
 
-        planning_decision = None
         if route.route_mode == InteractionRouteMode.HYBRID:
-            planner_task = turn_state.execution_scope.create_task(
-                self._plan_core_execution(event, interaction_config),
-                role="core_planner",
-                name=(
-                    f"interaction_core_planner_{event.get_platform_id()}_"
-                    f"{turn_state.turn_id}"
-                ),
-            )
-            try:
-                done, _ = await asyncio.wait(
-                    {planner_task, persona_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                # Router has already selected the Core path. A speculative
-                # Persona acknowledgement must not cancel the authoritative
-                # Core Planner, even when it finishes first.
-                planning_decision = await planner_task
-            except asyncio.CancelledError:
-                if not planner_task.done():
-                    planner_task.cancel()
-                    await asyncio.gather(planner_task, return_exceptions=True)
-                raise
-            except TurnDeadlineExceeded:
-                expression = await self._suppress_or_await_speculative_persona(
-                    event,
-                    persona_task,
-                    propagate_failure=False,
-                )
-                await self._complete_emitted_persona_after_control_timeout(
-                    event,
-                    expression,
-                )
-                raise
-            except Exception as planner_error:
-                result = await asyncio.gather(
-                    persona_task,
-                    return_exceptions=True,
-                )
-                expression = result[0]
-                if (
-                    isinstance(expression, PersonaExpressionResult)
-                    and turn_state.speculative_persona_status
-                    is InteractionSpeculativePersonaStatus.EMITTED
-                ):
-                    await self._complete_delegated_planner_failure(
-                        event,
-                        planner_error,
-                    )
-                    return
-                if isinstance(expression, BaseException):
-                    raise expression from planner_error
-                raise
-
-        if (
-            planning_decision is not None
-            and planning_decision.action is CorePlanningAction.EXECUTE
-        ):
             reviewed_text = await self._review_handoff_audio(event)
             if reviewed_text:
                 self._apply_reviewed_input_text(event, reviewed_text)
                 await self._invalidate_context_material_for_revised_input(event)
-                set_interaction_turn_core_planning_decision(event, None)
                 set_interaction_turn_core_task_spec(event, None)
                 route = await self._run_core_router(event, interaction_config)
                 if route.route_mode is not InteractionRouteMode.HYBRID:
@@ -1169,15 +1068,10 @@ class InteractionMiddleware:
                             None,
                         )
                     return
-                planning_decision = await self._plan_core_execution(
-                    event,
-                    interaction_config,
-                )
-
-        if (
-            planning_decision is not None
-            and planning_decision.action is CorePlanningAction.EXECUTE
-        ):
+            set_interaction_turn_core_task_spec(
+                event,
+                build_interaction_core_task_spec(event),
+            )
             await asyncio.gather(persona_task, return_exceptions=True)
             await self._emit_delegated(event, route)
             self._forward_to_core(event)
@@ -1261,36 +1155,6 @@ class InteractionMiddleware:
             await asyncio.gather(task, return_exceptions=True)
         turn_state.context_material = None
         turn_state.context_material_task = None
-
-    async def _complete_delegated_planner_failure(
-        self,
-        event: AstrMessageEvent,
-        planner_error: BaseException,
-    ) -> None:
-        """Close a delegated turn without treating its acknowledgement as success."""
-
-        if (
-            turn_state := get_interaction_turn_state(event)
-        ) is not None and turn_state.failures:
-            turn_state.failures[-1].user_visible_action = "delegation_failed"
-        await self.output_controller.emit_failure_reply(
-            "刚才没能启动这个任务，请稍后再试一次。",
-            event,
-            failure_kind=InteractionFailureKind.INTERNAL_FAILURE,
-        )
-        logger.warning(
-            "Delegated Core planning failed after immediate acknowledgement: "
-            "turn_id=%s error=%s",
-            event.get_extra("_turn_id"),
-            planner_error,
-            exc_info=(
-                type(planner_error),
-                planner_error,
-                planner_error.__traceback__,
-            ),
-        )
-        await self._finalize_turn(event)
-        event.stop_event()
 
     def _start_speculative_persona_task(
         self,
@@ -1807,34 +1671,6 @@ class InteractionMiddleware:
     ) -> None:
         turn_state = ensure_interaction_turn_state(event)
         turn_state.speculative_persona_status = status
-
-    async def _plan_core_execution(
-        self,
-        event: AstrMessageEvent,
-        interaction_config,
-    ) -> CorePlanningDecision:
-        try:
-            if self.plugin_context is None:
-                raise CorePlannerError("plugin_context_unavailable")
-            decision = await self.core_planner.plan(
-                event,
-                self.plugin_context,
-                interaction_config,
-            )
-        except CorePlannerError as exc:
-            record_interaction_turn_failure(
-                event,
-                stage="core_planner",
-                reason=exc.reason,
-                exception=exc,
-                user_visible_action="none",
-            )
-            record_interaction_turn_core_planner_failure(event, str(exc))
-            raise
-        set_interaction_turn_core_planning_decision(event, decision)
-        if decision.action is CorePlanningAction.EXECUTE:
-            set_interaction_turn_core_task_spec(event, decision.task_spec)
-        return decision
 
     async def _emit_delegated(
         self,

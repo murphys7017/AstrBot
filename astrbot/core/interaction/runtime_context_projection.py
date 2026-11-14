@@ -19,7 +19,7 @@ def project_observation_batch(
     *,
     evaluated_at: float | None = None,
 ) -> dict[str, Any]:
-    """Return the bounded fact view shared by Policy and Core Planner."""
+    """Return the bounded fact view shared by Policy and Core."""
     observations = batch.observations[-_MAX_OBSERVATIONS:]
     return {
         "opened_at": batch.opened_at,

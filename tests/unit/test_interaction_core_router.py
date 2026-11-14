@@ -122,7 +122,6 @@ async def test_core_router_calls_selected_provider_with_structured_json_contract
             router_provider_id="router",
             router_temperature=0.2,
             router_timeout=2.0,
-            planner_provider_id="planner",
         ),
     )
 

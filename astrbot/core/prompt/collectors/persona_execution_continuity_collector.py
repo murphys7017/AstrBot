@@ -22,7 +22,7 @@ _CANCELLATION_REASON_MAX_CHARS = 240
 
 
 class PersonaExecutionContinuityCollector(ContextCollectorInterface):
-    """Expose one resumable, superseded Core task to Router and Core Planner."""
+    """Expose one resumable, superseded Core task to the Router."""
 
     failure_policy = "optional"
 
@@ -60,7 +60,7 @@ class PersonaExecutionContinuityCollector(ContextCollectorInterface):
                 llm_exposure="allowed",
                 render_mode="structured",
                 meta={
-                    "targets": ["core_router", "core_planner"],
+                    "targets": ["core_router"],
                     "scope": "continuity",
                 },
             )

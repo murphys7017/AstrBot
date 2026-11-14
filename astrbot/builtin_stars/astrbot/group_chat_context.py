@@ -209,7 +209,7 @@ class GroupChatContext(PromptExtensionCollectorInterface):
                         len(_format_group_record(record)) for record in records
                     ),
                     "official_context": True,
-                    "targets": ["core_planner", "persona", "core"],
+                    "targets": ["persona", "core"],
                     "context_slot": "conversation.group_recent",
                     "context_category": "conversation",
                 },

@@ -23,7 +23,7 @@ the target ContextPack, then inserts the returned messages into that request. Me
 `_no_save=True` and are not written to conversation history:
 
 The collector must explicitly declare `prompt_message_targets`. Plugin transient messages are accepted
-only for `persona` and `core`; they cannot inject into `core_router`, `core_planner`, or
+only for `persona` and `core`; they cannot inject into `core_router` or
 `personal_policy`.
 `plugin_capability_targets.<plugin-name>.prompt_extensions` can select `persona` or `core` for
 that plugin. It only takes effect when the collector's `prompt_message_targets` or an extension's
@@ -58,7 +58,7 @@ must also fit the configured model's remaining context budget; otherwise they ar
 request. Returned messages are model-visible context only; they must not send platform messages or
 perform side effects.
 
-Collectors run before target projection. A plugin fact can therefore be explicitly exposed to Persona or Core through `meta.targets`. Core Planner does not mount plugin extensions or plugin capability directories; it consumes only core-owned task facts. Collectors never receive control decisions and cannot mutate the canonical pack.
+Collectors run before target projection. A plugin fact can therefore be explicitly exposed to Persona or Core through `meta.targets`. Core Router does not mount plugin extensions or plugin capability directories; Core consumes execution facts through its admitted capability snapshot. Collectors never receive control decisions and cannot mutate the canonical pack.
 
 ## Register a Collector
 
@@ -118,7 +118,7 @@ The main `PromptExtension` fields are:
 - `order`: stable ordering within a mount; lower values come first.
 - `meta.targets`: the model roles allowed to read this fact.
 
-Valid plugin targets are `persona` and `core`. A regular extension without targets defaults to Core only. Core Planner does not accept plugin extensions or plugin capability directories. Facts needed by that control-plane model must be provided by explicitly trusted, core-owned collectors; setting `official_context` in a plugin does not grant that permission.
+Valid plugin targets are `persona` and `core`. A regular extension without targets defaults to Core only. Core Router does not accept plugin extensions or plugin capability directories; setting `official_context` in a plugin does not grant that permission.
 
 ## Lifecycle and Failures
 
@@ -131,9 +131,9 @@ A failing plugin collector is logged and skipped so one plugin cannot break core
 
 ## Interaction Latency Boundary
 
-An Interaction turn first builds base facts shared by Personal, Planner, and Core,
+An Interaction turn first builds base facts shared by Personal, Persona, and Core,
 then constructs a Persona/Core-only plugin-enrichment pack in the background.
-Core Planner never reads ordinary plugin extensions. Persona uses enrichment only
+Core Router never reads ordinary plugin extensions. Persona uses enrichment only
 when it is already ready; otherwise it produces the first reply from base facts.
 Core waits for and reuses the same enrichment result only when execution is needed.
 
@@ -152,12 +152,12 @@ slow external control work.
 | LLM Tool | Register executable capability; plugin tools default to Core and enter Persona only through an explicit declaration or user override |
 | `on_llm_request` | Modify the pre-tool Persona request once, or the routed Core low-level request, based on plugin target |
 
-Plugin LLM lifecycle and LLM Tool targets resolve independently. Lifecycle order is the `plugin_capability_targets.<plugin>.llm_hooks` override, class or legacy decorator declaration, then the Persona default. Tool order is the user `plugin_capability_targets.<plugin>.tools` override, the tool's `tool_targets` declaration, then the Core default. Non-Interaction flows retain the official Core behavior. Persona `on_llm_request` runs once before its optional tool loop, and its non-contract mutations are retained for the final expression; it does not run for Core Planner or internal Persona tool calls. Actual Persona tool execution still emits `on_using_llm_tool` and `on_llm_tool_respond`. Facts needed by plugin-enabled targets must use Prompt Extensions with explicit `persona` or `core` targets; do not make per-turn dynamic facts depend on a low-level request hook.
+Plugin LLM lifecycle and LLM Tool targets resolve independently. Lifecycle order is the `plugin_capability_targets.<plugin>.llm_hooks` override, class or legacy decorator declaration, then the Persona default. Tool order is the user `plugin_capability_targets.<plugin>.tools` override, the tool's `tool_targets` declaration, then the Core default. Non-Interaction flows retain the official Core behavior. Persona `on_llm_request` runs once before its optional tool loop, and its non-contract mutations are retained for the final expression; it does not run for Core Router or internal Persona tool calls. Actual Persona tool execution still emits `on_using_llm_tool` and `on_llm_tool_respond`. Facts needed by plugin-enabled targets must use Prompt Extensions with explicit `persona` or `core` targets; do not make per-turn dynamic facts depend on a low-level request hook.
 
 ## Safety Rules
 
 - Do not return secrets, tokens, internal paths, or unnecessary user identifiers.
-- Do not feed Personal-plan or Planner decisions, or model output, back into the same turn's facts.
+- Do not feed Personal decisions or model output, back into the same turn's facts.
 - Do not send messages, write memory, or run side-effecting tools from a collector.
 - Do not imitate executable tools with Prompt text; register real tools through the Tool API.
 - Do not require generic Personal-plan patches for one plugin; describe only the plugin name and capability.
