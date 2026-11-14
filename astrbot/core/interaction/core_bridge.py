@@ -32,15 +32,27 @@ def get_core_task_spec(event: AstrMessageEvent) -> CoreTaskSpec | None:
     return None
 
 
-def build_interaction_core_task_spec(event: AstrMessageEvent) -> CoreTaskSpec:
-    """Build the executor handoff snapshot after Router admission.
+def build_interaction_core_task_spec(
+    event: AstrMessageEvent,
+    provider_request: ProviderRequest | None = None,
+) -> CoreTaskSpec:
+    """Build the executor handoff snapshot after Core admission.
 
-    Router owns the admission decision; this local projection only preserves
-    the user's request and whether the canonical context contains visual input.
+    Router or an explicit Core bypass owns the admission decision; this local
+    projection only preserves the request and visual-input requirement.
     It deliberately performs no provider call and no capability selection.
     """
 
+    if provider_request is None:
+        candidate_request = getattr(event, "get_extra", lambda *_args: None)(
+            "provider_request"
+        )
+        provider_request = (
+            candidate_request if isinstance(candidate_request, ProviderRequest) else None
+        )
     text = str(getattr(event, "message_str", "") or "").strip()
+    if not text and provider_request is not None:
+        text = str(provider_request.prompt or "").strip()
     if not text:
         text = "执行当前用户请求。"
     turn_state = get_interaction_turn_state(event)
@@ -52,6 +64,8 @@ def build_interaction_core_task_spec(event: AstrMessageEvent) -> CoreTaskSpec:
         for name in ("input.images", "input.quoted_images")
         if isinstance(slots, dict)
     )
+    if not requires_visual_understanding and provider_request is not None:
+        requires_visual_understanding = bool(provider_request.image_urls)
     return CoreTaskSpec(
         task_intent="user_request",
         task_summary=text,

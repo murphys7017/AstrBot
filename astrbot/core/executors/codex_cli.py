@@ -11,6 +11,7 @@ from .codex_session import CodexSdkSession
 from .contracts import (
     ExecutionFinalUpdate,
     ExecutionOutputMaterial,
+    ExecutionOutputUpdate,
     ExecutionProgressUpdate,
     ExecutionResult,
     ExecutionUpdate,
@@ -104,6 +105,13 @@ class CodexExecutorRun:
                     if method == "item/started":
                         yield ExecutionProgressUpdate(summary="working")
                         continue
+                    if method == "item/agentMessage/delta":
+                        delta = _extract_agent_message_delta(payload)
+                        if delta:
+                            yield ExecutionOutputUpdate(
+                                output=ExecutionOutputMaterial(text=delta)
+                            )
+                        continue
                     if method == "item/completed":
                         item = getattr(payload, "item", None)
                         if item is not None:
@@ -166,6 +174,20 @@ def build_codex_executor_run(
 def _enum_value(value: object) -> str | None:
     raw = getattr(value, "value", value)
     return raw if isinstance(raw, str) else None
+
+
+def _extract_agent_message_delta(payload: object) -> str:
+    """Return final-answer text deltas while excluding commentary/reasoning."""
+
+    phase = getattr(payload, "phase", None)
+    if phase is None:
+        item = getattr(payload, "item", None)
+        phase = getattr(item, "phase", None)
+    phase_value = _enum_value(phase)
+    if phase_value not in {None, "final_answer"}:
+        return ""
+    delta = getattr(payload, "delta", None)
+    return delta if isinstance(delta, str) and delta else ""
 
 
 def _extract_final_text(items: list[Any]) -> str:

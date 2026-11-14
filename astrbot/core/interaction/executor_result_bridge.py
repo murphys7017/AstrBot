@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from astrbot.core import logger
@@ -37,6 +38,16 @@ class ExecutionResultOutputBridge:
     head: CoreExecutionHead
     _final_delivery_started: bool = field(default=False, init=False)
     _last_progress_stage: str | None = field(default=None, init=False)
+    _incremental_stream_queue: asyncio.Queue[MessageChain | None] | None = field(
+        default=None,
+        init=False,
+    )
+    _incremental_stream_task: asyncio.Task[None] | None = field(
+        default=None,
+        init=False,
+    )
+    _incremental_text: str = field(default="", init=False)
+    _incremental_stream_failed: bool = field(default=False, init=False)
 
     async def accept(self, update: ExecutionUpdate) -> None:
         """Handle result-bearing updates while the execution is still current."""
@@ -48,9 +59,7 @@ class ExecutionResultOutputBridge:
             )
             return
         if isinstance(update, ExecutionOutputUpdate):
-            # Incremental generic output cannot safely reproduce the existing
-            # streaming/TTS protocol yet. It remains non-visible until that
-            # protocol is migrated explicitly.
+            await self._accept_incremental_output(update)
             return
         if isinstance(update, ExecutionProgressUpdate):
             stage = str(update.summary or "").strip().lower()
@@ -81,8 +90,18 @@ class ExecutionResultOutputBridge:
             return False
         output = result.output
         text = str(output.text or "").strip() if output is not None else ""
+        if not text and self._incremental_text:
+            text = self._incremental_text.strip()
         if not text or self._final_delivery_started:
             return False
+        if self._incremental_stream_queue is not None:
+            suffix = self._incremental_suffix(text)
+            if suffix:
+                await self._publish_incremental_text(suffix)
+            await self._close_incremental_stream()
+            if not self._incremental_stream_failed:
+                self._final_delivery_started = True
+                return True
         self._final_delivery_started = True
         if output is not None and output.assets:
             logger.info(
@@ -96,6 +115,106 @@ class ExecutionResultOutputBridge:
             self.event,
         )
         return True
+
+    async def _accept_incremental_output(
+        self,
+        update: ExecutionOutputUpdate,
+    ) -> None:
+        output = update.output
+        text = str(output.text or "") if output is not None else ""
+        if not text:
+            return
+        self._incremental_text += text
+        if output.assets:
+            logger.info(
+                "Executor incremental output contains deferred asset references: "
+                "execution_id=%s asset_count=%s",
+                self.head.spec.execution_id,
+                len(output.assets),
+            )
+        if not self._supports_incremental_streaming():
+            return
+        await self._ensure_incremental_stream()
+        await self._publish_incremental_text(text)
+
+    def _supports_incremental_streaming(self) -> bool:
+        enabled = self.event.get_extra("enable_streaming")
+        if enabled is False:
+            return False
+        metadata = getattr(self.event, "platform_meta", None)
+        return bool(getattr(metadata, "support_streaming_message", False))
+
+    async def _ensure_incremental_stream(self) -> None:
+        if self._incremental_stream_queue is not None:
+            return
+        queue = asyncio.Queue()
+        self._incremental_stream_queue = queue
+
+        async def source():
+            while True:
+                item = await queue.get()
+                if item is None:
+                    return
+                yield item
+
+        self._incremental_stream_task = asyncio.create_task(
+            self.output_controller.capture_streaming(source(), self.event),
+            name=f"core-executor-stream:{self.head.spec.execution_id}",
+        )
+
+    async def _publish_incremental_text(self, text: str) -> None:
+        queue = self._incremental_stream_queue
+        if queue is None or self._incremental_stream_failed:
+            return
+        try:
+            await queue.put(MessageChain().message(text))
+        except Exception:
+            self._incremental_stream_failed = True
+            logger.warning(
+                "Core executor incremental output enqueue failed: execution_id=%s",
+                self.head.spec.execution_id,
+                exc_info=True,
+            )
+
+    def _incremental_suffix(self, final_text: str) -> str:
+        if final_text.startswith(self._incremental_text):
+            return final_text[len(self._incremental_text) :]
+        if self._incremental_text.startswith(final_text):
+            return ""
+        logger.warning(
+            "Core executor incremental output diverged from final result: "
+            "execution_id=%s incremental_chars=%s final_chars=%s",
+            self.head.spec.execution_id,
+            len(self._incremental_text),
+            len(final_text),
+        )
+        return final_text
+
+    async def _close_incremental_stream(self) -> None:
+        queue = self._incremental_stream_queue
+        task = self._incremental_stream_task
+        self._incremental_stream_queue = None
+        self._incremental_stream_task = None
+        if queue is None or task is None:
+            return
+        await queue.put(None)
+        try:
+            await task
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._incremental_stream_failed = True
+            logger.warning(
+                "Core executor incremental stream failed: execution_id=%s",
+                self.head.spec.execution_id,
+                exc_info=True,
+            )
+
+    async def close(self) -> None:
+        """Close an unfinished incremental stream during cancellation or failure."""
+
+        if self._incremental_stream_queue is not None:
+            await self._close_incremental_stream()
 
     def _can_accept_result(self) -> bool:
         """Allow a just-completed result, but reject replaced executions."""
@@ -133,16 +252,19 @@ async def drive_executor_to_personal_output(
         if callable(getattr(event, "get_extra", None))
         else None
     )
-    return await drive_executor_run(
-        head=head,
-        body=body,
-        run=run,
-        deadline=deadline,
-        submission_metadata=submission_metadata,
-        output_sink=bridge.accept,
-        executor_lease=executor_lease,
-        cleanup_scope=state.execution_scope if state is not None else None,
-    )
+    try:
+        return await drive_executor_run(
+            head=head,
+            body=body,
+            run=run,
+            deadline=deadline,
+            submission_metadata=submission_metadata,
+            output_sink=bridge.accept,
+            executor_lease=executor_lease,
+            cleanup_scope=state.execution_scope if state is not None else None,
+        )
+    finally:
+        await bridge.close()
 
 
 __all__ = ["ExecutionResultOutputBridge", "drive_executor_to_personal_output"]

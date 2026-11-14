@@ -29,7 +29,7 @@ from astrbot.core.voice import (
 from .config import is_middleware_enabled, load_interaction_agent_config
 from .context_builder import get_interaction_prompt_source_request
 from .conversation_history import commit_interaction_conversation_turn
-from .core_bridge import build_interaction_core_task_spec
+from .core_bridge import build_interaction_core_task_spec, get_core_task_spec
 from .core_router import CoreRouterAgent, CoreRouterError
 from .dialogue import build_canonical_user_message
 from .expression_agent import (
@@ -1049,6 +1049,11 @@ class InteractionMiddleware:
                 self._apply_reviewed_input_text(event, reviewed_text)
                 await self._invalidate_context_material_for_revised_input(event)
                 set_interaction_turn_core_task_spec(event, None)
+                persona_task = await self._refresh_persona_task_after_input_revision(
+                    event,
+                    persona_task,
+                    interaction_config,
+                )
                 route = await self._run_core_router(event, interaction_config)
                 if route.route_mode is not InteractionRouteMode.HYBRID:
                     result = await asyncio.gather(
@@ -1106,6 +1111,29 @@ class InteractionMiddleware:
         normalized = str(text or "").strip()
         current = str(event.message_str or "").strip()
         return normalized if normalized and normalized != current else None
+
+    async def _refresh_persona_task_after_input_revision(
+        self,
+        event: AstrMessageEvent,
+        persona_task: asyncio.Task[PersonaExpressionResult | None],
+        interaction_config: InteractionAgentConfig,
+    ) -> asyncio.Task[PersonaExpressionResult | None]:
+        """Regenerate an uncommitted Persona branch after ASR correction."""
+
+        turn_state = ensure_interaction_turn_state(event)
+        if turn_state.speculative_persona_status in {
+            InteractionSpeculativePersonaStatus.COMMITTED,
+            InteractionSpeculativePersonaStatus.EMITTED,
+        }:
+            return persona_task
+        if not persona_task.done():
+            persona_task.cancel()
+        await asyncio.gather(persona_task, return_exceptions=True)
+        self._set_speculative_persona_status(
+            event,
+            InteractionSpeculativePersonaStatus.PENDING,
+        )
+        return self._start_speculative_persona_task(event, interaction_config)
 
     @staticmethod
     def _apply_reviewed_input_text(event: AstrMessageEvent, text: str) -> None:
@@ -2044,6 +2072,11 @@ class InteractionMiddleware:
         self,
         event: AstrMessageEvent,
     ) -> None:
+        if get_core_task_spec(event) is None:
+            set_interaction_turn_core_task_spec(
+                event,
+                build_interaction_core_task_spec(event),
+            )
         selected_provider = event.get_extra("selected_provider")
         provider_id = str(selected_provider).strip() if selected_provider else ""
         if not provider_id and self.plugin_context is not None:

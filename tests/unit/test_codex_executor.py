@@ -74,7 +74,10 @@ async def test_codex_run_emits_progress_and_one_final_text():
                 SimpleNamespace(method="turn/started", payload=None),
                 SimpleNamespace(
                     method="item/agentMessage/delta",
-                    payload=SimpleNamespace(delta="hidden intermediate"),
+                    payload=SimpleNamespace(
+                        delta="hidden intermediate",
+                        phase="commentary",
+                    ),
                 ),
                 SimpleNamespace(
                     method="turn/completed",
