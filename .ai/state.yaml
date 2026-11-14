@@ -1,3 +1,45 @@
+snapshot_hub_unification_20261114:
+  date: '2026-11-14'
+  class: feature
+  risk: high
+  status: implemented_pending_paired_restart
+  decision: >-
+    Treat MemorySnapshot and DesktopStateSnapshot as separate domain payloads
+    over one shared SnapshotHub envelope. The hub is an in-memory Core-owned
+    relay with scope, revision, freshness, and provenance metadata; it is not a
+    replacement for durable MemoryStore or a long-term desktop archive. Large
+    desktop frames use Core-owned short-lived attachment references. Desktop
+    Observation facts may carry a short-lived frame reference, while Personal
+    resolves it only when building a visual policy request.
+  scope: >-
+    Add the public Context.get_snapshot_hub() boundary and generic snapshot
+    contracts, attachment storage and scoped subscriptions. AG99live submits
+    per-platform desktop inputs while Core owns the current state and frame
+    cache. The independent desktop awareness plugin consumes that state and
+    submits desktop facts. Consumers read or subscribe to the cached state and
+    do not request a new screenshot from AG99live. Personal Policy receives a
+    matching current frame only through its request-local ProviderRequest image
+    input.
+  validation: >-
+    AstrBot snapshot modules and Context/API exports passed Ruff and compileall.
+    SnapshotHub publish/read/compose/clear smoke passed. AG99live adapter source
+    passed Ruff and compileall; the focused adapter suite passed 14 tests and the
+    desktop bridge smoke passed with the AstrBot source on PYTHONPATH. Review
+    tightened reads and composition to require an explicit scope and prunes
+    expired entries and revision metadata. Core attachment storage and latest-
+    value scoped subscription smoke passed. Personal Policy and prompt-context
+    tests passed; the independent desktop awareness plugin passed Ruff,
+    compileall, plugin structure validation and a frame subscription smoke.
+  limitations: >-
+    MemorySnapshot publication currently occurs on the Prompt Memory Collector
+    path with a bounded TTL; direct low-level MemoryService callers still own
+    their returned payload and do not implicitly publish it. No full AstrBot
+    restart, Electron/AG99live live capture, Policy, TTS, or Live2D acceptance
+    was run. The desktop prompt bridge was source-validated but not exercised
+    against a live visual Provider request.
+    AG99live keeps a capability check so older installed AstrBot packages can
+    still import the plugin without publishing snapshots.
+
 ag99live_source_authority_20261023:
   date: '2026-10-23'
   class: maintenance

@@ -122,11 +122,23 @@ Interaction middleware 的职责不是替代 persona，而是承载一次 intera
 - `EffectivePersonaResolver`
 - `PersonaStateService`
 - `MemorySnapshotReader`
+- `SnapshotHub`
 - `RelationshipStateService`
 - `CapabilityPolicy`
 - `BodyOutputPolicy`
 
 这样它是人格层的运行外壳，而不是新的全局大对象。
+
+`SnapshotHub` 是 Core 与插件之间共享当前状态的进程内中转层。它统一提供
+`SnapshotScope`、修订号、生成时间、过期时间和来源信息，但不接管领域数据的所有权：
+`MemorySnapshot` 继续由 Memory 服务构建和持久化，`DesktopStateSnapshot` 由 AG99live
+提供输入并由 Core 缓存和发布。桌面帧通过 Core 的短期附件存储按引用读取，不写入长期记忆；
+后续插件可以在同一作用域下发布其他领域快照，消费者只依赖 `Context.get_snapshot_hub()` 的公开接口。
+订阅使用显式 `SnapshotScope`，Hub 对高频更新采用当前值合并，订阅者按 revision 读取最新状态。
+桌面观察事实只携带短期帧引用和修订信息；Personal 在确实构建视觉策略请求时，才按当前作用域和代际解析该引用并填入 `ProviderRequest.image_urls`，普通对话和状态订阅不自动携带截图。
+当前 Prompt Memory Collector 已将本轮 `MemorySnapshot` 以短 TTL 发布到 Hub，供后续
+上下文组合读取；Hub 的读取和组合必须显式提供 `SnapshotScope`，不提供跨会话的全局枚举；
+这不会改变事件级缓存、RecallSnapshotManager 或 MemoryStore 的所有权。
 
 ### 6. Desktop Body 是本地身体表现层
 

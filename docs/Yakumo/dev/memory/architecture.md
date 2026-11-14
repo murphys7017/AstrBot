@@ -23,6 +23,9 @@ Finalized Turn Material
 - `MemoryService` 负责写入编排和读取快照。
 - `MemoryStore` 是 SQLite 结构化真源。
 - `Prompt MemoryCollector` 只读取 `MemorySnapshot`，不写入 Memory。
+- Prompt MemoryCollector 会把本轮 `MemorySnapshot` 以短 TTL 发布到 Core
+  `SnapshotHub`，作为跨插件的只读投影；这不改变 MemoryStore、RecallSnapshotManager
+  或事件级缓存的所有权。
 
 ## 写入链路
 
@@ -60,6 +63,7 @@ PromptContextBuilder
   -> local snapshot(topic / short-term / persona)
   -> RecallSnapshotManager(stale-while-revalidate)
   -> background scoped recall(USER / GROUP / GLOBAL)
+  -> SnapshotHub(memory envelope, bounded TTL)
   -> memory.* ContextSlot
   -> target projection
 ```
@@ -98,6 +102,8 @@ target 投影。
 - `long_term_service.py`：长期记忆创建、更新和证据关联。
 - `document_search.py` / `vector_index.py`：长期记忆检索和向量索引。
 - `snapshot_builder.py`：按读取选项形成模型侧快照。
+- `snapshot_bridge.py`：将本轮 `MemorySnapshot` 发布/读取为统一 SnapshotHub envelope，
+  不承担持久化。
 - `postprocessor.py`：回合完成后的唯一自动写入入口。
 
 ## 配置与存储
@@ -127,6 +133,14 @@ Memory 配置已进入 AstrBot 统一配置，不存在 `data/memory/config.yaml
 - `PersonaStateService` 只接受 USER scope 语义变化，负责中性基线、置信度、delta 限幅、间隔判断，以及 state + evolution log 的原子写入和显式回滚。
 - PersonaState reflection 只消费 consolidation 后的 SessionInsight/Experience；相关开关和 Prompt 注入继续默认关闭，真实运行验收仍待完成。
 - Prompt 负责读取和可见范围，不负责 consolidation 或持久化。
+- SnapshotHub 只保存短期、可过期的快照投影；它不是 MemoryStore 的替代品，也不把桌面
+  帧或记忆 payload 写入长期存储。
+- SnapshotHub 支持显式作用域订阅；大型桌面帧使用独立的短期附件引用，订阅 envelope 不携带
+  原始 JPEG。
+- 桌面 Observation 与 Personal Prompt 的图片输入是两条生命周期：Observation 只保留短期帧引用，
+  Personal 只有在当前策略请求支持视觉且确实需要时才解析引用并发送图片。
+- SnapshotHub 的读取必须带显式 `SnapshotScope`，避免插件通过无作用域枚举读取其他会话的
+  记忆快照。
 - `TurnRecord.assistant_only` 是持久化的回合事实，后台 worker 不再通过空用户文本猜测它。
 - Interaction finalized material 是 Interaction 回合的提交材料，不再另存私有记忆。
 - 长期文档和向量索引是检索载体，SQLite 中的 index/link/status 仍是结构化真源。

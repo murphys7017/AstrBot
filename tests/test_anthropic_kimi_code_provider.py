@@ -269,7 +269,8 @@ async def test_text_chat_wraps_string_system_prompt_as_list(monkeypatch):
 
     captured_payloads: dict[str, object] = {}
 
-    async def fake_query(payloads, tools):
+    async def fake_query(payloads, tools, **kwargs):
+        del kwargs
         captured_payloads.update(payloads)
         return LLMResponse(role="assistant", completion_text="ok")
 
@@ -277,7 +278,13 @@ async def test_text_chat_wraps_string_system_prompt_as_list(monkeypatch):
 
     await provider.text_chat(prompt="hello", system_prompt="You are helpful.")
 
-    assert captured_payloads["system"] == [{"type": "text", "text": "You are helpful."}]
+    assert captured_payloads["system"] == [
+        {
+            "type": "text",
+            "text": "You are helpful.",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -296,7 +303,8 @@ async def test_text_chat_passes_through_list_system_prompt(monkeypatch):
 
     captured_payloads: dict[str, object] = {}
 
-    async def fake_query(payloads, tools):
+    async def fake_query(payloads, tools, **kwargs):
+        del kwargs
         captured_payloads.update(payloads)
         return LLMResponse(role="assistant", completion_text="ok")
 
@@ -308,7 +316,13 @@ async def test_text_chat_passes_through_list_system_prompt(monkeypatch):
     ]
     await provider.text_chat(prompt="hello", system_prompt=structured_system)
 
-    assert captured_payloads["system"] == structured_system
+    assert captured_payloads["system"] == [
+        structured_system[0],
+        {
+            **structured_system[1],
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
 
 
 def test_anthropic_empty_output_raises_empty_model_output_error():

@@ -66,6 +66,9 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
             "progress_stage": str(
                 getattr(request, "progress_stage", "") or ""
             ).strip(),
+            "execution_status": str(
+                getattr(request, "execution_status", "unknown") or "unknown"
+            ).strip(),
             "preserve_facts": bool(getattr(request, "preserve_facts", False)),
             "short_reply": bool(getattr(request, "short_reply", False)),
             "allow_empty": bool(getattr(request, "allow_empty", False)),
@@ -76,6 +79,7 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                 "phase": payload["phase"],
                 "source": payload["source"],
                 "progress_stage": payload["progress_stage"],
+                "execution_status": payload["execution_status"],
                 "progress_context": _truncate_phase_local_text(
                     payload["progress_context"],
                     max_chars=_PERSONA_PROGRESS_CONTEXT_MAX_CHARS,

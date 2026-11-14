@@ -3530,6 +3530,13 @@ class InteractionOutputController:
                     total_text=total_text,
                     pending_text=get_interaction_turn_stream_pending_text(event),
                     progress_stage=progress_stage,
+                    execution_status=(
+                        "tool_running"
+                        if progress_stage == "tool_running"
+                        else "tool_completed"
+                        if progress_stage == "tool_completed"
+                        else "unknown"
+                    ),
                     short_reply=True,
                     allow_empty=True,
                     intent=PersonaExpressionIntent(

@@ -12,6 +12,7 @@ from astrbot.core import logger
 from astrbot.core.memory.config import get_memory_config
 from astrbot.core.memory.scope_context import resolve_memory_scope_context
 from astrbot.core.memory.service import get_memory_service
+from astrbot.core.memory.snapshot_bridge import publish_memory_snapshot
 from astrbot.core.memory.snapshot_builder import (
     MemorySnapshotReadOptions,
     memory_injection_to_snapshot_read_options,
@@ -151,6 +152,23 @@ async def resolve_prompt_memory_snapshot(
             else None
         ),
     )
+    get_snapshot_hub = getattr(plugin_context, "get_snapshot_hub", None)
+    if callable(get_snapshot_hub):
+        snapshot_hub = get_snapshot_hub()
+        if snapshot_hub is not None and callable(
+            getattr(snapshot_hub, "publish_snapshot", None)
+        ):
+            try:
+                publish_memory_snapshot(
+                    snapshot_hub,
+                    snapshot,
+                    config_id=config_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "memory snapshot hub publication failed; keeping prompt snapshot: %s",
+                    exc,
+                )
     cache_entries = cache.setdefault(cache_key, [])
     if not isinstance(cache_entries, list):
         cache_entries = []

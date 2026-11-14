@@ -33,6 +33,24 @@ from astrbot.core.star.register import (
 )
 from astrbot.core.star import Context, Star
 from astrbot.core.star.config import *
+from astrbot.core.snapshots import (
+    DesktopFrameReference,
+    DesktopStateSnapshot,
+    SnapshotAttachment,
+    SnapshotAttachmentRef,
+    SnapshotAttachmentStore,
+    SnapshotCallback,
+    SnapshotComposer,
+    SnapshotEnvelope,
+    SnapshotFreshness,
+    SnapshotHub,
+    SnapshotPublisher,
+    SnapshotProvenance,
+    SnapshotReader,
+    SnapshotScope,
+    SnapshotSubscription,
+    resolve_desktop_frame_attachment,
+)
 
 
 # provider

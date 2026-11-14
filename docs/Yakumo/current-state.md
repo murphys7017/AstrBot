@@ -551,7 +551,7 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - 有排队、执行、跟进中的对话工作或未完成清理时不提交机会，也不提前消耗该用户活动周期。事实有效 5 分钟；新用户输入在 Runtime 绑定、等待 turn 执行权之前撤销旧事实。策略不表达或用户没有回应都不会让同一轮空闲不断重试。
 - 空闲表达可以承接近期话题，也可以结合人格和已知偏好轻量开启新话题。没有合适内容时保持安静；不从沉默推断用户离开、孤独或低落，不重复询问“在吗”或催促回应。
 - `personal_idle_initiation_enabled` 默认关闭，阈值由 `personal_idle_initiation_after_seconds` 控制。Heartbeat 周期决定实际检查时点，因此该值是最早准入时间而非精确触发器。详细加载和验收边界见 [空闲主动接话](../runtime/idle-initiation.md)。
-- AG99live 当前通过插件 Runtime Sensor 提交 `desktop_changed` 与 `desktop_returned` 事实。桌面变化仅在本机以分块 SSIM/颜色差做数学比较；返回来源读取系统锁屏/休眠及输入空闲时长。两项功能默认关闭、遵循对话优先级并复用同一 Policy；变化图像不进入模型，事件本身也不保证触发发言。真实桌面、Windows 锁屏/休眠和语音/动作仍待配套加载验收，细则见 AG99live 文档中心的两份桌面计划。
+- `astrbot_plugin_ag99_desktop_awareness` 通过插件 Runtime Sensor 提交 `desktop_changed` 与 `desktop_returned` 事实。它读取 AG99live 通过 Core SnapshotHub 发布的桌面状态，桌面变化仅在插件内以分块 SSIM/颜色差做数学比较；返回来源读取 Presence 快照。AG99live 截图采集默认关闭，插件内变化提交默认开启但没有采集帧时不会产生事实，返回提交默认关闭；两条路径遵循对话优先级并复用同一 Policy。变化图像不进入事实，Personal 仅在视觉请求中按帧引用读取。真实桌面、Windows 锁屏/休眠和语音/动作仍待配套加载验收，细则见 AG99live 文档中心的两份桌面计划。
 
 以上已通过针对性静态检查和运行时边界验证；重启后的实际策略 Provider、语音及 Live2D 表现仍需现场验收。
 

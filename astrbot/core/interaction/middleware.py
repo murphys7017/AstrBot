@@ -1373,6 +1373,7 @@ class InteractionMiddleware:
                 short_reply=True,
                 require_turn_action=True,
                 allow_silent=group_conversation_allows_silent(event),
+                execution_status="pending_route",
                 intent=PersonaExpressionIntent(
                     source="user_message",
                     phase="immediate",
@@ -1455,6 +1456,7 @@ class InteractionMiddleware:
             require_turn_action=True,
             allow_action_only=event.get_platform_name() == "olv_pet_adapter",
             allow_silent=group_conversation_allows_silent(event),
+            execution_status="pending_route",
             intent=PersonaExpressionIntent(
                 source="user_message",
                 phase="immediate",

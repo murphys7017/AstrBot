@@ -31,6 +31,13 @@ PersonaExpressionPhase = Literal[
     "standalone",
 ]
 PersonaProgressStage = Literal["stream_text", "tool_running", "tool_completed"]
+PersonaExecutionStatus = Literal[
+    "unknown",
+    "pending_route",
+    "tool_running",
+    "tool_completed",
+    "core_result",
+]
 PERSONA_TENDENCY_DIMENSIONS: tuple[str, ...] = (
     "Joy",
     "Trust",
@@ -76,6 +83,7 @@ class PersonaExpressionRequest:
     total_text: str = ""
     pending_text: str = ""
     progress_stage: PersonaProgressStage | None = None
+    execution_status: PersonaExecutionStatus = "unknown"
     preserve_facts: bool = False
     short_reply: bool = False
     allow_empty: bool = False
@@ -97,6 +105,7 @@ class PersonaExpressionRequest:
             immediate_reply=immediate_reply or "",
             preserve_facts=True,
             short_reply=True,
+            execution_status="core_result",
             intent=PersonaExpressionIntent(
                 source="core_result",
                 phase="final",

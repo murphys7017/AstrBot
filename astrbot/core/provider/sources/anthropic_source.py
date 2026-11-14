@@ -243,11 +243,15 @@ class ProviderAnthropic(Provider):
             new_messages: 处理后的消息列表，去除系统提示
 
         """
-        system_prompt = ""
+        system_blocks = []
         new_messages = []
         for message in messages:
             if message["role"] == "system":
-                system_prompt = message["content"] or "<empty system prompt>"
+                content = message.get("content") or "<empty system prompt>"
+                if isinstance(content, list):
+                    system_blocks.extend(copy.deepcopy(content))
+                else:
+                    system_blocks.append({"type": "text", "text": str(content)})
             elif message["role"] == "assistant":
                 original_blocks = message.get("anthropic_content_blocks")
                 if isinstance(original_blocks, list):
@@ -374,7 +378,35 @@ class ProviderAnthropic(Provider):
             else:
                 new_messages.append(message)
 
-        return system_prompt, new_messages
+        return system_blocks, new_messages
+
+    def _cacheable_system_blocks(self, system_prompt):
+        if not system_prompt:
+            return system_prompt
+        blocks = copy.deepcopy(system_prompt)
+        provider_config = getattr(self, "provider_config", {})
+        if not isinstance(provider_config, dict):
+            provider_config = {}
+        provider_type = str(
+            provider_config.get("type", "") or ""
+        ).strip()
+        explicit_compatible_cache = bool(
+            provider_config.get(
+                "anthropic_prompt_cache",
+                False,
+            )
+        )
+        if provider_type != "anthropic_chat_completion" and not explicit_compatible_cache:
+            return blocks
+        if isinstance(blocks, str):
+            blocks = [{"type": "text", "text": blocks}]
+        if not isinstance(blocks, list):
+            return blocks
+        for block in reversed(blocks):
+            if isinstance(block, dict) and block.get("type") == "text":
+                block.setdefault("cache_control", {"type": "ephemeral"})
+                break
+        return blocks
 
     @staticmethod
     def _merge_consecutive_anthropic_messages(messages: list[Any]) -> list[Any]:
@@ -941,11 +973,7 @@ class ProviderAnthropic(Provider):
 
         # Anthropic has a different way of handling system prompts
         if system_prompt:
-            payloads["system"] = (
-                [{"type": "text", "text": system_prompt}]
-                if isinstance(system_prompt, str)
-                else system_prompt
-            )
+            payloads["system"] = self._cacheable_system_blocks(system_prompt)
 
         llm_response = None
         try:
@@ -1025,11 +1053,7 @@ class ProviderAnthropic(Provider):
 
         # Anthropic has a different way of handling system prompts
         if system_prompt:
-            payloads["system"] = (
-                [{"type": "text", "text": system_prompt}]
-                if isinstance(system_prompt, str)
-                else system_prompt
-            )
+            payloads["system"] = self._cacheable_system_blocks(system_prompt)
 
         async for llm_response in self._query_stream(
             payloads,

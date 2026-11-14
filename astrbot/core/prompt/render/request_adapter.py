@@ -72,6 +72,7 @@ class ProviderRequestAdapter:
         request.contexts = self._clone_messages(history_messages)
         for message in request.contexts:
             message.pop("_prompt_transient", None)
+            message.pop("_prompt_transient_placement", None)
         request.metadata = dict(request.metadata or {})
         if transient_indices:
             request.metadata[PROMPT_TRANSIENT_MESSAGE_INDICES_KEY] = transient_indices

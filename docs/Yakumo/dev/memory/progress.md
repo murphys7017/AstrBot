@@ -24,6 +24,9 @@
 - `MemoryService` 已提供 PersonaState 只读状态、演进日志、显式 rollback 和 scheduler/reflection 诊断入口；真实运行观察与开关启用仍未执行。
 - `MemoryCollector` 已进入统一 Prompt ContextPack，并由 target projection 控制 Personal
   Response Plan、Planner、Persona 和 Core 的可见范围。
+- `MemorySnapshot` 已通过 `snapshot_bridge.py` 发布到 Core `SnapshotHub`，使用配置档、UMO
+  和 conversation 组成的稳定哈希作用域以及短 TTL；读取仍以 MemoryService 和事件级缓存
+  为主，Hub 只提供跨插件只读投影。
 - Interaction 私有 Memory Store 和 `memory.interaction` slot 已删除。
 
 ## 当前限制

@@ -398,6 +398,7 @@ class BasePromptRenderer:
                 "total_text",
                 "pending_text",
                 "progress_stage",
+                "execution_status",
                 "preserve_facts",
                 "short_reply",
                 "allow_empty",

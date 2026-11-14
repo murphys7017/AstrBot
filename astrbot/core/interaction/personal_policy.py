@@ -28,7 +28,9 @@ from astrbot.core.prompt.render import (
 )
 from astrbot.core.provider import Provider
 from astrbot.core.provider.entities import LLMResponse, ProviderRequest
+from astrbot.core.snapshots import SnapshotScope, resolve_desktop_frame_attachment
 
+from .context_builder import provider_supports_modality
 from .observation_inbox import ObservationBatch
 from .persona_domain import (
     PersonaDefinition,
@@ -331,7 +333,7 @@ class PersonalPolicyAgent:
                 failure_code="provider_unavailable",
             )
         try:
-            render_result = await self._prepare_render_result(
+            render_result, image_urls = await self._prepare_render_result(
                 runtime_key=runtime_key,
                 batch=batch,
                 gate_result=gate_result,
@@ -408,6 +410,7 @@ class PersonalPolicyAgent:
             response = await asyncio.wait_for(
                 provider.text_chat(
                     prompt=render_result.request_prompt or "",
+                    image_urls=image_urls,
                     contexts=build_model_context_messages(
                         render_result.messages,
                         provider=provider,
@@ -496,6 +499,11 @@ class PersonalPolicyAgent:
             cid=None,
             history=None,
         )
+        request.image_urls = _desktop_observation_images(
+            plugin_context,
+            batch,
+            provider=provider,
+        )
         event.set_extra("provider_request", request)
         build_config = build_interaction_prompt_build_config(plugin_context, event)
         runtime_collector = RuntimeContextCollector(
@@ -560,7 +568,63 @@ class PersonalPolicyAgent:
             render_result.metadata["effective_persona_context"] = (
                 effective_persona_context.to_dict()
             )
-        return render_result
+        return render_result, request.image_urls
+
+
+def _desktop_observation_images(
+    plugin_context: Context,
+    batch: ObservationBatch,
+    *,
+    provider: Provider,
+) -> list[str]:
+    """Materialize a referenced desktop frame only for this policy request."""
+
+    if not provider_supports_modality(provider, "image"):
+        return []
+    get_snapshot_hub = getattr(plugin_context, "get_snapshot_hub", None)
+    snapshot_hub = get_snapshot_hub() if callable(get_snapshot_hub) else None
+    if snapshot_hub is None:
+        return []
+
+    for observation in reversed(batch.observations):
+        payload = observation.payload
+        attachment_id = payload.get("desktop_frame_attachment_id")
+        source_id = payload.get("desktop_frame_source_id")
+        if not isinstance(attachment_id, str) or not attachment_id.strip():
+            continue
+        if not isinstance(source_id, str) or not source_id.strip():
+            continue
+        try:
+            scope = SnapshotScope(
+                scope_type="platform",
+                scope_id=observation.target_session.platform_id,
+            )
+            attachment = resolve_desktop_frame_attachment(
+                snapshot_hub,
+                snapshot_kind="desktop_state",
+                source_id=source_id,
+                scope=scope,
+                attachment_id=attachment_id,
+                revision=_coerce_optional_int(payload.get("desktop_frame_revision")),
+                generation=_coerce_optional_int(
+                    payload.get("desktop_frame_generation")
+                ),
+            )
+        except (TypeError, ValueError):
+            continue
+        image = getattr(attachment, "payload", None)
+        if isinstance(image, str) and image:
+            return [image]
+    return []
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class PersonalPolicyPromptContext:

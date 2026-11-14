@@ -163,7 +163,7 @@ Provider、ToolSet 或平台直发能力。插件卸载时注册会按 module pr
 
 Heartbeat 的常规职责仍是重评 retained batch；空 Inbox 不会因周期检查自行产生 Observation。空闲主动接话、群聊 `conversation_activity` 和插件 Sensor 是不同事实来源，但都进入同一 Inbox/Gate/Policy/Persona 流程。
 
-AG99live 当前注册的插件 Sensor 为 `ag99live.desktop_change` 和 `ag99live.desktop_return`，提交的 fact kind 分别是 `desktop_changed`、`desktop_returned`。前者只在本机对截图做数学变化比较，图片不写入事实或发送给模型；后者只提交锁屏/休眠来源、输入恢复和空闲时长的短事实。两者默认关闭、服从会话准入和对话撤销，是否表达由 Personal Policy 决定。
+`astrbot_plugin_ag99_desktop_awareness` 注册的 Sensor 为 `ag99live.desktop_change` 和 `ag99live.desktop_return`，提交的 fact kind 分别是 `desktop_changed`、`desktop_returned`。它读取 AG99live 发布的 `desktop_state`，变化比较和返回检测在插件内完成，图片不写入事实或发送给模型。AG99live 截图采集默认关闭；插件内变化提交默认开启但没有采集帧时不会产生事实，返回提交默认关闭。两条路径都服从会话准入和对话撤销，是否表达由 Personal Policy 决定。
 
 `Context.send_message()` 仍是已经决定发送的兼容 API，不是 Sensor 或 Personal Policy
 决策；它保持 `support_proactive_message` 的精确发送语义，不进入自主表达防重。

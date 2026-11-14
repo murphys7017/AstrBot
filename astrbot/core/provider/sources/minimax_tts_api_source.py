@@ -169,8 +169,6 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
                             if message.startswith(b"data: "):
                                 try:
                                     data = json.loads(message[6:])
-                                    if "extra_info" in data:
-                                        continue
                                     audio: str | None = data.get("data", {}).get(
                                         "audio"
                                     )

@@ -666,6 +666,22 @@ def _build_expression_prompt(
         parts.append(
             "\n【回复状态】本轮允许 reply 或 silent；仅当群聊中的当前内容确实不需要回应时选择 silent。"
         )
+    if req.execution_status == "pending_route":
+        parts.append(
+            "\n【执行状态：尚未确认】当前只允许做自然的理解和承接，不要声称正在联网、正在查找、"
+            "已经调用工具或马上得到结果。可以结合用户刚说的具体对象或目的回应，"
+            "让对方知道你听懂了；语气像真实对话中的接话，不要使用固定的‘我先查一下’或‘稍等’模板。"
+        )
+    elif req.execution_status == "tool_running":
+        parts.append(
+            "\n【执行状态：工具运行中】可以根据当前工具状态做一句自然的处理中反馈；"
+            "不得声称已拿到结果、已经完成检索或任务已经结束。"
+        )
+    elif req.execution_status == "tool_completed":
+        parts.append(
+            "\n【执行状态：收到工具回执】可以自然说明正在核对或整理，但不得把单个回执说成最终结果，"
+            "也不得声称所有检索或整个任务已经完成。"
+        )
     if req.intent.kind == "interjection":
         if req.progress_context.strip():
             parts.append(

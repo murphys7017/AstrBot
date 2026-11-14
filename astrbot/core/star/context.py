@@ -47,6 +47,7 @@ from astrbot.core.provider.provider import (
     STTProvider,
     TTSProvider,
 )
+from astrbot.core.snapshots import SnapshotHub
 from astrbot.core.star.filter.platform_adapter_type import (
     ADAPTER_NAME_2_TYPE,
     PlatformAdapterType,
@@ -349,6 +350,17 @@ class Context:
         ] = []
         self._runtime_observation_sensor_seq = 0
         self._runtime_observation_target_warnings: set[str] = set()
+        self._snapshot_hub = SnapshotHub()
+
+    def get_snapshot_hub(self) -> SnapshotHub:
+        """Return the process-scoped hub for current, cross-plugin snapshots.
+
+        Producers submit bounded state and attachments through this public
+        boundary. Consumers read or subscribe to scoped snapshots without
+        importing producer internals. The hub is in-memory only. Durable
+        memory remains owned by the memory service.
+        """
+        return self._snapshot_hub
 
     async def llm_generate(
         self,
