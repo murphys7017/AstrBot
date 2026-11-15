@@ -50,7 +50,6 @@ from .persona_domain import (
     build_persona_scope_key,
 )
 from .persona_runtime import InteractionPersonaRuntime
-from .personal_heartbeat import PersonalHeartbeatSource
 from .personal_runtime import PersonalRuntimeManager
 from .personal_state_repository import PersonalStateRepository
 from .personal_wake_scheduler import PersonalRuntimeWakeScheduler
@@ -109,7 +108,6 @@ __all__ = [
     "PersonaEffectSpec",
     "PersonaEffectValidationError",
     "InteractionPersonaRuntime",
-    "PersonalHeartbeatSource",
     "PersonalRuntimeManager",
     "PersonalStateRepository",
     "PersonalRuntimeWakeScheduler",

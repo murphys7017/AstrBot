@@ -284,11 +284,7 @@ DEFAULT_CONFIG = {
         "personal_runtime_daily_proactive_output_limit": 6,
         "personal_runtime_direct_continuation_seconds": 10.0,
         "personal_runtime_conversation_continuation_seconds": 120.0,
-        "personal_heartbeat_enabled": False,
         "personal_conversation_activity_enabled": False,
-        "personal_heartbeat_interval_seconds": 300.0,
-        "personal_idle_initiation_enabled": False,
-        "personal_idle_initiation_after_seconds": 1800.0,
         "stream_observation_min_chars": 200,
         "stream_interjection_enabled": True,
         "stream_interjection_max_per_turn": 1,
@@ -4692,35 +4688,6 @@ CONFIG_METADATA_3 = {
                         "items": {"type": "string"},
                         "_special": "select_personal_runtime_sessions",
                         "hint": "选择允许 Personal Runtime 观察并主动表达的具体会话。留空表示不启用 Personal Runtime 会话；不会继承通用主动消息默认目标。群聊和私聊均可分别选择。",
-                    },
-                    "interaction_middleware.personal_heartbeat_enabled": {
-                        "description": "启用 Personal 心跳",
-                        "type": "bool",
-                        "hint": "按间隔向已选择的会话提交后台 Observation；不直接发送消息或调用 Core。私聊空闲主动联系依赖此开关。",
-                    },
-                    "interaction_middleware.personal_heartbeat_interval_seconds": {
-                        "description": "Personal 心跳间隔秒数",
-                        "type": "float",
-                        "hint": "最小 30 秒；每个已选择的 Personal 会话独立计时。",
-                        "condition": {
-                            "interaction_middleware.personal_heartbeat_enabled": True,
-                        },
-                    },
-                    "interaction_middleware.personal_idle_initiation_enabled": {
-                        "description": "允许私聊空闲后主动开启话题",
-                        "type": "bool",
-                        "hint": "仅对已选择且有真实用户互动的私聊会话，在达到阈值后提交一次受限 Observation；不会自动枚举联系人，也不在群聊中空闲发言。仍由 Policy、静音、安静时段、冷却和每日预算决定是否表达。",
-                        "condition": {
-                            "interaction_middleware.personal_heartbeat_enabled": True,
-                        },
-                    },
-                    "interaction_middleware.personal_idle_initiation_after_seconds": {
-                        "description": "空闲主动发起阈值秒数",
-                        "type": "float",
-                        "hint": "最小 30 秒。从最近用户输入与最近成功回复完成两者中较晚的时间开始计时；对话执行期间暂停。每次新的用户活动最多触发一次机会，重启后保持去重；机会有效期为 5 分钟，用户新输入会撤销旧机会。",
-                        "condition": {
-                            "interaction_middleware.personal_idle_initiation_enabled": True,
-                        },
                     },
                     "interaction_middleware.personal_conversation_activity_enabled": {
                         "description": "允许 Personal 观察并参与群聊",

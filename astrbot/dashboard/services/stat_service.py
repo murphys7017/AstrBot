@@ -130,16 +130,14 @@ class StatService(DashboardService):
         runtime_diagnostics = (
             self.core_lifecycle.personal_runtime_manager.diagnostics_view()
         )
-        heartbeat_source = self.core_lifecycle.personal_heartbeat_source
-        runtime_diagnostics["heartbeat"] = (
-            heartbeat_source.diagnostics_view()
-            if heartbeat_source is not None
-            else {
-                "idle_poll_seconds": None,
-                "target_count": 0,
-                "targets": [],
-            }
-        )
+        # Keep the dashboard response shape while making ownership explicit:
+        # proactive scheduling now lives in the plugin, not in Core.
+        runtime_diagnostics["heartbeat"] = {
+            "owner": "plugin",
+            "idle_poll_seconds": None,
+            "target_count": 0,
+            "targets": [],
+        }
         return Response().ok(runtime_diagnostics).__dict__
 
     async def get_storage_status(self):

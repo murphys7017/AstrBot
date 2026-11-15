@@ -32,7 +32,6 @@ from astrbot.core.executors.session_registry import ExternalExecutorSessionRegis
 from astrbot.core.interaction import (
     InteractionMiddleware,
     InteractionOutputController,
-    PersonalHeartbeatSource,
     PersonalRuntimeManager,
     PersonalRuntimeWakeScheduler,
     PersonalStateRepository,
@@ -89,7 +88,6 @@ class AstrBotCoreLifecycle:
         self.memory_postprocessor = None
         self.interaction_middleware: InteractionMiddleware | None = None
         self.plugin_execution_runtime = PluginExecutionRuntime()
-        self.personal_heartbeat_source: PersonalHeartbeatSource | None = None
         self.personal_runtime_manager = PersonalRuntimeManager(
             state_repository=PersonalStateRepository(db)
         )
@@ -485,16 +483,6 @@ class AstrBotCoreLifecycle:
         await self.platform_manager.initialize()
 
         await self.personal_runtime_wake_scheduler.start()
-        self.personal_heartbeat_source = PersonalHeartbeatSource(
-            context=self.star_context,
-            config_manager=self.astrbot_config_mgr,
-            runtime_manager=self.personal_runtime_manager,
-        )
-        self._start_lifecycle_service(
-            self.personal_heartbeat_source.run(),
-            name="personal_runtime_heartbeat",
-        )
-
         # 初始化关闭控制面板的事件
         self.dashboard_shutdown_event = asyncio.Event()
 
