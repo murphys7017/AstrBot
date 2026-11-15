@@ -47,7 +47,6 @@ class PersonalStateSnapshot:
 @dataclass(frozen=True, slots=True)
 class PersonalPersistentState:
     last_user_activity_at: float | None
-    last_idle_initiation_activity_at: float | None
     last_expression_at: float | None
     last_expression_fingerprint: str | None
     reply_cooldown_until: float | None
@@ -66,7 +65,6 @@ class PersonalState:
     availability_state: PersonalAvailabilityState = PersonalAvailabilityState.AVAILABLE
     last_observation_at: float | None = None
     last_user_activity_at: float | None = None
-    last_idle_initiation_activity_at: float | None = None
     last_expression_at: float | None = None
     last_expression_fingerprint: str | None = None
     reply_cooldown_until: float | None = None
@@ -106,9 +104,6 @@ class PersonalState:
             if self.mute_until is not None and self.mute_until > now
             else PersonalAvailabilityState.AVAILABLE
         )
-
-    def claim_idle_initiation(self, *, user_activity_at: float) -> None:
-        self.last_idle_initiation_activity_at = user_activity_at
 
     def apply_completion_feedback(
         self,
@@ -223,7 +218,6 @@ class PersonalState:
         ):
             values = (getattr(self, name), getattr(state, name))
             setattr(self, name, max((v for v in values if v is not None), default=None))
-        self.last_idle_initiation_activity_at = state.last_idle_initiation_activity_at
         if not local_expression_is_newer:
             self.last_expression_fingerprint = state.last_expression_fingerprint
         self.mute_until = state.mute_until
@@ -234,7 +228,6 @@ class PersonalState:
     def persistent_snapshot(self) -> PersonalPersistentState:
         return PersonalPersistentState(
             last_user_activity_at=self.last_user_activity_at,
-            last_idle_initiation_activity_at=self.last_idle_initiation_activity_at,
             last_expression_at=self.last_expression_at,
             last_expression_fingerprint=self.last_expression_fingerprint,
             reply_cooldown_until=self.reply_cooldown_until,

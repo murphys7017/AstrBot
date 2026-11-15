@@ -29,7 +29,7 @@ def test_policy_prompt_requires_novel_facts_before_reexpressing():
     prompt = build_personal_policy_system_prompt()
 
     assert "最近 assistant 已表达相同意图" in prompt
-    assert "Heartbeat 只表示到了评估时点" in prompt
+    assert "proactive_schedule_due" in prompt
 
 
 @pytest.mark.parametrize(

@@ -232,8 +232,6 @@ class InteractionAgentConfig:
     personal_runtime_direct_continuation_seconds: float = 10.0
     personal_runtime_conversation_continuation_seconds: float = 120.0
     personal_conversation_activity_enabled: bool = False
-    personal_idle_initiation_enabled: bool = False
-    personal_idle_initiation_after_seconds: float = 1800.0
     memory_window_size: int = 8
     persona_history_window_size: int = 300
     stream_observation_min_chars: int = 200

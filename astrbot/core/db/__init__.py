@@ -666,7 +666,6 @@ class BaseDatabase(abc.ABC):
         audience_key: str,
         privacy_scope: str,
         last_user_activity_at: float | None,
-        last_idle_initiation_activity_at: float | None,
         last_expression_at: float | None,
         last_expression_fingerprint: str | None,
         reply_cooldown_until: float | None,

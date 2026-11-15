@@ -24,7 +24,6 @@ class ObservationGateReason(str, Enum):
     OBSERVATION_EXPIRED = "observation_expired"
     MISSING_MATERIAL = "missing_material"
     NO_MATERIAL_CHANGE = "no_material_change"
-    STALE_IDLE_INITIATION = "stale_idle_initiation"
     RUNTIME_BUSY = "runtime_busy"
     MUTED = "muted"
     QUIET_HOURS = "quiet_hours"
@@ -315,16 +314,6 @@ class DeterministicObservationGate:
         elif not settings.state_available:
             disposition = ObservationGateDisposition.HOLD
             reason = ObservationGateReason.STATE_RESTORE_PENDING
-        elif any(
-            item.kind == "idle_initiation"
-            and not DeterministicObservationGate._idle_initiation_is_current(
-                item,
-                state,
-            )
-            for item in batch.observations
-        ):
-            disposition = ObservationGateDisposition.REJECT
-            reason = ObservationGateReason.STALE_IDLE_INITIATION
         elif not features.target_available:
             disposition = ObservationGateDisposition.REJECT
             reason = ObservationGateReason.TARGET_UNAVAILABLE
@@ -367,17 +356,6 @@ class DeterministicObservationGate:
             evaluated_at=evaluated_at,
             features=features,
         )
-
-    @staticmethod
-    def _idle_initiation_is_current(
-        observation: RuntimeObservation,
-        state: PersonalStateSnapshot,
-    ) -> bool:
-        activity_at = observation.payload.get("user_activity_at")
-        if isinstance(activity_at, bool) or not isinstance(activity_at, int | float):
-            return False
-        return state.last_user_activity_at == float(activity_at)
-
 
 __all__ = [
     "DeterministicObservationGate",

@@ -147,7 +147,6 @@ def test_runtime_and_relationship_adapters_are_read_only_and_serializable():
     persistent = adapt_personal_persistent_state(
         PersonalPersistentState(
             last_user_activity_at=2.0,
-            last_idle_initiation_activity_at=None,
             last_expression_at=3.0,
             last_expression_fingerprint="fingerprint",
             reply_cooldown_until=4.0,

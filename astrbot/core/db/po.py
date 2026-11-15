@@ -273,7 +273,6 @@ class PersonalRuntimeState(TimestampMixin, SQLModel, table=True):
     audience_key: str = Field(nullable=False)
     privacy_scope: str = Field(nullable=False)
     last_user_activity_at: float | None = Field(default=None)
-    last_idle_initiation_activity_at: float | None = Field(default=None)
     last_expression_at: float | None = Field(default=None)
     last_expression_fingerprint: str | None = Field(default=None)
     reply_cooldown_until: float | None = Field(default=None)

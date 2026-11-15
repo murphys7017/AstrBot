@@ -524,7 +524,6 @@ def adapt_personal_persistent_state(
         {
             "schema_version": PERSONA_DOMAIN_SCHEMA_VERSION,
             "last_user_activity_at": state.last_user_activity_at,
-            "last_idle_initiation_activity_at": state.last_idle_initiation_activity_at,
             "last_expression_at": state.last_expression_at,
             "last_expression_fingerprint": state.last_expression_fingerprint,
             "reply_cooldown_until": state.reply_cooldown_until,

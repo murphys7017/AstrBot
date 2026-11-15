@@ -63,7 +63,6 @@ async def test_main_sqlite_database_upgrades_personal_runtime_fingerprint_column
         columns = {row[1] for row in result.fetchall()}
         assert "last_expression_fingerprint" in columns
         assert "last_user_activity_at" in columns
-        assert "last_idle_initiation_activity_at" in columns
     finally:
         await db.engine.dispose()
 

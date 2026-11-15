@@ -193,14 +193,6 @@ class SQLiteDatabase(BaseDatabase):
                     "ADD COLUMN last_user_activity_at FLOAT DEFAULT NULL"
                 )
             )
-        if "last_idle_initiation_activity_at" not in columns:
-            await conn.execute(
-                text(
-                    "ALTER TABLE personal_runtime_states "
-                    "ADD COLUMN last_idle_initiation_activity_at FLOAT DEFAULT NULL"
-                )
-            )
-
     # ====
     # Platform Statistics
     # ====
@@ -1565,7 +1557,6 @@ class SQLiteDatabase(BaseDatabase):
         audience_key,
         privacy_scope,
         last_user_activity_at,
-        last_idle_initiation_activity_at,
         last_expression_at,
         last_expression_fingerprint,
         reply_cooldown_until,
@@ -1588,9 +1579,6 @@ class SQLiteDatabase(BaseDatabase):
                 state = result.scalar_one_or_none()
                 values = {
                     "last_user_activity_at": last_user_activity_at,
-                    "last_idle_initiation_activity_at": (
-                        last_idle_initiation_activity_at
-                    ),
                     "last_expression_at": last_expression_at,
                     "last_expression_fingerprint": last_expression_fingerprint,
                     "reply_cooldown_until": reply_cooldown_until,

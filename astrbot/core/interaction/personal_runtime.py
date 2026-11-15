@@ -47,7 +47,6 @@ from .lifecycle import dispatch_interaction_lifecycle
 from .observation import RuntimeObservation, RuntimeObservationTarget
 from .observation_inbox import (
     ObservationAdmissionResult,
-    ObservationAdmissionStatus,
     ObservationBatch,
     ObservationInbox,
 )
@@ -108,7 +107,6 @@ DEFAULT_IDLE_RUNTIME_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_MAX_IDLE_RUNTIMES = 1024
 DEFAULT_MAX_PENDING_OBSERVATIONS = 64
 DEFAULT_OBSERVATION_DEBOUNCE_SECONDS = 1.5
-IDLE_INITIATION_TTL_SECONDS = 5 * 60
 MAX_COALESCED_MATERIAL_FINGERPRINTS = 512
 OBSERVATION_RECOVERY_RETRY_SECONDS = 30.0
 
@@ -700,7 +698,6 @@ class PersonalSessionRuntime:
         self.bound_turn_count = 0
         self.follow_ups = _FollowUpCoordinator()
         self.state = PersonalState()
-        self._idle_initiation_cancel_event = asyncio.Event()
         if persistent_state is not None:
             self.state.restore_persistent(persistent_state)
             self.state.mark_idle(now=now)
@@ -770,11 +767,6 @@ class PersonalSessionRuntime:
         self.last_access_at = time.time() if now is None else now
 
     def bind_turn(self, *, now: float, user_input: bool = False) -> None:
-        if user_input:
-            # Withdraw speculative small talk before the new input waits for a
-            # turn lease, including input consumed as an executor follow-up.
-            self._idle_initiation_cancel_event.set()
-            self._idle_initiation_cancel_event = asyncio.Event()
         self.bound_turn_count += 1
         self.idle_since = None
         self.touch(now=now)
@@ -855,18 +847,6 @@ class PersonalSessionRuntime:
         *,
         now: float,
     ) -> ObservationAdmissionResult:
-        if (
-            observation.kind == "heartbeat"
-            and self.observation_inbox.pending_material_count == 0
-        ):
-            return ObservationAdmissionResult(
-                status=ObservationAdmissionStatus.IGNORED,
-                observation_id=observation.observation_id,
-                runtime_key=self.key,
-                pending_count=self.observation_inbox.pending_count,
-                reason_codes=("heartbeat_without_material",),
-            )
-
         material_revision = self._material_revision_for_observation(
             observation,
             now=now,
@@ -882,20 +862,16 @@ class PersonalSessionRuntime:
         if not result.admitted:
             return result
 
-        if not (
-            observation.kind == "heartbeat"
-            and result.status is ObservationAdmissionStatus.COALESCED
-        ):
-            logger.debug(
-                "Personal Runtime observation admitted: runtime_key_hash=%s "
-                "observation_id=%s kind=%s status=%s pending_count=%s reasons=%s",
-                _runtime_key_hash(self.key),
-                result.observation_id,
-                observation.kind,
-                result.status.value,
-                result.pending_count,
-                ",".join(result.reason_codes),
-            )
+        logger.debug(
+            "Personal Runtime observation admitted: runtime_key_hash=%s "
+            "observation_id=%s kind=%s status=%s pending_count=%s reasons=%s",
+            _runtime_key_hash(self.key),
+            result.observation_id,
+            observation.kind,
+            result.status.value,
+            result.pending_count,
+            ",".join(result.reason_codes),
+        )
         self._remember_observation_material(observation)
         self.idle_since = None
         self.touch(now=now)
@@ -903,110 +879,11 @@ class PersonalSessionRuntime:
             occurred_at=observation.occurred_at,
             pending_count=self.observation_inbox.pending_count,
         )
-        if observation.kind == "heartbeat":
-            if (
-                self.observation_inbox.pending_material_count > 0
-                and (
-                    self.next_observation_wake_at is None
-                    or self.next_observation_wake_at <= now
-                )
-            ):
-                if (
-                    self.observation_evaluation_task is not None
-                    and not self.observation_evaluation_task.done()
-                ):
-                    return result
-                self._clear_observation_wake()
-                task_created = self._ensure_observation_evaluation_task(
-                    observation.observation_id,
-                    delay_seconds=0.0,
-                )
-                return replace(result, evaluation_task_created=task_created)
-            return result
-
         self._clear_observation_wake()
         task_created = self._ensure_observation_evaluation_task(
             observation.observation_id
         )
         return replace(result, evaluation_task_created=task_created)
-
-    async def submit_idle_initiation(
-        self,
-        target_session: RuntimeObservationTarget,
-        *,
-        occurred_at: float,
-        minimum_idle_seconds: float,
-    ) -> ObservationAdmissionResult:
-        """Submit one configured idle fact for the current user-activity epoch."""
-        if target_session.message_type is not MessageType.FRIEND_MESSAGE:
-            return self._ignored_idle_initiation(
-                "idle_initiation_requires_private_session"
-            )
-        if self._state_restore_pending:
-            return self._ignored_idle_initiation("state_restore_pending")
-        user_activity_at = self.state.last_user_activity_at
-        if user_activity_at is None:
-            return self._ignored_idle_initiation("idle_initiation_no_user_activity")
-        if self.cleanup_blocked or self.has_active_conversational_work():
-            return self._ignored_idle_initiation("idle_initiation_runtime_busy")
-        idle_since = max(
-            user_activity_at, self.state.last_expression_at or user_activity_at
-        )
-        if occurred_at < idle_since + minimum_idle_seconds:
-            return self._ignored_idle_initiation("idle_initiation_not_due")
-        if (
-            self.state.last_idle_initiation_activity_at is not None
-            and self.state.last_idle_initiation_activity_at >= user_activity_at
-        ):
-            return self._ignored_idle_initiation("idle_initiation_already_submitted")
-
-        previous_idle_initiation_activity_at = (
-            self.state.last_idle_initiation_activity_at
-        )
-        cancellation = self._idle_initiation_cancel_event
-        self.state.claim_idle_initiation(user_activity_at=user_activity_at)
-        self._persistent_state_dirty = True
-        try:
-            await self._persist_state()
-        except Exception:
-            self.state.last_idle_initiation_activity_at = (
-                previous_idle_initiation_activity_at
-            )
-            self._persistent_state_dirty = True
-            logger.exception(
-                "Personal Runtime idle-initiation persistence failed: "
-                "config_id=%s persona_id=%s audience=%s",
-                self.key.config_id,
-                self.key.persona_id,
-                self.key.audience_key,
-            )
-            return self._ignored_idle_initiation(
-                "idle_initiation_persistence_failed"
-            )
-
-        observation = RuntimeObservation(
-            kind="idle_initiation",
-            source="personal_runtime.idle_initiation",
-            occurred_at=occurred_at,
-            expires_at=occurred_at + IDLE_INITIATION_TTL_SECONDS,
-            cancel_event=cancellation,
-            target_session=target_session,
-            coalesce_key="idle_initiation",
-            payload={
-                "user_activity_at": user_activity_at,
-                "idle_seconds": max(0.0, occurred_at - idle_since),
-            },
-        )
-        return self.submit_observation(observation, now=occurred_at)
-
-    def _ignored_idle_initiation(self, reason_code: str) -> ObservationAdmissionResult:
-        return ObservationAdmissionResult(
-            status=ObservationAdmissionStatus.IGNORED,
-            observation_id="",
-            runtime_key=self.key,
-            pending_count=self.observation_inbox.pending_count,
-            reason_codes=(reason_code,),
-        )
 
     def _material_revision_for_observation(
         self,
@@ -1014,8 +891,6 @@ class PersonalSessionRuntime:
         *,
         now: float,
     ) -> int | None:
-        if observation.kind == "heartbeat":
-            return None
         if not observation.is_current(now):
             return None
         identity = observation.coalesce_identity
@@ -1033,7 +908,7 @@ class PersonalSessionRuntime:
         observation: RuntimeObservation,
     ) -> None:
         identity = observation.coalesce_identity
-        if identity is None or observation.kind == "heartbeat":
+        if identity is None:
             return
         self._coalesced_material_fingerprints[identity] = (
             _stable_observation_payload_fingerprint(observation.payload),
@@ -1665,7 +1540,7 @@ class PersonalSessionRuntime:
         Personal remains the session's single admission owner, but a new user
         message must be able to supersede a long-running Core task.  Internal
         runtime observations deliberately do not use this path: proactive
-        output and heartbeat work must retain the existing serialized policy.
+        output work must retain the existing serialized policy.
         """
 
         active_turn = self._active_turn_context
@@ -2065,11 +1940,7 @@ class PersonalRuntimeManager:
                         observation
                     )
                 )
-                initiation_disabled = (
-                    observation.kind == "idle_initiation"
-                    and not settings.personal_idle_initiation_enabled
-                )
-                if source_denied or initiation_disabled:
+                if source_denied:
                     denied.append(observation.observation_id)
             runtime.observation_inbox.discard(denied)
             runtime._settle_discarded_observation_material()
@@ -2120,37 +1991,6 @@ class PersonalRuntimeManager:
             persona_resolution=resolved_runtime.persona_resolution,
         )
         return runtime.submit_observation(observation, now=now)
-
-    async def submit_idle_initiation(
-        self,
-        target_session: RuntimeObservationTarget,
-        *,
-        config_id: str,
-        plugin_context: Any,
-        runtime_config: Mapping[str, Any],
-        occurred_at: float,
-        minimum_idle_seconds: float,
-    ) -> ObservationAdmissionResult:
-        """Submit a bounded idle fact without creating a platform event."""
-        self._ensure_accepting()
-        resolved_runtime = await self._resolve_observation_target_runtime_key(
-            target_session,
-            config_id=config_id,
-            plugin_context=plugin_context,
-            runtime_config=runtime_config,
-        )
-        self._evict_idle_sessions(now=occurred_at)
-        runtime = await self._get_or_create_runtime(
-            resolved_runtime.key,
-            plugin_context=plugin_context,
-            runtime_config=runtime_config,
-            persona_resolution=resolved_runtime.persona_resolution,
-        )
-        return await runtime.submit_idle_initiation(
-            target_session,
-            occurred_at=occurred_at,
-            minimum_idle_seconds=minimum_idle_seconds,
-        )
 
     @asynccontextmanager
     async def submit_platform_event(
