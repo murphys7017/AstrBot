@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 from typing import Any
 
 from astrbot import logger
 from astrbot.core.deadline import TurnDeadlineExceeded
 from astrbot.core.output_contract import CompiledOutputContract, OutputContract
-from astrbot.core.prompt.context_types import ContextPack
 from astrbot.core.prompt.render import (
     PromptRenderEngine,
     PromptRenderProfile,
@@ -219,13 +217,8 @@ class CoreRouterAgent:
         if source_pack is None:
             raise CoreRouterError("interaction_context_unavailable")
 
-        router_pack = ContextPack(
-            slots=deepcopy(source_pack.slots),
-            provider_request_ref=source_pack.provider_request_ref,
-            meta=deepcopy(source_pack.meta),
-        )
         return PromptRenderEngine().render(
-            router_pack,
+            source_pack,
             target=PromptTarget.CORE_ROUTER,
             event=event,
             plugin_context=plugin_context,
