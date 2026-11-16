@@ -3915,6 +3915,24 @@ class InteractionOutputController:
                 "turn_id=%s reason=immediate_persona_already_delivered",
                 event.get_extra("_turn_id"),
             )
+            if (
+                event.get_extra("_interaction_persona_segment_stream_published")
+                is True
+                and event.get_extra("_interaction_persona_segment_stream_status")
+                == "completed"
+            ):
+                # The incremental Persona writer owns the visible turn once it
+                # has completed. Sending a changed Core-final reply through the
+                # ordinary output/TTS path would mix delivery modes on the same
+                # turn and make the adapter reject both messages.
+                logger.info(
+                    "DIAG interaction.olv_core_final_suppressed: "
+                    "turn_id=%s reason=completed_persona_stream_owns_output",
+                    event.get_extra("_turn_id"),
+                )
+                self._materialize_finalized_turn(event)
+                await self._persist_interaction_turn(event)
+                return
         if self._uses_task_stream(event) and not olv_immediate_reply_committed:
             await self._stream_task_reply(
                 event, message_kind="core_reply",
