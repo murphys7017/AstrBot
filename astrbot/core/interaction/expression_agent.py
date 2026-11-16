@@ -355,6 +355,7 @@ def build_persona_runtime_system_prompt(
     require_turn_action: bool = False,
     allow_silent: bool = False,
     output_format: str = "json",
+    include_json_example: bool = False,
 ) -> str:
     enabled_effects = [
         effect
@@ -421,7 +422,14 @@ def build_persona_runtime_system_prompt(
     )
     # JSONL examples stay in the final request: system-tree serialization
     # escapes quotes, which would change the literal wire-format example.
-    protocol = "" if output_format == "segment_stream_v1" else _build_persona_text_output_prompt(output_format)
+    protocol = (
+        ""
+        if output_format == "segment_stream_v1"
+        else _build_persona_text_output_prompt(
+            output_format,
+            include_json_example=include_json_example,
+        )
+    )
     if output_format == "tool_call":
         protocol = "\n【输出协议】仅使用 persona_expression 工具承载表达结果，字段遵守工具 schema。\n"
     speech_field = "speech_delta.text" if output_format == "segment_stream_v1" else "segments[].speech"
@@ -464,6 +472,43 @@ def _resolve_provider_model(provider: Provider) -> str:
         except Exception:  # noqa: BLE001
             return ""
     return ""
+
+
+def _resolve_persona_expression_output_mode(
+    provider: Provider,
+    output_format: str,
+    configured_mode: str,
+) -> str:
+    """Prefer DeepSeek's native JSON object mode for JSON Persona output.
+
+    DeepSeek documents ``response_format={"type": "json_object"}`` as the
+    reliable JSON path.  ``prompt_only`` remains the generic fallback for
+    providers without a native JSON mode, but leaving DeepSeek on that path
+    makes a strict Persona contract depend entirely on model instruction
+    following.
+    """
+
+    if output_format != "json" or configured_mode != "prompt_only":
+        return configured_mode
+
+    provider_config = getattr(provider, "provider_config", {})
+    provider_type = (
+        str(provider_config.get("type", "") or "").strip().lower()
+        if isinstance(provider_config, dict)
+        else ""
+    )
+    if provider_type != "deepseek_chat_completion":
+        return configured_mode
+
+    supports_native_json = getattr(provider, "supports_output_format_test_mode", None)
+    if not callable(supports_native_json):
+        return configured_mode
+    try:
+        if supports_native_json("json", "provider_native_json"):
+            return "provider_native_json"
+    except (TypeError, ValueError):
+        pass
+    return configured_mode
 
 
 def _is_deepseek_reasoning_provider(provider: Provider) -> bool:
@@ -569,15 +614,28 @@ def _supports_persona_effect_batch(
     )
 
 
-def _build_persona_text_output_prompt(output_format: str) -> str:
+def _build_persona_text_output_prompt(
+    output_format: str,
+    *,
+    include_json_example: bool = False,
+) -> str:
     if output_format == "json":
-        return (
+        prompt = (
             "\n【Persona Response JSON 输出】表达文本通道只输出一个完整 JSON 对象，"
             "不要添加解释文字、Markdown 代码围栏或只返回 speech。"
             "输入上下文中的结构键不是输出模板；表达对象只包含 turn_action 与 segments，"
             "每个分段必须包含 speech、actions 和八维 tendency。"
             "Persona Effect 使用独立工具通道，不得把 effect_calls 嵌入表达 JSON。"
         )
+        if include_json_example:
+            prompt += (
+                "示例（仅示意结构，内容不是本轮事实）："
+                '{"turn_action":"reply","segments":[{"speech":"本段要说的话。",'
+                '"actions":[],"tendency":{"Joy":0,"Trust":0,"Fear":0,'
+                '"Surprise":0,"Sadness":0,"Disgust":0,"Anger":0,'
+                '"Anticipation":0}}]}。'
+            )
+        return prompt
     if output_format == "xml":
         return (
             "\n【Persona Response XML 输出】只输出一个 XML 文档，根节点必须是 <output>，"
@@ -814,7 +872,12 @@ class InteractionExpressionAgent:
         """Generate one experimental segment_stream_v1 Persona response."""
         if (
             interaction_config.expression_output_format != "json"
-            or interaction_config.expression_output_mode != "prompt_only"
+            or interaction_config.expression_output_mode
+            not in {
+                "prompt_only",
+                "provider_native_json",
+                "provider_native_json_schema",
+            }
         ):
             raise InteractionExpressionError(
                 "persona_stream_output_mode_unsupported"
@@ -2759,6 +2822,11 @@ class InteractionExpressionAgent:
         output_mode = (
             "prompt_only" if is_segment_stream else interaction_config.expression_output_mode
         )
+        output_mode = _resolve_persona_expression_output_mode(
+            provider,
+            output_format,
+            output_mode,
+        )
         output_contract = (
             None
             if is_segment_stream
@@ -2772,6 +2840,14 @@ class InteractionExpressionAgent:
             require_turn_action=req.require_turn_action,
             allow_silent=req.allow_silent,
             output_format=output_format,
+            include_json_example=(
+                output_format == "json"
+                and output_mode == "provider_native_json"
+                and str(getattr(provider, "provider_config", {}).get("type", ""))
+                .strip()
+                .lower()
+                == "deepseek_chat_completion"
+            ),
         )
         # JSON already has its full schema in either the prompt contract or the
         # native request. XML/Markdown still need a literal syntax example.
