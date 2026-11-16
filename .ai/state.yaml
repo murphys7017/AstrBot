@@ -1,3 +1,29 @@
+motion_lab_catalog_activity_20261116:
+  date: '2026-11-16'
+  class: feature
+  risk: medium
+  status: implemented_pending_runtime_acceptance
+  decision: >-
+    Keep a shared semantic reaction catalog for local ambient actions and expose
+    Motion Lab raw events through the authenticated control page. Group action
+    history by turn and message segment so multi-segment replies remain visible.
+  scope: >-
+    Add the initial reaction action catalog and use it as the ambient scheduler
+    source. Add a bounded Motion Lab event query over the existing SQLite store,
+    include pending recorder events, poll it while the control page action lab
+    is open, and show active runs, segment history, and catalog metadata.
+    Preserve pre-existing passive behavior, C++ worktree changes, and runtime
+    deployment data.
+  validation: >-
+    Frontend typecheck and production build passed. AstrBot control-page build
+    passed and was deployed with deploy_adapter.ps1. Motion Lab raw-event tests
+    passed 10 cases. Adapter compileall and AstrBot plugin structure validation
+    passed. Source and deployed web_control.py hashes match.
+  limitations: >-
+    Runtime acceptance with a live AstrBot plus AG99live connection was not run.
+    The catalog is currently code-defined and displayed in the lab. Persistent
+    browser editing and direct catalog preview are reserved for the next step.
+
 ambient_runtime_activation_20261116:
   date: '2026-11-16'
   class: bugfix
