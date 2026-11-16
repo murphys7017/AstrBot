@@ -4046,3 +4046,40 @@ memory_neutral_personal_path_20261107:
     effect. Confirm Personal logs no longer show synchronous LivingMemory
     recall before provider start, and that the next turn uses the last completed
     LivingMemory snapshot while a background refresh runs.
+ag99live_stream_host_plugin_20261117:
+  date: '2026-11-17'
+  class: feature
+  risk: high
+  status: implemented_pending_runtime_acceptance
+  scope: >-
+    Add an independent astrbot_plugin_ag99live_stream_host source plugin with
+    an input-only ag99live_stream_input platform adapter, direct blivedm
+    Bilibili input, bounded batching, persistent new-viewer state, scheduled
+    topic events, and raw +/- motion feedback capture with event timestamps.
+    The adapter commits OLV-context events directly to the Core event queue so
+    Personal/Persona/TTS/action output remains owned by the existing OLV
+    presentation adapter. The input adapter does not advertise proactive
+    output. Live-host prompt injection and persistent viewer state are shared
+    by both legacy and new input paths, and feedback prefers the transport
+    timestamp. Deploy source copies with the plugin and AG99live
+    deployment scripts; disable the old frontend Bilibili client while keeping
+    its source for staged retirement.
+  validation: >-
+    AstrBot plugin structure checker passed with 0 errors and 0 warnings;
+    source and deployed copies compiled; scoped Ruff and JSON schema checks
+    passed; frontend renderer typecheck passed; direct blivedm adapter smoke
+    passed; input-platform-to-OLV event-queue, live prompt, persistent viewer,
+    timestamp, and new-viewer carrier boundary smokes passed; source/deployment
+    hashes matched for the Python sources. deploy_stream_host.ps1 Apply and
+    AG99live deploy_adapter.ps1 Apply both passed. No AstrBot restart, live
+    Bilibili connection, Personal Runtime admission, Provider request, TTS,
+    or Live2D acceptance was run.
+  remaining: >-
+    Configure the OLV presentation platform ID/session and the new input
+    platform, install the blivedm Git dependency, then reload AstrBot. Verify
+    that Bilibili danmaku, gifts, advanced chat, entry events, and scheduled
+    topics commit through the Core queue, new viewers are welcomed without
+    repetition, and OLV performs the reply/TTS/action output. Confirm +/-
+    feedback is stored with the exact event timestamp, symbol, and source
+    session without action correlation. Frontend Bilibili code remains in the
+    source tree for staged retirement; deletion follows runtime acceptance.
