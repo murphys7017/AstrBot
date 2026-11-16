@@ -1,3 +1,29 @@
+ambient_runtime_activation_20261116:
+  date: '2026-11-16'
+  class: bugfix
+  risk: high
+  status: runtime_validated_pending_commit
+  decision: >-
+    Start AG99live ambient scheduling independently of desktop setting readiness,
+    apply motion intensity scaling to idle_motion compilation, and run Adapter
+    desktop settings synchronization after the inbound WebSocket loop starts.
+  scope: >-
+    Update the AG99live frontend scheduler/compiler and adapter WebSocket
+    handshake. Enable passive_behavior in the AstrBot runtime configuration
+    while preserving the configured provider, timing values, C++ dirty files,
+    and deployment user data.
+  validation: >-
+    Frontend typecheck and production build passed. Adapter compileall passed.
+    The focused desktop settings and WebSocket tests passed 5 tests. The source
+    adapter was deployed and AstrBot plus AG99live were restarted. The new
+    runtime established a WebSocket connection, loaded the passive provider,
+    and produced no desktop settings synchronization warnings after restart.
+  limitations: >-
+    The passive provider returned decision=none during the live observation,
+    so no model-generated passive action was emitted in that window. Renderer
+    visual acceptance was not performed from the desktop UI. No commit was
+    created because the user did not request one.
+
 snapshot_hub_unification_20261114:
   date: '2026-11-14'
   class: feature
