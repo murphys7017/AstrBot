@@ -5,24 +5,30 @@ motion_lab_catalog_activity_20261116:
   status: implemented_pending_runtime_acceptance
   decision: >-
     Keep a shared semantic reaction catalog for local ambient actions and expose
-    Motion Lab raw events through the authenticated control page. Group action
-    history by turn and message segment so multi-segment replies remain visible.
+    Motion Lab raw events through the authenticated control page. Record ambient
+    action lifecycle and composition provenance separately from conversational
+    Turn/PlaybackTimeline state. Group message history by authoritative segment
+    position, with inference only for legacy events.
   scope: >-
     Add the initial reaction action catalog and use it as the ambient scheduler
     source. Add a bounded Motion Lab event query over the existing SQLite store,
     include pending recorder events, poll it while the control page action lab
-    is open, and show active runs, segment history, and catalog metadata.
-    Preserve pre-existing passive behavior, C++ worktree changes, and runtime
-    deployment data.
+    is open, and show active runs, segment history, catalog status, and ambient
+    provenance. Add cancellable desktop-return observation tokens in the
+    independent awareness plugin. Preserve pre-existing passive behavior, C++
+    worktree changes, and runtime deployment data.
   validation: >-
-    Frontend typecheck and production build passed. AstrBot control-page build
-    passed and was deployed with deploy_adapter.ps1. Motion Lab raw-event tests
-    passed 10 cases. Adapter compileall and AstrBot plugin structure validation
-    passed. Source and deployed web_control.py hashes match.
+    Frontend typecheck and production build passed. Earlier AstrBot control-page
+    build and adapter deployment passed. The awareness plugin passed compileall
+    and was synchronized with deploy_desktop_awareness.ps1. Diff whitespace
+    checks passed for both source repositories.
   limitations: >-
     Runtime acceptance with a live AstrBot plus AG99live connection was not run.
-    The catalog is currently code-defined and displayed in the lab. Persistent
-    browser editing and direct catalog preview are reserved for the next step.
+    The catalog is currently code-defined and displayed in the lab; only the
+    local/waiting subset is scheduled today, while other templates are labeled
+    as design-only. Unified attention arbitration, small-model recipe selection,
+    and curve replay remain future work. Persistent browser editing and direct
+    catalog preview are reserved for the next step.
 
 ambient_runtime_activation_20261116:
   date: '2026-11-16'
