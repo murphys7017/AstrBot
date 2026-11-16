@@ -55,6 +55,8 @@ from astrbot.core.prompt.collectors.input_collector import (
 from astrbot.core.prompt.context_types import ContextPack, ContextSlot
 from astrbot.core.prompt.context_views import (
     PromptContextView,
+    desktop_context_allowed_for_event,
+    project_desktop_context,
     resolve_prompt_context_view,
 )
 from astrbot.core.prompt.extensions.types import PROMPT_EXTENSION_MOUNTS
@@ -2746,6 +2748,10 @@ class InteractionExpressionAgent:
             )
         )
         view_spec = resolve_prompt_context_view(context_view)
+        persona_context_pack = project_desktop_context(
+            persona_context_pack,
+            include_desktop_context=desktop_context_allowed_for_event(event),
+        )
         allowed_prompt_extension_mounts = (
             frozenset(
                 mount

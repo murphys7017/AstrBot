@@ -21,6 +21,8 @@ from astrbot.core.utils.trace import prompt_trace_enabled, record_prompt_trace
 from ..context_types import ContextPack, ContextSlot
 from ..context_views import (
     PromptContextView,
+    desktop_context_allowed_for_event,
+    project_desktop_context,
     project_prompt_context_view,
     resolve_prompt_context_view,
 )
@@ -93,6 +95,11 @@ class PromptRenderEngine:
         timings = []
         with measure_prompt_stage(timings, "context_view"):
             view_pack = project_prompt_context_view(pack, context_view)
+            if resolved_target is PromptTarget.PERSONA:
+                view_pack = project_desktop_context(
+                    view_pack,
+                    include_desktop_context=desktop_context_allowed_for_event(event),
+                )
         history_turns = profile.history_turns if profile is not None else None
         history_limit_reason = None
         history_max_estimated_tokens = None

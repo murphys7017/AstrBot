@@ -1,3 +1,30 @@
+desktop_context_keyword_gate_20261117:
+  date: '2026-11-17'
+  class: feature
+  risk: medium
+  status: implemented_pending_plugin_reload
+  decision: >-
+    Gate AG99live desktop snapshots for Persona by user-configured current-turn
+    keywords. Keep the raw snapshot on the event for Core execution, but filter
+    desktop image records and derived attachment counts from Persona prompts
+    unless the Adapter marks the turn as visually relevant.
+  scope: >-
+    Add the AG99live Web Control setting desktop_context.trigger_keywords with
+    whitespace/Chinese punctuation/semicolon parsing. Mark OLV events with a
+    neutral desktop-context allowance extra, and add an AstrBot prompt-context
+    projection that removes only desktop_snapshot records and their attachment
+    summary counts. Preserve ordinary user images, Router text-only behavior,
+    Core access to the raw event image, and existing deployment user data.
+  validation: >-
+    AG99live source and AstrBot Core compileall, Ruff, and diff whitespace
+    checks passed. Keyword parsing smoke passed. The source plugin was deployed
+    with deploy_adapter.ps1 and platform_event.py, web_control.py, and the new
+    desktop_context.py match their runtime deployment copies by hash.
+  limitations: >-
+    No full test suite, AstrBot restart, AG99live reconnect, or live Provider
+    acceptance was run. The setting is opt-in with an empty default; runtime
+    reload is still required before the active process applies the gate.
+
 motion_lab_catalog_activity_20261116:
   date: '2026-11-16'
   class: feature
