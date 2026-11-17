@@ -94,7 +94,7 @@ class PromptRenderEngine:
             )
         timings = []
         with measure_prompt_stage(timings, "context_view"):
-            from astrbot.core.interaction.conversation_context import (
+            from astrbot.core.conversation_context import (
                 project_public_context,
                 public_context,
             )
@@ -267,7 +267,7 @@ class PromptRenderEngine:
         runtime_config = (
             resolve_event_runtime_configuration(event)[0] if event is not None else None
         )
-        from astrbot.core.interaction.conversation_context import public_context
+        from astrbot.core.conversation_context import public_context
 
         only_public = public_context(event, plugin_context)
         get_owner_name = getattr(
@@ -415,7 +415,7 @@ class PromptRenderEngine:
         base_system_prompt: str | None = None,
     ) -> None:
         """Refresh request-local messages immediately before a provider call."""
-        from astrbot.core.interaction.conversation_context import public_context
+        from astrbot.core.conversation_context import public_context
 
         if public_context(event, plugin_context):
             legacy_prompt_mutations = ()

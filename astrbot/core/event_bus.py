@@ -77,7 +77,7 @@ class EventBus:
                     "resolve_configuration_selection",
                     None,
                 )
-                from astrbot.core.interaction.conversation_context import (
+                from astrbot.core.conversation_context import (
                     conversation_session,
                 )
 

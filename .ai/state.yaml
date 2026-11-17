@@ -1,3 +1,27 @@
+conversation_context_startup_import_20261118:
+  date: '2026-11-18'
+  class: bugfix
+  risk: medium
+  status: reviewed_commit_ready_pending_live_startup
+  scope: >-
+    Fix the startup circular import introduced by the history collector's
+    module-level dependency on interaction.conversation_context. Move the four
+    shared conversation binding and visibility helpers to core.conversation_context,
+    retain the former module as compatibility exports, and point Prompt and
+    other Core consumers at the neutral module. Preserve existing stream parser
+    and protocol worktree changes.
+  validation: >-
+    Reproduced the reported ImportError with uv run --no-sync main.py --help
+    before editing. The same command now exits successfully. Fresh interpreters
+    passed Prompt-first and Interaction-first import checks. AST comparison
+    confirmed all four helper definitions are unchanged, and legacy exports
+    resolve to the same function objects. Scoped Ruff and diff checks passed.
+  limitations: >-
+    No test suite, running service initialization, platform connection or live
+    Provider calls were run. No service restart was performed. User authorized
+    the scoped local commit after review. Existing unknown-config INFO messages
+    and jieba deprecation warning remain separate.
+
 proactive_context_unification_20261118:
   date: '2026-11-18'
   class: bugfix

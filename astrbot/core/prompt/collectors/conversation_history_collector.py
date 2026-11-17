@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core import logger
-from astrbot.core.interaction.conversation_context import (
+from astrbot.core.conversation_context import (
     conversation_session,
     public_context,
     visible_history,

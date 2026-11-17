@@ -32,7 +32,7 @@ def build_event_persona_resolution_key(
     provider_settings: Mapping[str, Any] | None,
 ) -> PersonaResolutionCacheKey:
     """Build a key from every current PersonaManager resolution input."""
-    from astrbot.core.interaction.conversation_context import conversation_session
+    from astrbot.core.conversation_context import conversation_session
 
     default_personality = ""
     if isinstance(provider_settings, Mapping):
@@ -60,7 +60,7 @@ async def resolve_event_persona(
     provider_settings: Mapping[str, Any] | None,
 ) -> PersonaResolution:
     """Resolve selected persona once per event, sharing concurrent callers."""
-    from astrbot.core.interaction.conversation_context import conversation_session
+    from astrbot.core.conversation_context import conversation_session
 
     key = build_event_persona_resolution_key(
         event=event,

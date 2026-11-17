@@ -88,7 +88,7 @@ async def resolve_prompt_memory_snapshot(
 ) -> MemorySnapshot | None:
     """Read one event-scoped MemorySnapshot and reuse it across collectors."""
 
-    from astrbot.core.interaction.conversation_context import public_context
+    from astrbot.core.conversation_context import public_context
 
     if public_context(event, plugin_context):
         # Current snapshots carry no record-level public visibility contract.
@@ -194,7 +194,7 @@ def get_cached_prompt_memory_snapshot(
     *,
     provider_request: ProviderRequest | None = None,
 ) -> MemorySnapshot | None:
-    from astrbot.core.interaction.conversation_context import public_context
+    from astrbot.core.conversation_context import public_context
 
     if public_context(event):
         return None

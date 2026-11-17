@@ -70,7 +70,7 @@ async def resolve_event_conversation_persona_id(
     event: Any, conversation_manager: Any
 ) -> str | None:
     """Resolve current conversation persona_id from event and conversation manager."""
-    from astrbot.core.interaction.conversation_context import conversation_session
+    from astrbot.core.conversation_context import conversation_session
 
     return await resolve_conversation_persona_id(
         conversation_session(event),
