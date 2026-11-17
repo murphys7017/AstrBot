@@ -4151,3 +4151,31 @@ stream_fallback_and_platform_identity_fix_20261117:
     Provider/TTS/Live2D or browser-control-page acceptance has been performed.
     The primary model's plain-text protocol violation remains provider behavior;
     do not relax JSONL validation or downgrade a stream-capable provider.
+
+stream_input_playback_admission_fix_20261117:
+  date: '2026-11-17'
+  class: bugfix
+  risk: high
+  status: source_validated_pending_reload
+  scope: >-
+    Replace the incomplete Stream Host event factory bridge with an asynchronous
+    OLV submission boundary. Reuse TurnCoordinator input admission to announce
+    playback, bind Core and delivery turn identities, register the active event,
+    and only then submit through the independent input adapter's queue callback.
+    Keep Bilibili ingestion and source platform identity in Stream Host.
+  evidence: >-
+    The 18:53 Bilibili turn reached Core, generated Persona text, motion, and
+    MiniMax TTS material. Delivery failed with output_event_turn_id_missing and
+    incremental_output_turn_binding_invalid because factory-only events bypassed
+    OLV session/identity/lifecycle admission.
+  validation: >-
+    Source Ruff and compilation passed. A boundary smoke using the real input
+    platform, OLV event, TurnCoordinator, InteractionOrchestrator, identity map,
+    and incremental writer published a text delta with bound delivery identity.
+    The isolated model-less smoke also emitted an expected MotionLab profile
+    diagnostic; no live model was loaded. A disconnected-output rejection check
+    left the Core queue empty and cleared the rejected turn binding.
+  remaining: >-
+    Reload both updated plugins, preferably with a full AstrBot restart and
+    AG99live reconnect. No live Provider, TTS playback, or Live2D acceptance was
+    performed. Preserve unrelated source edits and configuration credentials.
