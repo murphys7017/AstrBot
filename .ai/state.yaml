@@ -4179,3 +4179,37 @@ stream_input_playback_admission_fix_20261117:
     Reload both updated plugins, preferably with a full AstrBot restart and
     AG99live reconnect. No live Provider, TTS playback, or Live2D acceptance was
     performed. Preserve unrelated source edits and configuration credentials.
+
+stream_live_singleflight_admission_20261117:
+  date: '2026-11-17'
+  class: bugfix
+  risk: high
+  status: source_validated_pending_restart
+  scope: >-
+    User replaced timer-based batching with reply-completion-based admission.
+    Remove the 30-second interval from the input runtime and configuration
+    schema. Submit an already-arrived bounded burst immediately, discard
+    unselected input and all events arriving during generation/playback, and
+    reopen admission only after the OLV terminal playback receipt. Scheduled
+    topics obey the same presentation busy state. Old direct input callers now
+    use the independent input platform instead of bypassing its completion gate.
+    OLV submission returns its delivery ID so Stream Host can await that receipt.
+  evidence: >-
+    The old listener started a full configured 30-second gathering timer on
+    every first event. Existing successful turns reached first text about
+    1.3-1.4 seconds after Core ingress and first PCM about 1.5-2.6 seconds after
+    ingress; there was no per-event Bilibili receive timing to measure the
+    preceding delay. Add metadata-only receive/batch/submit/terminal timings
+    correlated by batch/Core turn ID and counters for busy-period drops.
+  validation: >-
+    Public runtime start/enqueue/stop smoke with only network I/O replaced
+    verified immediate first submission, capped same-burst input, busy-period
+    discard, and only fresh input accepted after completion. A second boundary
+    smoke used the real OLV terminal registry and verified source admission
+    stays busy after queue submission until terminal receipt. Scoped Ruff and
+    compilation passed; no live input or model request was sent by these checks.
+  remaining: >-
+    Reload both plugins together or restart AstrBot and reconnect AG99live.
+    A 300-second missing-receipt fault limit aborts the stuck playback turn;
+    it is not a response interval. Validate actual Bilibili-to-playback latency
+    from new logs after reload. Preserve unrelated changes and credentials.
