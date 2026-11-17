@@ -52,6 +52,7 @@ PersonaContextSeed / ContextPack
 - `persona_expression_validation.py` 持有非流式和流式共享语义校验。
 - `persona_expression_codec.py` 负责 Provider payload 到 Canonical result 的归一化。
 - `persona_stream_parser.py` 负责 `segment_stream_v1` JSONL 状态机。
+- Persona 启用分段流时，主模型和备用模型优先使用其流式传输；只有 Provider 未实现流式接口时才使用 `text_chat`，完整返回后仍按相同 JSONL 协议校验并投递分段事件。协议格式错误不会将支持流式的模型切换为非流式。
 - `persona_stream_protocol.py` 只负责流式 Prompt 和响应形状诊断。
 
 `expression_agent.py` 仍保留兼容导出，但新代码应直接依赖上述中性模块。拆分只改变代码所有权，不改变 Prompt、Provider、输出事件或下游 `PersonaExpressionResult` 行为。

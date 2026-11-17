@@ -974,26 +974,13 @@ class InteractionExpressionAgent:
                     provider_settings,
                     plugin_context.get_provider_by_id,
                 )
-                configured_candidates = [
+                candidates = [
                     *([provider] if provider is not None else []),
                     *fallback_providers,
                 ]
-                candidates = [
-                    candidate
-                    for candidate in configured_candidates
-                    if supports_text_chat_stream(candidate)
-                ]
-                if (
-                    provider is not None
-                    and provider not in candidates
-                    and primary_request_error is None
-                ):
-                    primary_request_error = InteractionExpressionError(
-                        "provider_stream_unsupported"
-                    )
                 if not candidates:
                     raise primary_request_error or InteractionExpressionError(
-                        "provider_stream_unsupported"
+                        "provider_unavailable"
                     )
 
                 prepared: _PreparedPersonaExpression | None = None
@@ -1336,6 +1323,8 @@ class InteractionExpressionAgent:
                 interaction_config,
                 provider,
                 prepared,
+                segment_stream_callback=segment_stream_callback,
+                segment_message_id=segment_message_id,
             )
         turn_state = get_interaction_turn_state(event)
         output_protocol = (
@@ -1567,16 +1556,14 @@ class InteractionExpressionAgent:
                 event=event,
                 plugin_context=plugin_context,
             )
-            supports_output = (
-                supports_text_chat_stream(provider)
-                if is_segment_stream
-                else _supports_persona_output_format(
-                    provider,
-                    output_format,
-                    output_mode,
-                    output_contract=candidate_render.output_contract,
-                    compiled_output_contract=candidate_render.compiled_output_contract,
-                )
+            # JSONL is a text protocol: providers without a streaming transport
+            # can return it through text_chat and use the same parser.
+            supports_output = is_segment_stream or _supports_persona_output_format(
+                provider,
+                output_format,
+                output_mode,
+                output_contract=candidate_render.output_contract,
+                compiled_output_contract=candidate_render.compiled_output_contract,
             )
             if not supports_output:
                 raise InteractionExpressionError(
@@ -2426,6 +2413,15 @@ class InteractionExpressionAgent:
             if segment_stream_callback is not None
             else None
         )
+        use_provider_stream = (
+            segment_parser is not None and supports_text_chat_stream(provider)
+        )
+        if segment_parser is not None and not use_provider_stream:
+            logger.info(
+                "Persona provider uses non-stream transport: provider_id=%s "
+                "reason=stream_unsupported output_protocol=segment_stream_v1",
+                getattr(provider, "provider_config", {}).get("id", "<unknown>"),
+            )
         stream_side_effects_started = False
         stream_turn_action: PersonalResponseAction | None = None
         segment_message_ids: dict[int, str] = {}
@@ -2440,7 +2436,7 @@ class InteractionExpressionAgent:
                 dispatch_agent_stages=False,
                 before_llm_request=refresh_prompt,
             ),
-            streaming=segment_parser is not None,
+            streaming=use_provider_stream,
             buffer_streaming_tool_steps=segment_parser is not None,
             terminal_tool_names=terminal_tool_names,
             provider_kwargs=provider_kwargs,
@@ -2611,7 +2607,7 @@ class InteractionExpressionAgent:
                     side_effects_started=stream_side_effects_started,
                 )
             final_text = str(llm_resp.completion_text or "")
-            if final_text != segment_parser.wire_text:
+            if use_provider_stream and final_text != segment_parser.wire_text:
                 raise InteractionExpressionError(
                     "persona_stream_final_response_mismatch",
                     tool_execution_count=prepared.lifecycle.tool_execution_count,
@@ -2619,7 +2615,9 @@ class InteractionExpressionAgent:
                 )
             try:
                 async for record in segment_parser.feed_async(
-                    "", plugin_context=prepared.run_context.context.context, event=event, final=True,
+                    "" if use_provider_stream else final_text,
+                    plugin_context=prepared.run_context.context.context,
+                    event=event, final=True,
                 ):
                     await dispatch_record(record)
                 normal_stop = (

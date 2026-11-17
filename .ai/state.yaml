@@ -4083,3 +4083,37 @@ ag99live_stream_host_plugin_20261117:
     feedback is stored with the exact event timestamp, symbol, and source
     session without action correlation. Frontend Bilibili code remains in the
     source tree for staged retirement; deletion follows runtime acceptance.
+
+stream_fallback_and_platform_identity_fix_20261117:
+  date: '2026-11-17'
+  class: bugfix
+  risk: high
+  status: source_validated_deployed_pending_restart
+  scope: >-
+    Keep Persona stream callback and segment message identity on the prepared
+    fallback-provider path. Prefer the streaming transport when implemented;
+    use text_chat only for a provider without stream support, retaining the
+    same JSONL validation and output callbacks for its completed response.
+    Separate the Stream Input platform registry type
+    from its OLV-backed event hook contract, retaining its source instance ID.
+    Preserve existing uncommitted Persona wire-protocol and AG99live edits.
+  evidence: >-
+    The 05:16 turn rejected primary plain text, then called the fallback with
+    stream=False and treated its valid JSONL as speech. The 05:19 overview 500
+    accessed runtime_state on AG99liveStreamInputPlatform after the registry
+    mistook its metadata type for an OLV presentation adapter.
+  validation: >-
+    A public generation boundary check with invalid primary text and valid
+    fallback JSONL passed through the real runner and parser, rejected ordinary
+    text_chat use, and emitted header/segments/finish. Source Ruff and compile
+    passed. Non-stream-only primary and fallback generation checks passed;
+    all three transport boundary cases use the real runner and parser.
+    Registry/input event smoke excluded the input platform from control
+    discovery while preserving OLV event hooks and source ID. AstrBot aiohttp
+    3.13.3 and yarl 1.23.0 were restored after blivedm dependency resolution;
+    blivedm import passed in the actual .venv.
+  remaining: >-
+    Restart AstrBot to load Core and the deployed input adapter. No live
+    Provider/TTS/Live2D or browser-control-page acceptance has been performed.
+    The primary model's plain-text protocol violation remains provider behavior;
+    do not relax JSONL validation or downgrade a stream-capable provider.
