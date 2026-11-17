@@ -1,6 +1,8 @@
 import asyncio
 import os
 import threading
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -18,6 +20,7 @@ class EmbeddingStorage:
                 "faiss 未安装。请使用 'pip install faiss-cpu' 或 'pip install faiss-gpu' 安装。",
             ) from e
         self._faiss = faiss
+        self._index_writer: Callable[[Any, str], None] | None = None
         self.dimension = dimension
         self.path = path
         self.index = None
@@ -96,6 +99,11 @@ class EmbeddingStorage:
         id_array = np.array(ids, dtype=np.int64)
         await self._run_io(self._delete_sync, id_array)
         self._mark_dirty()
+
+    def set_index_writer(self, writer: Callable[[Any, str], None]) -> None:
+        """Customize the synchronous disk write while retaining checkpoint ownership."""
+        with self._io_lock:
+            self._index_writer = writer
 
     async def save_index(self) -> None:
         """保存索引
@@ -185,4 +193,5 @@ class EmbeddingStorage:
     def _save_index_sync(self) -> None:
         if self.index is None or not self.path:
             return
-        self._faiss.write_index(self.index, self.path)
+        writer = self._index_writer or self._faiss.write_index
+        writer(self.index, self.path)
