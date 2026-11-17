@@ -77,8 +77,13 @@ class EventBus:
                     "resolve_configuration_selection",
                     None,
                 )
+                from astrbot.core.interaction.conversation_context import (
+                    conversation_session,
+                )
+
+                selection_session = conversation_session(event)
                 selection = (
-                    selection_resolver(event.unified_msg_origin)
+                    selection_resolver(selection_session)
                     if callable(selection_resolver)
                     else None
                 )
@@ -95,7 +100,8 @@ class EventBus:
                     )
                 )
                 if selection_is_usable:
-                    apply_unique_session(event, selection.runtime_config)
+                    if selection_session == event.unified_msg_origin:
+                        apply_unique_session(event, selection.runtime_config)
                     # Import at the live boundary to keep configuration selection
                     # independent from Interaction module initialization.
                     from astrbot.core.interaction.turn_state import (
@@ -114,9 +120,7 @@ class EventBus:
                 else:
                     # Keep older test doubles and embedders working while they
                     # migrate from get_conf_info() to the typed selection API.
-                    conf_info = self.astrbot_config_mgr.get_conf_info(
-                        event.unified_msg_origin
-                    )
+                    conf_info = self.astrbot_config_mgr.get_conf_info(selection_session)
                     conf_id = conf_info.get("id")
                     conf_name = conf_info.get("name") or conf_id
                 self._print_event(event, conf_name)

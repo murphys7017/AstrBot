@@ -78,6 +78,7 @@ from .personal_state import (
 )
 from .personal_state_repository import PersonalStateRepository
 from .plugin_execution_runtime import get_active_plugin_branch_event
+from .proactive_schedule import output_target_busy
 from .runtime_event import RuntimeObservationEvent
 from .turn_context import (
     PersonalTurnContext,
@@ -205,7 +206,9 @@ def _stable_observation_payload_fingerprint(payload: Mapping[str, Any]) -> str:
                 "mapping",
                 tuple(
                     (str(key), normalize(item))
-                    for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+                    for key, item in sorted(
+                        value.items(), key=lambda item: str(item[0])
+                    )
                 ),
             )
         if isinstance(value, list | tuple):
@@ -283,9 +286,7 @@ def _build_completion_feedback(turn: PersonalTurnContext) -> CompletionFeedback:
     )
     if visible_reply_fingerprint is None:
         for output in reversed(turn_state.visible_outputs):
-            if not isinstance(output, dict) or not output.get(
-                "delivered_message_ids"
-            ):
+            if not isinstance(output, dict) or not output.get("delivered_message_ids"):
                 continue
             visible_reply_fingerprint = fingerprint_personal_expression(
                 output.get("text")
@@ -634,9 +635,7 @@ class PersonalTurnLease:
                             else nullcontext(None)
                         )
                         async with feedback_context:
-                            feedback = _build_completion_feedback(
-                                self.reservation.turn
-                            )
+                            feedback = _build_completion_feedback(self.reservation.turn)
                             await self.runtime.apply_completion_feedback(
                                 feedback,
                                 turn=self.reservation.turn,
@@ -754,6 +753,7 @@ class PersonalSessionRuntime:
     def track_cleanup_tasks(self, tasks: tuple[asyncio.Task[Any], ...]) -> None:
         for task in tasks:
             self._pending_cleanup_tasks.add(task)
+
             def settled(done: asyncio.Task[Any]) -> None:
                 self._pending_cleanup_tasks.discard(done)
                 if not done.cancelled() and done.exception() is None:
@@ -804,8 +804,15 @@ class PersonalSessionRuntime:
                 self._interaction_config.personal_runtime_reply_cooldown_seconds
             ),
             usage_day=usage_day,
+            scene=str(turn.event.get_extra("_proactive_scene", "daily")),
         )
         self.last_completion_feedback = feedback
+        if feedback.action_id and feedback.delivery_status in {
+            PersonalDeliveryStatus.FAILED,
+            PersonalDeliveryStatus.CANCELLED,
+        }:
+            self.state.defer_actions_until(time.time() + 30)
+            persistent_state_changed = True
         if persistent_state_changed or self._persistent_state_dirty:
             self._persistent_state_dirty = True
             await self._persist_state()
@@ -898,7 +905,8 @@ class PersonalSessionRuntime:
             return self.state.record_material_change()
         fingerprint = _stable_observation_payload_fingerprint(observation.payload)
         if self._coalesced_material_fingerprints.get(identity) == (
-            fingerprint, observation.cancel_event
+            fingerprint,
+            observation.cancel_event,
         ):
             return None
         return self.state.record_material_change()
@@ -944,13 +952,10 @@ class PersonalSessionRuntime:
             self._observation_reschedule_requested = True
             return False
         self._observation_reschedule_requested = False
-        self._observation_batch_due_at = (
-            asyncio.get_running_loop().time()
-            + (
-                self.observation_debounce_seconds
-                if delay_seconds is None
-                else max(0.0, delay_seconds)
-            )
+        self._observation_batch_due_at = asyncio.get_running_loop().time() + (
+            self.observation_debounce_seconds
+            if delay_seconds is None
+            else max(0.0, delay_seconds)
         )
         self.observation_evaluation_task = asyncio.create_task(
             self._evaluate_observations(),
@@ -1019,10 +1024,35 @@ class PersonalSessionRuntime:
                     batch.material_count,
                 )
                 state_snapshot = self.state.snapshot()
+                binding = self._plugin_context.get_proactive_schedule(
+                    self.key.audience_key
+                )
+                scene = binding.mode if binding is not None else "daily"
+                state_snapshot = replace(
+                    state_snapshot,
+                    daily_proactive_outputs=self.state.proactive_outputs_by_scene.get(
+                        scene, 0
+                    ),
+                )
+                if binding is not None and scene == "live":
+                    state_snapshot = replace(
+                        state_snapshot,
+                        reply_cooldown_until=(
+                            state_snapshot.last_expression_at
+                            + binding.reply_cooldown_seconds
+                            if state_snapshot.last_expression_at is not None
+                            else None
+                        ),
+                    )
                 features = ObservationFeatureBuilder.build(
                     batch,
                     state=state_snapshot,
-                    runtime_busy=self.has_active_conversational_work(),
+                    runtime_busy=(
+                        self.has_active_conversational_work()
+                        or output_target_busy(
+                            self._plugin_context, self.key.audience_key
+                        )
+                    ),
                     settings=self.observation_gate_settings,
                     evaluated_at=closed_at,
                 )
@@ -1102,15 +1132,20 @@ class PersonalSessionRuntime:
         *,
         owns_turn: bool = False,
     ) -> Any:
-        guarded = tuple(o for o in batch.observations if o.cancel_event is not None)
-        if not guarded:
-            return await work()
+        guarded = batch.observations
         if not all(o.is_current(time.time()) for o in guarded):
             raise _ObservationWorkCancelled
+        for observation in guarded:
+            if observation.source.startswith(
+                "plugin_sensor:"
+            ) and not await self._plugin_context.is_runtime_observation_source_admitted(
+                observation
+            ):
+                raise _ObservationWorkCancelled
         task = asyncio.create_task(work(), name=f"observation-work:{batch.batch_id}")
         waiters = [
             asyncio.create_task(event.wait())
-            for event in {o.cancel_event for o in guarded}
+            for event in {o.cancel_event for o in guarded if o.cancel_event is not None}
         ]
         expires = [o.expires_at for o in guarded if o.expires_at is not None]
         timeout = max(0.0, min(expires) - time.time()) if expires else None
@@ -1119,6 +1154,13 @@ class PersonalSessionRuntime:
                 [task, *waiters], timeout=timeout, return_when=asyncio.FIRST_COMPLETED
             )
             if task.done() and all(o.is_current(time.time()) for o in guarded):
+                return await task
+            active = self._active_turn_context
+            output = getattr(active.event, "_runtime_output", None) if active else None
+            if owns_turn and output is not None and output.started:
+                # A scene change discards pending opportunities, but does not
+                # interrupt speech already handed to the frontend. User input
+                # still preempts through the ordinary active-turn cancellation.
                 return await task
             raise _ObservationWorkCancelled
         finally:
@@ -1155,9 +1197,11 @@ class PersonalSessionRuntime:
             return None
 
         async def record_provider_call() -> None:
-            usage_day = self.observation_gate_settings.local_datetime(
-                time.time()
-            ).date().isoformat()
+            usage_day = (
+                self.observation_gate_settings.local_datetime(time.time())
+                .date()
+                .isoformat()
+            )
             self.state.record_policy_call(usage_day=usage_day)
             self._persistent_state_dirty = True
             await self._persist_state()
@@ -1184,8 +1228,12 @@ class PersonalSessionRuntime:
             # Keep unrelated facts, but never restore the withdrawn source's fact.
             self.observation_inbox.restore(batch, hold_reason="source_cancelled")
             self._settle_discarded_observation_material()
-            self.state.set_pending_observation_count(self.observation_inbox.pending_count)
-            logger.debug("Personal Policy observation withdrawn: batch_id=%s", batch.batch_id)
+            self.state.set_pending_observation_count(
+                self.observation_inbox.pending_count
+            )
+            logger.debug(
+                "Personal Policy observation withdrawn: batch_id=%s", batch.batch_id
+            )
             return time.time() if self.observation_inbox.pending_count else None
         except asyncio.CancelledError:
             raise
@@ -1229,7 +1277,9 @@ class PersonalSessionRuntime:
         if plan.defer_until is not None:
             self.observation_inbox.restore(batch, hold_reason="defer")
             self._settle_discarded_observation_material()
-            self.state.set_pending_observation_count(self.observation_inbox.pending_count)
+            self.state.set_pending_observation_count(
+                self.observation_inbox.pending_count
+            )
             if self.state.defer_actions_until(plan.defer_until):
                 self._persistent_state_dirty = True
                 try:
@@ -1254,6 +1304,17 @@ class PersonalSessionRuntime:
         intent = plan.intent
         if intent is None:
             self._settle_observation_batch(batch)
+            return None
+        if (
+            self.has_active_conversational_work()
+            or self.state.last_user_activity_at != state_snapshot.last_user_activity_at
+            or self.state.last_expression_at != state_snapshot.last_expression_at
+        ):
+            self._settle_observation_batch(batch)
+            logger.debug(
+                "Personal action suppressed: reason=context_changed batch_id=%s",
+                batch.batch_id,
+            )
             return None
         settled_revision = self._settle_observation_batch(batch)
         logger.info(
@@ -1280,7 +1341,9 @@ class PersonalSessionRuntime:
                 batch, lambda: handler(self, intent), owns_turn=True
             )
         except _ObservationWorkCancelled:
-            logger.debug("Personal Policy expression withdrawn: batch_id=%s", batch.batch_id)
+            logger.debug(
+                "Personal Policy expression withdrawn: batch_id=%s", batch.batch_id
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1303,6 +1366,8 @@ class PersonalSessionRuntime:
         reason = gate_result.reason_code
         if reason is ObservationGateReason.STATE_RESTORE_PENDING:
             return gate_result.evaluated_at + OBSERVATION_RECOVERY_RETRY_SECONDS
+        if reason is ObservationGateReason.RUNTIME_BUSY:
+            return gate_result.evaluated_at + 5
         if reason is ObservationGateReason.QUIET_HOURS:
             return self.observation_gate_settings.quiet_hours_end_at(
                 gate_result.evaluated_at
@@ -1410,14 +1475,18 @@ class PersonalSessionRuntime:
         event = turn.event
         if self.cleanup_blocked or manager.has_blocked_output_target(self.key):
             reservation.transition(PendingTurnState.SETTLED)
-            return TurnAdmission(turn=turn, consumed_as_follow_up=False, cleanup_pending=True)
+            return TurnAdmission(
+                turn=turn, consumed_as_follow_up=False, cleanup_pending=True
+            )
         delayed_admission = bool(
             event.get_extra("_personal_runtime_delayed_admission", False)
         )
         interrupted_core = (
             wait_if_busy
             and not isinstance(event, RuntimeObservationEvent)
-            and await self._interrupt_active_core_turn_for_new_input(turn.state.deadline)
+            and await self._interrupt_active_core_turn_for_new_input(
+                turn.state.deadline
+            )
         )
         # A message that supersedes Core starts a fresh turn. Do not feed it
         # into the old executor's supplemental-input channel first.
@@ -1480,7 +1549,9 @@ class PersonalSessionRuntime:
                     reservation.transition(PendingTurnState.SETTLED)
                     await self.turn_lock.release()
                     lock_acquired = False
-                    return TurnAdmission(turn=turn, consumed_as_follow_up=False, cleanup_pending=True)
+                    return TurnAdmission(
+                        turn=turn, consumed_as_follow_up=False, cleanup_pending=True
+                    )
 
             reservation.transition(PendingTurnState.ACTIVE)
             if turn.state.deadline is None:
@@ -1553,7 +1624,9 @@ class PersonalSessionRuntime:
         executor_id = head.executor_id or "native"
         active_task = self._active_turn_task
         if deadline is None:
-            raise RuntimeError("Platform input must have a deadline before Core interruption")
+            raise RuntimeError(
+                "Platform input must have a deadline before Core interruption"
+            )
         remaining = deadline.timeout_seconds("platform_abort")
         try:
             # Block late output before notifying a protocol adapter. The adapter
@@ -1596,7 +1669,9 @@ class PersonalSessionRuntime:
 
             abort_task.add_done_callback(settle_abort)
             try:
-                _, pending = await asyncio.wait({abort_task}, timeout=min(2.0, remaining))
+                _, pending = await asyncio.wait(
+                    {abort_task}, timeout=min(2.0, remaining)
+                )
                 if pending:
                     abort_task.cancel()
                 elif abort_task.cancelled() or abort_task.exception() is not None:
@@ -1645,8 +1720,7 @@ class PersonalSessionRuntime:
     def is_idle(self) -> bool:
         return (
             not self.cleanup_blocked
-            and
-            not self.has_active_conversational_work()
+            and not self.has_active_conversational_work()
             and self.observation_inbox.pending_count == 0
             and not self._persistent_state_dirty
             and (
@@ -1710,7 +1784,9 @@ class PersonalRuntimeManager:
         ) = None
         self._observation_wake_scheduler: ObservationWakeScheduler | None = None
         self._state_repository = state_repository
-        self._configuration_resolver: Callable[[str], ConfigurationSelection] | None = None
+        self._configuration_resolver: Callable[[str], ConfigurationSelection] | None = (
+            None
+        )
         self._runtime_creation_lock = asyncio.Lock()
         self._group_conversation_owners: dict[
             _GroupConversationOwnerKey, _GroupConversationOwnerState
@@ -1806,13 +1882,8 @@ class PersonalRuntimeManager:
             and feedback.delivery_status is PersonalDeliveryStatus.DELIVERED
         ):
             state.delivered_actor_id = str(turn.actor.actor_id or "").strip() or None
-            state.reply_completed_at = (
-                feedback.output_completed_at or time.time()
-            )
-        if (
-            state.active_turn_id is None
-            and state.delivered_actor_id is None
-        ):
+            state.reply_completed_at = feedback.output_completed_at or time.time()
+        if state.active_turn_id is None and state.delivered_actor_id is None:
             self._group_conversation_owners.pop(key, None)
 
     def _clear_group_conversation_runtime_owner(self, key: PersonalRuntimeKey) -> None:
@@ -1914,7 +1985,9 @@ class PersonalRuntimeManager:
             platform = context.get_platform_inst(target.platform_id)
             metadata = platform.meta() if platform is not None else None
             resolved_runtime = await self._resolve_observation_target_runtime_key(
-                target, config_id=selection.config_id, plugin_context=context,
+                target,
+                config_id=selection.config_id,
+                plugin_context=context,
                 runtime_config=selection.runtime_config,
             )
             if (
@@ -1934,11 +2007,10 @@ class PersonalRuntimeManager:
                 return
             denied = []
             for observation in observations:
-                source_denied = (
-                    observation.source.startswith("plugin_sensor:")
-                    and not await context.is_runtime_observation_source_admitted(
-                        observation
-                    )
+                source_denied = observation.source.startswith(
+                    "plugin_sensor:"
+                ) and not await context.is_runtime_observation_source_admitted(
+                    observation
                 )
                 if source_denied:
                     denied.append(observation.observation_id)
@@ -1956,7 +2028,8 @@ class PersonalRuntimeManager:
         except Exception:
             logger.exception(
                 "Personal Runtime wake admission failed: config_id=%s audience=%s",
-                key.config_id, key.audience_key,
+                key.config_id,
+                key.audience_key,
             )
             runtime._schedule_observation_wake_at(
                 time.time() + OBSERVATION_RECOVERY_RETRY_SECONDS
@@ -2100,13 +2173,16 @@ class PersonalRuntimeManager:
                 )
                 raise
             if admission.cleanup_pending:
-                raise RuntimeError("Personal Runtime output target is awaiting prior turn cleanup")
+                raise RuntimeError(
+                    "Personal Runtime output target is awaiting prior turn cleanup"
+                )
             if admission.consumed_as_follow_up or admission.lease is None:
                 raise RuntimeError(
                     "Runtime observation admission did not acquire a lease"
                 )
             try:
                 deadline = admission.turn.state.deadline
+                event.prepare_runtime_output()
                 if deadline is None:
                     with self.activate_turn(admission.turn):
                         return await handler(event, admission.turn)
@@ -2114,7 +2190,14 @@ class PersonalRuntimeManager:
                     with self.activate_turn(admission.turn):
                         return await handler(event, admission.turn)
             finally:
-                await admission.lease.release()
+                try:
+                    if (
+                        event._runtime_output is not None
+                        and not event._runtime_output.closed
+                    ):
+                        await event.abort_visible_turn(reason="runtime_output_ended")
+                finally:
+                    await admission.lease.release()
         finally:
             self._settle(reservation)
 
@@ -2261,11 +2344,26 @@ class PersonalRuntimeManager:
         plugin_context = runtime._plugin_context
         if plugin_context is None:
             raise RuntimeError("Personal action plugin context is unavailable")
+        target = intent.target_observation.target_session.unified_msg_origin
+        if output_target_busy(plugin_context, target):
+            logger.debug(
+                "Personal action suppressed: target=%s reason=output_busy", target
+            )
+            return False
+        source_observation = intent.target_observation
+        if source_observation.source.startswith(
+            "plugin_sensor:"
+        ) and not await plugin_context.is_runtime_observation_source_admitted(
+            source_observation
+        ):
+            return False
         event = RuntimeObservationEvent(
             context=plugin_context,
             observation=intent.to_observation(),
         )
         event.set_extra("_personal_action_intent", intent)
+        binding = plugin_context.get_proactive_schedule(target)
+        event.set_extra("_proactive_scene", binding.mode if binding else "daily")
         event.set_extra("_personal_action_id", intent.action_id)
         event.set_extra("_personal_action_batch_id", intent.batch_id)
         event.set_extra("_personal_runtime_submission_kind", "personal_expression")
@@ -2476,9 +2574,10 @@ class PersonalRuntimeManager:
             else "none"
         )
         failures = getattr(turn_state, "failures", []) or []
-        failure_stages = ",".join(
-            dict.fromkeys(str(item.stage) for item in failures if item.stage)
-        ) or "none"
+        failure_stages = (
+            ",".join(dict.fromkeys(str(item.stage) for item in failures if item.stage))
+            or "none"
+        )
         receipts = getattr(turn_state, "output_delivery_receipts", []) or []
         personal_receipts = [
             item
@@ -2514,8 +2613,7 @@ class PersonalRuntimeManager:
             stage_elapsed.get("persona_expression", 0.0) * 1000,
             stage_elapsed.get("provider_request", 0.0) * 1000,
             stage_elapsed.get("plugin_enrichment", 0.0) * 1000,
-            stage_elapsed.get("core_executor_run", 0.0)
-            * 1000
+            stage_elapsed.get("core_executor_run", 0.0) * 1000
             + stage_elapsed.get("proactive_core_execution", 0.0) * 1000,
             remaining_ms,
             snapshot.get("expired", "none"),
@@ -2523,8 +2621,13 @@ class PersonalRuntimeManager:
             failure_stages,
             float(snapshot.get("instrumented_wall_seconds", 0.0)) * 1000,
             float(snapshot.get("unattributed_wall_seconds", 0.0)) * 1000,
-            [(round(item["started_seconds"] * 1000), round(item["ended_seconds"] * 1000))
-             for item in snapshot.get("unattributed_intervals", [])[:8]],
+            [
+                (
+                    round(item["started_seconds"] * 1000),
+                    round(item["ended_seconds"] * 1000),
+                )
+                for item in snapshot.get("unattributed_intervals", [])[:8]
+            ],
             stage_elapsed.get("audio_drain", 0.0) * 1000,
             stage_elapsed.get("motion_drain", 0.0) * 1000,
         )
@@ -2775,7 +2878,8 @@ class PersonalRuntimeManager:
                 except Exception:
                     logger.exception(
                         "Personal Runtime state restore retry failed: config_id=%s audience=%s",
-                        key.config_id, key.audience_key,
+                        key.config_id,
+                        key.audience_key,
                     )
             if (
                 persona_resolution is not None
@@ -2790,6 +2894,14 @@ class PersonalRuntimeManager:
                     runtime.persona_context_seed
                 )
         interaction_config = load_interaction_agent_config(runtime_config)
+        binding = plugin_context.get_proactive_schedule(key.audience_key)
+        if binding is not None and binding.mode == "live":
+            interaction_config = replace(
+                interaction_config,
+                personal_runtime_reply_cooldown_seconds=binding.reply_cooldown_seconds,
+                personal_runtime_no_action_cooldown_seconds=binding.no_action_cooldown_seconds,
+                personal_runtime_daily_proactive_output_limit=binding.daily_output_limit,
+            )
         runtime.configure_personal_policy(
             agent=self._personal_policy_agent,
             plugin_context=self._plugin_context or plugin_context,
@@ -2878,6 +2990,7 @@ class PersonalRuntimeManager:
             if (
                 isinstance(request, ProviderRequest)
                 and request.conversation is not None
+                and turn.session.unified_msg_origin == event.unified_msg_origin
             ):
                 conversation_persona_id = request.conversation.persona_id
             if conversation_persona_id is None:
@@ -2945,6 +3058,7 @@ class PersonalRuntimeManager:
             ),
             persona_resolution=persona_resolution,
         )
+
 
 __all__ = [
     "PendingTurnReservation",

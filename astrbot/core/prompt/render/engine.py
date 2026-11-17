@@ -94,6 +94,14 @@ class PromptRenderEngine:
             )
         timings = []
         with measure_prompt_stage(timings, "context_view"):
+            from astrbot.core.interaction.conversation_context import (
+                project_public_context,
+                public_context,
+            )
+
+            pack = project_public_context(
+                pack, public=public_context(event, plugin_context)
+            )
             view_pack = project_prompt_context_view(pack, context_view)
             if resolved_target is PromptTarget.PERSONA:
                 view_pack = project_desktop_context(
@@ -110,9 +118,12 @@ class PromptRenderEngine:
             history_max_estimated_tokens = view_spec.history_max_estimated_tokens
         with measure_prompt_stage(timings, "target_projection"):
             target_pack = project_context_pack(
-                view_pack, resolved_target, history_turns=history_turns,
+                view_pack,
+                resolved_target,
+                history_turns=history_turns,
                 history_limit_reason=history_limit_reason,
-                history_max_estimated_tokens=history_max_estimated_tokens, config=config,
+                history_max_estimated_tokens=history_max_estimated_tokens,
+                config=config,
             )
         with measure_prompt_stage(timings, "render_profile"):
             selected_pack = self._apply_render_profile(target_pack, profile)
@@ -124,14 +135,20 @@ class PromptRenderEngine:
         )
         with measure_prompt_stage(timings, "tree_build"):
             prompt_tree = self.tree_builder.build(
-                selected_pack, layout=self.default_layout, event=event,
-                plugin_context=plugin_context, config=config,
+                selected_pack,
+                layout=self.default_layout,
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
                 provider_request=provider_request,
             )
         with measure_prompt_stage(timings, "provider_render"):
             result = renderer.render_prompt_tree(
-                prompt_tree, event=event, plugin_context=plugin_context,
-                config=config, provider_request=provider_request,
+                prompt_tree,
+                event=event,
+                plugin_context=plugin_context,
+                config=config,
+                provider_request=provider_request,
             )
         if profile is not None:
             result.request_prompt = profile.request_prompt
@@ -176,7 +193,8 @@ class PromptRenderEngine:
         timings = []
         with measure_prompt_stage(timings, "provider_recompile"):
             result = renderer.render_prompt_tree(
-                deepcopy(source.prompt_tree), provider_request=provider_request,
+                deepcopy(source.prompt_tree),
+                provider_request=provider_request,
             )
         result.request_prompt = source.request_prompt
         result.metadata = {
@@ -249,10 +267,18 @@ class PromptRenderEngine:
         runtime_config = (
             resolve_event_runtime_configuration(event)[0] if event is not None else None
         )
+        from astrbot.core.interaction.conversation_context import public_context
+
+        only_public = public_context(event, plugin_context)
         get_owner_name = getattr(
             plugin_context, "get_prompt_extension_collector_owner_name", None
         )
         for collector in collector_iter:
+            if (
+                only_public
+                and getattr(collector, "prompt_message_visibility", None) != "public"
+            ):
+                continue
             collect_messages = getattr(collector, "collect_prompt_messages", None)
             if not callable(collect_messages):
                 continue
@@ -274,10 +300,14 @@ class PromptRenderEngine:
                 allowed_targets.intersection_update({target_override})
             if target not in allowed_targets:
                 continue
-            placement = str(
-                getattr(collector, "prompt_message_placement", "before_user")
-                or "before_user"
-            ).strip().lower()
+            placement = (
+                str(
+                    getattr(collector, "prompt_message_placement", "before_user")
+                    or "before_user"
+                )
+                .strip()
+                .lower()
+            )
             if placement not in {"before_user", "after_user"}:
                 placement = "before_user"
             started_at = perf_counter()
@@ -340,6 +370,8 @@ class PromptRenderEngine:
                     transient_sources.add(plugin_id)
 
         for mutation in legacy_prompt_mutations:
+            if only_public:
+                continue
             source = str(getattr(mutation, "source", "plugin") or "plugin")
             for message in getattr(mutation, "context_messages", ()) or ():
                 normalized = self._normalize_transient_prompt_message(message)
@@ -363,9 +395,9 @@ class PromptRenderEngine:
             + existing_messages[insertion_index:]
             + transient_messages_after_user
         )
-        result.metadata["transient_prompt_message_count"] = (
-            len(transient_messages_before_user) + len(transient_messages_after_user)
-        )
+        result.metadata["transient_prompt_message_count"] = len(
+            transient_messages_before_user
+        ) + len(transient_messages_after_user)
         result.metadata["transient_prompt_message_providers"] = sorted(
             transient_sources
         )
@@ -383,6 +415,10 @@ class PromptRenderEngine:
         base_system_prompt: str | None = None,
     ) -> None:
         """Refresh request-local messages immediately before a provider call."""
+        from astrbot.core.interaction.conversation_context import public_context
+
+        if public_context(event, plugin_context):
+            legacy_prompt_mutations = ()
         scratch = RenderResult()
         self._inject_transient_prompt_messages(
             scratch,
@@ -434,10 +470,14 @@ class PromptRenderEngine:
         fresh_models_before_user: list[Message] = []
         fresh_models_after_user: list[Message] = []
         for message in scratch.messages:
-            placement = str(
-                message.get("_prompt_transient_placement", "before_user")
-                or "before_user"
-            ).strip().lower()
+            placement = (
+                str(
+                    message.get("_prompt_transient_placement", "before_user")
+                    or "before_user"
+                )
+                .strip()
+                .lower()
+            )
             if placement not in {"before_user", "after_user"}:
                 placement = "before_user"
             normalized = self._normalize_transient_prompt_message(message)
@@ -474,9 +514,9 @@ class PromptRenderEngine:
         prompt_prefix = ""
         prompt_suffix = ""
         for mutation in legacy_prompt_mutations:
-            for placement, text in getattr(
-                mutation, "prompt_text_operations", ()
-            ) or ():
+            for placement, text in (
+                getattr(mutation, "prompt_text_operations", ()) or ()
+            ):
                 if placement == "prefix":
                     prompt_prefix = text + prompt_prefix
                 elif placement == "suffix":
@@ -533,7 +573,9 @@ class PromptRenderEngine:
         )
         if transient_count:
             before_indices = list(
-                range(insertion_index, insertion_index + len(fresh_messages_before_user))
+                range(
+                    insertion_index, insertion_index + len(fresh_messages_before_user)
+                )
             )
             after_start = after_context_index + len(fresh_messages_after_user)
             after_indices = list(
@@ -559,7 +601,9 @@ class PromptRenderEngine:
             for message in retained_messages[last_user_index + 1 :]
         )
         if last_user_index is not None and not has_follow_up:
-            retained_messages[last_user_index:last_user_index] = fresh_models_before_user
+            retained_messages[last_user_index:last_user_index] = (
+                fresh_models_before_user
+            )
             retained_messages.extend(fresh_models_after_user)
         else:
             retained_messages.extend(fresh_models_before_user)
@@ -659,9 +703,7 @@ class PromptRenderEngine:
         )
         if prompt_part_index is None or not base_prompt:
             last_user.content[0:0] = [
-                part
-                for part in (prefix_part, suffix_part)
-                if part is not None
+                part for part in (prefix_part, suffix_part) if part is not None
             ]
             return
         if prefix_part is not None:
@@ -843,7 +885,9 @@ class PromptRenderEngine:
         metadata_family = str(
             getattr(metadata, "prompt_renderer_family", "base") or "base"
         )
-        return metadata_family if metadata_family in _PROMPT_RENDERER_FAMILIES else "base"
+        return (
+            metadata_family if metadata_family in _PROMPT_RENDERER_FAMILIES else "base"
+        )
 
     @staticmethod
     def _resolve_minimax_tool_call_enabled(provider) -> bool:
@@ -856,8 +900,7 @@ class PromptRenderEngine:
             None,
         )
         if not (
-            callable(supports_strategy)
-            and supports_strategy("protocol_tool_call")
+            callable(supports_strategy) and supports_strategy("protocol_tool_call")
         ):
             return False
         value = provider_config.get("minimax_enable_tool_call")
@@ -957,8 +1000,8 @@ class PromptRenderEngine:
         context_view = selected_pack.meta.get("context_view")
         if isinstance(context_view, str) and context_view:
             result.metadata["context_view"] = context_view
-            result.metadata["context_view_source_requirement"] = (
-                selected_pack.meta.get("context_view_source_requirement")
+            result.metadata["context_view_source_requirement"] = selected_pack.meta.get(
+                "context_view_source_requirement"
             )
             result.metadata["context_view_source_slot_names"] = deepcopy(
                 selected_pack.meta.get("context_view_source_slot_names", [])

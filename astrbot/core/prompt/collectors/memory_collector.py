@@ -88,6 +88,12 @@ async def resolve_prompt_memory_snapshot(
 ) -> MemorySnapshot | None:
     """Read one event-scoped MemorySnapshot and reuse it across collectors."""
 
+    from astrbot.core.interaction.conversation_context import public_context
+
+    if public_context(event, plugin_context):
+        # Current snapshots carry no record-level public visibility contract.
+        return None
+
     del config
 
     umo = getattr(event, "unified_msg_origin", None)
@@ -188,6 +194,10 @@ def get_cached_prompt_memory_snapshot(
     *,
     provider_request: ProviderRequest | None = None,
 ) -> MemorySnapshot | None:
+    from astrbot.core.interaction.conversation_context import public_context
+
+    if public_context(event):
+        return None
     cache = event.get_extra(_MEMORY_SNAPSHOT_CACHE_EXTRA_KEY, {})
     if not isinstance(cache, dict):
         return None
@@ -320,7 +330,9 @@ class MemoryCollector(ContextCollectorInterface):
             "topic_summary": topic_state.topic_summary,
             "topic_confidence": topic_state.topic_confidence,
             "context_role": "historical_summary",
-            "summarized_through": self._serialize_coverage_time(topic_state.last_active_at),
+            "summarized_through": self._serialize_coverage_time(
+                topic_state.last_active_at
+            ),
         }
         if include_debug_fields:
             value.update(
@@ -357,7 +369,9 @@ class MemoryCollector(ContextCollectorInterface):
             "short_summary": short_term_memory.short_summary,
             "active_focus": short_term_memory.active_focus,
             "context_role": "historical_summary",
-            "summarized_through": self._serialize_coverage_time(short_term_memory.updated_at),
+            "summarized_through": self._serialize_coverage_time(
+                short_term_memory.updated_at
+            ),
         }
         if include_debug_fields:
             value.update(

@@ -32,16 +32,19 @@ class PersonalActionIntent:
             target_session=self.target_observation.target_session,
             correlation_id=self.action_id,
             cancel_event=self.target_observation.cancel_event,
-            expires_at=(
-                self.target_observation.expires_at
-                if self.target_observation.cancel_event is not None else None
-            ),
+            expires_at=self.target_observation.expires_at,
             payload={
                 "personal_action_id": self.action_id,
                 "personal_action_kind": PersonalPolicyAction.EXPRESS.value,
                 "personal_policy_batch_id": self.batch_id,
+                "scene": self.target_observation.payload.get("scene", "daily"),
                 "visible_reply_material": (
-                    "这是由持续人格运行时形成的主动表达任务，不是新的用户消息。\n"
+                    (
+                        "当前为直播场景，只承接已公开的话题，不引用未公开的日常私聊。\n"
+                        if self.target_observation.payload.get("scene") == "live"
+                        else ""
+                    )
+                    + "这是由持续人格运行时形成的主动表达任务，不是新的用户消息。\n"
                     "以下内容是已批准的表达意图，不是必须逐字复述的台词或事实清单。\n"
                     f"表达意图：{self.reply_intent}\n"
                     "请保持人格语气，用一句简短口语自然表达这个意图；最多带一个轻问句。"

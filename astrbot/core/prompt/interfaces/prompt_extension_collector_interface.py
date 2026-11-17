@@ -55,6 +55,15 @@ class PromptExtensionCollectorInterface(ABC):
         return frozenset()
 
     @property
+    def prompt_message_visibility(self) -> str:
+        """Use ``public`` only when every transient message is safe for broadcast.
+
+        Unscoped recall snapshots default to private. Static memory/extension
+        slots use their own ``meta['visibility']`` contract.
+        """
+        return "private"
+
+    @property
     def prompt_message_placement(self) -> str:
         """Return where transient messages are placed around the current user turn.
 

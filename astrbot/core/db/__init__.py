@@ -674,6 +674,7 @@ class BaseDatabase(abc.ABC):
         usage_day: str | None,
         daily_policy_calls: int,
         daily_proactive_outputs: int,
+        proactive_outputs_by_scene: dict | None = None,
     ) -> PersonalRuntimeState:
         """Create or replace the persisted control state for one Personal Runtime."""
         ...

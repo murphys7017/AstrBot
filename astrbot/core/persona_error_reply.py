@@ -70,8 +70,10 @@ async def resolve_event_conversation_persona_id(
     event: Any, conversation_manager: Any
 ) -> str | None:
     """Resolve current conversation persona_id from event and conversation manager."""
+    from astrbot.core.interaction.conversation_context import conversation_session
+
     return await resolve_conversation_persona_id(
-        event.unified_msg_origin,
+        conversation_session(event),
         conversation_manager,
     )
 
@@ -81,9 +83,7 @@ async def resolve_conversation_persona_id(
     conversation_manager: Any,
 ) -> str | None:
     """Resolve current conversation persona_id without requiring a platform event."""
-    curr_cid = await conversation_manager.get_curr_conversation_id(
-        unified_msg_origin
-    )
+    curr_cid = await conversation_manager.get_curr_conversation_id(unified_msg_origin)
     if not curr_cid:
         return None
     conversation = await conversation_manager.get_conversation(

@@ -32,14 +32,20 @@ def build_event_persona_resolution_key(
     provider_settings: Mapping[str, Any] | None,
 ) -> PersonaResolutionCacheKey:
     """Build a key from every current PersonaManager resolution input."""
+    from astrbot.core.interaction.conversation_context import conversation_session
+
     default_personality = ""
     if isinstance(provider_settings, Mapping):
         default_personality = str(
             provider_settings.get("default_personality", "") or ""
         )
     return (
-        str(getattr(event, "unified_msg_origin", "") or ""),
-        str(event.get_platform_name() or ""),
+        conversation_session(event),
+        str(
+            event.get_extra("interaction.context_platform_name")
+            or event.get_platform_name()
+            or ""
+        ),
         str(conversation_persona_id or ""),
         default_personality,
         id(persona_manager),
@@ -54,6 +60,8 @@ async def resolve_event_persona(
     provider_settings: Mapping[str, Any] | None,
 ) -> PersonaResolution:
     """Resolve selected persona once per event, sharing concurrent callers."""
+    from astrbot.core.interaction.conversation_context import conversation_session
+
     key = build_event_persona_resolution_key(
         event=event,
         persona_manager=persona_manager,
@@ -70,8 +78,9 @@ async def resolve_event_persona(
     if not isinstance(task, asyncio.Task):
         task = asyncio.create_task(
             resolve_persona_selection(
-                unified_msg_origin=event.unified_msg_origin,
-                platform_name=event.get_platform_name(),
+                unified_msg_origin=conversation_session(event),
+                platform_name=event.get_extra("interaction.context_platform_name")
+                or event.get_platform_name(),
                 persona_manager=persona_manager,
                 conversation_persona_id=conversation_persona_id,
                 provider_settings=provider_settings,

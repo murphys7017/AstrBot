@@ -6,7 +6,7 @@ from asyncio import Event, Queue
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from deprecated import deprecated
@@ -256,6 +256,7 @@ class _RuntimeObservationSensorRegistration:
     seq: int
     owner_plugin_name: str | None = None
     owner_source: str = "definition"
+    schedule_bindings: dict[str, Any] = field(default_factory=dict)
 
 
 class PlatformManagerProtocol(Protocol):
@@ -847,11 +848,8 @@ class Context:
                     if config_manager is not None
                     else config
                 )
-                if (
-                    resolved_target
-                    not in configured_runtime_observation_target_values(
-                        effective_config
-                    )
+                if resolved_target not in configured_runtime_observation_target_values(
+                    effective_config
                 ):
                     continue
                 if resolved_target in seen:
@@ -925,7 +923,10 @@ class Context:
             return True
 
         should_use_runtime_dispatcher = bool(message_chain.get_plain_text().strip())
-        if self._proactive_message_dispatcher is not None and not should_use_runtime_dispatcher:
+        if (
+            self._proactive_message_dispatcher is not None
+            and not should_use_runtime_dispatcher
+        ):
             from astrbot.core.interaction.plugin_execution_runtime import (
                 get_active_plugin_branch_event,
             )
@@ -936,7 +937,10 @@ class Context:
                 and plugin_branch_event.unified_msg_origin == str(session)
             )
 
-        if self._proactive_message_dispatcher is not None and should_use_runtime_dispatcher:
+        if (
+            self._proactive_message_dispatcher is not None
+            and should_use_runtime_dispatcher
+        ):
             return await self._proactive_message_dispatcher(
                 session,
                 message_chain,
@@ -982,8 +986,7 @@ class Context:
             field_name="source_id",
         )
         if any(
-            registration.plugin_id == plugin_id
-            and registration.source_id == source_id
+            registration.plugin_id == plugin_id and registration.source_id == source_id
             for registration in self._runtime_observation_sensors
         ):
             raise ValueError(
@@ -1021,7 +1024,54 @@ class Context:
         return RuntimeObservationSensorHandle(
             registration_id=registration.seq,
             submitter=self._submit_runtime_observation_from_sensor,
+            schedule_configurer=self._configure_proactive_schedule,
         )
+
+    def get_proactive_schedule(self, session: str):
+        """Return the single registered scene policy for a presentation target."""
+        for registration in self._runtime_observation_sensors:
+            binding = registration.schedule_bindings.get(session)
+            if binding is not None:
+                return binding
+        return None
+
+    def _configure_proactive_schedule(
+        self,
+        registration_id,
+        session,
+        mode,
+        reply_cooldown,
+        no_action_cooldown,
+        daily_output_limit,
+    ) -> None:
+        from math import isfinite
+
+        from astrbot.core.interaction.proactive_schedule import ProactiveScheduleBinding
+
+        target = str(self._resolve_runtime_observation_session(session))
+        if mode not in {"daily", "live", "off"}:
+            raise ValueError("proactive mode must be daily, live or off")
+        if any(
+            not isfinite(float(v)) or float(v) < 0
+            for v in (reply_cooldown, no_action_cooldown, daily_output_limit)
+        ):
+            raise ValueError("proactive limits must be finite and nonnegative")
+        owner = next(
+            r for r in self._runtime_observation_sensors if r.seq == registration_id
+        )
+        previous = self.get_proactive_schedule(target)
+        if previous is not None:
+            if target not in owner.schedule_bindings:
+                raise ValueError("target already has a proactive schedule owner")
+            previous.cancelled.set()
+        owner.schedule_bindings[target] = ProactiveScheduleBinding(
+            owner_source=f"plugin_sensor:{owner.plugin_id}:{owner.source_id}",
+            mode=mode,
+            reply_cooldown_seconds=float(reply_cooldown),
+            no_action_cooldown_seconds=float(no_action_cooldown),
+            daily_output_limit=int(daily_output_limit),
+        )
+        logger.info("Proactive schedule configured: target=%s mode=%s", target, mode)
 
     def remove_runtime_observation_sensors_by_module_prefix(
         self,
@@ -1037,6 +1087,8 @@ class Context:
                 registration,
                 clean_prefix,
             ):
+                for binding in registration.schedule_bindings.values():
+                    binding.cancelled.set()
                 removed += 1
                 continue
             kept.append(registration)
@@ -1101,12 +1153,23 @@ class Context:
                 f"{target_session.platform_id}"
             )
         metadata = platform.meta()
+        source = f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"
+        binding = self.get_proactive_schedule(str(target_session))
+        if kind == "proactive_schedule_due" and binding is not None:
+            if not binding.allows(source):
+                logger.debug(
+                    "Proactive opportunity suppressed: target=%s mode=%s source=%s",
+                    target_session,
+                    binding.mode,
+                    source,
+                )
+                return None
+            if cancel_event is None:
+                cancel_event = binding.cancelled
         occurred_at = time.time()
         observation = RuntimeObservation(
             kind=validate_runtime_observation_kind(kind),
-            source=(
-                f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"
-            ),
+            source=(f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"),
             occurred_at=occurred_at,
             expires_at=expires_at,
             cancel_event=cancel_event,
@@ -1136,6 +1199,14 @@ class Context:
         self, observation: RuntimeObservation
     ) -> bool:
         """Revalidate a retained sensor fact without creating a platform event."""
+        if not observation.is_current(time.time()):
+            return False
+        if observation.kind == "proactive_schedule_due":
+            binding = self.get_proactive_schedule(
+                observation.target_session.unified_msg_origin
+            )
+            if binding is not None and not binding.allows(observation.source):
+                return False
         for registration in self._runtime_observation_sensors:
             if observation.source != (
                 f"plugin_sensor:{registration.plugin_id}:{registration.source_id}"
@@ -1144,7 +1215,9 @@ class Context:
             return self._is_runtime_observation_sensor_active(registration) and (
                 await self._runtime_sensor_admitted(
                     registration,
-                    MessageSession.from_str(observation.target_session.unified_msg_origin),
+                    MessageSession.from_str(
+                        observation.target_session.unified_msg_origin
+                    ),
                 )
             )
         return False
@@ -1358,7 +1431,9 @@ class Context:
         event_filter: Callable[[AstrMessageEvent], bool] | None = None,
     ) -> None:
         if event_filter is not None and not callable(event_filter):
-            raise TypeError("Interaction result contributor event_filter must be callable")
+            raise TypeError(
+                "Interaction result contributor event_filter must be callable"
+            )
         self._register_interaction_contributor(
             contributor,
             registry_attr="_interaction_result_contributors",
@@ -1617,7 +1692,8 @@ class Context:
         return module_path
 
     @classmethod
-    def _resolve_registration_owner(        cls,
+    def _resolve_registration_owner(
+        cls,
         definition_module_path: str,
     ) -> tuple[str | None, str | None, str]:
         """Resolve the plugin that owns a registration.
@@ -1713,9 +1789,7 @@ class Context:
                     event,
                     kind=kind,
                     registration=registration,
-                    live_active=self._is_interaction_contributor_active(
-                        registration
-                    ),
+                    live_active=self._is_interaction_contributor_active(registration),
                     item_name=registration.plugin_id,
                 )
             )
@@ -2055,6 +2129,11 @@ class Context:
 
         def _sweep(attr: str, label: str) -> None:
             registry = getattr(self, attr)
+            if attr == "_runtime_observation_sensors":
+                for item in registry:
+                    if _owned(item):
+                        for binding in item.schedule_bindings.values():
+                            binding.cancelled.set()
             kept = [item for item in registry if not _owned(item)]
             count = len(registry) - len(kept)
             if count:

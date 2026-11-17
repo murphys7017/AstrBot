@@ -26,6 +26,7 @@ from .turn_state import (
     get_interaction_turn_config,
     get_interaction_turn_runtime_config,
     set_interaction_turn_config,
+    set_interaction_turn_configuration_selection,
     set_interaction_turn_runtime_config,
 )
 
@@ -113,9 +114,37 @@ class PlatformTurnContextFactory:
             event,
             turn_id=existing_turn_id or uuid.uuid4().hex,
         )
+        from astrbot.core.platform.message_session import MessageSession
+
+        from .conversation_context import conversation_session, public_context
+
+        context_session = MessageSession.from_str(conversation_session(event))
+        if str(context_session) != event.unified_msg_origin:
+            selection = (
+                plugin_context.astrbot_config_mgr.resolve_configuration_selection(
+                    context_session
+                )
+            )
+            if state.runtime_config_snapshot is not None and dict(
+                state.runtime_config_snapshot
+            ) != dict(selection.runtime_config):
+                raise ValueError(
+                    "bound context conflicts with frozen runtime configuration"
+                )
+            set_interaction_turn_configuration_selection(
+                event,
+                config_id=selection.config_id,
+                runtime_config=selection.runtime_config,
+                adapter_binding_id=selection.runtime_selection.adapter_binding_id,
+                provider_references=selection.runtime_selection.provider_references,
+            )
+            config_id, runtime_config = selection.config_id, selection.runtime_config
+        public_context(event, plugin_context)
         runtime_snapshot = get_interaction_turn_runtime_config(event)
         if runtime_snapshot is None:
-            runtime_snapshot = set_interaction_turn_runtime_config(event, runtime_config)
+            runtime_snapshot = set_interaction_turn_runtime_config(
+                event, runtime_config
+            )
         runtime_config = runtime_snapshot
         interaction_config = get_interaction_turn_config(event)
         if interaction_config is None:
@@ -128,23 +157,32 @@ class PlatformTurnContextFactory:
         )
         if state.deadline is None and not defer_deadline_until_admission:
             state.deadline = TurnDeadlineBudget.start(interaction_config.turn_timeout)
+        context_platform = plugin_context.get_platform_inst(context_session.platform_id)
+        context_meta = (
+            context_platform.meta()
+            if context_platform is not None
+            else event.platform_meta
+        )
+        event.set_extra("interaction.context_platform_name", context_meta.name)
         session_data = TurnSession(
-            platform_id=event.get_platform_id(),
-            platform_name=event.get_platform_name(),
-            message_type=event.get_message_type(),
-            session_id=event.get_session_id(),
-            unified_msg_origin=event.unified_msg_origin,
+            platform_id=context_session.platform_id,
+            platform_name=context_meta.name,
+            message_type=context_session.message_type,
+            session_id=context_session.session_id,
+            unified_msg_origin=str(context_session),
             config_id=config_id or "default",
-            privacy_scope=resolve_privacy_scope(event.get_message_type()),
+            privacy_scope=resolve_privacy_scope(context_session.message_type),
             group_id=(str(event.get_group_id()).strip() or None)
             if getattr(event, "get_group_id", None) and event.get_group_id()
             else None,
             group_name=(
-                str(getattr(getattr(event.message_obj, "group", None), "group_name", ""))
+                str(
+                    getattr(getattr(event.message_obj, "group", None), "group_name", "")
+                )
                 or None
             ),
             support_proactive_message=bool(
-                getattr(event.platform_meta, "support_proactive_message", False)
+                getattr(context_meta, "support_proactive_message", False)
             ),
         )
         actor = (

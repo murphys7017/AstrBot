@@ -55,6 +55,7 @@ class PersonalPersistentState:
     usage_day: str | None
     daily_policy_calls: int
     daily_proactive_outputs: int
+    proactive_outputs_by_scene: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -76,6 +77,7 @@ class PersonalState:
     usage_day: str | None = None
     daily_policy_calls: int = 0
     daily_proactive_outputs: int = 0
+    proactive_outputs_by_scene: dict[str, int] = field(default_factory=dict)
     last_gate_reason: str | None = None
     last_policy_action: str | None = None
     _unsettled_material_revisions: set[int] = field(
@@ -111,6 +113,7 @@ class PersonalState:
         *,
         reply_cooldown_seconds: float = 0.0,
         usage_day: str | None = None,
+        scene: str = "daily",
     ) -> bool:
         previous_state = self.persistent_snapshot()
         if (
@@ -140,6 +143,9 @@ class PersonalState:
                 raise ValueError("Delivered proactive action requires usage_day")
             self._ensure_usage_day(usage_day)
             self.daily_proactive_outputs += 1
+            self.proactive_outputs_by_scene[scene] = (
+                self.proactive_outputs_by_scene.get(scene, 0) + 1
+            )
         return self.persistent_snapshot() != previous_state
 
     def record_observation(
@@ -199,16 +205,14 @@ class PersonalState:
             self.usage_day = normalized_day
             self.daily_policy_calls = 0
             self.daily_proactive_outputs = 0
+            self.proactive_outputs_by_scene = {}
 
     def restore_persistent(self, state: PersonalPersistentState) -> None:
         # Ordinary dialogue may have completed while the initial read failed.
         # Preserve that activity while restoring authoritative autonomous limits.
-        local_expression_is_newer = (
-            self.last_expression_at is not None
-            and (
-                state.last_expression_at is None
-                or self.last_expression_at >= state.last_expression_at
-            )
+        local_expression_is_newer = self.last_expression_at is not None and (
+            state.last_expression_at is None
+            or self.last_expression_at >= state.last_expression_at
         )
         for name in (
             "last_user_activity_at",
@@ -224,6 +228,9 @@ class PersonalState:
         self.usage_day = str(state.usage_day or "").strip() or None
         self.daily_policy_calls = max(0, int(state.daily_policy_calls))
         self.daily_proactive_outputs = max(0, int(state.daily_proactive_outputs))
+        self.proactive_outputs_by_scene = dict(state.proactive_outputs_by_scene)
+        if not self.proactive_outputs_by_scene and self.daily_proactive_outputs:
+            self.proactive_outputs_by_scene["daily"] = self.daily_proactive_outputs
 
     def persistent_snapshot(self) -> PersonalPersistentState:
         return PersonalPersistentState(
@@ -236,6 +243,7 @@ class PersonalState:
             usage_day=self.usage_day,
             daily_policy_calls=self.daily_policy_calls,
             daily_proactive_outputs=self.daily_proactive_outputs,
+            proactive_outputs_by_scene=dict(self.proactive_outputs_by_scene),
         )
 
     def snapshot(self) -> PersonalStateSnapshot:

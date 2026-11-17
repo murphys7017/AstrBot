@@ -122,8 +122,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.CONFIGURED_PERSONA,
         allowed_slot_names=(
-            _PERSONA_BASE_CONTEXT_SLOTS
-            | {"memory.topic_state", "memory.short_term"}
+            _PERSONA_BASE_CONTEXT_SLOTS | {"memory.topic_state", "memory.short_term"}
         ),
         history_max_estimated_tokens=3000,
         requires_media_context=False,
@@ -148,22 +147,12 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         name=PromptContextView.PROACTIVE,
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
-        allowed_slot_names=frozenset(
-            {
-                "system.global",
-                "extension.system",
-                "extension.context",
-                "persona.summary",
-                "input.visible_reply_material",
-                "conversation.history",
-                "memory.topic_state",
-                "memory.short_term",
-                "memory.persona_state",
-            }
-        ),
-        history_turns=2,
-        history_limit_reason="context_view_history_limit",
-        history_max_estimated_tokens=1200,
+        allowed_slot_names=_PERSONA_BASE_CONTEXT_SLOTS
+        | {
+            "memory.topic_state",
+            "memory.short_term",
+        },
+        history_max_estimated_tokens=1800,
         requires_media_context=False,
     ),
 }
@@ -231,9 +220,7 @@ def project_desktop_context(
     }
     attachment_summary_slot = None
     for slot in pack.slots.values():
-        if slot.name == "input.attachment_summary" and isinstance(
-            slot.value, dict
-        ):
+        if slot.name == "input.attachment_summary" and isinstance(slot.value, dict):
             attachment_summary_slot = slot
             continue
         if slot.name not in _DESKTOP_IMAGE_SLOT_NAMES or not isinstance(
@@ -306,7 +293,8 @@ def project_prompt_context_view(
                 if not isinstance(items, list):
                     continue
                 selected.value["items"] = [
-                    item for item in items
+                    item
+                    for item in items
                     if isinstance(item, dict)
                     and extension_visible_in_context_view(
                         "context",

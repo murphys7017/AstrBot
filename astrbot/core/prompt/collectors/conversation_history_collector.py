@@ -7,6 +7,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from astrbot.core import logger
+from astrbot.core.interaction.conversation_context import (
+    conversation_session,
+    public_context,
+    visible_history,
+)
 from astrbot.core.memory.history_source import (
     extract_turn_payloads,
     parse_conversation_history,
@@ -63,6 +68,9 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         if conversation_payload is not None:
             return conversation_payload
 
+        if public_context(event, plugin_context):
+            return {"source": "conversation_manager.public_history", "turns": []}
+
         if provider_request is None:
             return None
 
@@ -91,8 +99,10 @@ class ConversationHistoryCollector(ContextCollectorInterface):
             return None
 
         try:
+            context_session = conversation_session(event)
+            only_public = public_context(event, plugin_context)
             conversation_id = await conversation_manager.get_curr_conversation_id(
-                event.unified_msg_origin
+                context_session
             )
             if not conversation_id:
                 return None
@@ -119,7 +129,10 @@ class ConversationHistoryCollector(ContextCollectorInterface):
                 and getattr(request_conversation, "cid", None) == conversation_id
             ):
                 payload = self._load_conversation_history(
-                    raw_history=getattr(request_conversation, "history", None),
+                    raw_history=visible_history(
+                        getattr(request_conversation, "history", None),
+                        public=only_public,
+                    ),
                     source_name="conversation_manager.current_conversation.history",
                 )
                 if payload is not None:
@@ -135,7 +148,7 @@ class ConversationHistoryCollector(ContextCollectorInterface):
                     return payload
 
             conversation = await conversation_manager.get_conversation(
-                event.unified_msg_origin,
+                context_session,
                 conversation_id,
             )
         except Exception as exc:  # noqa: BLE001
@@ -150,7 +163,9 @@ class ConversationHistoryCollector(ContextCollectorInterface):
         if conversation is None:
             return None
         payload = self._load_conversation_history(
-            raw_history=getattr(conversation, "history", None),
+            raw_history=visible_history(
+                getattr(conversation, "history", None), public=only_public
+            ),
             source_name="conversation_manager.current_conversation.history",
         )
         if payload is not None:

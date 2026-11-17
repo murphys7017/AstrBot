@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+from dataclasses import replace
 from time import time
 from typing import Any
 
@@ -37,7 +39,9 @@ class RuntimeObservationEvent(AstrMessageEvent):
             "observation_id": message.message_id,
         }
         if target.group_id:
-            message.group = Group(group_id=target.group_id, group_name=target.group_name)
+            message.group = Group(
+                group_id=target.group_id, group_name=target.group_name
+            )
 
         super().__init__(
             "",
@@ -54,8 +58,59 @@ class RuntimeObservationEvent(AstrMessageEvent):
         self.session = session
         self.context_obj = context
         self.observation = observation
+        self._runtime_output = None
         self.set_extra("_runtime_observation_event", True)
         self.set_extra("_runtime_observation", observation)
+
+    def prepare_runtime_output(self) -> None:
+        platform = self.context_obj.get_platform_inst(self.session.platform_id)
+        factory = getattr(platform, "create_runtime_output", None)
+        if callable(factory):
+            self._runtime_output = factory(self)
+
+    def consume_scheduling_opportunity(self) -> None:
+        """Transfer a valid opportunity to output ownership exactly at handoff.
+
+        The source keeps its original guard for pending-work cancellation; this
+        event now obeys user interruption and output failure, not scene changes.
+        """
+        if self.is_stopped():
+            raise asyncio.CancelledError
+        self.observation = replace(self.observation, cancel_event=None, expires_at=None)
+        self.set_extra("_runtime_observation", self.observation)
+
+    async def send_message_with_extras(
+        self,
+        message,
+        *,
+        platform_extras=None,
+        record_send_operation=True,
+    ) -> None:
+        if self._runtime_output is None:
+            await super().send_message_with_extras(
+                message=message,
+                platform_extras=platform_extras,
+                record_send_operation=record_send_operation,
+            )
+            return
+        await self._runtime_output.send(message, platform_extras)
+        if record_send_operation:
+            await super().send(message)
+
+    async def complete_visible_message(self, *, message_id: str) -> None:
+        if self._runtime_output is not None:
+            await self._runtime_output.flush()
+        await super().complete_visible_message(message_id=message_id)
+
+    async def complete_visible_turn(self) -> None:
+        if self._runtime_output is not None:
+            await self._runtime_output.complete()
+        await super().complete_visible_turn()
+
+    async def abort_visible_turn(self, *, reason: str) -> None:
+        if self._runtime_output is not None:
+            await self._runtime_output.abort(reason)
+        await super().abort_visible_turn(reason=reason)
 
     def is_stopped(self) -> bool:
         return super().is_stopped() or not self.observation.is_current(time())

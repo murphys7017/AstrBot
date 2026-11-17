@@ -5,6 +5,7 @@ from collections.abc import Mapping
 
 from astrbot import logger
 
+from .conversation_context import conversation_session, public_context
 from .turn_state import (
     get_interaction_turn_committed_turn_id,
     get_interaction_turn_fixed_conversation_id,
@@ -16,9 +17,7 @@ from .turn_state import (
     record_interaction_turn_failure,
 )
 
-CONVERSATION_COMMITTED_TURN_ID_EXTRA = (
-    "_interaction_conversation_committed_turn_id"
-)
+CONVERSATION_COMMITTED_TURN_ID_EXTRA = "_interaction_conversation_committed_turn_id"
 
 
 async def commit_interaction_conversation_turn(
@@ -56,9 +55,10 @@ async def commit_interaction_conversation_turn(
     last_error: Exception | None = None
     for attempt in range(3):
         try:
+            context_session = conversation_session(event)
             fixed_conversation_id = get_interaction_turn_fixed_conversation_id(event)
-            fixed_conversation_required = is_interaction_turn_fixed_conversation_required(
-                event
+            fixed_conversation_required = (
+                is_interaction_turn_fixed_conversation_required(event)
             )
             if fixed_conversation_required and not fixed_conversation_id:
                 record_interaction_turn_delayed_history_skip(
@@ -67,7 +67,7 @@ async def commit_interaction_conversation_turn(
                 )
                 return True
             conversation_id = await conversation_manager.get_curr_conversation_id(
-                event.unified_msg_origin
+                context_session
             )
             if fixed_conversation_required:
                 if conversation_id != fixed_conversation_id:
@@ -77,7 +77,7 @@ async def commit_interaction_conversation_turn(
                     )
                     return True
                 parent_conversation = await conversation_manager.get_conversation(
-                    event.unified_msg_origin,
+                    context_session,
                     fixed_conversation_id,
                 )
                 if parent_conversation is None:
@@ -89,8 +89,8 @@ async def commit_interaction_conversation_turn(
                 conversation_id = fixed_conversation_id
             if not conversation_id:
                 conversation_id = await conversation_manager.new_conversation(
-                    event.unified_msg_origin,
-                    event.get_platform_id(),
+                    context_session,
+                    context_session.split(":", 1)[0],
                 )
             assistant_message = {"role": "assistant", "content": assistant_text}
             if assistant_artifacts:
@@ -128,6 +128,22 @@ async def commit_interaction_conversation_turn(
                     assistant_message.setdefault("_astrbot_metadata", {})[
                         "motion_outputs"
                     ] = motion_outputs
+            visibility = (
+                "public" if public_context(event, plugin_context) else "private"
+            )
+            assistant_message.setdefault("_astrbot_metadata", {}).update(
+                {
+                    "visibility": visibility,
+                    "source_session": event.unified_msg_origin,
+                }
+            )
+            if isinstance(user_message, dict):
+                user_message = dict(user_message)
+                user_message["_astrbot_metadata"] = {
+                    **user_message.get("_astrbot_metadata", {}),
+                    "visibility": visibility,
+                    "source_session": event.unified_msg_origin,
+                }
             if is_observation:
                 await conversation_manager.append_assistant_turn(
                     conversation_id,

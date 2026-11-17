@@ -38,6 +38,7 @@ class PersonalStateRepository:
             usage_day=record.usage_day,
             daily_policy_calls=max(0, int(record.daily_policy_calls)),
             daily_proactive_outputs=max(0, int(record.daily_proactive_outputs)),
+            proactive_outputs_by_scene=dict(record.proactive_outputs_by_scene or {}),
         )
 
     async def save(
@@ -59,6 +60,7 @@ class PersonalStateRepository:
             usage_day=state.usage_day,
             daily_policy_calls=state.daily_policy_calls,
             daily_proactive_outputs=state.daily_proactive_outputs,
+            proactive_outputs_by_scene=state.proactive_outputs_by_scene,
         )
 
 

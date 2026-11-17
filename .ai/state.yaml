@@ -1,3 +1,39 @@
+proactive_context_unification_20261118:
+  date: '2026-11-18'
+  class: bugfix
+  risk: high
+  status: reviewed_local_commit_authorized_pending_unified_deployment_and_live_acceptance
+  authorization: User approved the unified proactive entry and context continuity plan.
+  scope: >-
+    Replace live_topic synthetic input with target-owned observation scheduling.
+    A registered sensor binds daily/live/off selection to the presentation UMO;
+    scene changes and sensor removal revoke pending facts. Keep real viewer input.
+    Bind conversation reads/writes and Runtime audience to the presentation target
+    while retaining input source identity. Public live views exclude private and
+    untagged historical records. Remove proactive's fixed two-turn history limit
+    and preserve full persona slots with a bounded relevance-selected history.
+    Persist separate daily/live output counters using one additive JSON column.
+    Gate on frontend availability, revalidate stale opportunities, and complete
+    Core proactive output using a single AG99 turn and frontend playback evidence.
+  validation: >-
+    Real SQLite and ConversationManager boundary passed public target history
+    read/write, private-history exclusion, scene revocation, invalid mode rejection,
+    quota round trip and upgrade of an existing state row without the JSON column.
+    Review followup fixed three findings: public prompt projection now removes
+    unscoped memory/extensions and filters transient providers unless explicitly
+    public; typed configuration and Persona resolution use the bound target;
+    output handoff consumes the opportunity guard while preserving user stop.
+    Three focused review boundary cases passed using prompt rendering, real
+    configuration routing, and RuntimeObservationEvent handoff/cancellation.
+    Scoped Ruff passed. No full suite run. No model or frontend acceptance claimed.
+  limitations: >-
+    User explicitly chose to wait for the parallel subtitle task before unified
+    deployment. No deployment or restart performed for this change. Verify active scene selection,
+    playback completion, input preemption, consecutive-topic context and no duplicate
+    audio against real AG99. Other worktrees contain concurrent subtitle/frontend
+    and pre-existing parser/motion changes; preserve them and do not commit them.
+    User authorized scoped local commits after review. Remote push is not requested.
+
 minimax_proactive_file_audio_20261117:
   date: '2026-11-17'
   class: bugfix

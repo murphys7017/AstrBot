@@ -179,6 +179,14 @@ class SQLiteDatabase(BaseDatabase):
         result = await conn.execute(text("PRAGMA table_info(personal_runtime_states)"))
         columns = {row[1] for row in result.fetchall()}
 
+        if "proactive_outputs_by_scene" not in columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE personal_runtime_states "
+                    "ADD COLUMN proactive_outputs_by_scene JSON DEFAULT '{}'"
+                )
+            )
+
         if "last_expression_fingerprint" not in columns:
             await conn.execute(
                 text(
@@ -193,6 +201,7 @@ class SQLiteDatabase(BaseDatabase):
                     "ADD COLUMN last_user_activity_at FLOAT DEFAULT NULL"
                 )
             )
+
     # ====
     # Platform Statistics
     # ====
@@ -395,9 +404,7 @@ class SQLiteDatabase(BaseDatabase):
                     or_(
                         col(ConversationV2.title).ilike(f"%{search_query}%"),
                         content_text.ilike(f"%{search_query}%"),
-                        content_text.ilike(
-                            f"%{escaped_search_query}%"
-                        ),
+                        content_text.ilike(f"%{escaped_search_query}%"),
                         col(ConversationV2.user_id).ilike(f"%{search_query}%"),
                         col(ConversationV2.conversation_id).ilike(f"%{search_query}%"),
                         _webchat_session_title_match(search_query),
@@ -424,9 +431,7 @@ class SQLiteDatabase(BaseDatabase):
                 base_query = base_query.where(
                     ~or_(
                         col(ConversationV2.user_id) == exclude_id,
-                        col(ConversationV2.user_id).like(
-                            f"{escaped}:%", escape="\\"
-                        ),
+                        col(ConversationV2.user_id).like(f"{escaped}:%", escape="\\"),
                     )
                 )
 
@@ -553,9 +558,7 @@ class SQLiteDatabase(BaseDatabase):
         async with self.get_db() as session:
             result = await session.execute(
                 select(CoreExecutionRecord)
-                .where(
-                    col(CoreExecutionRecord.conversation_id) == conversation_id
-                )
+                .where(col(CoreExecutionRecord.conversation_id) == conversation_id)
                 .order_by(
                     desc(CoreExecutionRecord.created_at),
                     desc(CoreExecutionRecord.id),
@@ -1565,6 +1568,7 @@ class SQLiteDatabase(BaseDatabase):
         usage_day,
         daily_policy_calls,
         daily_proactive_outputs,
+        proactive_outputs_by_scene=None,
     ):
         async with self.get_db() as session:
             async with session.begin():
@@ -1578,6 +1582,9 @@ class SQLiteDatabase(BaseDatabase):
                 )
                 state = result.scalar_one_or_none()
                 values = {
+                    "proactive_outputs_by_scene": dict(
+                        proactive_outputs_by_scene or {}
+                    ),
                     "last_user_activity_at": last_user_activity_at,
                     "last_expression_at": last_expression_at,
                     "last_expression_fingerprint": last_expression_fingerprint,
@@ -1586,9 +1593,7 @@ class SQLiteDatabase(BaseDatabase):
                     "mute_until": mute_until,
                     "usage_day": usage_day,
                     "daily_policy_calls": max(0, int(daily_policy_calls)),
-                    "daily_proactive_outputs": max(
-                        0, int(daily_proactive_outputs)
-                    ),
+                    "daily_proactive_outputs": max(0, int(daily_proactive_outputs)),
                 }
                 if state is None:
                     state = PersonalRuntimeState(
@@ -2385,7 +2390,9 @@ class SQLiteDatabase(BaseDatabase):
                 if expected_revision is not None:
                     stmt = stmt.where(CronJob.revision == expected_revision)
                 if expected_execution_id is not None:
-                    stmt = stmt.where(CronJob.last_execution_id == expected_execution_id)
+                    stmt = stmt.where(
+                        CronJob.last_execution_id == expected_execution_id
+                    )
                 changed = await session.execute(stmt)
                 if not changed.rowcount:
                     return None

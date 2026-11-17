@@ -18,16 +18,43 @@ _SensorSubmitter = Callable[..., Awaitable[Any]]
 class RuntimeObservationSensorHandle:
     """Bound plugin handle for submitting structured Runtime Observations."""
 
-    __slots__ = ("_registration_id", "_submitter")
+    __slots__ = ("_registration_id", "_submitter", "_schedule_configurer")
 
     def __init__(
         self,
         *,
         registration_id: int,
         submitter: _SensorSubmitter,
+        schedule_configurer: Callable[..., None] | None = None,
     ) -> None:
         self._registration_id = registration_id
         self._submitter = submitter
+        self._schedule_configurer = schedule_configurer
+
+    def configure_schedule(
+        self,
+        *,
+        session: str,
+        mode: str,
+        reply_cooldown_seconds: float = 300,
+        no_action_cooldown_seconds: float = 60,
+        daily_output_limit: int = 24,
+    ) -> None:
+        """Own the daily/live/off schedule selection for one presentation target.
+
+        Reloading or removing the owning sensor invalidates its pending facts.
+        This does not grant permission to send messages or call models.
+        """
+        if self._schedule_configurer is None:
+            raise RuntimeError("schedule configuration is unavailable")
+        self._schedule_configurer(
+            self._registration_id,
+            session,
+            mode,
+            reply_cooldown_seconds,
+            no_action_cooldown_seconds,
+            daily_output_limit,
+        )
 
     async def submit(
         self,
@@ -119,7 +146,9 @@ def _validate_payload_value(value: Any, *, path: str) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str) or not key.strip():
-                raise ValueError("Runtime Observation payload keys must be non-empty strings")
+                raise ValueError(
+                    "Runtime Observation payload keys must be non-empty strings"
+                )
             key_path = f"{path}.{key}" if path else key
             if key.casefold() in {
                 "visible_reply_material",
@@ -151,9 +180,7 @@ def _validate_payload_value(value: Any, *, path: str) -> None:
             )
         return
     if isinstance(value, float) and not isfinite(value):
-        raise ValueError(
-            f"Runtime Observation payload numbers must be finite: {path}"
-        )
+        raise ValueError(f"Runtime Observation payload numbers must be finite: {path}")
     if value is None or isinstance(value, bool | int | float):
         return
     raise TypeError(

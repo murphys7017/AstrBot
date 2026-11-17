@@ -281,6 +281,7 @@ class PersonalRuntimeState(TimestampMixin, SQLModel, table=True):
     usage_day: str | None = Field(default=None)
     daily_policy_calls: int = Field(default=0, nullable=False)
     daily_proactive_outputs: int = Field(default=0, nullable=False)
+    proactive_outputs_by_scene: dict = Field(default_factory=dict, sa_type=JSON)
 
     __table_args__ = (
         UniqueConstraint(
@@ -611,6 +612,8 @@ class Conversation:
     updated_at: int = 0
     token_usage: int = 0
     """对话的总 token 数量。AstrBot 会保留最近一次 LLM 请求返回的总 token 数，方便统计。token_usage 可能为 0，表示未知。"""
+
+
 class Personality(TypedDict):
     """LLM 人格类。
 
