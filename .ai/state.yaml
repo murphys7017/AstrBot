@@ -1,3 +1,32 @@
+minimax_proactive_file_audio_20261117:
+  date: '2026-11-17'
+  class: bugfix
+  risk: medium
+  status: source_fixed_live_provider_checked_pending_restart_and_listening
+  scope: >-
+    Fix MiniMax HTTP file synthesis to retain only status=2 aggregate audio,
+    explicitly requesting the aggregate and rejecting provider errors or EOF
+    without a final audio response. Preserve the bidirectional PCM path and
+    unrelated dirty files. No frontend or playback changes.
+  evidence: >-
+    The 23:31:58 proactive turn logged one TTS request. Its 386138-byte WAV
+    contains RIFF headers at offsets 0 and 192526. The first header has
+    streaming sentinel sizes; the second is a complete 193612-byte WAV.
+    The first part's 192448 PCM bytes exactly equal the final file's PCM,
+    establishing duplicate concatenation inside the file, rather than a
+    second synthesis request. Header bytes embedded in PCM can cause pops;
+    audible device-level behavior has not yet been verified.
+  validation: >-
+    Two public get_audio loopback cases passed: deltas plus final aggregate
+    produce exactly one WAV, and truncated SSE produces no file. Ruff passed.
+    A real configured speech-2.8-turbo request produced one 221102-byte WAV,
+    duration 3.43653125 seconds, matching RIFF/PCM sizes, first and last PCM
+    samples zero, and peak amplitude 9865/32768. No live chat sent.
+  limitations: >-
+    Running AstrBot must restart to load the provider source change. Frontend
+    listening acceptance is pending; do not claim all audible pops resolved.
+    Scoped local commit authorized after review; no remote push made.
+
 blivedm_presence_diagnostics_20261117:
   date: '2026-11-17'
   class: bugfix

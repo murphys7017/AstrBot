@@ -134,6 +134,7 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
             "model": self.model_name,
             "text": text,
             "stream": True,
+            "stream_options": {"exclude_aggregated_audio": False},
             "language_boost": self.lang_boost,
             "voice_setting": self.voice_setting,
             "audio_setting": self.audio_setting,
@@ -144,15 +145,20 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
         return json.dumps(dict_body)
 
     async def _call_tts_stream(self, text: str) -> AsyncIterator[str]:
-        """进行流式请求"""
+        """Return only the final complete audio from the HTTP SSE response.
+
+        Status 1 contains incremental bytes; status 2 contains the entire file.
+        Joining both duplicates speech and embeds a second WAV header in PCM.
+        get_audio waits for a complete file, so intermediate bytes are discarded.
+        """
         try:
             async with self._get_http_session().post(
-                    self.concat_base_url,
-                    headers=self.headers,
-                    data=self._build_tts_stream_body(text),
-                    timeout=aiohttp.ClientTimeout(total=60),
-                    proxy=self.provider_config.get("proxy") or None,
-                ) as response:
+                self.concat_base_url,
+                headers=self.headers,
+                data=self._build_tts_stream_body(text),
+                timeout=aiohttp.ClientTimeout(total=60),
+                proxy=self.provider_config.get("proxy") or None,
+            ) as response:
                 response.raise_for_status()
 
                 buffer = b""
@@ -169,18 +175,30 @@ class ProviderMiniMaxTTSAPI(TTSProvider):
                             if message.startswith(b"data: "):
                                 try:
                                     data = json.loads(message[6:])
-                                    audio: str | None = data.get("data", {}).get(
-                                        "audio"
-                                    )
-                                    if audio is not None:
-                                        yield audio
                                 except json.JSONDecodeError:
                                     logger.warning(
                                         "Failed to parse JSON data from SSE message",
                                     )
                                     continue
+                                code = data.get("base_resp", {}).get("status_code", 0)
+                                if code:
+                                    raise RuntimeError(
+                                        f"minimax_tts_provider_error:{code}"
+                                    )
+                                result = data.get("data") or {}
+                                if result.get("status") != 2:
+                                    continue
+                                audio = result.get("audio")
+                                if not isinstance(audio, str) or not audio.strip():
+                                    raise RuntimeError(
+                                        "minimax_tts_final_audio_missing"
+                                    )
+                                yield audio
+                                return
                         except ValueError:
                             buffer = buffer[-1024:]
+
+                raise RuntimeError("minimax_tts_stream_ended_without_final_audio")
 
         except aiohttp.ClientError as e:
             raise Exception(f"MiniMax TTS API请求失败: {e!s}")
