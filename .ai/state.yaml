@@ -1,3 +1,37 @@
+blivedm_presence_diagnostics_20261117:
+  date: '2026-11-17'
+  class: bugfix
+  risk: medium
+  status: deployed_restart_observed_pending_frontend_presence_acceptance
+  scope: >-
+    Revise blivedm HTTP dependency constraints in its local source checkout;
+    bundle the MIT-licensed 1.1.7+ag99.1 wheel, source patch and loopback
+    acceptance script with the Stream Host plugin. Install the wheel and
+    Brotli 1.2.0 in AstrBot's .venv without changing aiohttp 3.13.3 or yarl
+    1.23.0. Quarantine duplicate NetworkX dist-info under .tmp. Deploy
+    rate-limited, traceback-bearing AG99 presence diagnostics and explicit
+    missing-capability warnings. Preserve unrelated dirty files.
+  validation: >-
+    Temporary environment resolved all 13 packages without conflicts. Real
+    blivedm client passed loopback Brotli HTTP JSON, room initialization,
+    WebSocket authentication, compressed message reception, reconnect and
+    shutdown in both isolated and actual environments. Anonymous live Bilibili
+    init_room returned true for the configured room. NetworkX imports without
+    duplicate-registration warnings and nx_loopback has exactly one entry.
+    Presence source passed compilation and Ruff. Source/deployment scripts
+    completed. Scoped local commits authorized; no remote publication made.
+  limitations: >-
+    No automated restart was performed because local dashboard login
+    credentials were unavailable. A user restart was requested and
+    subsequently observed at 17:29:16. Historic presence AttributeError
+    still lacks a traceback and its exact root is unproven. New startup logs contain
+    no Brotli decoding failure. The live t2i endpoint returns HTTP 200 with
+    Content-Encoding br and decodes as JSON. models.dev timed out at 15s.
+    Frontend has not reconnected, so presence polling has not been accepted.
+    uv pip check retains four pre-existing incompatibilities involving
+    OpenTelemetry, google-api-core/requests and cartesia/httpx-sse; outside
+    this repair scope. No live authenticated danmaku reception claimed.
+
 desktop_context_keyword_gate_20261117:
   date: '2026-11-17'
   class: feature
