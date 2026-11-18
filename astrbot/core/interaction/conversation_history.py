@@ -45,11 +45,11 @@ async def commit_interaction_conversation_turn(
     if not isinstance(assistant_artifacts, list):
         assistant_artifacts = []
     source = str(turn_material.get("source", "platform") or "platform")
-    is_observation = source == "observation"
+    assistant_only = source in {"observation", "plugin_commentary"}
     motion_delivered = has_delivered_motion_output(turn_material.get("visible_outputs"))
     if not assistant_text and not assistant_artifacts and not motion_delivered:
         return False
-    if not is_observation and not isinstance(user_message, dict):
+    if not assistant_only and not isinstance(user_message, dict):
         return False
 
     last_error: Exception | None = None
@@ -144,7 +144,7 @@ async def commit_interaction_conversation_turn(
                     "visibility": visibility,
                     "source_session": event.unified_msg_origin,
                 }
-            if is_observation:
+            if assistant_only:
                 await conversation_manager.append_assistant_turn(
                     conversation_id,
                     turn_id=resolved_turn_id,

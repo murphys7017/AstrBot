@@ -3,6 +3,10 @@ from contextlib import aclosing, nullcontext
 from time import perf_counter
 
 from astrbot.core import logger
+from astrbot.core.interaction.plugin_commentary import (
+    plugin_commentary_for,
+    run_plugin_commentary,
+)
 from astrbot.core.interaction.turn_state import get_interaction_turn_runtime_config
 from astrbot.core.platform import AstrMessageEvent
 from astrbot.core.platform.astr_message_event import INTERACTION_ENABLED_EXTRA_KEY
@@ -10,6 +14,10 @@ from astrbot.core.utils.active_event_registry import active_event_registry
 
 from .bootstrap import ensure_builtin_stages_registered
 from .context import PipelineContext
+from .runtime_config import (
+    get_pipeline_turn_config_id,
+    get_pipeline_turn_runtime_config,
+)
 from .stage import registered_stages
 from .stage_order import STAGES_ORDER
 
@@ -110,6 +118,15 @@ class PipelineScheduler:
         completed = False
         active_event_registry.register(event)
         try:
+            if (commentary := plugin_commentary_for(event)) is not None:
+                await run_plugin_commentary(
+                    commentary,
+                    self.ctx,
+                    config_id=get_pipeline_turn_config_id(event, self.ctx.astrbot_config_id),
+                    runtime_config=get_pipeline_turn_runtime_config(event, self.ctx.astrbot_config),
+                )
+                completed = True
+                return
             await self._process_stages(event)
 
             if event.requires_visible_turn_completion() and not event.get_extra(

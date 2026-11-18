@@ -1,6 +1,7 @@
 import asyncio
+import json
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from astrbot import logger
@@ -51,6 +52,7 @@ from .personal_expression_guard import (
     PREVIOUS_EXPRESSION_FINGERPRINT_METADATA_KEY,
     fingerprint_personal_expression,
 )
+from .plugin_commentary import plugin_commentary_for
 from .protocol_bypass import match_protocol_command_bypass
 from .runtime_config import merge_runtime_config
 from .runtime_event import RuntimeObservationEvent
@@ -371,6 +373,52 @@ class InteractionMiddleware:
             return
         await self._handle_pipeline_turn(event)
         mark_interaction_turn_pipeline_route_handled(event)
+
+    async def handle_plugin_commentary(
+        self, event: AstrMessageEvent, *, title: str, text: str, preceding: str
+    ) -> str | None:
+        """Render a reading comment in an admitted turn without ordinary routing."""
+        self.prepare_pipeline_event(event)
+        config = get_interaction_turn_config(event)
+        if config is None or not config.enabled:
+            raise InteractionExpressionError("personal_expression_unavailable")
+        await self.freeze_plugin_admission(event)
+        await dispatch_interaction_lifecycle(
+            event, self.plugin_context, InteractionLifecycleStage.RECEIVED,
+            metadata={"source": "reading_commentary"},
+        )
+        self._set_speculative_persona_status(event, InteractionSpeculativePersonaStatus.PENDING)
+        request = PersonaExpressionRequest(
+            source_text=json.dumps({"title": title, "passage": text, "preceding": preceding}, ensure_ascii=False),
+            intent=PersonaExpressionIntent(kind="proactive", source="reading_commentary", phase="proactive"),
+            short_reply=True,
+            require_turn_action=True,
+            allow_silent=True,
+        )
+
+        async def begin_output() -> None:
+            if not await event.begin_plugin_commentary_output():
+                raise InteractionExpressionError("presentation_busy")
+
+        expression = await self._generate_and_emit_persona(
+            event, config, request=request, before_reply=begin_output,
+        )
+        if (
+            expression is None
+            or event.get_extra("_interaction_persona_segment_stream_status") in {"failed", "incomplete", "cancelled"}
+        ):
+            raise InteractionExpressionError(
+                event.get_extra("_interaction_persona_segment_stream_failure_reason") or "reading_expression_failed"
+            )
+        if expression.turn_action is PersonalResponseAction.SILENT:
+            await self._complete_silent_or_committed_persona_turn(event, expression)
+            return None
+        await self._complete_persona_only_turn(
+            event, expression, wait_for_playback=event.wait_for_plugin_commentary_output,
+        )
+        if not is_interaction_turn_completed(event):
+            raise InteractionExpressionError("reading_turn_not_completed")
+        return get_interaction_turn_immediate_reply(event)
 
     async def handle_runtime_observation(
         self,
@@ -1203,6 +1251,9 @@ class InteractionMiddleware:
         self,
         event: AstrMessageEvent,
         interaction_config,
+        *,
+        request: PersonaExpressionRequest | None = None,
+        before_reply: Callable[[], Awaitable[None]] | None = None,
     ) -> PersonaExpressionResult | None:
         get_platform_name = getattr(event, "get_platform_name", None)
         platform_name = (
@@ -1242,6 +1293,8 @@ class InteractionMiddleware:
                 return await self._generate_and_stream_persona(
                     event,
                     interaction_config,
+                    request=request,
+                    before_reply=before_reply,
                 )
             finally:
                 # This flag selects contributors for this Persona invocation.
@@ -1261,7 +1314,7 @@ class InteractionMiddleware:
         expression = await self._generate_expression(
             event,
             interaction_config,
-            request=PersonaExpressionRequest(
+            request=request or PersonaExpressionRequest(
                 short_reply=True,
                 require_turn_action=True,
                 allow_silent=group_conversation_allows_silent(event),
@@ -1271,6 +1324,7 @@ class InteractionMiddleware:
                     phase="immediate",
                 ),
             ),
+            fallback_on_error=request is None,
         )
         turn_state = ensure_interaction_turn_state(event)
         if expression is None:
@@ -1305,6 +1359,8 @@ class InteractionMiddleware:
         if not await reserve_interaction_turn_immediate_output(event):
             return None
         try:
+            if before_reply is not None:
+                await before_reply()
             delivered = await self._emit_immediate_reply_or_record_failure(
                 event,
                 expression,
@@ -1331,6 +1387,9 @@ class InteractionMiddleware:
         self,
         event: AstrMessageEvent,
         interaction_config: InteractionAgentConfig,
+        *,
+        request: PersonaExpressionRequest | None = None,
+        before_reply: Callable[[], Awaitable[None]] | None = None,
     ) -> PersonaExpressionResult | None:
         if self.plugin_context is None:
             record_interaction_turn_expression_failure(
@@ -1343,7 +1402,7 @@ class InteractionMiddleware:
             )
             return None
 
-        request = PersonaExpressionRequest(
+        request = request or PersonaExpressionRequest(
             short_reply=True,
             require_turn_action=True,
             allow_action_only=event.get_platform_name() == "olv_pet_adapter",
@@ -1377,6 +1436,8 @@ class InteractionMiddleware:
                 raise InteractionExpressionError(
                     "persona_stream_immediate_output_unavailable"
                 )
+            if before_reply is not None:
+                await before_reply()
             return True
 
         async def produce(emit_record, message_id) -> PersonaExpressionResult:
@@ -1588,6 +1649,8 @@ class InteractionMiddleware:
         self,
         event: AstrMessageEvent,
         expression: PersonaExpressionResult | None,
+        *,
+        wait_for_playback: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         stream_status = (
             expression.metadata.get("interaction.persona_stream_status")
@@ -1628,6 +1691,8 @@ class InteractionMiddleware:
         )
         completed = await self._complete_visible_turn_or_record_failure(event)
         if completed:
+            if wait_for_playback is not None:
+                await wait_for_playback()
             await self._finalize_turn(event)
         event.stop_event()
 
@@ -2149,12 +2214,17 @@ class InteractionMiddleware:
         ):
             return None
         is_observation = isinstance(event, RuntimeObservationEvent)
+        commentary = plugin_commentary_for(event)
+        assistant_only = is_observation or commentary is not None
         material = {
             "turn_id": turn_id,
-            "source": "observation" if is_observation else "platform",
-            "user_text": "" if is_observation else (event.message_str or "").strip(),
+            "source": (
+                "plugin_commentary" if commentary is not None
+                else "observation" if is_observation else "platform"
+            ),
+            "user_text": "" if assistant_only else (event.message_str or "").strip(),
             "user_message": (
-                None if is_observation else build_canonical_user_message(event)
+                None if assistant_only else build_canonical_user_message(event)
             ),
             "assistant_text": canonical_reply,
             "assistant_artifacts": list(assistant_artifacts),
@@ -2172,6 +2242,8 @@ class InteractionMiddleware:
         delivery_metadata = get_interaction_turn_delivery_metadata(event)
         if delivery_metadata:
             material["assistant_metadata"] = delivery_metadata
+        if commentary is not None:
+            material.setdefault("assistant_metadata", {})["source"] = "reading_commentary"
         set_interaction_turn_finalized_material(event, material)
         return material
 

@@ -18,6 +18,7 @@ PersonaExpressionSource = Literal[
     "core_result",
     "plugin_output",
     "runtime_observation",
+    "reading_commentary",
     "stream_observation",
     "tool_observation",
     "direct",

@@ -68,7 +68,10 @@ if TYPE_CHECKING:
     from astrbot.core.execution_ledger import CoreExecutionLedger
     from astrbot.core.interaction.effects import PersonaEffectSpec
     from astrbot.core.interaction.observation import RuntimeObservation
+    from astrbot.core.interaction.plugin_commentary import PluginCommentaryResult
     from astrbot.core.interaction.runtime_sensor import RuntimeObservationSensorHandle
+
+    from .base import Star
 
 WebApiHandler = Callable[..., Awaitable[Any]]
 RegisteredWebApi = tuple[str, WebApiHandler, list[str], str]
@@ -949,6 +952,31 @@ class Context:
 
         return await self._send_message_direct(session, message_chain)
 
+    async def submit_plugin_commentary(
+        self,
+        *,
+        owner: Star,
+        source_platform_id: str,
+        target_session: str,
+        request_id: str,
+        title: str,
+        text: str,
+        preceding: str = "",
+    ) -> PluginCommentaryResult:
+        """Queue original material for Persona commentary in a public session."""
+        from astrbot.core.interaction.plugin_commentary import submit_plugin_commentary
+
+        return await submit_plugin_commentary(
+            self,
+            owner=owner,
+            source_platform_id=source_platform_id,
+            target_session=target_session,
+            request_id=request_id,
+            title=title,
+            text=text,
+            preceding=preceding,
+        )
+
     def set_proactive_message_dispatcher(
         self,
         dispatcher: ProactiveMessageDispatcher | None,
@@ -1564,11 +1592,18 @@ class Context:
             clone_persona_effect_spec,
             validate_persona_effect_spec,
         )
+        from astrbot.core.interaction.plugin_commentary import plugin_commentary_for
 
+        commentary = plugin_commentary_for(event) if event is not None else None
         registrations = [
             registration
             for registration in self._persona_effects
             if registration.effect.enabled
+            and (
+                commentary is None
+                or (registration.effect.plugin_id, registration.effect.name)
+                in commentary.presentation_effects
+            )
             and self._capability_visible(
                 event,
                 kind=CapabilityKind.PERSONA_EFFECT,

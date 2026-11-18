@@ -4302,3 +4302,34 @@ stream_live_singleflight_admission_20261117:
     A 300-second missing-receipt fault limit aborts the stuck playback turn;
     it is not a response interval. Validate actual Bilibili-to-playback latency
     from new logs after reload. Preserve unrelated changes and credentials.
+
+stream_host_co_reading_20261118:
+  date: '2026-11-18'
+  class: feature
+  risk: high
+  status: implemented_isolated_acceptance_passed
+  scope: >-
+    Add material, progress, and idle co-reading scheduling to Stream Host.
+    Accept a typed plugin commentary event through the existing Core queue
+    and Personal expression lease. Use the bound OLV adapter for motion, TTS,
+    and playback settlement. Reuse the authenticated AG99live Control Panel
+    and the local subtitle service for material management and OBS display.
+    Require a render receipt for the current display revision. Default to
+    manual controls. Retain the input adapter's existing viewer admission rules.
+  validation: >-
+    Both deployment scripts copied the source into a separate test instance.
+    Tested authenticated preview, save, control commands, and dashboard SSE.
+    Edge rendered two passages, acknowledged each version, and cleared the
+    story at end. Stale render receipts returned 409. A local Ollama expression
+    model and independent motion model produced matched OLV text and motion
+    in both streaming and non-streaming tests. The non-streaming automatic
+    case used a local test WAV provider to verify audio binding. Tests verified
+    busy rejection and advancement after the protocol peer's playback receipt.
+    Scoped Ruff, subtitle JavaScript syntax, Vue type checking, and the plugin
+    page build passed. The submission review used the three staged source
+    trees and Core's committed versioned Persona stream protocol. The primary
+    display retained its live receipt when a second browser opened and closed.
+    Streaming commentary and motion reached OLV and advanced after playback.
+  remaining: >-
+    Production deployment and restart are pending. Validate Bilibili input,
+    OBS capture, configured TTS, and physical Live2D playback in the live setup.

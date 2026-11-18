@@ -95,7 +95,7 @@ class PersonaVisibleReplyCollector(ContextCollectorInterface):
                 "short_reply": payload["short_reply"],
                 "allow_empty": payload["allow_empty"],
             }
-        elif intent_kind == "proactive":
+        elif intent_kind == "proactive" and payload["source"] != "reading_commentary":
             for field in (
                 "source_text",
                 "immediate_reply",
