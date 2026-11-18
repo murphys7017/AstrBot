@@ -32,30 +32,29 @@ def build_persona_segment_stream_prompt(
     example = "\n".join(
         json.dumps(record, ensure_ascii=False)
         for record in (
-            {"v": 1, "record": "header", "turn_action": "reply"},
+            {"record": "header", "turn_action": "reply"},
             {
-                "v": 1,
                 "record": "segment_start",
                 "actions": [],
                 "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
             },
-            {"v": 1, "record": "speech_delta", "text": "本段要说的话。"},
-            {"v": 1, "record": "segment_end"},
-            {"v": 1, "record": "finish", "effect_calls": []},
+            {"record": "speech_delta", "text": "本段要说的话。"},
+            {"record": "segment_end"},
+            {"record": "finish", "effect_calls": []},
         )
     )
     return (
-        "\n\n【本轮输出协议：segment_stream_v1】"
+        "\n\n【本轮输出协议：segment_stream】"
         "只输出逐行 JSONL 记录，不要 Markdown、"
         "代码围栏、解释、空行或协议外文本。每条记录必须完整后再换行。"
-        '第一条必须是 {"v":1,"record":"header","turn_action":"..."}；'
+        '第一条必须是 {"record":"header","turn_action":"..."}；'
         f"turn_action 必须从 {action_choices} 中选择，并遵守本轮回复规则。"
-        '每段依次输出 {"v":1,"record":"segment_start","actions":[],"tendency":{...}}，'
-        '零到多条 {"v":1,"record":"speech_delta","text":"本段连续文本"}，'
-            '再输出 {"v":1,"record":"segment_end"}。'
+        '每段依次输出 {"record":"segment_start","actions":[],"tendency":{...}}，'
+        '零到多条 {"record":"speech_delta","text":"本段连续文本"}，'
+        '再输出 {"record":"segment_end"}。'
         'tendency 必须且只能包含八维整数，键为 '
         f"{dimensions}，取值 0 到 10。"
-        '最后必须且只能输出 {"v":1,"record":"finish","effect_calls":[]}。'
+        '最后必须且只能输出 {"record":"finish","effect_calls":[]}。'
         "每个 JSON 对象中的字段名只能出现一次；禁止重复键。"
         "同一 segment 内的 speech_delta 按原文顺序拼接。"
         "reply 时输出 Persona segment；silent 时只输出 header 和 finish，不输出 segment。"

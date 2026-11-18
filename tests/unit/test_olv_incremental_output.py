@@ -121,19 +121,18 @@ def stream_producer(speech, *, request=None, actions=None, deltas=None):
             request or PersonaExpressionRequest(require_turn_action=True)
         )
         records = [
-            {"v": 1, "record": "header", "turn_action": "reply"},
+            {"record": "header", "turn_action": "reply"},
             {
-                "v": 1,
                 "record": "segment_start",
                 "actions": actions or [],
                 "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0),
             },
             *[
-                {"v": 1, "record": "speech_delta", "text": text}
+                {"record": "speech_delta", "text": text}
                 for text in (deltas if deltas is not None else ([speech] if speech else []))
             ],
-            {"v": 1, "record": "segment_end"},
-            {"v": 1, "record": "finish", "effect_calls": []},
+            {"record": "segment_end"},
+            {"record": "finish", "effect_calls": []},
         ]
         for record in records:
             for event in parser.feed(json.dumps(record) + "\n"):

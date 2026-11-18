@@ -99,12 +99,12 @@ class PersonaSegmentStreamParser:
         if self._current_segment is not None:
             if not self._current_segment.speech:
                 return []
-            event = self._consume_line('{"v":1,"record":"segment_end"}')
+            event = self._consume_line('{"record":"segment_end"}')
             if event is not None:
                 events.append(event)
         if not self._segments and self._turn_action is not PersonalResponseAction.SILENT:
             return []
-        self._consume_line('{"v":1,"record":"finish","effect_calls":[]}')
+        self._consume_line('{"record":"finish","effect_calls":[]}')
         return events
 
     def finish(self) -> PersonaExpressionResult:
@@ -194,21 +194,19 @@ class PersonaSegmentStreamParser:
         }
         if self._finished:
             raise InteractionExpressionError("persona_stream_data_after_finish")
-        if "v" not in record:
-            reason = (
-                "persona_stream_nonstream_expression"
-                if "turn_action" in record and "segments" in record
-                else "persona_stream_missing_version"
-            )
-            raise InteractionExpressionError(reason)
-        if type(record["v"]) is not int:
-            raise InteractionExpressionError("persona_stream_invalid_version_type")
-        if record["v"] != 1:
-            raise InteractionExpressionError("persona_stream_unsupported_version")
+        if "v" in record:
+            # Earlier Persona outputs repeat the protocol version on every line.
+            version = record.pop("v")
+            if type(version) is not int:
+                raise InteractionExpressionError("persona_stream_invalid_version_type")
+            if version != 1:
+                raise InteractionExpressionError("persona_stream_unsupported_version")
+        if "turn_action" in record and "segments" in record:
+            raise InteractionExpressionError("persona_stream_nonstream_expression")
         record_type = record.get("record")
 
         if self._turn_action is None:
-            if record_type != "header" or set(record) != {"v", "record", "turn_action"}:
+            if record_type != "header" or set(record) != {"record", "turn_action"}:
                 raise InteractionExpressionError("persona_stream_header_required")
             try:
                 action = PersonalResponseAction(str(record["turn_action"]))
@@ -232,7 +230,7 @@ class PersonaSegmentStreamParser:
                 )
             if self._current_segment is not None:
                 raise InteractionExpressionError("persona_stream_nested_segment")
-            if set(record) != {"v", "record", "actions", "tendency"}:
+            if set(record) != {"record", "actions", "tendency"}:
                 raise InteractionExpressionError("persona_stream_invalid_segment_start")
             if len(self._segments) >= self.MAX_SEGMENTS:
                 raise InteractionExpressionError("persona_stream_too_many_segments")
@@ -253,7 +251,7 @@ class PersonaSegmentStreamParser:
         if record_type == "speech_delta":
             if self._current_segment is None:
                 raise InteractionExpressionError("persona_stream_delta_outside_segment")
-            if set(record) != {"v", "record", "text"}:
+            if set(record) != {"record", "text"}:
                 raise InteractionExpressionError("persona_stream_invalid_speech_delta")
             delta = record.get("text")
             if not isinstance(delta, str) or not delta:
@@ -270,7 +268,7 @@ class PersonaSegmentStreamParser:
         if record_type == "segment_end":
             if self._current_segment is None:
                 raise InteractionExpressionError("persona_stream_end_without_segment")
-            if set(record) != {"v", "record"}:
+            if set(record) != {"record"}:
                 raise InteractionExpressionError("persona_stream_invalid_segment_end")
             segment = self._validation.validate_segment(
                 self._current_segment.to_mapping(),
@@ -287,7 +285,7 @@ class PersonaSegmentStreamParser:
         if record_type == "finish":
             if self._current_segment is not None:
                 raise InteractionExpressionError("persona_stream_unclosed_segment")
-            if set(record) != {"v", "record", "effect_calls"}:
+            if set(record) != {"record", "effect_calls"}:
                 raise InteractionExpressionError("persona_stream_invalid_finish")
             if record.get("effect_calls") != []:
                 raise InteractionExpressionError("persona_stream_effects_unsupported")

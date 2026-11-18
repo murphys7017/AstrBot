@@ -78,7 +78,6 @@ def _persona_payload(speech: str = "", **overrides):
 
 @pytest.mark.parametrize("record,reason", [
     ({"turn_action": "reply", "segments": []}, "persona_stream_nonstream_expression"),
-    ({"record": "header", "turn_action": "reply"}, "persona_stream_missing_version"),
     ({"v": "1", "record": "header", "turn_action": "reply"}, "persona_stream_invalid_version_type"),
     ({"v": True, "record": "header", "turn_action": "reply"}, "persona_stream_invalid_version_type"),
     ({"v": 2, "record": "header", "turn_action": "reply"}, "persona_stream_unsupported_version"),
@@ -93,22 +92,23 @@ def test_segment_stream_reports_wrong_wire_format(record, reason):
     assert "response_tail" not in parser.diagnostics
 
 
-@pytest.mark.parametrize("separator", ["\n", "\r\n \t\r\n\r\n"])
-def test_persona_segment_stream_parser_handles_fragmented_records(separator):
+@pytest.mark.parametrize(("separator", "with_version"), [("\n", False), ("\r\n \t\r\n\r\n", True)])
+def test_persona_segment_stream_parser_handles_fragmented_records(separator, with_version):
     tendency = dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)
     records = [
-        {"v": 1, "record": "header", "turn_action": "reply"},
+        {"record": "header", "turn_action": "reply"},
         {
-            "v": 1,
             "record": "segment_start",
             "actions": [],
             "tendency": tendency,
         },
-        {"v": 1, "record": "speech_delta", "text": "你好"},
-        {"v": 1, "record": "speech_delta", "text": "，世界。"},
-        {"v": 1, "record": "segment_end"},
-        {"v": 1, "record": "finish", "effect_calls": []},
+        {"record": "speech_delta", "text": "你好"},
+        {"record": "speech_delta", "text": "，世界。"},
+        {"record": "segment_end"},
+        {"record": "finish", "effect_calls": []},
     ]
+    if with_version:
+        records = [{"v": 1, **record} for record in records]
     wire = separator.join(json.dumps(record, ensure_ascii=False) for record in records)
     wire += separator
     parser = PersonaSegmentStreamParser(
@@ -152,10 +152,10 @@ def test_repaired_stream_preserves_speech_and_dispatches_eof_tail():
     async def run():
         parser = PersonaSegmentStreamParser(PersonaExpressionRequest(require_turn_action=True))
         records = [
-            "{'v':1,'record':'header','turn_action':'reply',}",
-            json.dumps({"v": 1, "record": "segment_start", "actions": [],
+            "{'record':'header','turn_action':'reply',}",
+            json.dumps({"record": "segment_start", "actions": [],
                         "tendency": dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0)}),
-            json.dumps({"v": 1, "record": "speech_delta", "text": "已有的回复。"}),
+            json.dumps({"record": "speech_delta", "text": "已有的回复。"}),
         ]
         wire = "\n".join(records)
         events = [record async for record in parser.feed_async(
@@ -183,7 +183,7 @@ def test_repaired_stream_rejects_duplicate_fields_and_missing_speech_content():
         for wire, reason in (
             ('{"v":1,"v":2,"record":"header","turn_action":"reply"}\n',
              "persona_stream_duplicate_field"),
-            ('{"v":1,"record":"speech_delta","text":"未完成',
+            ('{"record":"speech_delta","text":"未完成',
              "persona_stream_invalid_json"),
         ):
             parser = PersonaSegmentStreamParser(PersonaExpressionRequest(require_turn_action=True))
@@ -204,13 +204,13 @@ def test_persona_segment_stream_accepts_identical_redundant_fields():
             PersonaExpressionRequest(require_turn_action=True)
         )
         wire = (
-            '{"v":1,"record":"header","record":"header","turn_action":"reply"}\n'
-            '{"v":1,"record":"segment_start","actions":[],"actions":[],"tendency":'
+            '{"record":"header","record":"header","turn_action":"reply"}\n'
+            '{"record":"segment_start","actions":[],"actions":[],"tendency":'
             + json.dumps(dict.fromkeys(PERSONA_TENDENCY_DIMENSIONS, 0), ensure_ascii=False)
             + '}\n'
-            '{"v":1,"record":"speech_delta","text":"可以。"}\n'
-            '{"v":1,"record":"segment_end"}\n'
-            '{"v":1,"record":"finish","effect_calls":[]}\n'
+            '{"record":"speech_delta","text":"可以。"}\n'
+            '{"record":"segment_end"}\n'
+            '{"record":"finish","effect_calls":[]}\n'
         )
         _ = [record async for record in parser.feed_async(
             wire, plugin_context=None, event=None, final=True,
@@ -228,8 +228,8 @@ def test_persona_segment_stream_parser_rejects_empty_reply():
         PersonaExpressionRequest(require_turn_action=True)
     )
     parser.feed(
-        '{"v":1,"record":"header","turn_action":"reply"}\n'
-        '{"v":1,"record":"finish","effect_calls":[]}\n'
+        '{"record":"header","turn_action":"reply"}\n'
+        '{"record":"finish","effect_calls":[]}\n'
     )
 
     with pytest.raises(InteractionExpressionError):
@@ -241,7 +241,7 @@ def test_persona_segment_stream_parser_rejects_core_route_action():
         PersonaExpressionRequest(require_turn_action=True)
     )
     with pytest.raises(InteractionExpressionError, match="invalid_turn_action"):
-        parser.feed('{"v":1,"record":"header","turn_action":"delegate"}\n')
+        parser.feed('{"record":"header","turn_action":"delegate"}\n')
 
 
 def test_persona_segment_stream_parser_accepts_silent_without_segments():
@@ -249,8 +249,8 @@ def test_persona_segment_stream_parser_accepts_silent_without_segments():
         PersonaExpressionRequest(require_turn_action=True, allow_silent=True)
     )
     parser.feed(
-        '{"v":1,"record":"header","turn_action":"silent"}\n'
-        '{"v":1,"record":"finish","effect_calls":[]}\n'
+        '{"record":"header","turn_action":"silent"}\n'
+        '{"record":"finish","effect_calls":[]}\n'
     )
 
     result = parser.finish()
@@ -367,16 +367,15 @@ async def test_persona_segment_ready_hook_receives_validated_segment_identity(
     wire = "\n".join(
         json.dumps(record)
         for record in (
-            {"v": 1, "record": "header", "turn_action": "reply"},
+            {"record": "header", "turn_action": "reply"},
             {
-                "v": 1,
                 "record": "segment_start",
                 "actions": ["look_left"],
                 "tendency": tendency,
             },
-            {"v": 1, "record": "speech_delta", "text": "hello"},
-            {"v": 1, "record": "segment_end"},
-            {"v": 1, "record": "finish", "effect_calls": []},
+            {"record": "speech_delta", "text": "hello"},
+            {"record": "segment_end"},
+            {"record": "finish", "effect_calls": []},
         )
     ) + "\n"
 
@@ -1557,7 +1556,7 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
 
     class Event:
         session_id = "fast-persona"
-        unified_msg_origin = "webchat:friend:fast-persona"
+        unified_msg_origin = "webchat:FriendMessage:fast-persona"
 
         def __init__(self):
             self._extras = {}
@@ -1572,6 +1571,10 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
             return "webchat"
 
     class PluginContext:
+        @staticmethod
+        def get_proactive_schedule(_session):
+            return None
+
         @staticmethod
         def get_config(**kwargs):
             del kwargs
@@ -1701,11 +1704,11 @@ async def test_persona_turn_plan_keeps_identity_recent_memory_without_waiting(
         assert "segments[].speech" not in result.system_prompt
         assert "只有 segments 中的 speech 会展示" not in result.system_prompt
         assert '"required"' not in result.system_prompt
-        assert result.request_prompt.count("【本轮输出协议：segment_stream_v1】") == 1
+        assert result.request_prompt.count("【本轮输出协议：segment_stream】") == 1
         assert "segment_stream_v1" not in result.system_prompt
         records = [
             json.loads(line) for line in result.request_prompt.splitlines()
-            if line.strip().startswith('{"v":')
+            if line.strip().startswith('{"record":')
         ]
         assert [record["record"] for record in records] == [
             "header", "segment_start", "speech_delta", "segment_end", "finish",
