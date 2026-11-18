@@ -4334,6 +4334,33 @@ stream_host_co_reading_20261118:
     Production deployment and restart are pending. Validate Bilibili input,
     OBS capture, configured TTS, and physical Live2D playback in the live setup.
 
+stream_live_feedback_and_admission_20261118:
+  date: '2026-11-18'
+  class: feature
+  risk: high
+  status: deployed_pending_reload_and_live_acceptance
+  scope: >-
+    Stream Host records Bilibili single-symbol feedback before busy filtering.
+    Hold gifts, guard purchases and Super Chat for up to five minutes and
+    trace admission and playback outcomes. Retry explicit non-admission only.
+    OLV checks availability under its existing turn lock before committing
+    Stream Input to Core. Log anonymous selection statistics with existing
+    ranking and random sampling. No Core pipeline change is required.
+  validation: >-
+    Scoped Ruff, whitespace checks and eleven OLV turn tests passed. An
+    isolated check parsed a Bilibili frame, verified the feedback JSONL and
+    ordinary busy drops, and checked paid event retry, expiry and ambiguous
+    playback handling. The real adapter rejected a live event after an
+    existing playback turn won the lock. A follow-up check also rejected a
+    live event when desktop input entered preparation during passive cleanup.
+    Both deploy scripts completed.
+  remaining: >-
+    Reload AstrBot so both plugins take effect together. Verify actual live
+    gift and Super Chat responses and playback receipts after reload. Motion
+    feedback currently stores raw timestamps and identity for later alignment.
+    The installed Stream Host handles reservation rejection as not_admitted;
+    this caller change is still in the separate Stream Host working tree.
+
 stream_host_co_reading_recovery_20261118:
   date: '2026-11-18'
   class: bugfix
