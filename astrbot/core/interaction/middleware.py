@@ -381,6 +381,7 @@ class InteractionMiddleware:
         title: str,
         text: str,
         preceding: str,
+        topic: str,
         wait_for_playback: Callable[[], Awaitable[None]],
     ) -> str | None:
         """Render a reading comment in an admitted turn without ordinary routing."""
@@ -394,8 +395,11 @@ class InteractionMiddleware:
             metadata={"source": "reading_commentary"},
         )
         self._set_speculative_persona_status(event, InteractionSpeculativePersonaStatus.PENDING)
+        material = {"title": title, "passage": text, "preceding": preceding}
+        if topic:
+            material["commentary_topic"] = topic
         request = PersonaExpressionRequest(
-            source_text=json.dumps({"title": title, "passage": text, "preceding": preceding}, ensure_ascii=False),
+            source_text=json.dumps(material, ensure_ascii=False),
             intent=PersonaExpressionIntent(kind="proactive", source="reading_commentary", phase="proactive"),
             short_reply=True,
             require_turn_action=True,

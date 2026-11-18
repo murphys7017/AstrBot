@@ -49,6 +49,7 @@ from .observation_inbox import (
     ObservationAdmissionResult,
     ObservationBatch,
     ObservationInbox,
+    ObservationMaterial,
 )
 from .persona_domain import (
     PersonaDefinition,
@@ -503,6 +504,12 @@ class PlatformEventSubmission:
 
     def set_provider_request(self, request: ProviderRequest) -> None:
         self._reservation.turn.provider_request = request
+
+    async def evaluate_reading_policy(
+        self, observation: RuntimeObservation
+    ) -> tuple[ObservationGateReason, PersonalPolicyEvaluation | None]:
+        runtime = await self._manager._bind_pending_submission(self._reservation)
+        return await runtime.evaluate_reading_policy(observation)
 
     async def admit(
         self,
@@ -1183,17 +1190,70 @@ class PersonalSessionRuntime:
             if task.done() and not task.cancelled():
                 task.exception()
 
-    async def _evaluate_personal_policy(
+    async def evaluate_reading_policy(
+        self, observation: RuntimeObservation
+    ) -> tuple[ObservationGateReason, PersonalPolicyEvaluation | None]:
+        """Evaluate a displayed passage without acquiring the output turn lease."""
+        if (
+            self.cleanup_blocked
+            or self.turn_lock.locked()
+            or self.bound_turn_count > 1
+            or (
+                self.observation_evaluation_task is not None
+                and not self.observation_evaluation_task.done()
+            )
+        ):
+            return ObservationGateReason.RUNTIME_BUSY, None
+        evaluated_at = time.time()
+        state = self.state.snapshot()
+        batch = ObservationBatch.create(
+            runtime_key=self.key,
+            opened_at=observation.occurred_at,
+            closed_at=evaluated_at,
+            observations=(observation,),
+            material_by_observation_id={
+                observation.observation_id: ObservationMaterial(
+                    revision=state.last_settled_material_revision + 1,
+                    occurred_at=observation.occurred_at,
+                ),
+            },
+        )
+        settings = self.observation_gate_settings
+        features = ObservationFeatureBuilder.build(
+            batch,
+            state=state,
+            runtime_busy=False,
+            settings=settings,
+            evaluated_at=evaluated_at,
+        )
+        gate = DeterministicObservationGate.evaluate(
+            batch,
+            state=state,
+            features=features,
+            settings=settings,
+            evaluated_at=evaluated_at,
+        )
+        if gate.disposition is not ObservationGateDisposition.EVALUATE:
+            return gate.reason_code, None
+        evaluation = await self._call_personal_policy(
+            batch,
+            gate_result=gate,
+            state_snapshot=state,
+        )
+        if evaluation is not None:
+            self._record_personal_policy_evaluation(evaluation)
+        return gate.reason_code, evaluation
+
+    async def _call_personal_policy(
         self,
         batch: ObservationBatch,
         *,
         gate_result: ObservationGateResult,
         state_snapshot: PersonalStateSnapshot,
-    ) -> float | None:
+    ) -> PersonalPolicyEvaluation | None:
         agent = self._personal_policy_agent
         plugin_context = self._plugin_context
         if agent is None or plugin_context is None:
-            self._settle_observation_batch(batch)
             return None
 
         async def record_provider_call() -> None:
@@ -1206,22 +1266,57 @@ class PersonalSessionRuntime:
             self._persistent_state_dirty = True
             await self._persist_state()
 
+        return await agent.evaluate(
+            runtime_key=self.key,
+            batch=batch,
+            gate_result=gate_result,
+            state=state_snapshot,
+            persona_resolution=self.persona_resolution,
+            persona_context_seed=self.persona_context_seed,
+            persona_definition=self.persona_definition,
+            gate_settings=self.observation_gate_settings,
+            plugin_context=plugin_context,
+            runtime_config=self._runtime_config,
+            interaction_config=self._interaction_config,
+            on_provider_call_started=record_provider_call,
+        )
+
+    def _record_personal_policy_evaluation(
+        self,
+        evaluation: PersonalPolicyEvaluation,
+    ) -> None:
+        self.last_personal_policy_evaluation = evaluation
+        self.state.record_policy_action(evaluation.decision.action.value)
+        logger.info(
+            "Personal Policy evaluation: config_id=%s persona_id=%s "
+            "batch_id=%s status=%s action=%s reason=%s failure=%s "
+            "provider_call_started=%s selected_slots=%s",
+            self.key.config_id,
+            self.key.persona_id,
+            evaluation.batch_id,
+            evaluation.status.value,
+            evaluation.decision.action.value,
+            evaluation.decision.reason_code.value,
+            evaluation.failure_code or "",
+            evaluation.provider_call_started,
+            ",".join(evaluation.selected_slot_names),
+        )
+
+    async def _evaluate_personal_policy(
+        self,
+        batch: ObservationBatch,
+        *,
+        gate_result: ObservationGateResult,
+        state_snapshot: PersonalStateSnapshot,
+    ) -> float | None:
+
         try:
             evaluation = await self._await_observation_work(
                 batch,
-                lambda: agent.evaluate(
-                    runtime_key=self.key,
-                    batch=batch,
+                lambda: self._call_personal_policy(
+                    batch,
                     gate_result=gate_result,
-                    state=state_snapshot,
-                    persona_resolution=self.persona_resolution,
-                    persona_context_seed=self.persona_context_seed,
-                    persona_definition=self.persona_definition,
-                    gate_settings=self.observation_gate_settings,
-                    plugin_context=plugin_context,
-                    runtime_config=self._runtime_config,
-                    interaction_config=self._interaction_config,
-                    on_provider_call_started=record_provider_call,
+                    state_snapshot=state_snapshot,
                 ),
             )
         except _ObservationWorkCancelled:
@@ -1250,22 +1345,7 @@ class PersonalSessionRuntime:
         if evaluation is None:
             self._settle_observation_batch(batch)
             return None
-        self.last_personal_policy_evaluation = evaluation
-        self.state.record_policy_action(evaluation.decision.action.value)
-        logger.info(
-            "Personal Policy evaluation: config_id=%s persona_id=%s "
-            "batch_id=%s status=%s action=%s reason=%s failure=%s "
-            "provider_call_started=%s selected_slots=%s",
-            self.key.config_id,
-            self.key.persona_id,
-            evaluation.batch_id,
-            evaluation.status.value,
-            evaluation.decision.action.value,
-            evaluation.decision.reason_code.value,
-            evaluation.failure_code or "",
-            evaluation.provider_call_started,
-            ",".join(evaluation.selected_slot_names),
-        )
+        self._record_personal_policy_evaluation(evaluation)
         plan = PersonalActionCoordinator.plan(
             decision=evaluation.decision,
             batch=batch,
@@ -2501,17 +2581,24 @@ class PersonalRuntimeManager:
         allow_follow_up: bool,
         wait_if_busy: bool = True,
     ) -> TurnAdmission:
-        deadline = reservation.turn.state.deadline
-        if deadline is None:
-            await self._bind(reservation)
-        else:
-            async with deadline.enforce("runtime_binding"):
-                await self._bind(reservation)
+        await self._bind_pending_submission(reservation)
         return await self._admit(
             reservation,
             allow_follow_up=allow_follow_up,
             wait_if_busy=wait_if_busy,
         )
+
+    async def _bind_pending_submission(
+        self, reservation: PendingTurnReservation
+    ) -> PersonalSessionRuntime:
+        bound = self._event_sessions.get(reservation.turn.event)
+        if bound is not None:
+            return bound
+        deadline = reservation.turn.state.deadline
+        if deadline is None:
+            return await self._bind(reservation)
+        async with deadline.enforce("runtime_binding"):
+            return await self._bind(reservation)
 
     def register_active_input_control(
         self,

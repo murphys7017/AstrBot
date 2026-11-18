@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from time import time
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
@@ -14,11 +15,21 @@ from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.plugin_admission import resolve_event_plugins_name
 
+from .observation import RuntimeObservation, RuntimeObservationTarget
+from .personal_gate import ObservationGateReason
+from .personal_policy import (
+    READING_COMMENTARY_OPPORTUNITY,
+    PersonalPolicyAction,
+    PersonalPolicyEvaluationStatus,
+)
+
 if TYPE_CHECKING:
     from astrbot.core.pipeline.context import PipelineContext
     from astrbot.core.platform.astr_message_event import AstrMessageEvent
     from astrbot.core.star.base import Star
     from astrbot.core.star.context import Context
+
+    from .personal_runtime import PlatformEventSubmission
 
 _EXTRA_KEY = "_core_plugin_commentary"
 _REQUEST_TIMEOUT_SECONDS = 300
@@ -43,6 +54,8 @@ class PluginCommentary:
     preceding: str
     presentation_effects: frozenset[tuple[str, str]]
     result: asyncio.Future[PluginCommentaryResult]
+    automatic: bool = False
+    claim_output: Callable[[], bool] | None = None
     task: asyncio.Task | None = None
     playback_text: str | None = None
     playback_confirmed: bool = False
@@ -70,6 +83,8 @@ async def submit_plugin_commentary(
     title: str,
     text: str,
     preceding: str,
+    automatic: bool = False,
+    claim_output: Callable[[], bool] | None = None,
 ) -> PluginCommentaryResult:
     if not _owner_is_active(context, owner):
         return PluginCommentaryResult("rejected", request_id, reason="plugin_inactive")
@@ -123,6 +138,8 @@ async def submit_plugin_commentary(
         preceding,
         frozenset(getattr(adapter, "plugin_commentary_presentation_effects", ())),
         asyncio.get_running_loop().create_future(),
+        automatic=automatic,
+        claim_output=claim_output,
     )
     event.set_extra(_EXTRA_KEY, request)
     try:
@@ -263,6 +280,12 @@ async def _run(
     async with manager.submit_platform_event(
         event, config_id, context, dict(runtime_config)
     ) as submission:
+        topic = ""
+        if request.automatic:
+            decision = await _evaluate_reading_topic(request, submission, turn_id)
+            if isinstance(decision, PluginCommentaryResult):
+                return decision
+            topic = decision
         admission = await submission.admit(allow_follow_up=False, wait_if_busy=False)
         if admission.lease is None:
             return PluginCommentaryResult(
@@ -280,6 +303,10 @@ async def _run(
                     )
                 if status != "ready":
                     return PluginCommentaryResult("rejected", turn_id, reason=status)
+                if request.claim_output is not None and not request.claim_output():
+                    return PluginCommentaryResult(
+                        "busy", turn_id, reason="commentary_no_longer_current"
+                    )
                 deadline = admission.turn.state.deadline
                 logger.info(
                     "Plugin commentary admitted: turn_id=%s source=%s target=%s",
@@ -293,6 +320,7 @@ async def _run(
                         title=request.title,
                         text=request.text,
                         preceding=request.preceding,
+                        topic=topic,
                         wait_for_playback=wait_for_playback,
                     )
                 successful = True
@@ -326,3 +354,50 @@ async def _run(
                         )
             finally:
                 await admission.lease.release()
+
+
+async def _evaluate_reading_topic(
+    request: PluginCommentary, submission: PlatformEventSubmission, turn_id: str
+) -> str | PluginCommentaryResult:
+    metadata = request.event.adapter.meta()
+    fact = RuntimeObservation(
+        kind=READING_COMMENTARY_OPPORTUNITY,
+        source=f"plugin_commentary:{request.owner.name}",
+        occurred_at=time(),
+        target_session=RuntimeObservationTarget(
+            platform_id=request.target.platform_id,
+            platform_name=metadata.name,
+            message_type=request.target.message_type,
+            session_id=request.target.session_id,
+            support_proactive_message=metadata.support_proactive_message,
+            support_personal_runtime=metadata.support_personal_runtime,
+        ),
+        payload={
+            "title": request.title,
+            "passage": request.text,
+            "preceding": request.preceding[-1200:],
+        },
+    )
+    async with submission.turn.state.deadline.enforce("reading_policy"):
+        gate_reason, evaluation = await submission.evaluate_reading_policy(fact)
+    if gate_reason in {
+        ObservationGateReason.RUNTIME_BUSY,
+        ObservationGateReason.STATE_RESTORE_PENDING,
+    }:
+        return PluginCommentaryResult("busy", turn_id, reason=gate_reason.value)
+    if evaluation is None:
+        logger.debug(
+            "Reading commentary skipped by Policy gate: turn_id=%s gate=%s",
+            turn_id,
+            "policy_disabled"
+            if gate_reason is ObservationGateReason.ACCEPTED
+            else gate_reason.value,
+        )
+        return PluginCommentaryResult("silent", turn_id)
+    if evaluation.status is PersonalPolicyEvaluationStatus.FAIL_CLOSED:
+        return PluginCommentaryResult(
+            "failed", turn_id, reason=f"personal_policy_{evaluation.failure_code}"
+        )
+    if evaluation.decision.action is PersonalPolicyAction.EXPRESS:
+        return evaluation.decision.reply_intent[:240]
+    return PluginCommentaryResult("silent", turn_id)

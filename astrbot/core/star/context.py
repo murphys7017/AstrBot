@@ -962,8 +962,10 @@ class Context:
         title: str,
         text: str,
         preceding: str = "",
+        automatic: bool = False,
+        claim_output: Callable[[], bool] | None = None,
     ) -> PluginCommentaryResult:
-        """Queue original material for Persona commentary in a public session."""
+        """Queue public Persona commentary, optionally gated by Personal Policy."""
         from astrbot.core.interaction.plugin_commentary import submit_plugin_commentary
 
         return await submit_plugin_commentary(
@@ -975,6 +977,8 @@ class Context:
             title=title,
             text=text,
             preceding=preceding,
+            automatic=automatic,
+            claim_output=claim_output,
         )
 
     def set_proactive_message_dispatcher(

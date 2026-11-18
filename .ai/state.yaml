@@ -4358,3 +4358,32 @@ stream_host_co_reading_recovery_20261118:
   remaining: >-
     Restart AstrBot to load Core and both plugins. Live OBS capture, configured
     TTS and physical Live2D playback still require acceptance.
+
+stream_host_co_reading_policy_and_layout_20261118:
+  date: '2026-11-18'
+  class: feature
+  risk: high
+  status: scoped_plugins_deployed_pending_restart
+  scope: >-
+    Group adjacent authored paragraphs near the display target length and split
+    oversized paragraphs at sentence boundaries. Include line spacing in the
+    display budget for dialogue-heavy material. Automatic reading holds the
+    current passage after five minutes without a viewer activity signal. Core
+    evaluates the displayed passage with Personal Policy before claiming
+    presentation and passes its selected topic to Persona. Manual commentary
+    remains available through the expression path. Enlarge the OBS original
+    text with a responsive size and a CSS variable for customization.
+  validation: >-
+    Isolated Core and plugin runs verified paragraph grouping, empty-room
+    waiting, ordinary input admission during policy evaluation, silent
+    advancement and a selected topic reaching Persona with an OLV playback
+    receipt. The isolated provider and protocol peer supplied controlled test
+    responses. Edge displayed both passages and the dense dialogue sample at
+    30px in a 1920x1080 viewport.
+    Scoped Ruff, Vue type checks and both panel builds passed. Eight deployed
+    files were verified on disk. The deployed control panel was rebuilt from
+    its prior live baseline with the co-reading changes.
+  remaining: >-
+    Restart AstrBot to load Core and both plugins together, then refresh the
+    control panel and OBS browser source. Verify actual viewer activity and
+    playback on the live instance.
