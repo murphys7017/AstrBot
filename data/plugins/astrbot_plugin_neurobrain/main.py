@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -216,10 +217,11 @@ class NeuroBrainPlugin(Star):
         if not self.is_ready:
             return
         segments = getattr(result, "segment_mappings", ())
-        for segment in segments:
+        result_id = (getattr(result, "metadata", None) or {}).get("interaction.persona_result_id", "")
+        for index, segment in enumerate(segments):
             if not isinstance(segment, Mapping):
                 continue
-            self._submit_segment_tendency(segment.get("tendency"))
+            self._schedule_segment(event, result_id, index, None, segment.get("tendency"))
 
     @filter.on_persona_expression_segment_intent_ready(
         persona_segment_stream_safe=True
@@ -229,18 +231,35 @@ class NeuroBrainPlugin(Star):
         event: AstrMessageEvent,
         *,
         tendency: Any,
+        persona_result_id: str,
+        segment_index: int,
+        message_id: str,
         **_: Any,
     ) -> None:
-        """Accept OLV stream segment intent before its speech is delivered."""
-        del event
         if self.is_ready:
+            self._schedule_segment(event, persona_result_id, segment_index, message_id, tendency)
+
+    def _schedule_segment(self, event, result_id, index, message_id, tendency) -> None:
+        if not isinstance(tendency, Mapping):
+            return
+        defer = getattr(event, "defer_segment_presentation", None)
+        runtime = self._runtime
+        if callable(defer) and runtime is not None:
+            turn_id = str(event.get_extra("_turn_id", "") or result_id)
+            defer(
+                result_id, index, message_id,
+                partial(self._submit_segment_tendency, dict(tendency), turn_id),
+                partial(runtime.cancel_pending, turn_id),
+            )
+        else:
             self._submit_segment_tendency(tendency)
 
-    def _submit_segment_tendency(self, tendency: Any) -> None:
+    def _submit_segment_tendency(self, tendency: Any, turn_id: str | None = None) -> None:
         if not isinstance(tendency, Mapping):
             return
         try:
-            self.submit_emotion(tendency)
+            if self._runtime is not None:
+                self._runtime.submit_emotion(tendency, turn_id=turn_id)
         except (TypeError, ValueError, RuntimeError) as exc:
             logger.warning("NeuroBrain emotion input rejected: %s", exc)
 

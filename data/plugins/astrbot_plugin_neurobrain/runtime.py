@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections import deque
 import copy
 import math
-import queue
 import threading
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -23,9 +23,7 @@ class NeuroBrainRuntime:
         self._checkpoint = checkpoint
         self._device = device
         self._delta_seconds = delta_seconds
-        # Keep only the newest stimulus that has not reached a model tick yet.
-        # Older pending inputs are stale for a continuously evolving state.
-        self._inputs: queue.Queue[dict[str, float]] = queue.Queue(maxsize=1)
+        self._inputs: deque[tuple[str | None, dict[str, float]]] = deque()
         self._input_lock = threading.Lock()
         self._stop = threading.Event()
         self._initialized = threading.Event()
@@ -55,20 +53,21 @@ class NeuroBrainRuntime:
             and not self._stop.is_set()
         )
 
-    def submit_emotion(self, tendency: Mapping[str, int]) -> None:
-        """Validate and replace the pending eight-value stimulus."""
+    def submit_emotion(self, tendency: Mapping[str, int], *, turn_id: str | None = None) -> None:
+        """Queue each admitted stimulus once in presentation order."""
         from neurobrain import convert_astrbot_tendency_to_stimulus
 
         if not self.is_running:
             raise RuntimeError("NeuroBrain is not running")
         stimulus = convert_astrbot_tendency_to_stimulus(tendency)
         with self._input_lock:
-            try:
-                while True:
-                    self._inputs.get_nowait()
-            except queue.Empty:
-                pass
-            self._inputs.put_nowait(stimulus)
+            if len(self._inputs) >= 256:
+                raise RuntimeError("NeuroBrain pending emotion capacity exceeded")
+            self._inputs.append((turn_id, stimulus))
+
+    def cancel_pending(self, turn_id: str) -> None:
+        with self._input_lock:
+            self._inputs = deque(item for item in self._inputs if item[0] != turn_id)
 
     def get_state(self) -> dict[str, Any] | None:
         """Copy the last complete snapshot without touching the model."""
@@ -86,10 +85,14 @@ class NeuroBrainRuntime:
                 self._checkpoint, device=device, delta_seconds=self._delta_seconds
             )
             zero = dict.fromkeys(CURRENT_STIMULUS_DIMENSIONS, 0.0)
+            revision = 0
             last_tendency: dict[str, int] = {}
 
             def advance(stimulus: dict[str, float]) -> None:
+                nonlocal revision
                 snapshot = session.update(stimulus).as_dict()
+                revision += 1
+                snapshot["revision"] = revision
                 snapshot["updated_at"] = datetime.now(timezone.utc).isoformat()
                 snapshot["last_tendency"] = dict(last_tendency)
                 # Never mutate a published object. A read can keep the old one
@@ -101,10 +104,8 @@ class NeuroBrainRuntime:
             logger.info("NeuroBrain model thread ready: device=%s", device)
             next_tick = monotonic() + self._delta_seconds
             while not self._stop.wait(max(0.0, next_tick - monotonic())):
-                try:
-                    stimulus = self._inputs.get_nowait()
-                except queue.Empty:
-                    stimulus = zero
+                with self._input_lock:
+                    stimulus = self._inputs.popleft()[1] if self._inputs else zero
                 if stimulus is not zero:
                     from neurobrain import ASTRBOT_TENDENCY_DIMENSIONS
 
