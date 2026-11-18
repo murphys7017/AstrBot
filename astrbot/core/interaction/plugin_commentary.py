@@ -44,6 +44,8 @@ class PluginCommentary:
     presentation_effects: frozenset[tuple[str, str]]
     result: asyncio.Future[PluginCommentaryResult]
     task: asyncio.Task | None = None
+    playback_text: str | None = None
+    playback_confirmed: bool = False
 
 
 def plugin_commentary_for(event: AstrMessageEvent) -> PluginCommentary | None:
@@ -132,9 +134,7 @@ async def submit_plugin_commentary(
         async with asyncio.timeout(_REQUEST_TIMEOUT_SECONDS):
             return await asyncio.shield(request.result)
     except TimeoutError:
-        return PluginCommentaryResult(
-            "unknown", request_id, reason="commentary_result_timeout"
-        )
+        return _interrupted_result(request, "commentary_result_timeout")
     finally:
         if not request.result.done():
             request.result.cancel()
@@ -142,6 +142,20 @@ async def submit_plugin_commentary(
             if request.task is not None:
                 request.task.cancel()
                 await asyncio.gather(request.task, return_exceptions=True)
+
+
+def _interrupted_result(
+    request: PluginCommentary, reason: str
+) -> PluginCommentaryResult:
+    if not request.playback_confirmed and request.playback_text is not None:
+        reason = "playback_receipt_unconfirmed"
+    return PluginCommentaryResult(
+        "played" if request.playback_confirmed else "unknown",
+        request.event.message_obj.message_id,
+        request.event.get_extra("output_correlation_id"),
+        (request.playback_text or "") if request.playback_confirmed else "",
+        reason=reason,
+    )
 
 
 async def run_plugin_commentary(
@@ -160,9 +174,12 @@ async def run_plugin_commentary(
         result = await _run(request, ctx, config_id, runtime_config, turn_id)
     except asyncio.CancelledError:
         if not request.result.done():
-            request.result.set_result(
-                PluginCommentaryResult("failed", turn_id, reason="cancelled")
+            result = (
+                _interrupted_result(request, "cancelled")
+                if request.playback_text is not None
+                else PluginCommentaryResult("failed", turn_id, reason="cancelled")
             )
+            request.result.set_result(result)
         raise
     except Exception as exc:
         reason = str(getattr(exc, "reason", "") or type(exc).__name__)
@@ -170,12 +187,14 @@ async def run_plugin_commentary(
         busy = reason == "presentation_busy" and not delivery_id
         if not busy:
             logger.exception("Plugin commentary failed: turn_id=%s", turn_id)
-        result = PluginCommentaryResult(
-            "busy" if busy else "failed",
-            turn_id,
-            delivery_id,
-            reason=reason,
-        )
+        if request.playback_confirmed:
+            result = _interrupted_result(request, reason)
+        elif request.playback_text is not None and isinstance(exc, TimeoutError):
+            result = _interrupted_result(request, reason)
+        else:
+            result = PluginCommentaryResult(
+                "busy" if busy else "failed", turn_id, delivery_id, reason=reason
+            )
     finally:
         request.task = None
     if not request.result.done():
@@ -193,6 +212,7 @@ async def _run(
 
     from .config import load_interaction_agent_config
     from .turn_state import (
+        get_interaction_turn_immediate_reply,
         mark_interaction_turn_cancelled,
         mark_interaction_turn_failed,
     )
@@ -235,6 +255,11 @@ async def _run(
     if status != "ready":
         return PluginCommentaryResult("rejected", turn_id, reason=status)
 
+    async def wait_for_playback() -> None:
+        request.playback_text = get_interaction_turn_immediate_reply(event) or ""
+        await event.wait_for_plugin_commentary_output()
+        request.playback_confirmed = True
+
     async with manager.submit_platform_event(
         event, config_id, context, dict(runtime_config)
     ) as submission:
@@ -268,6 +293,7 @@ async def _run(
                         title=request.title,
                         text=request.text,
                         preceding=request.preceding,
+                        wait_for_playback=wait_for_playback,
                     )
                 successful = True
                 return PluginCommentaryResult(
@@ -285,7 +311,18 @@ async def _run(
             raise
         finally:
             try:
-                if not successful and event.get_extra("output_correlation_id"):
-                    await event.abort_visible_turn(reason="plugin_commentary_failed")
+                if (
+                    not successful
+                    and not request.playback_confirmed
+                    and event.get_extra("output_correlation_id")
+                ):
+                    try:
+                        await event.abort_visible_turn(
+                            reason="plugin_commentary_failed"
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Plugin commentary cleanup failed: turn_id=%s", turn_id
+                        )
             finally:
                 await admission.lease.release()

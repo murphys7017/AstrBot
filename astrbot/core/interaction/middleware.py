@@ -375,7 +375,13 @@ class InteractionMiddleware:
         mark_interaction_turn_pipeline_route_handled(event)
 
     async def handle_plugin_commentary(
-        self, event: AstrMessageEvent, *, title: str, text: str, preceding: str
+        self,
+        event: AstrMessageEvent,
+        *,
+        title: str,
+        text: str,
+        preceding: str,
+        wait_for_playback: Callable[[], Awaitable[None]],
     ) -> str | None:
         """Render a reading comment in an admitted turn without ordinary routing."""
         self.prepare_pipeline_event(event)
@@ -414,7 +420,7 @@ class InteractionMiddleware:
             await self._complete_silent_or_committed_persona_turn(event, expression)
             return None
         await self._complete_persona_only_turn(
-            event, expression, wait_for_playback=event.wait_for_plugin_commentary_output,
+            event, expression, wait_for_playback=wait_for_playback,
         )
         if not is_interaction_turn_completed(event):
             raise InteractionExpressionError("reading_turn_not_completed")

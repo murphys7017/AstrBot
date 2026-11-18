@@ -4333,3 +4333,28 @@ stream_host_co_reading_20261118:
   remaining: >-
     Production deployment and restart are pending. Validate Bilibili input,
     OBS capture, configured TTS, and physical Live2D playback in the live setup.
+
+stream_host_co_reading_recovery_20261118:
+  date: '2026-11-18'
+  class: bugfix
+  risk: high
+  status: scoped_plugins_deployed_pending_restart
+  scope: >-
+    Keep the actual playback result and delivery identity across receipt loss
+    and settlement errors. Persist commentary and the preceding passage indexes
+    used by the model before advancing progress. Retry persistence for the same
+    attempt. Revoke the browser receipt when its passage is hidden and merge
+    partial rhythm updates through the control panel's actual SSE bridge.
+  validation: >-
+    A local Persona and motion model exercised the typed Core and OLV paths.
+    The protocol peer withheld a receipt, then separate runs confirmed playback
+    and blocked progress or archive storage. Recovery saved the original
+    result and one archive entry for the attempt. Edge verified display
+    visibility and two authenticated control windows with distinct rhythm edits.
+    Scoped Ruff, JavaScript syntax, Vue type checking and the build passed.
+    Seven plugin files were deployed and hash-verified. The AG99live local
+    hook now uses a Git commit snapshot. Live passive behavior files retain
+    their separate in-progress deployment.
+  remaining: >-
+    Restart AstrBot to load Core and both plugins. Live OBS capture, configured
+    TTS and physical Live2D playback still require acceptance.
