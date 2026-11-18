@@ -39,6 +39,8 @@
 
 ## 关于 AG99
 
+本仓库是 murphys7017（YakumoAki）维护的 AstrBot 修改版。AG99 为桌宠增加了持续人格、分段表达与播放回执，桌面表现由 AG99live 驱动。 [AstrBot 上游](https://github.com/AstrBotDevs/AstrBot) · [AG99live 桌宠](https://github.com/murphys7017/AG99live)
+
 **AG99 是一个从 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 演进而来的开源 AI 智能体项目，专注于持续人格、低延迟交互与复杂任务执行。**
 
 我们希望探索一种不同于传统聊天机器人的交互方式。

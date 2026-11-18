@@ -1,5 +1,7 @@
 # Image Moderator
 
+此目录随 murphys7017 的 AG99 修改版维护，包含针对图片消息高峰的并发与队列限制。 [配套 AG99](https://github.com/murphys7017/AstrBot)
+
 监听指定群聊中的图片消息，使用 AstrBot 配置的多模态 Provider 进行安全分类；模型明确返回 `{"result":"BLOCK"}` 时，通过 OneBot `delete_msg` 撤回整条消息。
 
 ## 配置
