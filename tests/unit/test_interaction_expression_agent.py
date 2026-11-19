@@ -2232,6 +2232,86 @@ async def test_persona_expression_rejects_unsupported_explicit_tool_call_before_
     assert provider.calls == []
 
 
+@pytest.mark.asyncio
+async def test_prompt_only_persona_corrects_plain_text_without_tools(monkeypatch):
+    from astrbot.core.interaction.persona_expression_contract import (
+        _build_persona_expression_output_contract,
+    )
+
+    class Provider:
+        provider_config = {"id": "persona", "type": "test"}
+
+        def __init__(self):
+            self.calls = []
+
+        async def text_chat(self, **kwargs):
+            self.calls.append(kwargs)
+            return LLMResponse(
+                role="assistant",
+                completion_text=(
+                    "这是一条没有 JSON 包装的回复。"
+                    if len(self.calls) == 1
+                    else json.dumps(_persona_payload("格式已纠正。"), ensure_ascii=False)
+                ),
+            )
+
+    extras = {}
+    event = SimpleNamespace(
+        session_id="session-1",
+        unified_msg_origin="webchat:FriendMessage:session-1",
+        plugins_name=[],
+        get_extra=extras.get,
+        set_extra=extras.__setitem__,
+        get_platform_id=lambda: "webchat",
+        is_stopped=lambda: False,
+    )
+    provider = Provider()
+    plugin_context = SimpleNamespace(
+        get_provider_by_id=lambda _provider_id: provider,
+        get_config=lambda **_kwargs: {},
+        get_proactive_schedule=lambda _session: None,
+    )
+    monkeypatch.setattr("astrbot.core.interaction.expression_agent.Provider", Provider)
+    contract = _build_persona_expression_output_contract("json")
+    agent = InteractionExpressionAgent()
+    agent._prepare_render_result = AsyncMock(
+        return_value=RenderResult(
+            system_prompt="persona",
+            request_prompt="只输出符合协议的 JSON 对象。",
+            messages=[{"role": "user", "content": "hello"}],
+            output_contract=contract,
+            compiled_output_contract=CompiledOutputContract(
+                contract=contract, strategy="prompt_only"
+            ),
+            metadata={
+                "persona_effect_specs": [],
+                "expression_output_format": "json",
+                "expression_output_mode": "prompt_only",
+            },
+        )
+    )
+
+    result = await agent.generate_expression(
+        event,
+        plugin_context,
+        InteractionAgentConfig(
+            expression_provider_id="persona",
+            expression_output_format="json",
+            expression_output_mode="prompt_only",
+        ),
+        PersonaExpressionRequest(),
+    )
+
+    assert result.speech == "格式已纠正。"
+    assert result.metadata["expression_correction_used"] is True
+    assert len(provider.calls) == 2
+    correction = provider.calls[1]
+    assert not correction["func_tool"] or not correction["func_tool"].names()
+    assert "上一次回答未遵循 Persona JSON 输出协议" in (
+        _provider_context_text(correction) + str(correction.get("prompt", ""))
+    )
+
+
 def test_minimax_token_plan_excludes_m3_family_from_persona_strict_contract():
     from astrbot.core.provider.sources.minimax_token_plan_source import (
         ProviderMiniMaxTokenPlan,

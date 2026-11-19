@@ -1,3 +1,41 @@
+runtime_log_followup_20261119:
+  date: '2026-11-19'
+  class: bugfix
+  risk: medium
+  status: deployed_pending_runtime_restart_and_acceptance
+  scope: >-
+    Ground desktop-return policy and speech in observed facts. Retry malformed
+    prompt-only Persona JSON once without tools, within eight seconds, before
+    the existing provider fallback. Register independent AG99 motion work for
+    proactive observations and retire unplayed work if the turn ends. Release
+    scheduled opportunities when co-reading is paused or faulted. Commit
+    LivingMemory reflection by surviving message identity under the revision
+    and store locks so trimming cannot skip newly arrived messages. Once the
+    cursor write starts, preserve its outcome across task cancellation so a
+    successful commit does not trigger memory deletion.
+  deployment: >-
+    Synced the three AG99 adapter files using deploy_adapter.ps1 -OnlyFiles.
+    Applied the co-reading patch to the installed Stream Host baseline
+    912e9f1 and used deploy_stream_host.ps1 -OnlyFiles so the later viewer
+    invitation feature stays outside this deployment. Synced the three
+    LivingMemory implementation files after checking the installed files
+    against the source baseline. Verified deployed hashes.
+  validation: >-
+    Persona format regression, structured output and personal policy tests
+    passed. AG99 proactive motion identity and abort smoke check and Stream
+    Host scheduling smoke check passed. The LivingMemory trim-and-append
+    regression passed within a run of 81 passing tests and one warning capture
+    failure reproduced on the baseline. Four focused LivingMemory regressions
+    passed after review, including cancellation before and during cursor
+    commit. Broader Core and AG99 suites also reported existing failures
+    reproduced from their source baselines. Scoped source lint and diff
+    checks passed.
+  limitations: >-
+    Current AstrBot session is still running the prior code. Live model output,
+    motion playback and scheduling need verification after restart. Historical
+    LivingMemory cursors were not modified. The observed DeepSeek empty response
+    and provider startup timing were already recovered by their existing retries.
+
 conversation_context_startup_import_20261118:
   date: '2026-11-18'
   class: bugfix

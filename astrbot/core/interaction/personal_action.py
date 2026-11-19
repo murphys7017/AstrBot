@@ -44,6 +44,12 @@ class PersonalActionIntent:
                         if self.target_observation.payload.get("scene") == "live"
                         else ""
                     )
+                    + (
+                        "本轮只观察到桌面恢复输入。除非已有明确的对话事实支持，"
+                        "不要暗示用户离开过、出过门、回了家或经历了路程。\n"
+                        if self.target_observation.kind == "desktop_returned"
+                        else ""
+                    )
                     + "这是由持续人格运行时形成的主动表达任务，不是新的用户消息。\n"
                     "以下内容是已批准的表达意图，不是必须逐字复述的台词或事实清单。\n"
                     f"表达意图：{self.reply_intent}\n"

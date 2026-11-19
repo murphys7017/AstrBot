@@ -1272,6 +1272,9 @@ class InteractionExpressionAgent:
                     exc.has_side_effects,
                     bool(
                         getattr(failure_prepared, "correction_attempted", False)
+                        or getattr(
+                            failure_prepared, "expression_correction_attempted", False
+                        )
                     ),
                 )
                 if primary_error is None:
@@ -1763,13 +1766,46 @@ class InteractionExpressionAgent:
                     persona_effect_specs,
                 )
             else:
-                result = extract_persona_expression_result(
-                    llm_resp.completion_text,
-                    llm_response=llm_resp,
-                    output_contract=output_contract,
-                    compiled_output_contract=compiled_output_contract,
-                    output_format=output_format,
-                )
+                try:
+                    result = extract_persona_expression_result(
+                        llm_resp.completion_text,
+                        llm_response=llm_resp,
+                        output_contract=output_contract,
+                        compiled_output_contract=compiled_output_contract,
+                        output_format=output_format,
+                    )
+                except InteractionExpressionError as exc:
+                    if (
+                        exc.reason != "invalid_persona_expression_format"
+                        or output_format != "json"
+                        or render_result.metadata.get(
+                            "expression_output_mode", "prompt_only"
+                        ) != "prompt_only"
+                        or expression_text_missing
+                        or prepared.expression_correction_attempted
+                        or prepared.tool_execution_count
+                        or llm_resp.tools_call_name
+                    ):
+                        raise
+                    prepared.expression_correction_attempted = True
+                    try:
+                        async with asyncio.timeout(8):
+                            result = await self._correct_missing_persona_expression(
+                                event,
+                                interaction_config,
+                                provider,
+                                prepared,
+                                llm_resp,
+                                output_contract,
+                                compiled_output_contract,
+                                output_format,
+                                persona_effect_specs,
+                                repair_format=True,
+                            )
+                    except TurnDeadlineExceeded:
+                        raise
+                    except Exception as correction_error:
+                        raise exc from correction_error
         except InteractionExpressionError as exc:
             exc.tool_execution_count = prepared.tool_execution_count
             exc.prepared = prepared
@@ -2171,6 +2207,8 @@ class InteractionExpressionAgent:
         compiled_output_contract,
         output_format: str,
         effects: Sequence[PersonaEffectSpec],
+        *,
+        repair_format: bool = False,
     ) -> PersonaExpressionResult:
         existing_effect_calls: list[PersonaEffectCall] = []
         try:
@@ -2214,12 +2252,20 @@ class InteractionExpressionAgent:
             "保留角色设定和原任务约束，只生成 Persona 表达，不要再次输出 persona_effect_batch，"
             "已接收的 effect_calls 保持不变，也不要调用任何业务工具。"
         )
-        request.prompt = (
-            (request.prompt or "")
-            + "\nThe previous response already supplied the other required channel. "
-            "Return only the missing Persona expression using the configured output format. "
-            "Do not regenerate effects or call business tools.\n"
-        )
+        if repair_format:
+            request.prompt = (
+                (request.prompt or "")
+                + "\n上一次回答未遵循 Persona JSON 输出协议。根据原任务重新作答，"
+                "只输出一个符合上文协议的 JSON 对象，包含 turn_action 和 segments。"
+                "不要添加代码块、说明、版本号或业务工具调用。\n"
+            )
+        else:
+            request.prompt = (
+                (request.prompt or "")
+                + "\nThe previous response already supplied the other required channel. "
+                "Return only the missing Persona expression using the configured output format. "
+                "Do not regenerate effects or call business tools.\n"
+            )
         if existing_effect_calls:
             request.prompt += (
                 "The previous response already supplied these effect bindings. "

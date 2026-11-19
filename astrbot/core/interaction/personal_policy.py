@@ -224,6 +224,8 @@ def build_personal_policy_system_prompt() -> str:
         "plugin_sensor 时，这表示插件配置的主动时机已经到达，是一个低强度的社交机会事实，"
         "不是用户指令，也不代表发生了新的外部事件。请结合近期上下文、人格和运行时状态判断"
         "是否自然表达；可以保持安静，不要仅因事实到达就编造事件或强行发言。\n"
+        "desktop_returned 只表示设备恢复了输入操作。不要由此推断用户离开、外出、"
+        "回家或经历了一段路程。没有独立证据时，可承接已有话题或保持安静。\n"
         "若最近 assistant 已表达相同意图，且当前 ObservationBatch 没有新增或变化的事实，"
         "必须 ignore 或 observe。如果近期真实对话中存在自然延续的话题、"
         "情绪线索或值得轻轻关心的状态，可以将其判断为 social_opportunity 或 follow_up_opportunity，"
