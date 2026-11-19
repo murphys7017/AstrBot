@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 _EXTRA_KEY = "_core_plugin_commentary"
 _REQUEST_TIMEOUT_SECONDS = 300
+ReadingInvitation = Literal["opening", "follow_up"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ class PluginCommentary:
     task: asyncio.Task | None = None
     playback_text: str | None = None
     playback_confirmed: bool = False
+    invitation: ReadingInvitation | None = None
 
 
 def plugin_commentary_for(event: AstrMessageEvent) -> PluginCommentary | None:
@@ -85,6 +87,7 @@ async def submit_plugin_commentary(
     preceding: str,
     automatic: bool = False,
     claim_output: Callable[[], bool] | None = None,
+    invitation: ReadingInvitation | None = None,
 ) -> PluginCommentaryResult:
     if not _owner_is_active(context, owner):
         return PluginCommentaryResult("rejected", request_id, reason="plugin_inactive")
@@ -103,6 +106,10 @@ async def submit_plugin_commentary(
         or len(preceding) > 4000
     ):
         return PluginCommentaryResult("rejected", request_id, reason="invalid_material")
+    if invitation is not None and (
+        not automatic or invitation not in ("opening", "follow_up")
+    ):
+        return PluginCommentaryResult("rejected", request_id, reason="invalid_invitation")
 
     source = context.get_platform_inst(source_platform_id)
     adapter = context.get_platform_inst(target.platform_id)
@@ -140,6 +147,7 @@ async def submit_plugin_commentary(
         asyncio.get_running_loop().create_future(),
         automatic=automatic,
         claim_output=claim_output,
+        invitation=invitation,
     )
     event.set_extra(_EXTRA_KEY, request)
     try:
@@ -322,6 +330,7 @@ async def _run(
                         preceding=request.preceding,
                         topic=topic,
                         wait_for_playback=wait_for_playback,
+                        invitation=request.invitation,
                     )
                 successful = True
                 return PluginCommentaryResult(
@@ -360,6 +369,13 @@ async def _evaluate_reading_topic(
     request: PluginCommentary, submission: PlatformEventSubmission, turn_id: str
 ) -> str | PluginCommentaryResult:
     metadata = request.event.adapter.meta()
+    payload = {
+        "title": request.title,
+        "passage": request.text,
+        "preceding": request.preceding[-1200:],
+    }
+    if request.invitation is not None:
+        payload["invitation"] = request.invitation
     fact = RuntimeObservation(
         kind=READING_COMMENTARY_OPPORTUNITY,
         source=f"plugin_commentary:{request.owner.name}",
@@ -372,11 +388,7 @@ async def _evaluate_reading_topic(
             support_proactive_message=metadata.support_proactive_message,
             support_personal_runtime=metadata.support_personal_runtime,
         ),
-        payload={
-            "title": request.title,
-            "passage": request.text,
-            "preceding": request.preceding[-1200:],
-        },
+        payload=payload,
     )
     async with submission.turn.state.deadline.enforce("reading_policy"):
         gate_reason, evaluation = await submission.evaluate_reading_policy(fact)

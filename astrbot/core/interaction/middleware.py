@@ -383,6 +383,7 @@ class InteractionMiddleware:
         preceding: str,
         topic: str,
         wait_for_playback: Callable[[], Awaitable[None]],
+        invitation: str | None = None,
     ) -> str | None:
         """Render a reading comment in an admitted turn without ordinary routing."""
         self.prepare_pipeline_event(event)
@@ -398,6 +399,8 @@ class InteractionMiddleware:
         material = {"title": title, "passage": text, "preceding": preceding}
         if topic:
             material["commentary_topic"] = topic
+        if invitation is not None:
+            material["invitation"] = invitation
         request = PersonaExpressionRequest(
             source_text=json.dumps(material, ensure_ascii=False),
             intent=PersonaExpressionIntent(kind="proactive", source="reading_commentary", phase="proactive"),

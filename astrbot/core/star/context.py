@@ -68,7 +68,10 @@ if TYPE_CHECKING:
     from astrbot.core.execution_ledger import CoreExecutionLedger
     from astrbot.core.interaction.effects import PersonaEffectSpec
     from astrbot.core.interaction.observation import RuntimeObservation
-    from astrbot.core.interaction.plugin_commentary import PluginCommentaryResult
+    from astrbot.core.interaction.plugin_commentary import (
+        PluginCommentaryResult,
+        ReadingInvitation,
+    )
     from astrbot.core.interaction.runtime_sensor import RuntimeObservationSensorHandle
 
     from .base import Star
@@ -964,6 +967,7 @@ class Context:
         preceding: str = "",
         automatic: bool = False,
         claim_output: Callable[[], bool] | None = None,
+        invitation: ReadingInvitation | None = None,
     ) -> PluginCommentaryResult:
         """Queue public Persona commentary, optionally gated by Personal Policy."""
         from astrbot.core.interaction.plugin_commentary import submit_plugin_commentary
@@ -979,6 +983,7 @@ class Context:
             preceding=preceding,
             automatic=automatic,
             claim_output=claim_output,
+            invitation=invitation,
         )
 
     def set_proactive_message_dispatcher(
