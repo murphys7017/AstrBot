@@ -48,118 +48,127 @@ async def stream_minimax_pcm(
     if not api_key or not model or timeout_seconds <= 0:
         raise ValueError("minimax_bidi_configuration_missing")
 
+    # A yielded frame is consumed on this same task, possibly waiting for
+    # desktop audio credit. Only time network operations owned by the provider.
     async with asyncio.timeout(timeout_seconds):
-        async with session.ws_connect(
+        ws = await session.ws_connect(
             ws_url,
             headers={"Authorization": f"Bearer {api_key}"},
             proxy=proxy or None,
             heartbeat=20,
             max_msg_size=1_048_576,
-        ) as ws:
+        )
+    async with ws:
 
-            async def receive() -> dict[str, Any]:
+        async def send(event: dict[str, Any]) -> None:
+            async with asyncio.timeout(timeout_seconds):
+                await ws.send_json(event)
+
+        async def receive() -> dict[str, Any]:
+            # Heartbeats keep the socket alive but do not constitute a synthesis response.
+            async with asyncio.timeout(timeout_seconds):
                 message = await ws.receive()
-                if message.type != aiohttp.WSMsgType.TEXT:
-                    raise RuntimeError("minimax_bidi_closed_before_finished")
-                data = message.json()
-                if not isinstance(data, dict):
-                    raise RuntimeError("minimax_bidi_invalid_event")
-                code = data.get("base_resp", {}).get("status_code", 0)
-                if code or data.get("event") == "task_failed":
-                    # Do not put Provider response bodies or credentials in errors.
-                    raise RuntimeError(f"minimax_bidi_provider_error:{code}")
-                return data
+            if message.type != aiohttp.WSMsgType.TEXT:
+                raise RuntimeError("minimax_bidi_closed_before_finished")
+            data = message.json()
+            if not isinstance(data, dict):
+                raise RuntimeError("minimax_bidi_invalid_event")
+            code = data.get("base_resp", {}).get("status_code", 0)
+            if code or data.get("event") == "task_failed":
+                # Do not put Provider response bodies or credentials in errors.
+                raise RuntimeError(f"minimax_bidi_provider_error:{code}")
+            return data
 
-            if (await receive()).get("event") != "connected_success":
-                raise RuntimeError("minimax_bidi_connection_not_ready")
-            start: dict[str, Any] = {
-                "event": "task_start",
-                "model": model,
-                "voice_setting": voice_setting,
-                "language_boost": language_boost,
-                "audio_setting": {
-                    "format": "pcm",
-                    "sample_rate": 32000,
-                    "channel": 1,
-                },
-            }
-            if timber_weights:
-                start["timber_weights"] = timber_weights
-            await ws.send_json(start)
-            if (await receive()).get("event") != "task_started":
-                raise RuntimeError("minimax_bidi_task_not_ready")
+        if (await receive()).get("event") != "connected_success":
+            raise RuntimeError("minimax_bidi_connection_not_ready")
+        start: dict[str, Any] = {
+            "event": "task_start",
+            "model": model,
+            "voice_setting": voice_setting,
+            "language_boost": language_boost,
+            "audio_setting": {
+                "format": "pcm",
+                "sample_rate": 32000,
+                "channel": 1,
+            },
+        }
+        if timber_weights:
+            start["timber_weights"] = timber_weights
+        await send(start)
+        if (await receive()).get("event") != "task_started":
+            raise RuntimeError("minimax_bidi_task_not_ready")
 
-            boundary_ack = asyncio.Event()
-            input_finished = False
+        boundary_ack = asyncio.Event()
+        input_finished = False
 
-            async def send_text() -> None:
-                nonlocal input_finished
-                async for text in text_source:
-                    if text is None:
-                        boundary_ack.clear()
-                        await ws.send_json({"event": "task_flush"})
-                        await boundary_ack.wait()
-                    elif not isinstance(text, str) or not text:
-                        raise ValueError("minimax_bidi_invalid_text_delta")
-                    else:
-                        await ws.send_json({"event": "task_continue", "text": text})
-                input_finished = True
-                await ws.send_json({"event": "task_finish"})
+        async def send_text() -> None:
+            nonlocal input_finished
+            async for text in text_source:
+                if text is None:
+                    boundary_ack.clear()
+                    await send({"event": "task_flush"})
+                    await boundary_ack.wait()
+                elif not isinstance(text, str) or not text:
+                    raise ValueError("minimax_bidi_invalid_text_delta")
+                else:
+                    await send({"event": "task_continue", "text": text})
+            input_finished = True
+            await send({"event": "task_finish"})
 
-            sender = asyncio.create_task(send_text(), name="minimax-bidi-text")
-            receiver: asyncio.Task[dict[str, Any]] | None = None
+        sender = asyncio.create_task(send_text(), name="minimax-bidi-text")
+        receiver: asyncio.Task[dict[str, Any]] | None = None
+        try:
+            while True:
+                receiver = asyncio.create_task(receive(), name="minimax-bidi-audio")
+                await asyncio.wait(
+                    {sender, receiver}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if sender.done():
+                    # Propagate upstream errors even while the server waits for
+                    # text, instead of turning them into a receive timeout.
+                    await sender
+                data = await receiver
+                audio = data.get("data", {}).get("audio")
+                if audio:
+                    if not isinstance(audio, str):
+                        raise RuntimeError("minimax_bidi_invalid_audio")
+                    try:
+                        pcm = bytes.fromhex(audio)
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            "minimax_bidi_invalid_audio_hex"
+                        ) from exc
+                    if len(pcm) % 2:
+                        raise RuntimeError("minimax_bidi_unaligned_pcm")
+                    if pcm:
+                        yield pcm
+                event = data.get("event")
+                if event == "task_flushed":
+                    # Release the input side as soon as MiniMax confirms the
+                    # boundary. The caller still receives the explicit end
+                    # frame, while the next segment can be synthesized while
+                    # the previous segment is being sent or played.
+                    boundary_ack.set()
+                    yield None
+                elif event == "task_finished":
+                    if not input_finished:
+                        raise RuntimeError("minimax_bidi_finished_before_input")
+                    await sender
+                    break
+                elif event == "task_canceled":
+                    raise RuntimeError("minimax_bidi_unexpected_cancel")
+        finally:
+            owned_tasks = [sender, *([receiver] if receiver is not None else [])]
+            for task in owned_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*owned_tasks, return_exceptions=True)
             try:
-                while True:
-                    receiver = asyncio.create_task(receive(), name="minimax-bidi-audio")
-                    await asyncio.wait(
-                        {sender, receiver}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    if sender.done():
-                        # Propagate upstream errors even while the server waits for
-                        # text, instead of turning them into a receive timeout.
-                        await sender
-                    data = await receiver
-                    audio = data.get("data", {}).get("audio")
-                    if audio:
-                        if not isinstance(audio, str):
-                            raise RuntimeError("minimax_bidi_invalid_audio")
-                        try:
-                            pcm = bytes.fromhex(audio)
-                        except ValueError as exc:
-                            raise RuntimeError(
-                                "minimax_bidi_invalid_audio_hex"
-                            ) from exc
-                        if len(pcm) % 2:
-                            raise RuntimeError("minimax_bidi_unaligned_pcm")
-                        if pcm:
-                            yield pcm
-                    event = data.get("event")
-                    if event == "task_flushed":
-                        # Release the input side as soon as MiniMax confirms the
-                        # boundary. The caller still receives the explicit end
-                        # frame, while the next segment can be synthesized while
-                        # the previous segment is being sent or played.
-                        boundary_ack.set()
-                        yield None
-                    elif event == "task_finished":
-                        if not input_finished:
-                            raise RuntimeError("minimax_bidi_finished_before_input")
-                        await sender
-                        break
-                    elif event == "task_canceled":
-                        raise RuntimeError("minimax_bidi_unexpected_cancel")
+                close_input = getattr(text_source, "aclose", None)
+                if callable(close_input):
+                    async with asyncio.timeout(0.5):
+                        await close_input()
             finally:
-                owned_tasks = [sender, *([receiver] if receiver is not None else [])]
-                for task in owned_tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*owned_tasks, return_exceptions=True)
-                try:
-                    close_input = getattr(text_source, "aclose", None)
-                    if callable(close_input):
-                        async with asyncio.timeout(0.5):
-                            await close_input()
-                finally:
-                    with suppress(TimeoutError):
-                        async with asyncio.timeout(0.5):
-                            await ws.close()
+                with suppress(TimeoutError):
+                    async with asyncio.timeout(0.5):
+                        await ws.close()
