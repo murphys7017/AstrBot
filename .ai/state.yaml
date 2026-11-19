@@ -1,3 +1,20 @@
+story_reading_20261119:
+  class: feature
+  risk: medium
+  status: restarted_pending_live_playback
+  scope: Stream Host controls reading pace and audience breaks. AG99live presents the passage, quote or bookmark. Core keeps commentary optional.
+  validation: >-
+    Chromium used the isolated subtitle SSE and render receipt endpoint. Exercised
+    standby, audience return, discussion, unrelated chat, silent progression,
+    two-page spacing, material replacement and rejection of stale receipts.
+    The commentary boundary returned controlled played and silent outcomes.
+    The control page built and all eleven selected plugin files matched source after deployment.
+    AstrBot restarted at 14:50 local time. Stream Host initialized, the Bilibili listener
+    started, and the OBS subtitle endpoint served the new script. The bookmark stayed at 15/48.
+  limitations: >-
+    Presence is inferred from five minutes of audience activity. Desktop reconnection
+    and a live model/TTS/character playback check remain with the operator.
+
 runtime_log_followup_20261119:
   date: '2026-11-19'
   class: bugfix

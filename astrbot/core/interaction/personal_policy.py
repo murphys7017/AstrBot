@@ -513,8 +513,8 @@ class PersonalPolicyAgent:
             invitation = observation.payload.get("invitation")
             if invitation == "opening":
                 system_prompt += (
-                    "此时可以向在场观众介绍共读材料。用标题或本段的一个具体细节选一个容易回答的开场问题。"
-                    "有合适的切入点就选择 express，reply_intent 给出提问角度。"
+                    "大家一起安静读过这段了。遇到人物选择、悬念或值得回味的细节时，可以分享一个观察。"
+                    "有合适的切入点就选择 express，reply_intent 点明这个细节；陈述感受也能邀请交流。"
                     "没有合适角度时选择 observe。"
                 )
             elif invitation == "follow_up":
