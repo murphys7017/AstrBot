@@ -146,6 +146,7 @@ def _project_history(
     for turn in candidate_turns:
         if not isinstance(turn, dict):
             continue
+        turn.pop("assistant_source", None)
         for key in ("user_message", "assistant_message"):
             message = turn.get(key)
             if not isinstance(message, dict):

@@ -188,7 +188,7 @@ class ConversationHistoryCollector(ContextCollectorInterface):
     ) -> dict[str, Any] | None:
         try:
             messages = parse_conversation_history(raw_history)
-            turns = extract_turn_payloads(messages)
+            turns = extract_turn_payloads(messages, preserve_assistant_source=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to collect conversation history from %s: %s",

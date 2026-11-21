@@ -115,7 +115,7 @@ _PERSONA_CONTEXT_VIEWS: dict[PromptContextView, PromptContextViewSpec] = {
         target=PromptTarget.PERSONA,
         source_requirement=PromptContextSourceRequirement.BASE_ONLY,
         allowed_slot_names=_PERSONA_BASE_CONTEXT_SLOTS | _PERSONA_MEDIA_CONTEXT_SLOTS,
-        history_max_estimated_tokens=1800,
+        history_max_estimated_tokens=3000,
     ),
     PromptContextView.FINAL_RESULT: PromptContextViewSpec(
         name=PromptContextView.FINAL_RESULT,

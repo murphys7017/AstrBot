@@ -104,6 +104,7 @@ def extract_turn_payloads(
     messages: Iterable[dict[str, Any]],
     *,
     limit: int | None = None,
+    preserve_assistant_source: bool = False,
 ) -> list[JsonDict]:
     payloads: list[JsonDict] | deque[JsonDict]
     payloads = deque(maxlen=max(0, limit)) if limit is not None else []
@@ -128,18 +129,27 @@ def extract_turn_payloads(
                 continue
             continue
 
+        metadata = raw_message.get("_astrbot_metadata") if preserve_assistant_source else None
+        source = metadata.get("source") if isinstance(metadata, dict) else None
+        if pending_user is not None and source == "reading_commentary":
+            # An automatic reading comment belongs to its own turn.
+            _finalize_pending_turn(payloads, pending_user, candidate_assistant)
+            pending_user = None
+            candidate_assistant = None
+
         if pending_user is None:
             if message.get("content") and not _is_intermediate_assistant(
                 raw_message,
                 message,
             ):
-                payloads.append(
-                    {
-                        "user_message": {},
-                        "assistant_message": message,
-                        "assistant_only": True,
-                    }
-                )
+                payload: JsonDict = {
+                    "user_message": {},
+                    "assistant_message": message,
+                    "assistant_only": True,
+                }
+                if isinstance(source, str) and source:
+                    payload["assistant_source"] = source
+                payloads.append(payload)
             continue
 
         if not pending_user.get("content"):

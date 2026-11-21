@@ -1,3 +1,33 @@
+persona_dialogue_context_20261121:
+  date: '2026-11-21'
+  class: bugfix
+  risk: medium
+  status: deployed_pending_restart_and_live_acceptance
+  scope: >-
+    Align the OLV streamed Persona dialogue budget with the ordinary Persona
+    dialogue budget. Preserve assistant-only history provenance during Prompt
+    collection so unrelated reading commentary is excluded from Persona reply
+    history before the budget is applied. Standalone reading comments cannot
+    become replies to a pending user message. Keep their context for reading
+    commentary and related viewer turns. Stream Host supplies reading material only during
+    running, visibly rendered reading when the viewer text relates to the
+    displayed passage.
+  validation: >-
+    Read-only replay of eight recent saved desktop inputs increased contiguous
+    dialogue from 12 to 21–22 turns. The old projection selected a reading
+    comment for one of those ordinary turns; the corrected replay selected
+    none. Stream Host smoke check verified active-related admission, rejection
+    of unrelated text, and no material in paused, ended, faulted or bookmark
+    states. Fourteen focused Prompt tests, scoped lint and diff checks
+    passed. Review smoke checks covered standalone comment grouping and
+    excluded an unrelated question that starts with “这段代码”.
+    Both deployed Stream Host files matched the source.
+  limitations: >-
+    The saved co-reading progress was in a running bookmark state when
+    inspected. This repair changes context selection and preserves the saved
+    progress. Live provider responses still require a restart and playback
+    verification.
+
 desktop_input_context_20261121:
   class: bugfix
   risk: medium

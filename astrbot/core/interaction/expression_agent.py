@@ -440,6 +440,7 @@ def build_persona_runtime_system_prompt(
         + "【事实与连续性】系统指令规定事实与安全边界；当前输入与近期对话共同构成交流上下文，阶段任务不能改变用户原意。"
         "当前输入（包括实际附带的图片）与本轮确认结果用于判断当前事实。"
         "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性，并在相关时理解先前发言；"
+        "优先回应用户这一轮的重点，结合紧邻对话消解指代。旧话题只在与本轮直接相关时使用。"
         "memory 是被选择或检索的结构化摘要，只在相关时用于话题、偏好与关系连续性，并以用户最新更正为准。"
         "memory.topic_state 与 memory.short_term 是截至 summarized_through 的历史摘要，可能落后于近期对话；"
         "其中的话题和关注点不代表当前用户意图，以当前输入和近期对话判断是否仍相关。"
@@ -2865,6 +2866,10 @@ class InteractionExpressionAgent:
             base=persona_context_pack,
             scope="persona_expression",
         )
+        if req.intent.source != "reading_commentary" and not event.get_extra(
+            "live_reading_passage"
+        ):
+            _exclude_reading_commentary(expression_pack)
         reasoning_marker = resolve_deepseek_first_turn_reasoning_marker(
             event,
             expression_pack,
@@ -3186,6 +3191,28 @@ def _describe_expression_request(req: PersonaExpressionRequest) -> str:
     if req.source_text.strip():
         return "material_reply"
     return "direct_reply"
+
+
+def _exclude_reading_commentary(pack: ContextPack) -> None:
+    history = pack.get_slot("conversation.history")
+    if history is None or not isinstance(history.value, dict):
+        return
+    turns = history.value.get("turns")
+    if not isinstance(turns, list):
+        return
+    dialogue = [
+        turn
+        for turn in turns
+        if not isinstance(turn, dict) or turn.get("assistant_source") != "reading_commentary"
+    ]
+    if len(dialogue) != len(turns):
+        pack.add_slot(
+            replace(
+                history,
+                value={**history.value, "turns": dialogue, "turn_count": len(dialogue)},
+                meta={**history.meta, "turn_count": len(dialogue)},
+            )
+        )
 
 
 def _resolve_persona_expression_context_view(

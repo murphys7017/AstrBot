@@ -506,9 +506,7 @@ def test_direct_persona_views_preserve_configured_history_candidate_window(view,
     budget = rendered.metadata["context_budgets"]["conversation_history"]
     assert budget["limit_amount"] == window
     assert budget["retained_amount"] == expected
-    assert budget["limit_estimated_tokens"] == (
-        1800 if view is PromptContextView.OLV_STREAM else 3000
-    )
+    assert budget["limit_estimated_tokens"] == 3000
     assert pack == original
 
 
