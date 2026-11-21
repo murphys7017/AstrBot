@@ -103,7 +103,7 @@ class PromptRenderEngine:
                 pack, public=public_context(event, plugin_context)
             )
             view_pack = project_prompt_context_view(pack, context_view)
-            if resolved_target is PromptTarget.PERSONA:
+            if resolved_target in {PromptTarget.PERSONA, PromptTarget.CORE_ROUTER}:
                 view_pack = project_desktop_context(
                     view_pack,
                     include_desktop_context=desktop_context_allowed_for_event(event),

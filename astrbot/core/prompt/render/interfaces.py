@@ -1283,6 +1283,9 @@ class BasePromptRenderer:
         attachment_files_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/files"
         )
+        attachment_summary_node = self._find_tag_path(
+            prompt_tree, "user_input/attachment_summary"
+        )
         file_annotations_node = self._find_tag_path(
             prompt_tree, "user_input/attachments/file_annotations"
         )
@@ -1296,6 +1299,16 @@ class BasePromptRenderer:
             quoted_text=quoted_text,
             current_text_annotation=current_text_annotation,
             quoted_text_annotation=quoted_text_annotation,
+        )
+        attachment_summary_text = (
+            self._render_subtree_text(
+                prompt_tree,
+                attachment_summary_node,
+                include_root=True,
+                escape_text=True,
+            )
+            if attachment_summary_node is not None
+            else None
         )
         quoted_image_annotations_text = (
             self._render_subtree_text(
@@ -1392,6 +1405,7 @@ class BasePromptRenderer:
             and not quoted_text
             and not current_text_annotation
             and not quoted_text_annotation
+            and not attachment_summary_text
             and not quoted_image_annotations_text
             and not quoted_image_captions_text
             and not attachment_image_annotations_text
@@ -1417,6 +1431,8 @@ class BasePromptRenderer:
             content_parts.append(self._build_text_content_part(input_extensions_text))
         if user_input_text:
             content_parts.append(self._build_text_content_part(user_input_text))
+        if attachment_summary_text:
+            content_parts.append(self._build_text_content_part(attachment_summary_text))
         if quoted_image_annotations_text:
             content_parts.append(
                 self._build_text_content_part(quoted_image_annotations_text)

@@ -36,6 +36,7 @@ _CORE_ROUTER_SLOT_NAMES = frozenset(
     {
         "input.text",
         "input.quoted_text",
+        "input.attachment_summary",
         "session.datetime",
         "conversation.pending_execution_continuity",
     }

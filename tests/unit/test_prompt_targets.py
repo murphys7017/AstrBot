@@ -721,7 +721,8 @@ def test_group_context_records_remain_structured_in_all_rendered_targets():
         assert "Alice" in rendered
 
 
-def test_core_router_projection_is_bounded_and_excludes_persona_context():
+@pytest.mark.parametrize("renderer_type", [BasePromptRenderer, MiniMaxPromptRenderer])
+def test_core_router_projection_is_bounded_and_excludes_persona_context(renderer_type):
     history = {
         "turns": [
             {
@@ -740,7 +741,11 @@ def test_core_router_projection_is_bounded_and_excludes_persona_context():
             "memory.short_term": _slot("memory.short_term", {"summary": "personal memory"}, "memory"),
             "input.text": _slot("input.text", "Continue that task", "input"),
             "input.quoted_text": _slot("input.quoted_text", "quoted request", "input"),
-            "input.images": _slot("input.images", [{"ref": "image"}], "input"),
+            "input.images": _slot(
+                "input.images",
+                [{"ref": "private_desktop.png", "semantic_type": "desktop_snapshot"}],
+                "input",
+            ),
             "input.attachment_summary": _slot("input.attachment_summary", {"images": 1}, "input"),
             "input.visible_reply_material": _slot("input.visible_reply_material", {"text": "already sent"}, "input"),
             "session.datetime": _slot("session.datetime", {"text": "2026-10-23"}, "session"),
@@ -789,6 +794,7 @@ def test_core_router_projection_is_bounded_and_excludes_persona_context():
     assert set(projected.slots) == {
         "input.text",
         "input.quoted_text",
+        "input.attachment_summary",
         "session.datetime",
         "conversation.pending_execution_continuity",
     }
@@ -802,13 +808,25 @@ def test_core_router_projection_is_bounded_and_excludes_persona_context():
         "resume_recommended": True,
     }
     assert len(pack.get_slot("conversation.history").value["turns"]) == 6
-    assert "global identity" not in _rendered_prompt_text(
-        PromptRenderEngine().render(
-            pack,
-            target=PromptTarget.CORE_ROUTER,
-            profile=PromptRenderProfile(
-                name="router_isolation",
-                system_prompt="isolated router instructions",
-            ),
-        )
+    renderer = PromptRenderEngine(default_renderer=renderer_type())
+    profile = PromptRenderProfile(
+        name="router_isolation",
+        system_prompt="isolated router instructions",
     )
+    rendered = _rendered_prompt_text(
+        renderer.render(pack, target=PromptTarget.CORE_ROUTER, profile=profile)
+    )
+    assert "global identity" not in rendered
+    assert "attachment_summary" in rendered
+    assert "private_desktop.png" not in rendered
+
+    desktop_blocked = SimpleNamespace(
+        get_platform_name=lambda: "olv_pet_adapter",
+        get_extra=lambda key, default=None: (
+            False if key == "interaction.desktop_context_allowed" else default
+        ),
+    )
+    blocked = renderer.render(
+        pack, target=PromptTarget.CORE_ROUTER, profile=profile, event=desktop_blocked,
+    )
+    assert "attachment_summary" not in _rendered_prompt_text(blocked)
