@@ -167,6 +167,7 @@ _CORE_EXECUTION_PROGRESS_LABELS = {
     "working": "正在执行任务。",
 }
 _CORE_EXECUTION_PROGRESS_STAGE_EXTRA_KEY = "_core_execution_progress_stage"
+_OLV_INCREMENTAL_OUTPUT_COMMITTED_KEY = "_interaction_olv_incremental_output_committed"
 
 PLUGIN_OUTPUT_TRANSACTION_ACTIVE_EXTRA_KEY = (
     "_interaction_plugin_output_transaction_active"
@@ -844,7 +845,7 @@ class InteractionOutputController:
             open_output = getattr(event, "open_interaction_incremental_output", None)
             if not callable(open_output):
                 logger.warning(
-                    "OLV incremental output unavailable; keeping visible stream fallback: "
+                    "OLV incremental output unavailable: "
                     "turn_id=%s reason=writer_unsupported",
                     event.get_extra("_turn_id"),
                 )
@@ -854,7 +855,7 @@ class InteractionOutputController:
             except TypeError as exc:
                 if "unexpected keyword argument" not in str(exc):
                     logger.warning(
-                        "OLV incremental output unavailable; keeping visible stream fallback: "
+                        "OLV incremental output unavailable: "
                         "turn_id=%s reason=%s",
                         event.get_extra("_turn_id"),
                         exc,
@@ -864,7 +865,7 @@ class InteractionOutputController:
                     incremental_writer = await open_output()
                 except Exception as exc:  # noqa: BLE001 - optional Adapter output.
                     logger.warning(
-                        "OLV incremental output unavailable; keeping visible stream fallback: "
+                        "OLV incremental output unavailable: "
                         "turn_id=%s reason=%s",
                         event.get_extra("_turn_id"),
                         exc,
@@ -872,7 +873,7 @@ class InteractionOutputController:
                     return
             except Exception as exc:  # noqa: BLE001 - optional Adapter output.
                 logger.warning(
-                    "OLV incremental output unavailable; keeping visible stream fallback: "
+                    "OLV incremental output unavailable: "
                     "turn_id=%s reason=%s",
                     event.get_extra("_turn_id"),
                     exc,
@@ -1007,6 +1008,13 @@ class InteractionOutputController:
                 ).strip() or None
                 if state["persona_result_id"] and state["publish_stream"]:
                     await start_incremental_output(state["persona_result_id"])
+                if (
+                    is_olv_segment_stream
+                    and state["publish_stream"]
+                    and incremental_writer is None
+                    and event.get_extra(_OLV_INCREMENTAL_OUTPUT_COMMITTED_KEY)
+                ):
+                    raise InteractionExpressionError("olv_incremental_writer_unavailable")
                 platform_extras["persona_stream"].update(
                     {"persona_result_id": state["persona_result_id"]}
                 )
@@ -1716,6 +1724,7 @@ class InteractionOutputController:
                     or has_output
                 )
                 if has_wire_activity:
+                    event.set_extra(_OLV_INCREMENTAL_OUTPUT_COMMITTED_KEY, True)
                     required_resources = {"text", "audio", "motion"}
                     resources_closed = bool(incremental_started_segments) and all(
                         required_resources.issubset(
@@ -2416,7 +2425,7 @@ class InteractionOutputController:
             return False
         full_message = self._get_full_core_final_message(event, message)
         try:
-            await self._deliver_core_reply(full_message, event)
+            delivered = await self._deliver_core_reply(full_message, event)
         except BaseException:
             await finish_interaction_turn_final_output(
                 event,
@@ -2427,7 +2436,7 @@ class InteractionOutputController:
             raise
         final_status = (
             InteractionFinalOutputStatus.SUPPRESSED
-            if is_interaction_turn_pipeline_output_suppressed(event)
+            if not delivered or is_interaction_turn_pipeline_output_suppressed(event)
             else InteractionFinalOutputStatus.DELIVERED
         )
         await finish_interaction_turn_final_output(event, final_status)
@@ -3899,77 +3908,55 @@ class InteractionOutputController:
         self,
         message: MessageChain,
         event: AstrMessageEvent,
-    ) -> None:
+    ) -> bool:
         core_result_text = message.get_plain_text()
-        # An OLV turn that already emitted an immediate Persona reply must not
-        # open a second segment/TTS stream for the delegated Core final.  Keep
-        # the Core final on the transactional path so the existing duplicate
-        # guard can compare the rendered Persona text before any audio starts.
-        olv_immediate_reply_committed = (
-            self._uses_task_stream(event)
-            and bool(get_interaction_turn_immediate_reply(event))
+        immediate_reply = get_interaction_turn_immediate_reply(event)
+        request = PersonaExpressionRequest.core_final(
+            core_result_text,
+            immediate_reply=immediate_reply,
         )
-        if olv_immediate_reply_committed:
-            logger.debug(
-                "DIAG interaction.olv_core_final_stream_bypassed: "
-                "turn_id=%s reason=immediate_persona_already_delivered",
-                event.get_extra("_turn_id"),
-            )
+        # The adapter keeps the delivery mode fixed for the turn. A completed
+        # incremental result can be followed by another result on that channel.
+        if self._uses_task_stream(event) and (
+            not immediate_reply or event.get_extra(_OLV_INCREMENTAL_OUTPUT_COMMITTED_KEY)
+        ):
             if (
-                event.get_extra("_interaction_persona_segment_stream_published")
-                is True
-                and event.get_extra("_interaction_persona_segment_stream_status")
-                == "completed"
+                immediate_reply
+                and core_result_text.strip() == immediate_reply.strip()
+                and all(isinstance(component, Plain) for component in message.chain)
             ):
-                # The incremental Persona writer owns the visible turn once it
-                # has completed. Sending a changed Core-final reply through the
-                # ordinary output/TTS path would mix delivery modes on the same
-                # turn and make the adapter reject both messages.
                 logger.info(
-                    "DIAG interaction.olv_core_final_suppressed: "
-                    "turn_id=%s reason=completed_persona_stream_owns_output",
+                    "Skipping duplicate Core result already sent by Persona: turn_id=%s",
                     event.get_extra("_turn_id"),
                 )
                 self._materialize_finalized_turn(event)
                 await self._persist_interaction_turn(event)
-                return
-        if self._uses_task_stream(event) and not olv_immediate_reply_committed:
+                return False
             await self._stream_task_reply(
-                event, message_kind="core_reply",
-                request=PersonaExpressionRequest.core_final(
-                    core_result_text, immediate_reply=get_interaction_turn_immediate_reply(event),
-                ),
+                event, message_kind="core_reply", request=request,
             )
             self._materialize_finalized_turn(event)
             await self._persist_interaction_turn(event)
-            return
+            return True
         try:
-            result = await self._render_visible_reply(
-                event,
-                PersonaExpressionRequest.core_final(
-                    core_result_text,
-                    immediate_reply=get_interaction_turn_immediate_reply(event),
-                ),
-            )
+            result = await self._render_visible_reply(event, request)
         except TurnDeadlineExceeded as exc:
-            await self._deliver_core_result_without_persona(
+            return await self._deliver_core_result_without_persona(
                 message,
                 event,
                 stage=exc.stage,
                 reason=exc.reason,
                 exception=exc,
             )
-            return
         except Exception as exc:  # noqa: BLE001
-            await self._deliver_core_result_without_persona(
+            return await self._deliver_core_result_without_persona(
                 message,
                 event,
                 stage="core_persona_render",
                 reason=str(getattr(exc, "reason", "") or "exception"),
                 exception=exc,
             )
-            return
-        await self.deliver_prepared_core_reply(message, result, event)
+        return await self.deliver_prepared_core_reply(message, result, event)
 
     async def _deliver_core_result_without_persona(
         self,
@@ -3979,7 +3966,7 @@ class InteractionOutputController:
         stage: str,
         reason: str,
         exception: BaseException,
-    ) -> None:
+    ) -> bool:
         """Finish the transaction through Personal after expression failure."""
         failure_kind = (
             InteractionFailureKind.TURN_TIMEOUT
@@ -4014,14 +4001,14 @@ class InteractionOutputController:
                 event.get_extra("_turn_id"),
                 stage,
             )
-            return
+            return False
 
         fallback_result = PersonaExpressionResult(
             speech=CORE_REPLY_FALLBACK_TEXT,
             turn_action=PersonalResponseAction.REPLY,
             metadata={"persona_fallback": True, "failure_stage": stage},
         )
-        await self.deliver_prepared_core_reply(
+        return await self.deliver_prepared_core_reply(
             MessageChain().message(CORE_REPLY_FALLBACK_TEXT),
             fallback_result,
             event,
@@ -4032,7 +4019,7 @@ class InteractionOutputController:
         source_message: MessageChain,
         result: PersonaExpressionResult,
         event: AstrMessageEvent,
-    ) -> None:
+    ) -> bool:
         immediate_reply = get_interaction_turn_immediate_reply(event)
         immediate_persona_segments = (
             get_interaction_turn_immediate_persona_segments(event) or ()
@@ -4064,7 +4051,7 @@ class InteractionOutputController:
             # interaction turn without emitting a second platform message.
             self._materialize_finalized_turn(event)
             await self._persist_interaction_turn(event)
-            return
+            return False
         final_message = replace_plain_text_preserving_components(
             source_message,
             result.speech,
@@ -4081,6 +4068,7 @@ class InteractionOutputController:
             effect_calls=result.effect_calls,
             persona_expression=result,
         )
+        return True
 
     async def _deliver_core_final_message(
         self,

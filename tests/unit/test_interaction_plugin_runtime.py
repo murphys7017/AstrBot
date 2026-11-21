@@ -69,6 +69,7 @@ from astrbot.core.pipeline.process_stage.method.agent_sub_stages.internal import
 )
 from astrbot.core.pipeline.process_stage.stage import ProcessStage
 from astrbot.core.pipeline.respond.stage import RespondStage
+from astrbot.core.platform.message_type import MessageType
 from astrbot.core.plugin_runtime import (
     PLUGIN_RUNTIME_TARGET_CORE,
     PLUGIN_RUNTIME_TARGET_PERSONAL_EXPRESSION,
@@ -1365,42 +1366,6 @@ async def test_exact_duplicate_core_final_reply_closes_turn_without_delivery():
     persisted.assert_awaited_once_with(event)
 
 
-@pytest.mark.asyncio
-async def test_completed_olv_persona_stream_owns_changed_core_final_output():
-    class Event:
-        def __init__(self):
-            self._extras = {
-                "_turn_id": "turn-olv-stream-final",
-                "_interaction_persona_segment_stream_requested": True,
-                "_interaction_persona_segment_stream_published": True,
-                "_interaction_persona_segment_stream_status": "completed",
-            }
-
-        def get_extra(self, key, default=None):
-            return self._extras.get(key, default)
-
-        def set_extra(self, key, value):
-            self._extras[key] = value
-
-        def get_platform_name(self):
-            return "olv_pet_adapter"
-
-    persisted = AsyncMock()
-    event = Event()
-    ensure_interaction_turn_state(event)
-    set_interaction_turn_immediate_reply(event, "已经通过增量流发送的回复")
-    controller = InteractionOutputController(persist_callback=persisted)
-    controller._render_visible_reply = AsyncMock()
-
-    await controller._deliver_core_reply(
-        MessageChain([Plain("Core final changed after the stream")]),
-        event,
-    )
-
-    controller._render_visible_reply.assert_not_awaited()
-    persisted.assert_awaited_once_with(event)
-
-
 @pytest.mark.parametrize(
     ("immediate_state", "final_result"),
     [
@@ -1520,6 +1485,9 @@ async def test_core_persona_failure_uses_personal_owned_failure_output():
 
         def set_extra(self, key, value):
             self._extras[key] = value
+
+        def get_message_type(self):
+            return MessageType.FRIEND_MESSAGE
 
     controller = InteractionOutputController(
         visible_reply_renderer=AsyncMock(side_effect=RuntimeError("provider unavailable")),

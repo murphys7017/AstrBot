@@ -10,15 +10,18 @@ import pytest
 
 from astrbot.core.interaction.expression_agent import (
     PERSONA_TENDENCY_DIMENSIONS,
+    InteractionExpressionAgent,
     InteractionExpressionError,
     PersonaExpressionRequest,
     PersonaSegmentStreamParser,
 )
 from astrbot.core.interaction.output_controller import InteractionOutputController
 from astrbot.core.interaction.turn_state import (
+    InteractionFinalOutputStatus,
     get_interaction_turn_delivery_receipts,
     get_interaction_turn_immediate_persona_segments,
     get_interaction_turn_personal_emitted_monotonic,
+    get_interaction_turn_state,
     get_interaction_turn_visible_outputs,
     has_delivered_motion_output,
     set_interaction_turn_runtime_config,
@@ -26,6 +29,10 @@ from astrbot.core.interaction.turn_state import (
 from astrbot.core.message.incremental_text import (
     IncrementalTextError,
     IncrementalTextPreparer,
+)
+from astrbot.core.message.message_event_result import (
+    MessageEventResult,
+    ResultContentType,
 )
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.platform.astrbot_message import AstrBotMessage, MessageMember
@@ -115,7 +122,7 @@ class IncrementalEvent(AstrMessageEvent):
         pass
 
 
-def stream_producer(speech, *, request=None, actions=None, deltas=None):
+def stream_producer(speech, *, request=None, actions=None, deltas=None, result_id="result-test"):
     async def produce(emit_record, message_id):
         parser = PersonaSegmentStreamParser(
             request or PersonaExpressionRequest(require_turn_action=True)
@@ -137,7 +144,7 @@ def stream_producer(speech, *, request=None, actions=None, deltas=None):
         for record in records:
             for event in parser.feed(json.dumps(record) + "\n"):
                 if event["type"] == "header":
-                    event["persona_result_id"] = "result-test"
+                    event["persona_result_id"] = result_id
                 await emit_record(event)
         result = parser.finish()
         await emit_record({"type": "finish", "result": result})
@@ -148,6 +155,62 @@ def stream_producer(speech, *, request=None, actions=None, deltas=None):
 
 async def publish(_record):
     return True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("core_result", "expected_status"),
+    [
+        ("截图显示文件资源管理器处于打开状态。", InteractionFinalOutputStatus.DELIVERED),
+        ("我来看看你桌面上有什么。", InteractionFinalOutputStatus.SUPPRESSED),
+        ("截图显示文件资源管理器处于打开状态。", InteractionFinalOutputStatus.FAILED),
+    ],
+)
+async def test_core_final_after_a_delivered_olv_reply(
+    monkeypatch, core_result, expected_status,
+):
+    sink = OutputSink()
+    event = IncrementalEvent(sink)
+    controller = InteractionOutputController()
+    immediate = "我来看看你桌面上有什么。"
+    final = "截图里打开了文件资源管理器。"
+
+    async def generate_final(
+        _agent, _event, _context, _config, request, *, emit_record, message_id,
+    ):
+        producer = stream_producer(final, request=request, result_id="result-core")
+        return await producer(emit_record, message_id)
+
+    monkeypatch.setattr(
+        InteractionExpressionAgent, "generate_segment_stream_expression", generate_final,
+    )
+    await controller.emit_persona_segment_stream(
+        event, producer=stream_producer(immediate), on_header=publish,
+    )
+    result = MessageEventResult().message(core_result)
+    result.set_result_content_type(ResultContentType.LLM_RESULT)
+    event.set_result(result)
+
+    if expected_status is InteractionFinalOutputStatus.FAILED:
+        async def reject_writer(*, persona_result_id):
+            raise RuntimeError("test transport could not open the next writer")
+
+        monkeypatch.setattr(event, "open_interaction_incremental_output", reject_writer)
+        with pytest.raises(InteractionExpressionError, match="olv_incremental_writer_unavailable"):
+            await controller.capture_message_chain(result, event)
+    else:
+        assert await controller.capture_message_chain(result, event) == (
+            expected_status is InteractionFinalOutputStatus.DELIVERED
+        )
+
+    delivered_final = expected_status is InteractionFinalOutputStatus.DELIVERED
+    assert "".join(sink.text) == (immediate + final if delivered_final else immediate)
+    receipts = get_interaction_turn_delivery_receipts(event)
+    assert [receipt["message_kind"] for receipt in receipts] == (
+        ["immediate_reply", "core_reply"] if delivered_final else ["immediate_reply"]
+    )
+    assert all(receipt["status"] == "delivered" for receipt in receipts)
+    assert get_interaction_turn_state(event).final_output_status is expected_status
 
 
 @pytest.mark.asyncio
