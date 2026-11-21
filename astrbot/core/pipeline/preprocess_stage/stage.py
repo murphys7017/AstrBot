@@ -80,6 +80,8 @@ class PreProcessStage(Stage):
         if is_interaction_turn_inbound_media_materialized(event):
             return
 
+        await event.prepare_inbound_media()
+
         # 路径映射
         if mappings := platform_settings.get("path_mapping", []):
             # 支持 Record，Image 消息段的路径映射。

@@ -204,6 +204,9 @@ class AstrMessageEvent(abc.ABC):
         """获取消息链。"""
         return getattr(self.message_obj, "message", [])
 
+    async def prepare_inbound_media(self) -> None:
+        """Resolve platform-owned media for this turn before input preprocessing."""
+
     def get_message_type(self) -> MessageType:
         """获取消息类型。"""
         message_type = getattr(self.message_obj, "type", None)

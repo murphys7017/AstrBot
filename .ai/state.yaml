@@ -1,3 +1,33 @@
+desktop_input_context_20261121:
+  class: bugfix
+  risk: medium
+  status: deployed_pending_restart_and_live_capture_check
+  scope: >-
+    Let AG99live request a turn-bound desktop frame for a matching final VAD
+    transcript with screenshot-on-send enabled, and for text or PTT input
+    that explicitly requested a screenshot but arrived without one. Use
+    the platform media preparation hook before preprocessing so WebSocket
+    can receive the frame response. All three input paths share the latest
+    desktop observation frame from SnapshotHub before requesting a capture.
+    Only foreground images marked as desktop screenshots can update that
+    cache. The periodic capture setting is disabled in this installation
+    and was left as configured. Continue with the input if the two-second
+    capture budget expires or the image cannot be written to temporary storage.
+  validation: >-
+    Exercised the actual preprocessing stage, AG99 event, screenshot response
+    broker and image materialization with a local JPEG. Verified a matching
+    text or transcript retains its message ID and receives a desktop annotation
+    in text, PTT and VAD paths. The check also covered a disabled switch,
+    unmatched text, a frame already attached, and an unavailable capture broker.
+    A follow-up exercised reuse across text, PTT and VAD with the real Core
+    SnapshotHub, then verified capture on a cache miss after reconnect.
+    A blocked image directory produced image_write_failed and preserved the
+    text turn.
+    Eleven speech ingress tests and the Core preprocessing test passed. The
+    adapter prompt annotation suite has a stub-import failure reproduced on
+    the baseline. Live desktop capture and provider input remain to be
+    checked after restart.
+
 story_reading_20261119:
   class: feature
   risk: medium
