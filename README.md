@@ -59,6 +59,8 @@
 - 通过 **Structured Prompt** 精确组织不同阶段的模型上下文。
 - 通过 **Observation Runtime** 实现具有明确约束的主动观察与交流。
 
+在这套结构中，Persona 是持续交互的核心。消息适配器负责连接不同的平台，接收输入并投递输出，不再承担人格状态和对话策略。当前运行模型以一个持续存在的 Persona 为中心，不同渠道的消息可以通过统一身份映射归并到同一段连续关系中。
+
 AG99 以桌面陪伴为主要应用方向，但并不局限于桌面。项目继续兼容 AstrBot 的消息平台、模型 Provider、插件、Dashboard 和 CLI 等基础设施。
 
 结合 [AG99live](https://github.com/murphys7017/AG99live)，AG99 还可以通过实时语音、Live2D 表情与动态动作，将持续的人格交互转化为更加自然的虚拟角色体验。
@@ -203,6 +205,8 @@ AG99 也提供相应的构建耗时和缓存诊断机制，帮助进一步分析
 
 **我们希望 Prompt 从不断增长的字符串，演进为可以明确组织、投影、检查和复用的上下文系统。**
 
+记忆、插件事实和任务结果会根据使用它们的交互阶段分别注入。Persona、路由判断和 Core 执行看到的是各自需要的上下文，消息适配器只负责传递已经构建好的表达结果。
+
 ### 6. Observation：受控的主动观察与交流
 
 **长期陪伴不应该完全依赖用户每次主动发出指令。**
@@ -239,7 +243,7 @@ AG99 当前的主动观察与表达机制已接入主要运行链路，但具体
 
 AG99 将准确的对话历史、抽象记忆、Persona 状态和 Core 执行记录分别管理，让不同来源的信息以适当的方式参与后续交互。
 
-通过兼容的长期记忆、自学习和其他社区插件，角色可以进一步积累与用户的共同经历。
+通过兼容的长期记忆和其他社区插件，角色可以进一步积累与用户的共同经历。当前推荐使用独立的 [LivingMemory](https://github.com/murphys7017/astrbot_plugin_livingmemory) 插件，它可以将整理后的长期记忆作为结构化上下文提供给 Persona。自学习能力可以在此基础上继续扩展，而不需要改变 AG99 的核心人格和对话边界。
 
 ### NeuroBrain：连续内在状态实验
 
@@ -414,6 +418,7 @@ README 主要介绍项目特色与使用方式。
 | --- | --- |
 | [AG99](https://github.com/murphys7017/AstrBot) | 持续人格与智能体运行核心 |
 | [AG99live](https://github.com/murphys7017/AG99live) | Live2D 实时交互与角色表现 |
+| [LivingMemory](https://github.com/murphys7017/astrbot_plugin_livingmemory) | 面向 AG99 的长期记忆插件 |
 | [NeuroBrain](https://github.com/murphys7017/NeuroBrain) | 实验性连续状态神经网络 |
 | [NeuroBrain Plugin](https://github.com/murphys7017/astrbot_plugin_neurobrain) | NeuroBrain 的 AG99/AstrBot 集成 |
 | [AstrBot](https://github.com/AstrBotDevs/AstrBot) | 上游项目与开源插件生态 |
