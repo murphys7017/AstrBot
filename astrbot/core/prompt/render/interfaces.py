@@ -93,8 +93,8 @@ class BasePromptRenderer:
 
     ALL_SLOT_GROUPS: tuple[str, ...] = (
         "system",
-        "persona",
         "policy",
+        "persona",
         "input",
         "session",
         "conversation",
@@ -810,8 +810,10 @@ class BasePromptRenderer:
         skills_slot = self._find_slot(slots, "capability.skills_prompt")
         if skills_slot is not None and isinstance(skills_slot.value, dict):
             skills_inventory = self._coerce_list(skills_slot.value.get("skills"))
-            skills_whitelist = self._extract_name_whitelist(
-                pack.get_slot("persona.skills_whitelist")
+            skills_whitelist = (
+                self._extract_name_whitelist(pack.get_slot("persona.skills_whitelist"))
+                if pack.meta.get("prompt_target") == "persona"
+                else None
             )
             filtered_skills = self._filter_skill_items(
                 skills_inventory, skills_whitelist
@@ -869,8 +871,10 @@ class BasePromptRenderer:
         tools_slot = self._find_slot(slots, "capability.tools_schema")
         if tools_slot is not None and isinstance(tools_slot.value, dict):
             tool_inventory = self._coerce_list(tools_slot.value.get("tools"))
-            tools_whitelist = self._extract_name_whitelist(
-                pack.get_slot("persona.tools_whitelist")
+            tools_whitelist = (
+                self._extract_name_whitelist(pack.get_slot("persona.tools_whitelist"))
+                if pack.meta.get("prompt_target") == "persona"
+                else None
             )
             filtered_tools = self._filter_named_items(tool_inventory, tools_whitelist)
             if self._render_tool_inventory(
@@ -3005,4 +3009,4 @@ class BasePromptRenderer:
             return fallback_prompt
         if fallback_prompt in system_prompt:
             return system_prompt
-        return f"{system_prompt}\n\n{fallback_prompt}"
+        return f"{fallback_prompt}\n\n{system_prompt}"

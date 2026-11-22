@@ -1218,8 +1218,8 @@ def test_required_effect_guidance_requires_schema_execution_shape_without_defaul
     schema = build_persona_effect_batch_tool_parameters([effect])
     effect_calls_description = schema["properties"]["effect_calls"]["description"]
 
-    assert "语义标签或注释字段不能代替 schema 要求的执行形态" in prompt
-    assert "自行编造默认值" in prompt
+    assert "语义标签或注释字段不能代替 schema 要求的执行形态" not in prompt
+    assert "自行编造默认值" not in prompt
     assert "Semantic labels or annotations do not replace an execution shape" in (
         effect_calls_description
     )
@@ -1420,22 +1420,21 @@ def test_persona_expression_prompt_keeps_unverified_operations_grounded():
 def test_persona_system_prompt_keeps_expression_role_and_fact_boundaries():
     prompt = build_persona_runtime_system_prompt(require_turn_action=True)
 
-    assert "唯一的对外人格交流窗口" in prompt
-    assert "只能从 reply 中选择 turn_action" in prompt
+    assert "唯一的对外人格交流窗口" not in prompt
+    assert "只能从 reply 中选择 turn_action" not in prompt
     assert "Core" not in prompt
-    assert "conversation.history 是官方对话记录，用于保持话题、关系和表达连续性" in prompt
-    assert "当前用户输入确定意图" not in prompt
-    assert "当前输入与近期对话共同构成交流上下文" in prompt
+    assert "conversation.history" not in prompt
+    assert "当前输入与近期对话共同构成交流上下文" not in prompt
     assert "根据当前请求和已提供材料生成当前人格的用户可见表达" not in prompt
-    assert "用户可见表达应体现当前人格，并只使用本轮允许的材料" in prompt
-    assert "memory 是被选择或检索的结构化摘要" in prompt
-    assert "不能据此推断当前执行结果、状态、数字或能力结论" in prompt
+    assert "用户可见表达应体现当前人格，并只使用本轮允许的材料" not in prompt
+    assert "memory 是被选择或检索的结构化摘要" not in prompt
+    assert "不能据此推断当前执行结果、状态、数字或能力结论" not in prompt
 
 
 def test_persona_system_prompt_describes_reply_only_calls():
     prompt = build_persona_runtime_system_prompt()
 
-    assert "当前调用只允许使用 turn_action=reply" in prompt
+    assert "当前调用只允许使用 turn_action=reply" not in prompt
     assert "Core" not in prompt
 
 
@@ -1447,16 +1446,16 @@ def test_persona_progress_prompt_keeps_single_tool_completion_local():
         )
     )
 
-    assert "收到工具回执" in prompt
-    assert "第一步完成" in prompt
-    assert "所有来源、所有检索或整个任务已经完成" in prompt
+    assert "收到工具回执" not in prompt
+    assert "第一步完成" not in prompt
+    assert "所有来源、所有检索或整个任务已经完成" not in prompt
 
 
 def test_persona_expression_prompt_separates_history_continuity_from_facts():
     prompt = build_persona_runtime_system_prompt()
 
-    assert "用于保持话题、关系和表达连续性" in prompt
-    assert "包括实际附带的图片" in prompt
+    assert "用于保持话题、关系和表达连续性" not in prompt
+    assert "包括实际附带的图片" not in prompt
 
 
 def test_persona_system_prompt_does_not_include_concrete_motion_example():

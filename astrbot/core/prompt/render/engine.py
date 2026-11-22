@@ -139,6 +139,7 @@ class PromptRenderEngine:
             )
         with measure_prompt_stage(timings, "render_profile"):
             selected_pack = self._apply_render_profile(target_pack, profile)
+        selected_pack.meta["prompt_target"] = resolved_target.value
         renderer = self._resolve_renderer(
             event=event,
             plugin_context=plugin_context,

@@ -210,6 +210,7 @@ class CapabilityResolver:
                 ) = self._select_registered_tools(
                     tool_manager=tool_manager,
                     persona=persona,
+                    target=target,
                 )
 
         candidate_groups: list[list[FunctionTool]] = []
@@ -296,8 +297,11 @@ class CapabilityResolver:
         *,
         tool_manager,
         persona: dict[str, Any] | None,
+        target: str,
     ) -> tuple[list[FunctionTool], str, list[CapabilityDecision]]:
         registered_tools = list(tool_manager.func_list)
+        if target != TOOL_TARGET_PERSONAL_EXPRESSION:
+            return registered_tools, "all", []
         allowed_names = persona.get("tools") if isinstance(persona, dict) else None
         if not persona or allowed_names is None:
             return registered_tools, "all", []
