@@ -1,3 +1,33 @@
+persona_identity_memory_migration_20261122:
+  date: '2026-11-22'
+  class: feature
+  risk: high
+  status: deployed_pending_restart_and_live_acceptance
+  scope: >-
+    Implement the persona-centered identity and LivingMemory migration plan.
+    Core exposes a pure canonical identity binding resolver. Prompt supports
+    context-view-aware extension.memory projection for Persona. LivingMemory
+    resolves canonical user scopes, reads the completed recall snapshot, and
+    publishes one structured memory extension with configurable target, views,
+    item and character budgets. The old transient prompt-message collector path
+    is retired. The LivingMemory source was deployed through its deployment
+    script to the generated AstrBot plugin directory.
+  validation: >-
+    Core compileall and scoped Ruff passed. Core Context View tests passed.
+    LivingMemory compileall, schema JSON validation, documentation parity,
+    AstrBot compatibility and scoped memory tests passed. LivingMemory source
+    and deployment hashes match. Direct identity, structured extension and
+    projection smoke checks passed.
+    Deployment script completed successfully.
+  limitations: >-
+    The full Core focused suite remains red on existing workspace changes,
+    including invalid test message types and prompt history-budget assertions.
+    The installed plugin checker script is unavailable in the repositories.
+    AstrBot has not been restarted in this turn, so real provider, multi-channel
+    canonical-scope and duplicate-injection acceptance is still pending. Core
+    built-in long-term injection remains configuration-controlled until that
+    acceptance is complete.
+
 persona_dialogue_context_20261121:
   date: '2026-11-21'
   class: bugfix

@@ -2,12 +2,12 @@
 
 ## 文档状态
 
-- **状态**：设计/计划
+- **状态**：代码已实现，待真实运行验收
 - **计划版本**：v1
 - **编写时间**：2026-11-22
 - **适用项目**：AG99、AstrBot Core、LivingMemory
 - **风险等级**：高。计划会触及 Prompt 公共扩展点、身份作用域和插件兼容边界。
-- **当前实现**：尚未按本计划实施
+- **当前实现**：Phase 1–3 已落地，Phase 4 的运行时验收和旧内置长期记忆开关仍需在重启后确认
 
 ## 1. 目标
 
@@ -50,9 +50,9 @@ Prompt 系统已经存在内置记忆插槽和插件扩展挂载点：
 
 ### 3.2 LivingMemory 的当前接入方式
 
-LivingMemory 当前通过 `collect_prompt_messages` 以 `after_user` 临时消息注入 Persona，并覆盖多个 Persona Context View。它还没有完全使用结构化的 `memory` 扩展挂载点。
+LivingMemory 已通过结构化 `PromptExtension` 使用 `memory` 扩展挂载点。旧的 `collect_prompt_messages` 注入实现已退出，当前 collector 只读取已完成的本地召回快照。
 
-这使记忆已经能够进入模型请求，但注入位置、上下文视图和结构化元数据仍由临时消息路径表达。
+结构化扩展由 Core 统一做目标投影、Context View 过滤和上下文区域渲染。
 
 ### 3.3 当前身份作用域问题
 
@@ -179,7 +179,7 @@ LivingMemory
 每个阶段都保留以下回滚点：
 
 - 关闭 LivingMemory Prompt 注入配置，恢复无长期记忆注入。
-- 恢复临时消息注入路径，直到结构化路径完成真实验收。
+- 回滚 LivingMemory 插件版本，恢复包含旧临时消息路径的版本，直到结构化路径完成真实验收。
 - 未提供 canonical identity 时继续使用平台和 session 组合。
 - 内置 Memory 只读兼容服务暂不删除。
 

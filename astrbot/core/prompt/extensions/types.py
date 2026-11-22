@@ -37,7 +37,7 @@ def extension_visible_in_context_view(
     mount: str, meta: Mapping[str, Any], context_view: str | None,
 ) -> bool:
     """Apply the same context opt-in at collection and rendering boundaries."""
-    if context_view is None or mount != "context":
+    if context_view is None or mount not in {"context", "memory"}:
         return True
     views = meta.get("context_views", ())
     return isinstance(views, (list, tuple, set, frozenset)) and context_view in views

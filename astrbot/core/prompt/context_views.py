@@ -72,6 +72,7 @@ _PERSONA_BASE_CONTEXT_SLOTS = frozenset(
         "system.base",
         "extension.system",
         "extension.context",
+        "extension.memory",
         "persona.prompt",
         "persona.segments",
         "persona.summary",
@@ -285,7 +286,7 @@ def project_prompt_context_view(
     for slot in pack.slots.values():
         if spec.allows_slot(slot.name):
             selected = slot
-            if slot.name == "extension.context":
+            if slot.name in {"extension.context", "extension.memory"}:
                 selected = deepcopy(slot)
                 if not isinstance(selected.value, dict):
                     continue
@@ -297,7 +298,7 @@ def project_prompt_context_view(
                     for item in items
                     if isinstance(item, dict)
                     and extension_visible_in_context_view(
-                        "context",
+                        "memory" if slot.name == "extension.memory" else "context",
                         item.get("meta") if isinstance(item.get("meta"), dict) else {},
                         spec.name.value,
                     )

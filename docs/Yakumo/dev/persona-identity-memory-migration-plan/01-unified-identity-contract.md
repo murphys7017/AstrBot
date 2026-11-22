@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- **状态**：设计/计划
+- **状态**：已实现，待真实运行验收
 - **所属总计划**：[人格中心化、统一身份与长期记忆架构调整总计划](00-overall-plan.md)
 - **实施阶段**：Phase 1
 - **风险等级**：高。身份字段会影响记忆作用域和部分插件行为。
@@ -37,8 +37,8 @@ canonical_user_id: string | null
 身份解析按以下顺序进行：
 
 1. Core 或 Persona Runtime 已明确提供的 canonical identity。
-2. 当前配置中针对平台和 sender 的绑定。
-3. 当前配置中针对 sender 的绑定。
+2. Core `memory.identity.bindings` 中针对平台和 sender 的绑定。
+3. 兼容层中的现有别名回退。
 4. 未绑定时返回空值，让下游继续使用旧身份规则。
 
 sender name 只用于配置匹配和展示，不作为长期稳定身份的首选键。
@@ -84,8 +84,8 @@ livingmemory:user:{platform}:{identity}
 
 ### 7.1 Core 侧
 
-- 明确事件或 Persona Runtime 中 canonical identity 的只读承载位置。
-- 提供统一读取函数，避免 Adapter 和 LivingMemory 各自解析。
+- 保留事件的原始身份字段，并由 Core 提供统一的只读解析函数。
+- 解析函数优先读取运行时绑定配置，避免 Adapter 和 LivingMemory 各自解析。
 - 在诊断中记录来源类型，不记录不必要的原始隐私字段。
 
 ### 7.2 LivingMemory 侧

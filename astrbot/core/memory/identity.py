@@ -1,18 +1,90 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from astrbot.core.platform.astr_message_event import AstrMessageEvent
 
-from .config import MemoryConfig, get_memory_config
+from .config import MemoryConfig, get_memory_config, load_memory_config
 from .store import MemoryStore
 from .types import MemoryIdentity, MemoryIdentityBinding
 
 
 def build_platform_user_key(platform_id: str, sender_user_id: str) -> str:
     return f"{platform_id}:{sender_user_id}"
+
+
+def resolve_configured_canonical_user_id(
+    event: AstrMessageEvent,
+    *,
+    config: MemoryConfig | Mapping[str, object] | None = None,
+) -> str | None:
+    """Resolve a configured canonical user without touching the memory store.
+
+    Prompt and external memory providers need the same identity binding as the
+    built-in memory service, but they must not initialize or query its SQLite
+    store. This pure lookup keeps the configuration contract in Core while
+    allowing those providers to resolve identity on their own hot path.
+    """
+
+    if isinstance(config, MemoryConfig):
+        memory_config = config
+    elif isinstance(config, Mapping):
+        payload = config.get("memory")
+        if isinstance(payload, Mapping):
+            memory_config = get_memory_config(config)
+        else:
+            memory_config = load_memory_config(payload=config)
+    else:
+        memory_config = get_memory_config()
+    if not memory_config.identity.enabled:
+        return None
+
+    platform_id = _normalize_optional_string(
+        _safe_event_call(event, "get_platform_id")
+    ) or _normalize_optional_string(_safe_event_call(event, "get_platform_name"))
+    sender_user_id = _normalize_optional_string(
+        _safe_event_call(event, "get_sender_id")
+    )
+    if not platform_id or not sender_user_id:
+        return None
+
+    for raw_binding in memory_config.identity.bindings or ():
+        if not isinstance(raw_binding, dict):
+            continue
+        binding_platform = _normalize_optional_string(raw_binding.get("platform_id"))
+        binding_sender = _normalize_optional_string(raw_binding.get("sender_user_id"))
+        canonical_user_id = _normalize_optional_string(
+            raw_binding.get("canonical_user_id")
+        )
+        if (
+            binding_platform == platform_id
+            and binding_sender == sender_user_id
+            and canonical_user_id
+        ):
+            return canonical_user_id
+    return None
+
+
+def _safe_event_call(event: AstrMessageEvent, method_name: str) -> Any:
+    method = getattr(event, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        return method()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _normalize_optional_string(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 class MemoryIdentityMappingService:

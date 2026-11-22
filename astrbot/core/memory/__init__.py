@@ -36,6 +36,7 @@ from .identity import (
     MemoryIdentityMappingService,
     MemoryIdentityResolver,
     build_platform_user_key,
+    resolve_configured_canonical_user_id,
 )
 from .job_scheduler import MemoryJobScheduler, MemoryScopeJob
 from .long_term_service import LongTermMemoryService
@@ -141,6 +142,7 @@ __all__ = [
     "ExperienceService",
     "LongTermMemoryDocument",
     "build_platform_user_key",
+    "resolve_configured_canonical_user_id",
     "MemoryPostProcessor",
     "MemoryIdentity",
     "MemoryIdentityBinding",

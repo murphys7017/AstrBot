@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- **状态**：设计/计划
+- **状态**：已实现，待真实运行验收
 - **所属总计划**：[人格中心化、统一身份与长期记忆架构调整总计划](00-overall-plan.md)
 - **实施阶段**：Phase 3
 - **风险等级**：高。涉及长期记忆召回、Prompt 注入和作用域兼容。
@@ -33,16 +33,16 @@ AstrBot Core 负责：
 
 ## 3. 当前路径迁移
 
-当前 LivingMemory 通过 `collect_prompt_messages` 返回 `after_user` 临时消息。目标路径改为结构化 `PromptExtension`，挂载到 `memory`。
+LivingMemory 当前通过结构化 `PromptExtension` 挂载到 `memory`。旧 `collect_prompt_messages` 路径已移除，避免同一事件重复注入。
 
-迁移期间需要保证：
+当前实现保证：
 
-- 单次事件只选择一条注入路径。
-- 旧路径仍可通过配置回退。
+- 单次事件只选择结构化注入路径。
+- `prompt_injection.enabled` 可关闭注入而不影响写入和工具查询。
 - 结构化路径不触发额外 LLM 召回。
 - 召回快照读取保持同步和快速返回。
 
-当前 collector 见 [prompt_cache_collector.py](../../../../data/plugins/astrbot_plugin_livingmemory/core/prompt_cache_collector.py)。
+当前 collector 见 LivingMemory 源仓库的 `core/prompt_cache_collector.py`，部署副本仅由部署脚本生成。
 
 ## 4. 作用域迁移
 
@@ -66,7 +66,7 @@ memory_scope_mode=session / global / legacy
 
 已有数据库不执行自动迁移。旧数据只有在显式执行后续迁移命令时才会改写。
 
-当前作用域实现见 [memory_scope.py](../../../../data/plugins/astrbot_plugin_livingmemory/core/memory_scope.py)。
+当前作用域实现见 LivingMemory 源仓库的 `core/memory_scope.py`。AstrBot 的 `data/plugins` 目录仅保存部署副本。
 
 ## 5. 配置建议
 
@@ -127,7 +127,7 @@ access_control.identity_aliases
 - LivingMemory 未初始化时，collector 返回空扩展。
 - 召回异常时，记录插件诊断并继续 Prompt 构建。
 - 作用域解析异常时，使用旧身份回退并记录警告。
-- 结构化注入出现问题时，切换回旧临时消息路径。
+- 结构化注入出现问题时，关闭 `prompt_injection.enabled` 或回滚 LivingMemory 插件版本。
 - 任何回滚都不删除已写入的 canonical scope 记录。
 
 ## 9. 验收

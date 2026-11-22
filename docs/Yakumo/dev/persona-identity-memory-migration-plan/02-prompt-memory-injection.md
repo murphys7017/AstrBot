@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- **状态**：设计/计划
+- **状态**：已实现，待真实运行验收
 - **所属总计划**：[人格中心化、统一身份与长期记忆架构调整总计划](00-overall-plan.md)
 - **实施阶段**：Phase 2
 - **风险等级**：中高。影响 Prompt 公共扩展点和多个 Persona Context View。
@@ -23,7 +23,7 @@
 - `PromptContextView` 视图投影。
 - Persona 和 Core 的目标隔离。
 
-当前 LivingMemory 使用临时消息路径，因此还需要完成结构化接入。
+LivingMemory 已完成结构化接入，当前 collector 只读取已完成的 recall snapshot 并发布 `memory` 扩展。
 
 ## 3. 目标接口
 
@@ -36,10 +36,10 @@ value_kind = mapping 或 sequence
 meta.targets = ["persona"]
 meta.context_views = 选中的 Persona Context View
 meta.source = livingmemory
-meta.scope = 当前记忆作用域
+meta.snapshot = completed
 ```
 
-具体 Python 类型以现有 `PromptExtension` 为准，计划不新增第二套扩展类型。
+扩展值只包含格式化后的 `text` 和条目数量，不把记忆作用域、数据库 ID 或内部元数据暴露给 Prompt。具体 Python 类型以现有 `PromptExtension` 为准，计划不新增第二套扩展类型。
 
 ## 4. 注入位置
 
@@ -93,19 +93,16 @@ Core 需要完成两项兼容改造：
 
 ## 7. 数据形态
 
-推荐将召回内容规范化为有限条目：
+LivingMemory 在 collector 边界只保留语义字段，格式化器负责按条目边界应用字符预算：
 
 ```text
-count
 items[]
-  id
-  summary
-  category
-  importance
-  confidence（按目标投影决定是否暴露）
-  source
-  event_time（可选）
+  content
+  score
+  timestamp（可选）
 ```
+
+扩展值只发布格式化后的 `text` 和条目数量，不携带数据库 ID、作用域或内部元数据。
 
 Prompt 只读取已完成的 recall snapshot。收集阶段不能触发新的长期记忆写入，也不应直接修改 LivingMemory 数据库。
 
@@ -120,10 +117,9 @@ Prompt 只读取已完成的 recall snapshot。收集阶段不能触发新的长
 ## 9. 迁移步骤
 
 1. Core 支持 `extension.memory` 的 View 可见性。
-2. LivingMemory 同时保留旧临时路径和新结构化路径，增加一次运行时去重标记。
+2. LivingMemory 使用结构化路径读取已完成的 recall snapshot。
 3. 在测试和实机环境确认结构化路径的顺序、预算和失败行为。
-4. 默认切换到结构化路径。
-5. 删除或停用旧 `after_user` 临时消息路径。
+4. 停用旧 `after_user` 临时消息路径，避免同一事件重复注入。
 
 ## 10. 验收
 
