@@ -373,9 +373,8 @@ History、独立 Core Execution Ledger、能力快照和任务说明保持为不
 Personal 最终只与稳定的 Core Head 通信；Native、Claude Code、OpenCode 等都只能作为 Core
 内部的 Executor Body。它们必须消费同一份执行事实、通过统一 coordinator 回流 executor-neutral
 结果，并由共享输出桥转换为现有可见输出。`ProviderRequest`、MessageChain、平台 Event、Persona
-和 Memory 均不能成为外部 Body 的公共依赖。详细阶段和验收条件见
-[Personal Runtime 前置主链清理计划](./dev/execution-backend-preparation-plan.md)、
-[Core 内部执行器替换实施方案](./dev/internal-executor-replacement-plan.md)。
+和 Memory 均不能成为外部 Body 的公共依赖。当前实现和验收边界见
+[current-state.md](./current-state.md) 及 [架构同步基线](./dev/architecture-sync-2026-10-31.md)。
 
 `CoreExecutionSpec` 当前只是 Core Head 到 Native Executor 的进程内事实边界，不是 Personal/Core
 通信协议，也不是最终 wire contract。`CoreExecutionSession` / `CoreExecutionLifecycle` 目前仍是

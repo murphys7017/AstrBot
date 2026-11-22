@@ -1,12 +1,8 @@
 # Persona Runtime 最终目标
 
 本文只定义 Yakumo 持续人格运行时的长期边界，不记录已经完成的迁移步骤。当前实现以
-`current-state.md` 和源码为准，实施顺序以 `execution-backend-preparation-plan.md` 为准；
-Core 内部可替换执行器的架构和逐批编码约束分别见
-`internal-executor-replacement-plan.md` 与
-`internal-executor-replacement-implementation-guide.md`。
-自主人格观察、策略和 Heartbeat 的详细实施计划见
-`autonomous-persona-runtime-initial-plan.md`。
+`current-state.md` 和源码为准。Core 执行边界、Prompt、Memory 和主动运行时的当前行为
+分别以对应模块文档为准，本文只保留长期目标，不记录实施批次或历史迁移步骤。
 
 ## 目标
 

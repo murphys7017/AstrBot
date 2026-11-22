@@ -27,6 +27,14 @@
 - `MemorySnapshot` 已通过 `snapshot_bridge.py` 发布到 Core `SnapshotHub`，使用配置档、UMO
   和 conversation 组成的稳定哈希作用域以及短 TTL；读取仍以 MemoryService 和事件级缓存
   为主，Hub 只提供跨插件只读投影。
+- Core 已提供统一身份绑定解析。配置位于当前 AstrBot 配置档的
+  `memory.identity.bindings`，每条绑定使用 `platform_id`、`sender_user_id` 和
+  `canonical_user_id`。绑定只改变跨平台用户作用域的解析，不重写原始适配器字段，也不修改
+  已有记忆数据。
+- LivingMemory 作为外部长期记忆插件通过 `PromptExtension` 的 `memory` 挂载点向 Persona
+  发布已完成的召回快照。它读取自己的缓存和数据库，Prompt 构建阶段不重新检索、不写入记忆，
+  旧的临时消息注入路径已经退出。LivingMemory 在 `memory_scope_mode=user` 下优先使用 Core
+  解析出的 canonical user scope。
 - Interaction 私有 Memory Store 和 `memory.interaction` slot 已删除。
 
 ## 当前限制
@@ -41,6 +49,10 @@
 
 1. 完善 Memory read/write latency、降级组件和后台任务诊断。
 2. 固化 finalized material 到 MemoryUpdateRequest 的版本化契约，并进行真实运行验收。
+
+## 配置入口
+
+身份绑定位于 AstrBot Dashboard 的「知识」→「知识配置」→「记忆」→「高级配置」→「更多配置」→「身份映射」。该字段默认折叠，使用配置页搜索“身份映射”也可以直接定位。运行时读取的是当前配置档，修改后需要让 AstrBot 重新加载配置。
 
 具体模块关系见 `architecture.md`；配置事实以 `astrbot/core/memory/config.py`、
 `astrbot/core/memory_config_defaults.py` 和统一配置 schema 为准。

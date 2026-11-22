@@ -8,12 +8,10 @@ Memory Service 是抽象记忆的唯一 owner。官方 Conversation 保存精确
 
 - `architecture.md`：当前读写链路、模块、配置、存储和所有权边界。
 - `progress.md`：已经实现的能力、当前限制和下一步。
-- `rectification-plan.md`：Memory 整改目标、边界和分阶段实施计划。
-- `persona-state-evolution-plan.md`：PersonaState 自动演进的安全边界、事务、回滚和实施批次。
 
 ## 维护规则
 
-- 文档以当前源码为准，不保存已完成的 MVP 步骤或早期建议接口。
+- 文档以当前源码为准，不保存已完成的 MVP 步骤、早期建议接口或已结束的迁移计划。
 - 配置只描述 AstrBot 统一 `memory` 配置，不再记录独立配置文件方案。
 - Prompt 只读取 snapshot；Postprocess/Memory Service 负责写入。
 - 新能力进入现有 Memory Service，不建立 Interaction 或插件私有的并行事实源。

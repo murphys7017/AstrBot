@@ -92,8 +92,8 @@ ProcessStage 对共享 event extra 的写入和清理路径。
 
 Native factory 将在消费规范 ContextPack、CoreExecutionSpec 和能力快照后自行构造
 `ProviderRequest`。外部 Body 应消费自己的目标输入；不能把 SDK/CLI 请求伪装为
-`ProviderRequest` 来宣称旧 LLM Hook 或官方 Provider 扩展仍然完全适用。详细边界见
-[Core 内部执行器替换实施方案](internal-executor-replacement-plan.md)。
+`ProviderRequest` 来宣称旧 LLM Hook 或官方 Provider 扩展仍然完全适用。当前边界见
+[current-state.md](../current-state.md)。
 
 ## 6. 下一步验收
 

@@ -1,6 +1,6 @@
 # 2026-10-31 架构同步基线
 
-本文记录当前源码已经落地的结构边界。历史计划和实施记录继续保留原文；阅读当前行为时，以本文、[Yakumo 架构入口](../README.md)、[Interaction 模块](../modules/interaction.md)和[Prompt 模块](../modules/prompt.md)为准。
+本文记录当前源码已经落地的结构边界。阅读当前行为时，以本文、[Yakumo 架构入口](../README.md)、[Interaction 模块](../modules/interaction.md)和[Prompt 模块](../modules/prompt.md)为准。已完成的计划和实施记录不作为运行时依据。
 
 当前同步基线对应以下本地提交：
 

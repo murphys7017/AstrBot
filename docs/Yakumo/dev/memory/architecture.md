@@ -89,6 +89,21 @@ Personal Response Plan、Planner、Persona 和 Core 不直接查询 Memory Servi
 target 投影。
 `MemoryCollector` 是 optional Collector；读取失败会记录诊断，但不会创建第二套 fallback 记忆。
 
+## 外部长期记忆插件边界
+
+LivingMemory 保留长期记忆数据库、召回引擎、反思、索引和管理界面的所有权。AstrBot Core
+只提供统一 Prompt 扩展接口和 canonical identity 解析，不复制 LivingMemory 的记忆数据。
+
+LivingMemory 当前通过一个动态 `PromptExtensionCollector` 发布 `mount="memory"` 的结构化
+扩展。Collector 只读取 LivingMemory 已完成的 recall snapshot，并按 `prompt_injection` 的
+配置限制目标、Context View、条目数和字符数。默认目标是 Persona，默认 View 是
+`turn_plan`、`olv_stream`、`final_result` 和 `proactive`。Prompt 构建阶段不会重新触发长期
+召回、写入数据库或把注入内容写入 AstrBot 对话历史。
+
+Core 内置 Memory 的长期注入仍由 `memory.injection.long_term.enabled` 独立控制。切换到
+LivingMemory 后，应在真实运行验收确认结构化扩展工作正常，再关闭 Core 内置长期注入，避免
+同一记忆出现两份模型输入。这个切换不删除 Core Memory 数据，也不迁移 LivingMemory 数据。
+
 ## 主要模块
 
 - `config.py`：把 AstrBot 统一配置中的 `memory` mapping 解析为类型化配置。
@@ -122,7 +137,10 @@ Memory 配置已进入 AstrBot 统一配置，不存在 `data/memory/config.yaml
 `memory.storage`、`memory.vector_index.root_dir` 和 `memory.analysis.prompts_root` 只有在
 显式指定非空的自定义路径时才覆盖上述默认值。此前共享的 `data/memory/*` 默认路径已退役，
 不再作为运行时兼容路径或迁移来源。跨平台身份映射仅由当前 AstrBot 配置档中的
-`memory.identity.bindings` 管理；Dashboard 显示的列表即运行时使用的映射。
+`memory.identity.bindings` 管理；Dashboard 显示的列表即运行时使用的映射。LivingMemory
+在用户作用域下读取 Core 解析出的 canonical user，并形成
+`livingmemory:user:canonical:{canonical_user_id}` 作用域。未绑定身份继续使用插件自己的
+平台用户回退规则，原始平台字段保持不变。
 
 ## 边界约束
 

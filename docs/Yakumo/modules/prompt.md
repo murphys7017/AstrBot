@@ -248,4 +248,4 @@ Personal Policy 使用 JSON 文本与 prompt-only 输出契约，不注册决策
 - Provider 的协议 tool adapter 已迁入 `provider.output_contract_tools`，不再反向导入
   Prompt。该 adapter 仍使用 Native `ToolSet`；完整中性 capability contract 尚未形成。
 
-后续处理顺序见 `docs/Yakumo/prompt-development-plan.md`。
+当前剩余边界以本文件和源码为准，暂不保留单独的 Prompt 实施计划。

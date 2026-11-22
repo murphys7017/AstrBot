@@ -10,7 +10,9 @@ persona_identity_memory_migration_20261122:
     resolves canonical user scopes, reads the completed recall snapshot, and
     publishes one structured memory extension with configurable target, views,
     item and character budgets. The old transient prompt-message collector path
-    is retired. The LivingMemory source was deployed through its deployment
+    is retired. Stable AstrBot and LivingMemory architecture/configuration docs
+    now describe the current boundary and the completed migration plan folder
+    was retired. The LivingMemory source was deployed through its deployment
     script to the generated AstrBot plugin directory.
   validation: >-
     Core compileall and scoped Ruff passed. Core Context View tests passed.

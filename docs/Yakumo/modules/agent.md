@@ -54,9 +54,8 @@ failed 和 cancelled 等事实统一排序并投影到 Ledger。D5-A/D5-B 已额
 执行器注册表已有 Native 与 Codex CLI factory，`ExecutorRun` 定义了中立的运行契约；
 外部执行器由 Core coordinator 装配、驱动，并通过结果桥将最终文本送入 Personal 输出边界。
 但 Native 可见输出仍有专用路径，外部执行器的增量输出和资产只保留为非可见证据；
-`ProviderRequest` 仍是 Native 请求，不能作为中立执行器输入。历史实施计划应按
-[Core 内部执行器替换实施方案](../dev/internal-executor-replacement-plan.md) 的阶段背景阅读，
-不能再把其中“尚无工厂/结果桥”的步骤当成当前状态。
+`ProviderRequest` 仍是 Native 请求，不能作为中立执行器输入。当前边界见
+[Core 执行边界](../current-state.md)，不能把执行器专属实现当成公共协议。
 
 ## Agent 上下文
 

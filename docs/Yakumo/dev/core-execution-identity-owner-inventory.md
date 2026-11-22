@@ -2,7 +2,7 @@
 
 更新时间：2026-09-21
 
-本文是 execution-backend-preparation-plan.md 的 D1 盘点产物。它只记录当前源码事实、
+本文只记录当前源码事实、
 唯一主写者和兼容投影，不引入新的 Executor Body 契约，也不改变运行时行为。
 
 ## 1. 关系总览
@@ -271,5 +271,5 @@ PreparedCoreExecution
 - 当前 Scripted Body 只验证 Head 控制协议。只有它通过同一 factory/coordinator/输出桥运行后，
   才能把“替换性”写为生产装配链事实。
 
-本节是后续实现约束，不改变本文此前记录的当前源码事实。详细实施顺序见
-[Core 内部执行器替换实施方案](internal-executor-replacement-plan.md)。
+本节是当前实现约束，不改变本文此前记录的当前源码事实。当前执行边界见
+[current-state.md](../current-state.md)。

@@ -83,7 +83,7 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 
 - `dev/architecture-sync-2026-10-31.md`
 
-该文档记录 Runtime-owned PersonaContext、Persona Expression 协议分层、JSON 边界和流式协议的当前源码位置。历史计划仍用于追溯，不覆盖该同步基线。
+该文档记录 Runtime-owned PersonaContext、Persona Expression 协议分层、JSON 边界、流式协议、统一身份和外部长期记忆接入的当前源码位置。历史计划不作为运行时契约。
 
 当前事实：
 
@@ -97,28 +97,18 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 - `dev/execution-backend-flow.mmd`
 - `dev/runtime-dependency-structure.mmd`
 
-长期目标和下一步：
+当前目标边界：
 
 - `target-state.md`
 - `dev/persona-system-final-goal.md`
-- `dev/autonomous-persona-runtime-initial-plan.md`
-- `dev/runtime-function-unification-plan.md`
-- `dev/parallel-plugin-runtime-plan.md`
-- `dev/execution-backend-preparation-plan.md`
-- `dev/internal-executor-replacement-plan.md`
-- `dev/internal-executor-replacement-implementation-guide.md`
-- `prompt-development-plan.md`
-- `dev/cost-context-runtime-plan.md`
-- `dev/desktop-application-and-body-integration-plan.md`
-- `dev/architecture-cleanup-roadmap-2026-10.md`
-- `dev/persona-identity-memory-migration-plan/README.md`
+- `modules/interaction.md`
+- `modules/prompt.md`
 
 Memory 子系统：
 
 - `dev/memory/index.md`
 - `dev/memory/progress.md`
 - `dev/memory/architecture.md`
-- `dev/persona-identity-memory-migration-plan/03-livingmemory-migration.md`
 
 ## 阅读顺序
 
@@ -132,15 +122,11 @@ Memory 子系统：
 8. `dev/execution-backend-flow.mmd`
 9. `dev/runtime-dependency-structure.mmd`
 10. `target-state.md`
-11. `dev/autonomous-persona-runtime-initial-plan.md`
-12. `dev/runtime-function-unification-plan.md`
-13. `dev/execution-backend-preparation-plan.md`
-14. `dev/internal-executor-replacement-plan.md`
-15. `dev/internal-executor-replacement-implementation-guide.md`
+11. `dev/persona-system-final-goal.md`
 
 ## 维护规则
 
 - 现状文档只描述已经存在的代码。
-- 目标文档明确标记尚未实现的部分。
-- 已完成的迁移步骤直接从计划中删除或改写为当前边界。
+- 目标边界文档明确标记尚未实现的部分。
+- 已完成的迁移步骤直接从计划中删除或改写为当前边界，稳定文档只保留当前源码事实。
 - 不为已经删除的兼容 API、影子状态或旧 Prompt 管线保留说明。

@@ -56,9 +56,7 @@ executor factory / `ExecutorRun` / 结果桥”的表述均已过期。
 主动任务均不再让 Native adapter 通过 Event 反查 `CoreExecutionHead`。这解决的是控制端口的
 归属问题，不等于已经有可配置的 executor 选择、通用运行协调、通用结果桥或第二个生产 Body。
 
-后续 D5 采用 R1-R8 的小批次推进，架构口径见
-[Core 内部执行器替换实施方案](dev/internal-executor-replacement-plan.md)，编码步骤见
-[内部可替换执行器：5.6 操作级实施手册](dev/internal-executor-replacement-implementation-guide.md)。
+当前执行边界以本文件、`architecture-sync-2026-10-31.md`、`target-state.md` 和相关模块文档为准。
 关键约束如下：
 
 - `ProviderRequest` 仍是 Native Provider 的目标请求，不能成为任意执行器的公共输入；
@@ -264,7 +262,7 @@ Head 仍是同步入口包装，不包含统一内部队列和可替换 Executor
 - runner 层 LLM 压缩已改为按对话轮次与 token 比例保留最近上下文，压缩请求会按压缩模型的 modalities 清洗多模态/工具内容；这是最终 request/messages 层优化，不参与 `astrbot/core/memory/*` 的记忆生成或召回。
 - prompt collector 默认保持 required/fail-fast；只有显式 optional collector 才会局部失败并记录 `collector_failures`。当前 `MemoryCollector` 为 optional，long-term embedding/检索失败只清空长期召回，仍保留本地 Topic、ShortTerm、Experience 与 PersonaState。
 - Persona target 会过滤 Core 执行能力及 `extension.capability`，但仍保留目标明确的会话扩展和表达所需事实；Core target 继续接收稳定 capability contract。
-- 当前 Prompt 剩余问题集中在默认 Layout 实现的物理迁移、Provider renderer 与输出契约能力、Prompt tool schema 与实际 `func_tool` 双轨、DeepSeek 首轮 Marker、ContextPack 可变表面和 Context Catalog 契约。Interaction 的跨阶段 enrichment 已统一经 `PromptContextBuilder(base=...)` 生成版本化派生快照。处理顺序见 `prompt-development-plan.md`。
+- 当前 Prompt 剩余问题集中在默认 Layout 实现的物理迁移、Provider renderer 与输出契约能力、Prompt tool schema 与实际 `func_tool` 双轨、DeepSeek 首轮 Marker、ContextPack 可变表面和 Context Catalog 契约。Interaction 的跨阶段 enrichment 已统一经 `PromptContextBuilder(base=...)` 生成版本化派生快照。当前边界见 `modules/prompt.md`。
 
 ### 2.5 Interaction Middleware
 
