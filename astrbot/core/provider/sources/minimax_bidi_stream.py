@@ -144,12 +144,11 @@ async def stream_minimax_pcm(
                         yield pcm
                 event = data.get("event")
                 if event == "task_flushed":
-                    # Release the input side as soon as MiniMax confirms the
-                    # boundary. The caller still receives the explicit end
-                    # frame, while the next segment can be synthesized while
-                    # the previous segment is being sent or played.
-                    boundary_ack.set()
+                    # The consumer must receive and process this boundary
+                    # before the sender can submit the next segment. The
+                    # segment index and audio ownership live in that consumer.
                     yield None
+                    boundary_ack.set()
                 elif event == "task_finished":
                     if not input_finished:
                         raise RuntimeError("minimax_bidi_finished_before_input")
