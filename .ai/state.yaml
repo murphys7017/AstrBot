@@ -1,3 +1,23 @@
+unified_identity_config_workspace_20261122:
+  date: '2026-11-22'
+  class: feature
+  risk: high
+  status: implemented_pending_restart_and_live_acceptance
+  scope: >-
+    Move unified identity binding metadata from the memory extension settings into
+    a dedicated Intelligence workspace group. Preserve the memory.identity.*
+    runtime selectors and existing configuration data. Improve labels, hints and
+    locale resources for manual account binding.
+  validation: >-
+    Focused identity metadata test passed. Scoped Ruff passed. Dashboard typecheck
+    and production build passed. Candidate registry and stored-history smoke checks
+    passed. Existing unrelated config metadata and dashboard registry tests remain
+    red on pre-existing planner/default-path mismatches.
+  limitations: >-
+    Candidate discovery is bounded to runtime observations and platform history.
+    Adapters that do not expose sender history will appear after a message is
+    observed in the current process. AstrBot has not been restarted for live
+    dashboard acceptance.
 persona_identity_memory_migration_20261122:
   date: '2026-11-22'
   class: feature

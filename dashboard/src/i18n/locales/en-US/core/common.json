@@ -98,7 +98,15 @@
     "deleteEntry": "Delete entry",
     "createEntry": "Add entry",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "identityCandidates": "Choose from observed accounts",
+    "identityCandidateHint": "Candidates come from recent messages and stored platform history. You still need to enter and save the unified identity ID.",
+    "identityCandidateSearch": "Search platform, user ID, name or conversation",
+    "identityCandidatePlatform": "Platform",
+    "identityCandidateConversation": "Conversation",
+    "identityCandidateRefresh": "Refresh candidates",
+    "identityCandidateUse": "Use this account",
+    "identityCandidateNoData": "No observed accounts yet. Receive a message from the platform or add an account manually."
   },
   "list": {
     "addItemPlaceholder": "Add new item, press Enter to confirm",

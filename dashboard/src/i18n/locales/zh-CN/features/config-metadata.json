@@ -1761,6 +1761,50 @@
       }
     }
   },
+  "identity_group": {
+    "name": "统一身份",
+    "identity": {
+      "description": "统一身份",
+      "hint": "把同一个人的多个平台账号绑定到一个统一身份。聊天平台仍保留各自的原始账号信息，记忆和其他扩展通过统一身份关联。",
+      "memory": {
+        "identity": {
+          "enabled": {
+            "description": "启用统一身份绑定",
+            "hint": "启用后，已绑定的平台账号可以共享同一个统一身份。"
+          },
+          "bindings": {
+            "description": "账号绑定",
+            "hint": "把同一个人的多个平台账号绑定到同一个统一身份。配置页支持从已知账号中筛选并填充平台用户 ID。",
+            "templates": {
+              "binding": {
+                "name": "平台账号",
+                "description": "把一个平台账号绑定到统一身份。",
+                "hint": "填写平台实际提供的用户 ID，不要填写显示昵称。",
+                "items": {
+                  "platform_id": {
+                    "description": "平台 ID",
+                    "hint": "例如 qq、webchat、discord 或 AG99live 的实例 ID。"
+                  },
+                  "sender_user_id": {
+                    "description": "平台用户 ID",
+                    "hint": "必须与适配器事件中的 sender_user_id 完全一致。AG99live 使用 general.client_uid。"
+                  },
+                  "canonical_user_id": {
+                    "description": "统一身份 ID",
+                    "hint": "同一个人的不同平台账号填写相同值，例如 YakumoAki。"
+                  },
+                  "nickname_hint": {
+                    "description": "显示名称（可选）",
+                    "hint": "仅用于管理时识别账号，不参与身份匹配。"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "memory_group": {
     "name": "记忆",
     "general": {

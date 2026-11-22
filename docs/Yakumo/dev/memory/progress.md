@@ -52,7 +52,10 @@
 
 ## 配置入口
 
-身份绑定位于 AstrBot Dashboard 的「知识」→「知识配置」→「记忆」→「高级配置」→「更多配置」→「身份映射」。该字段默认折叠，使用配置页搜索“身份映射”也可以直接定位。运行时读取的是当前配置档，修改后需要让 AstrBot 重新加载配置。
+身份绑定位于 AstrBot Dashboard 的「智能」→「智能配置」→「统一身份」。统一身份配置使用
+`memory.identity.enabled` 和 `memory.identity.bindings`，运行时读取当前配置档，修改后需要让 AstrBot 重新加载配置。
+绑定列表支持搜索已有账号。使用「从已知账号选择」可以按平台、对话、用户 ID 和昵称筛选近期观察到的账号，选择后仍需填写统一身份 ID 并保存。
+候选数据来自当前运行期间收到的消息和已保存的平台消息历史，未观察到的账号仍可手动添加。
 
 具体模块关系见 `architecture.md`；配置事实以 `astrbot/core/memory/config.py`、
 `astrbot/core/memory_config_defaults.py` 和统一配置 schema 为准。

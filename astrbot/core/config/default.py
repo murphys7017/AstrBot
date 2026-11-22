@@ -3297,6 +3297,63 @@ v4.7.0 之后，name, description, hint 等字段已经实现 i18n 国际化。�
 如果在此文件中添加了新的配置字段，请务必同步更新上述两个国际化资源文件。
 """
 CONFIG_METADATA_3 = {
+    "identity_group": {
+        "name": "统一身份",
+        "metadata": {
+            "identity": {
+                "description": "统一身份",
+                "type": "object",
+                "hint": "把同一个人的多个平台账号绑定到一个统一身份。聊天平台仍保留各自的原始账号信息，记忆和其他扩展通过统一身份关联。",
+                "items": {
+                    "memory.identity.enabled": {
+                        "description": "启用统一身份绑定",
+                        "type": "bool",
+                        "hint": "启用后，已绑定的平台账号可以共享同一个统一身份。",
+                    },
+                    "memory.identity.bindings": {
+                        "description": "账号绑定",
+                        "type": "template_list",
+                        "_special": "identity_binding_list",
+                        "default": [],
+                        "templates": {
+                            "binding": {
+                                "name": "平台账号",
+                                "description": "把一个平台账号绑定到统一身份。",
+                                "hint": "填写平台实际提供的用户 ID，不要填写显示昵称。",
+                                "items": {
+                                    "platform_id": {
+                                        "description": "平台 ID",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "例如 qq、webchat、discord 或 AG99live 的实例 ID。",
+                                    },
+                                    "sender_user_id": {
+                                        "description": "平台用户 ID",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "必须与适配器事件中的 sender_user_id 完全一致。AG99live 使用 general.client_uid。",
+                                    },
+                                    "canonical_user_id": {
+                                        "description": "统一身份 ID",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "同一个人的不同平台账号填写相同值，例如 YakumoAki。",
+                                    },
+                                    "nickname_hint": {
+                                        "description": "显示名称（可选）",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "仅用于管理时识别账号，不参与身份匹配。",
+                                    },
+                                },
+                            }
+                        },
+                        "hint": "把同一个人的多个平台账号绑定到同一个统一身份。配置页支持从已知账号中筛选并填充平台用户 ID。",
+                    },
+                },
+            },
+        },
+    },
     "ai_group": {
         "name": "AI 配置",
         "metadata": {
@@ -4957,46 +5014,6 @@ CONFIG_METADATA_3 = {
                     "memory.consolidation.enabled": {
                         "description": "启用记忆整理",
                         "type": "bool",
-                        "collapsed": True,
-                    },
-                    "memory.identity.enabled": {
-                        "description": "启用身份映射",
-                        "type": "bool",
-                        "collapsed": True,
-                    },
-                    "memory.identity.bindings": {
-                        "description": "身份映射",
-                        "type": "template_list",
-                        "default": [],
-                        "templates": {
-                            "binding": {
-                                "name": "绑定账号",
-                                "description": "把某个平台用户绑定到同一个记忆身份。",
-                                "items": {
-                                    "platform_id": {
-                                        "description": "平台 ID",
-                                        "type": "string",
-                                        "default": "",
-                                    },
-                                    "sender_user_id": {
-                                        "description": "用户 ID",
-                                        "type": "string",
-                                        "default": "",
-                                    },
-                                    "canonical_user_id": {
-                                        "description": "记忆身份 ID",
-                                        "type": "string",
-                                        "default": "",
-                                    },
-                                    "nickname_hint": {
-                                        "description": "昵称备注",
-                                        "type": "string",
-                                        "default": "",
-                                    },
-                                },
-                            }
-                        },
-                        "hint": "在这里维护跨平台账号绑定。平台 ID 通常是 qq、webchat、discord 等；用户 ID 是平台侧用户 ID；记忆身份 ID 相同的账号会共享同一份记忆。",
                         "collapsed": True,
                     },
                     "memory.vector_index.enabled": {

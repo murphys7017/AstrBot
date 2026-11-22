@@ -50,6 +50,7 @@ const NORMAL_INTERACTION_SECTIONS = new Set([
 ]);
 
 const CONFIG_GROUP_REGISTRY: Record<string, ConfigGroupRegistryEntry> = {
+  identity_group: { workspace: 'intelligence', scope: 'profile', order: 5 },
   ai_group: { workspace: 'intelligence', scope: 'profile', order: 10 },
   provider_group: { workspace: 'intelligence', scope: 'profile', order: 20 },
   platform_group: { workspace: 'channels', scope: 'platform', order: 10 },
@@ -63,6 +64,7 @@ const CONFIG_GROUP_REGISTRY: Record<string, ConfigGroupRegistryEntry> = {
 };
 
 const CONFIG_SECTION_REGISTRY: Record<string, ConfigSectionRegistryEntry> = {
+  'identity_group.identity': { group: 'identity_group', section: 'identity', workspace: 'intelligence', scope: 'profile', order: 5 },
   'ai_group.agent_runner': { group: 'ai_group', section: 'agent_runner', workspace: 'intelligence', scope: 'profile', order: 10 },
   'ai_group.ai': { group: 'ai_group', section: 'ai', workspace: 'intelligence', scope: 'profile', order: 20 },
   'ai_group.persona': { group: 'ai_group', section: 'persona', workspace: 'persona', scope: 'persona', order: 10 },

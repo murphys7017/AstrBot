@@ -154,6 +154,7 @@ def create_dashboard_app(server):
             {},
         ),
         ("platform_route", "platform", "PlatformService", "platform", (core,), {}),
+        ("identity_route", "identity", "IdentityService", "identity", (core,), {}),
         ("backup_route", "backup", "BackupService", "backups", (db, core), {}),
         (
             "live_chat_route",

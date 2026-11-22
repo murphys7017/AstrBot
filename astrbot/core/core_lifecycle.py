@@ -45,6 +45,7 @@ from astrbot.core.memory import (
     reset_memory_postprocessor,
     shutdown_memory_service,
 )
+from astrbot.core.memory.identity_candidates import IdentityCandidateRegistry
 from astrbot.core.output_lifecycle import PreOutputProcessor, TurnDeliveryCoordinator
 from astrbot.core.persona_mgr import PersonaManager
 from astrbot.core.pipeline.scheduler import PipelineContext, PipelineScheduler
@@ -86,6 +87,7 @@ class AstrBotCoreLifecycle:
         self.temp_dir_cleaner: TempDirCleaner | None = None
         self.memory_service = None
         self.memory_postprocessor = None
+        self.identity_candidate_registry = IdentityCandidateRegistry()
         self.interaction_middleware: InteractionMiddleware | None = None
         self.plugin_execution_runtime = PluginExecutionRuntime()
         self.personal_runtime_manager = PersonalRuntimeManager(
@@ -391,6 +393,7 @@ class AstrBotCoreLifecycle:
             self.subagent_orchestrator,
             self.core_execution_ledger,
         )
+        self.star_context.identity_candidate_registry = self.identity_candidate_registry
         self.star_context.core_executor_selector = self.core_executor_selector
         self.star_context.external_executor_sessions = self.external_executor_sessions
         self.star_context.interaction_output_controller = (
@@ -471,6 +474,7 @@ class AstrBotCoreLifecycle:
             self.event_queue,
             self.pipeline_scheduler_mapping,
             self.astrbot_config_mgr,
+            identity_candidate_registry=self.identity_candidate_registry,
         )
 
         # 记录启动时间

@@ -300,6 +300,7 @@ function getSpecialSubtype(value) {
               v-if="itemMeta?.type === 'template_list'"
               v-model="createSelectorModel(itemKey).value"
               :templates="itemMeta?.templates || {}"
+              :identity-mode="itemMeta?._special === 'identity_binding_list'"
               class="config-field"
             />
             <ConfigItemRenderer
@@ -389,6 +390,7 @@ function getSpecialSubtype(value) {
                     v-if="itemMeta?.type === 'template_list'"
                     v-model="createSelectorModel(itemKey).value"
                     :templates="itemMeta?.templates || {}"
+                    :identity-mode="itemMeta?._special === 'identity_binding_list'"
                     class="config-field"
                   />
                   <ConfigItemRenderer

@@ -98,7 +98,15 @@
     "deleteEntry": "删除条目",
     "createEntry": "添加条目",
     "save": "保存",
-    "cancel": "取消"
+    "cancel": "取消",
+    "identityCandidates": "从已知账号选择",
+    "identityCandidateHint": "候选来自近期收到的消息和已保存的平台历史。选择后仍需填写统一身份 ID 并保存。",
+    "identityCandidateSearch": "搜索平台、用户 ID、昵称或对话",
+    "identityCandidatePlatform": "平台",
+    "identityCandidateConversation": "对话",
+    "identityCandidateRefresh": "刷新候选",
+    "identityCandidateUse": "使用此账号",
+    "identityCandidateNoData": "暂无已观察账号。请先让平台收到一条消息，或手动添加账号。"
   },
   "list": {
     "addItemPlaceholder": "添加新项，按回车确认添加",

@@ -36,6 +36,7 @@ class EventBus:
         astrbot_config_mgr: AstrBotConfigManager,
         *,
         max_concurrent_pipelines: int = MAX_CONCURRENT_PIPELINES,
+        identity_candidate_registry=None,
     ) -> None:
         if max_concurrent_pipelines < 1:
             raise ValueError("max_concurrent_pipelines must be positive")
@@ -43,6 +44,7 @@ class EventBus:
         # abconf uuid -> scheduler
         self.pipeline_scheduler_mapping = pipeline_scheduler_mapping
         self.astrbot_config_mgr = astrbot_config_mgr
+        self.identity_candidate_registry = identity_candidate_registry
         self._pending_tasks: set[asyncio.Task] = set()
         self._pipeline_slots = asyncio.Semaphore(max_concurrent_pipelines)
         self._accepting_events = True
@@ -56,6 +58,8 @@ class EventBus:
                 event: AstrMessageEvent = await self.event_queue.get()
                 if not self._accepting_events:
                     return
+                if self.identity_candidate_registry is not None:
+                    self.identity_candidate_registry.observe(event)
                 trace = getattr(event, "trace", None)
                 record_trace = getattr(trace, "record", None)
                 if callable(record_trace):

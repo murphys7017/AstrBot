@@ -98,7 +98,15 @@
         "deleteEntry": "Удалить запись",
         "createEntry": "Добавить запись",
         "save": "Сохранить",
-        "cancel": "Отмена"
+        "cancel": "Отмена",
+        "identityCandidates": "Выбрать из известных аккаунтов",
+        "identityCandidateHint": "Кандидаты берутся из недавних сообщений и сохраненной истории платформ. Идентификатор общей личности нужно указать и сохранить отдельно.",
+        "identityCandidateSearch": "Поиск по платформе, ID пользователя, имени или диалогу",
+        "identityCandidatePlatform": "Платформа",
+        "identityCandidateConversation": "Диалог",
+        "identityCandidateRefresh": "Обновить кандидатов",
+        "identityCandidateUse": "Использовать аккаунт",
+        "identityCandidateNoData": "Известных аккаунтов пока нет. Получите сообщение от платформы или добавьте аккаунт вручную."
     },
     "list": {
         "addItemPlaceholder": "Добавьте новый элемент и нажмите Enter",

@@ -344,6 +344,7 @@ function hasVisibleItemsAfter(items, currentIndex) {
               v-if="metadata[metadataKey]?.type === 'template_list' && !metadata[metadataKey]?.invisible"
               v-model="iterable[metadataKey]"
               :templates="metadata[metadataKey]?.templates || {}"
+              :identity-mode="metadata[metadataKey]?._special === 'identity_binding_list'"
               :plugin-name="pluginName"
               :plugin-i18n="pluginI18n"
               :config-path="getItemPath(metadataKey)"

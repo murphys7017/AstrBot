@@ -358,6 +358,9 @@ class Context:
         self._runtime_observation_sensor_seq = 0
         self._runtime_observation_target_warnings: set[str] = set()
         self._snapshot_hub = SnapshotHub()
+        # Set by CoreLifecycle after construction. Kept optional for embedders
+        # that construct Context directly.
+        self.identity_candidate_registry = None
 
     def get_snapshot_hub(self) -> SnapshotHub:
         """Return the process-scoped hub for current, cross-plugin snapshots.
@@ -368,6 +371,10 @@ class Context:
         memory remains owned by the memory service.
         """
         return self._snapshot_hub
+
+    def get_identity_candidate_registry(self):
+        """Return the runtime identity candidate registry when available."""
+        return self.identity_candidate_registry
 
     async def llm_generate(
         self,

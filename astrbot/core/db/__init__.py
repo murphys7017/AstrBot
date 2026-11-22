@@ -320,6 +320,17 @@ class BaseDatabase(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def get_identity_candidates(
+        self,
+        *,
+        platform_id: str | None = None,
+        conversation_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, T.Any]]:
+        """Return observed sender candidates from stored platform history."""
+        ...
+
+    @abc.abstractmethod
     async def create_webchat_thread(
         self,
         creator: str,

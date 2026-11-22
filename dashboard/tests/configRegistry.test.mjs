@@ -179,3 +179,31 @@ test('normal config places interaction model routing in intelligence workspace',
     assert.equal(entry.scope, 'profile');
   }
 });
+
+test('normal config exposes unified identity in intelligence workspace', () => {
+  const normalized = normalizeConfigMetadata({
+    identity_group: {
+      name: 'identity_group.name',
+      metadata: {
+        identity: {
+          description: 'identity_group.identity.description',
+          type: 'object',
+          items: {},
+        },
+      },
+    },
+  }, 'normal');
+
+  assert.equal(normalized.identity_group__identity.workspace, 'intelligence');
+  assert.equal(normalized.identity_group__identity.scope, 'profile');
+  assert.equal(normalized.identity_group__identity.legacyGroup, 'identity_group');
+  assert.equal(normalized.identity_group__identity.legacySection, 'identity');
+  assert.equal(normalizeConfigMetadata({
+    identity_group: {
+      name: 'identity_group.name',
+      metadata: {
+        identity: { description: 'identity_group.identity.description' },
+      },
+    },
+  }, 'extension').identity_group, undefined);
+});

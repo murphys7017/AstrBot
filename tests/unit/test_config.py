@@ -1566,6 +1566,51 @@ class TestConfigMetadataI18n:
         for item_key in exposed_keys:
             self._get_by_selector(DEFAULT_CONFIG, item_key)
 
+    def test_identity_config_metadata_is_exposed_in_intelligence(self):
+        """Unified identity keeps the runtime memory path but belongs to Intelligence."""
+        identity_group = CONFIG_METADATA_3["identity_group"]
+        assert list(identity_group["metadata"]) == ["identity"]
+        identity_items = identity_group["metadata"]["identity"]["items"]
+        assert identity_items["memory.identity.enabled"]["type"] == "bool"
+        assert identity_items["memory.identity.bindings"]["type"] == "template_list"
+        assert (
+            identity_items["memory.identity.bindings"]["_special"]
+            == "identity_binding_list"
+        )
+
+        result = ConfigMetadataI18n.convert_to_i18n_keys(CONFIG_METADATA_3)
+        identity = result["identity_group"]["metadata"]["identity"]
+        assert (
+            identity["items"]["memory.identity.enabled"]["description"]
+            == "identity_group.identity.memory.identity.enabled.description"
+        )
+        assert (
+            identity["items"]["memory.identity.bindings"]["description"]
+            == "identity_group.identity.memory.identity.bindings.description"
+        )
+        assert (
+            identity["items"]["memory.identity.bindings"]["_special"]
+            == "identity_binding_list"
+        )
+
+        for item_key in identity_items:
+            self._get_by_selector(DEFAULT_CONFIG, item_key)
+
+        locale_root = os.path.join(
+            os.path.dirname(__file__),
+            "../../dashboard/src/i18n/locales",
+        )
+        for locale in ("zh-CN", "en-US", "ru-RU"):
+            locale_path = os.path.join(
+                locale_root,
+                locale,
+                "features",
+                "config-metadata.json",
+            )
+            with open(locale_path, encoding="utf-8") as f:
+                locale_payload = json.load(f)
+            assert locale_payload["identity_group"]["identity"]["memory"]["identity"]
+
     def test_memory_metadata_i18n_keys_have_locale_entries(self):
         """Memory metadata shown in WebUI should not render raw i18n keys."""
         result = ConfigMetadataI18n.convert_to_i18n_keys(CONFIG_METADATA_3)

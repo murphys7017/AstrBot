@@ -884,6 +884,63 @@ class SQLiteDatabase(BaseDatabase):
             result = await session.execute(query)
             return result.scalar_one_or_none()
 
+    async def get_identity_candidates(
+        self,
+        *,
+        platform_id: str | None = None,
+        conversation_id: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, T.Any]]:
+        """Return recent sender identities observed in platform history."""
+        bounded_limit = max(1, min(int(limit), 500))
+        async with self.get_db() as session:
+            session: AsyncSession
+            query = select(
+                PlatformMessageHistory.platform_id,
+                PlatformMessageHistory.user_id,
+                PlatformMessageHistory.sender_id,
+                func.max(PlatformMessageHistory.sender_name).label("sender_name"),
+                func.max(PlatformMessageHistory.created_at).label("last_seen_at"),
+                func.count(PlatformMessageHistory.id).label("seen_count"),
+            ).where(
+                col(PlatformMessageHistory.sender_id).is_not(None),
+                col(PlatformMessageHistory.sender_id) != "bot",
+                col(PlatformMessageHistory.sender_id) != "",
+            )
+            if platform_id:
+                query = query.where(
+                    col(PlatformMessageHistory.platform_id) == platform_id
+                )
+            if conversation_id:
+                query = query.where(
+                    col(PlatformMessageHistory.user_id) == conversation_id
+                )
+            query = (
+                query.group_by(
+                    PlatformMessageHistory.platform_id,
+                    PlatformMessageHistory.user_id,
+                    PlatformMessageHistory.sender_id,
+                )
+                .order_by(desc("last_seen_at"))
+                .limit(bounded_limit)
+            )
+            result = await session.execute(query)
+            rows = result.all()
+
+        return [
+            {
+                "platform_id": row[0] or "",
+                "conversation_id": row[1] or "",
+                "sender_user_id": row[2] or "",
+                "sender_name": row[3] or "",
+                "last_seen_at": row[4],
+                "seen_count": int(row[5] or 0),
+                "message_type": "",
+                "conversation_name": "",
+            }
+            for row in rows
+        ]
+
     async def create_webchat_thread(
         self,
         creator: str,

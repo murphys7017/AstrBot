@@ -1350,6 +1350,50 @@
       }
     }
   },
+  "identity_group": {
+    "name": "Unified Identity",
+    "identity": {
+      "description": "Unified Identity",
+      "hint": "Bind one person’s accounts from multiple platforms to one identity. Chat platforms keep their original account data, while memory and extensions use the unified identity.",
+      "memory": {
+        "identity": {
+          "enabled": {
+            "description": "Enable unified identity bindings",
+            "hint": "Bound platform accounts can share one unified identity."
+          },
+          "bindings": {
+            "description": "Account bindings",
+            "hint": "Bind multiple platform accounts belonging to the same person to one unified identity. The settings page can filter observed accounts and fill the platform user ID.",
+            "templates": {
+              "binding": {
+                "name": "Platform account",
+                "description": "Bind one platform account to a unified identity.",
+                "hint": "Enter the platform’s actual user ID. Do not use the display nickname.",
+                "items": {
+                  "platform_id": {
+                    "description": "Platform ID",
+                    "hint": "For example qq, webchat, discord, or an AG99live instance ID."
+                  },
+                  "sender_user_id": {
+                    "description": "Platform user ID",
+                    "hint": "Must exactly match sender_user_id from the adapter event. AG99live uses general.client_uid."
+                  },
+                  "canonical_user_id": {
+                    "description": "Unified identity ID",
+                    "hint": "Use the same value for every account owned by the same person, such as YakumoAki."
+                  },
+                  "nickname_hint": {
+                    "description": "Display name (optional)",
+                    "hint": "Used only to identify the account in the settings page and does not affect matching."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "memory_group": {
     "name": "Memory",
     "general": {
@@ -1753,7 +1797,7 @@
           },
           "bindings": {
             "description": "Identity Mappings",
-            "hint": "Maintain cross-platform account bindings here. Platform ID is usually qq, webchat, discord, and similar; User ID is the platform-side user ID; accounts with the same Memory Identity ID share one memory identity.",
+            "hint": "Maintain cross-platform account bindings here. You can filter observed accounts to fill the platform user ID. Accounts with the same unified identity ID share one identity.",
             "templates": {
               "binding": {
                 "name": "Bind Account",
