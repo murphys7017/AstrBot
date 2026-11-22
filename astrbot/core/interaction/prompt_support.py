@@ -49,6 +49,16 @@ def build_interaction_prompt_build_config(
         )
     except (TypeError, ValueError):
         plugin_enrichment_timeout = 3.0
+    interaction_settings = (
+        interaction_settings if isinstance(interaction_settings, Mapping) else {}
+    )
+
+    def nonnegative_int(name: str, default: int) -> int:
+        try:
+            return max(0, int(interaction_settings.get(name, default) or default))
+        except (TypeError, ValueError):
+            return default
+
     return InteractionPromptBuildConfig(
         provider_settings=provider_settings,
         timezone=cfg.get("timezone"),
@@ -60,6 +70,26 @@ def build_interaction_prompt_build_config(
         ),
         contributor_timeout=max(0.1, contributor_timeout),
         plugin_enrichment_timeout=max(0.1, plugin_enrichment_timeout),
+        router_history_window_size=nonnegative_int("router_history_window_size", 6),
+        router_history_max_tokens=nonnegative_int("router_history_max_tokens", 1200),
+        personal_policy_history_window_size=nonnegative_int(
+            "personal_policy_history_window_size", 6
+        ),
+        personal_policy_history_max_tokens=nonnegative_int(
+            "personal_policy_history_max_tokens", 3000
+        ),
+        core_execution_history_window_size=nonnegative_int(
+            "core_execution_history_window_size", 12
+        ),
+        core_execution_history_max_tokens=nonnegative_int(
+            "core_execution_history_max_tokens", 6000
+        ),
+        core_execution_ledger_record_limit=nonnegative_int(
+            "core_execution_ledger_record_limit", 4
+        ),
+        core_execution_ledger_max_tokens=nonnegative_int(
+            "core_execution_ledger_max_tokens", 6000
+        ),
     )
 
 

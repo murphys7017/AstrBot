@@ -216,6 +216,62 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
                 300,
             ),
         ),
+        router_history_window_size=max(
+            0,
+            _int_or_default(
+                interaction_config.get("router_history_window_size", 6),
+                6,
+            ),
+        ),
+        router_history_max_tokens=max(
+            0,
+            _int_or_default(
+                interaction_config.get("router_history_max_tokens", 1200),
+                1200,
+            ),
+        ),
+        personal_policy_history_window_size=max(
+            0,
+            _int_or_default(
+                interaction_config.get("personal_policy_history_window_size", 6),
+                6,
+            ),
+        ),
+        personal_policy_history_max_tokens=max(
+            0,
+            _int_or_default(
+                interaction_config.get("personal_policy_history_max_tokens", 3000),
+                3000,
+            ),
+        ),
+        core_execution_history_window_size=max(
+            0,
+            _int_or_default(
+                interaction_config.get("core_execution_history_window_size", 12),
+                12,
+            ),
+        ),
+        core_execution_history_max_tokens=max(
+            0,
+            _int_or_default(
+                interaction_config.get("core_execution_history_max_tokens", 6000),
+                6000,
+            ),
+        ),
+        core_execution_ledger_record_limit=max(
+            0,
+            _int_or_default(
+                interaction_config.get("core_execution_ledger_record_limit", 4),
+                4,
+            ),
+        ),
+        core_execution_ledger_max_tokens=max(
+            0,
+            _int_or_default(
+                interaction_config.get("core_execution_ledger_max_tokens", 6000),
+                6000,
+            ),
+        ),
         stream_observation_min_chars=max(
             1,
             _int_or_default(

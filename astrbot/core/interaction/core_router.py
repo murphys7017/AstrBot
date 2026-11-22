@@ -51,7 +51,8 @@ def build_core_router_system_prompt() -> str:
         "附件摘要说明本轮已有的材料，仅要求看这些材料时不另行委派。"
         "例如，带截图问「你看我桌面上都有啥」「这张图是什么时候截的」都留给 Personal。"
         "如果用户明确要求检查工作区日志并定位故障，即使说「看看日志」也可委派。\n"
-        "当前请求提供任务授权，引用与历史只用于理解指代或确认任务续接。"
+        "当前用户消息必须提供新的任务授权；历史上下文只用于理解指代、话题和已有任务续接，"
+        "不能单独授权新的执行任务。"
         "单独的「看看」、随口提到某个工具、询问能不能做某件事，都不构成执行请求。"
         "基础工具的可用性不明时，先交给 Personal。"
         "任务目标、范围或是否需要 Core 不明确时，返回 personal_only，让 Personal 澄清。"
@@ -237,6 +238,8 @@ class CoreRouterAgent:
                 system_prompt=build_core_router_system_prompt(),
                 request_prompt=build_core_router_prompt(),
                 output_contract=build_core_router_output_contract(),
+                history_turns=build_config.router_history_window_size,
+                history_max_estimated_tokens=build_config.router_history_max_tokens,
             ),
         )
 

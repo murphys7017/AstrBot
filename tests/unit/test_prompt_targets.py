@@ -795,18 +795,19 @@ def test_core_router_projection_is_bounded_and_excludes_persona_context(renderer
         "input.text",
         "input.quoted_text",
         "input.attachment_summary",
-        "session.datetime",
+        "conversation.history",
         "conversation.pending_execution_continuity",
     }
     assert projected.get_slot("capability.core_execution") is None
     assert projected.get_slot("capability.tools_schema") is None
-    assert projected.get_slot("conversation.history") is None
+    assert projected.get_slot("conversation.history") is not None
     assert projected.get_slot("conversation.pending_execution_continuity").value == {
         "task_summary": "unfinished task",
         "task_intent": "research",
         "status": "cancelled",
         "resume_recommended": True,
     }
+    assert len(projected.get_slot("conversation.history").value["turns"]) == 4
     assert len(pack.get_slot("conversation.history").value["turns"]) == 6
     renderer = PromptRenderEngine(default_renderer=renderer_type())
     profile = PromptRenderProfile(

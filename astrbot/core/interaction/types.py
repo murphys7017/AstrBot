@@ -234,6 +234,14 @@ class InteractionAgentConfig:
     personal_conversation_activity_enabled: bool = False
     memory_window_size: int = 8
     persona_history_window_size: int = 300
+    router_history_window_size: int = 6
+    router_history_max_tokens: int = 1200
+    personal_policy_history_window_size: int = 6
+    personal_policy_history_max_tokens: int = 3000
+    core_execution_history_window_size: int = 12
+    core_execution_history_max_tokens: int = 6000
+    core_execution_ledger_record_limit: int = 4
+    core_execution_ledger_max_tokens: int = 6000
     stream_observation_min_chars: int = 200
     stream_interjection_enabled: bool = True
     stream_interjection_max_per_turn: int = 1
@@ -259,3 +267,11 @@ class InteractionPromptBuildConfig:
     prompt_pipeline_strict_mode: bool = True
     contributor_timeout: float = 1.0
     plugin_enrichment_timeout: float = 3.0
+    router_history_window_size: int = 6
+    router_history_max_tokens: int = 1200
+    personal_policy_history_window_size: int = 6
+    personal_policy_history_max_tokens: int = 3000
+    core_execution_history_window_size: int = 12
+    core_execution_history_max_tokens: int = 6000
+    core_execution_ledger_record_limit: int = 4
+    core_execution_ledger_max_tokens: int = 6000

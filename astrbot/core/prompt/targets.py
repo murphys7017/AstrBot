@@ -37,7 +37,7 @@ _CORE_ROUTER_SLOT_NAMES = frozenset(
         "input.text",
         "input.quoted_text",
         "input.attachment_summary",
-        "session.datetime",
+        "conversation.history",
         "conversation.pending_execution_continuity",
     }
 )
@@ -77,6 +77,8 @@ def project_context_pack(
     history_turns: int | None = None,
     history_limit_reason: str | None = None,
     history_max_estimated_tokens: int | None = None,
+    execution_history_records: int | None = None,
+    execution_history_max_estimated_tokens: int | None = None,
     config: object | None = None,
 ) -> ContextPack:
     """Build an isolated target view without mutating the canonical pack."""
@@ -87,6 +89,8 @@ def project_context_pack(
         history_turns=history_turns,
         history_limit_reason=history_limit_reason,
         history_max_estimated_tokens=history_max_estimated_tokens,
+        execution_history_records=execution_history_records,
+        execution_history_max_estimated_tokens=execution_history_max_estimated_tokens,
         config=config,
     )
     projected = ContextPack(

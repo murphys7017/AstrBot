@@ -58,6 +58,9 @@ class PromptRenderProfile:
     input_text_suffix: str = ""
     hidden_slot_names: frozenset[str] = frozenset()
     history_turns: int | None = None
+    history_max_estimated_tokens: int | None = None
+    execution_history_records: int | None = None
+    execution_history_max_estimated_tokens: int | None = None
     output_contract_strategy: OutputContractStrategy | None = None
 
 

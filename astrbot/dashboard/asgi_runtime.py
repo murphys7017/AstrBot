@@ -423,6 +423,17 @@ g = _ContextProxy(_g_var)
 current_app = _ContextProxy(_app_var)
 
 
+def _reset_context_var(var: contextvars.ContextVar, token) -> None:
+    """Reset a request context without leaking shutdown cancellation noise."""
+    try:
+        var.reset(token)
+    except ValueError:
+        # Hypercorn may finalize a cancelled request generator in a different
+        # context after the event loop has begun shutting down. The original
+        # context is already gone in that case, so there is nothing to reset.
+        pass
+
+
 @contextmanager
 def bind_request_context(
     request_: Request,
@@ -437,9 +448,9 @@ def bind_request_context(
     try:
         yield _g_var.get()
     finally:
-        _app_var.reset(token_app)
-        _g_var.reset(token_g)
-        _request_var.reset(token_request)
+        _reset_context_var(_app_var, token_app)
+        _reset_context_var(_g_var, token_g)
+        _reset_context_var(_request_var, token_request)
 
 
 @contextmanager
@@ -456,9 +467,9 @@ def bind_websocket_context(
     try:
         yield
     finally:
-        _app_var.reset(token_app)
-        _g_var.reset(token_g)
-        _websocket_var.reset(token_websocket)
+        _reset_context_var(_app_var, token_app)
+        _reset_context_var(_g_var, token_g)
+        _reset_context_var(_websocket_var, token_websocket)
 
 
 def encode_payload(payload: Any):

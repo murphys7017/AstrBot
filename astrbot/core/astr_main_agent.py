@@ -42,6 +42,7 @@ from astrbot.core.interaction.core_bridge import (
     get_core_task_spec,
 )
 from astrbot.core.interaction.turn_state import (
+    get_interaction_turn_config,
     get_interaction_turn_core_provider_id,
     get_interaction_turn_deadline,
     get_interaction_turn_runtime_config,
@@ -78,6 +79,7 @@ from astrbot.core.prompt.render import (
     PROMPT_APPLY_RESULT_EXTRA_KEY,
     PROMPT_RENDER_RESULT_EXTRA_KEY,
     PromptRenderEngine,
+    PromptRenderProfile,
     PromptTarget,
     RenderResult,
 )
@@ -612,6 +614,7 @@ def _render_prompt_pipeline(
     prompt_context_pack,
     provider: Provider | None = None,
     target: PromptTarget | None = None,
+    profile=None,
 ) -> RenderResult:
     """Render the canonical context without binding it to a provider request."""
     if provider is not None:
@@ -624,6 +627,7 @@ def _render_prompt_pipeline(
         plugin_context=plugin_context,
         config=config,
         provider_request=provider_request,
+        profile=profile,
     )
     event.set_extra(PROMPT_RENDER_RESULT_EXTRA_KEY, render_result)
     save_user_message = _build_conversation_save_user_message(prompt_context_pack)
@@ -777,6 +781,23 @@ async def _build_native_main_agent(
 ) -> MainAgentBuildResult:
     """Render and reset AstrBot's built-in Native executor only."""
 
+    interaction_config = get_interaction_turn_config(event)
+    core_profile = None
+    if interaction_core and interaction_config is not None:
+        core_profile = PromptRenderProfile(
+            name="interaction_core_execution",
+            history_turns=interaction_config.core_execution_history_window_size,
+            history_max_estimated_tokens=(
+                interaction_config.core_execution_history_max_tokens
+            ),
+            execution_history_records=(
+                interaction_config.core_execution_ledger_record_limit
+            ),
+            execution_history_max_estimated_tokens=(
+                interaction_config.core_execution_ledger_max_tokens
+            ),
+        )
+
     render_result = _render_prompt_pipeline(
         event=event,
         plugin_context=plugin_context,
@@ -785,6 +806,7 @@ async def _build_native_main_agent(
         provider_request=provider_request,
         prompt_context_pack=prepared_execution.execution_spec.context_pack,
         target=PromptTarget.CORE,
+        profile=core_profile,
     )
     native_execution = NativeExecutionAdapter().adapt(
         prepared_execution.execution_spec,
@@ -848,6 +870,16 @@ async def _build_native_main_agent(
         truncate_turns=config.dequeue_context_length,
         enforce_max_turns=resolve_target_budget(
             PromptTarget.CORE.value,
+            history_turns=(
+                interaction_config.core_execution_history_window_size
+                if interaction_core and interaction_config is not None
+                else None
+            ),
+            history_max_estimated_tokens=(
+                interaction_config.core_execution_history_max_tokens
+                if interaction_core and interaction_config is not None
+                else None
+            ),
             config=config,
         ).history_turns,
         tool_schema_mode=config.tool_schema_mode,

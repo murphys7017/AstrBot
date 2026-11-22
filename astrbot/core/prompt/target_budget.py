@@ -44,6 +44,8 @@ def resolve_target_budget(
     history_turns: int | None = None,
     history_limit_reason: str | None = None,
     history_max_estimated_tokens: int | None = None,
+    execution_history_records: int | None = None,
+    execution_history_max_estimated_tokens: int | None = None,
     config: object | None = None,
 ) -> PromptTargetBudget:
     """Resolve one explicit budget for a model-facing prompt target."""
@@ -84,6 +86,17 @@ def resolve_target_budget(
     if target == "core_router":
         history_max_message_chars = 600
 
+    selected_execution_history_records = (
+        max(0, int(execution_history_records))
+        if execution_history_records is not None
+        else 4
+    )
+    selected_execution_history_tokens = (
+        max(0, int(execution_history_max_estimated_tokens))
+        if execution_history_max_estimated_tokens is not None
+        else 6000
+    )
+
     return PromptTargetBudget(
         history_turns=selected_history_turns,
         history_limit_reason=history_limit_reason,
@@ -91,6 +104,8 @@ def resolve_target_budget(
         history_max_estimated_tokens=history_token_limit,
         group_recent_records=8 if compact_target else 12,
         group_recent_max_record_chars=800 if compact_target else 1200,
+        execution_history_records=selected_execution_history_records,
+        execution_history_max_estimated_tokens=selected_execution_history_tokens,
         memory_max_estimated_tokens=_TARGET_MEMORY_TOKEN_LIMITS[target],
     )
 

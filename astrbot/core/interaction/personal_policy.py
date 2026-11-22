@@ -586,6 +586,8 @@ class PersonalPolicyAgent:
                 system_prompt=system_prompt,
                 request_prompt=build_personal_policy_prompt(),
                 output_contract=build_personal_policy_output_contract(),
+                history_turns=build_config.personal_policy_history_window_size,
+                history_max_estimated_tokens=build_config.personal_policy_history_max_tokens,
             ),
         )
         effective_persona_context = build_effective_persona_context_from_slots(

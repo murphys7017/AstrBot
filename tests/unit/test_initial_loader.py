@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -51,3 +52,46 @@ async def test_initialization_failure_still_cleans_up(monkeypatch):
 
     lifecycle.start.assert_not_awaited()
     lifecycle.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_drains_core_and_dashboard_tasks(monkeypatch):
+    class Lifecycle:
+        def __init__(self):
+            self.dashboard_shutdown_event = asyncio.Event()
+            self.stop_calls = 0
+
+        async def initialize(self):
+            return None
+
+        async def start(self):
+            await self.dashboard_shutdown_event.wait()
+
+        async def stop(self):
+            self.stop_calls += 1
+            self.dashboard_shutdown_event.set()
+
+    class Dashboard:
+        def __init__(self, lifecycle, _db, shutdown_event, _webui_dir):
+            self.shutdown_event = shutdown_event
+
+        async def run(self):
+            await self.shutdown_event.wait()
+
+    lifecycle = Lifecycle()
+    monkeypatch.setattr(
+        "astrbot.core.initial_loader.AstrBotCoreLifecycle",
+        lambda *_args: lifecycle,
+    )
+    monkeypatch.setattr(
+        "astrbot.core.initial_loader.AstrBotDashboard",
+        Dashboard,
+    )
+
+    loader = InitialLoader(MagicMock(), MagicMock())
+    task = asyncio.create_task(loader.start())
+    await asyncio.sleep(0)
+    task.cancel()
+    await task
+
+    assert lifecycle.stop_calls == 1

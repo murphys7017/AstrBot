@@ -110,7 +110,17 @@ class PromptRenderEngine:
                 )
         history_turns = profile.history_turns if profile is not None else None
         history_limit_reason = None
-        history_max_estimated_tokens = None
+        history_max_estimated_tokens = (
+            profile.history_max_estimated_tokens if profile is not None else None
+        )
+        execution_history_records = (
+            profile.execution_history_records if profile is not None else None
+        )
+        execution_history_max_estimated_tokens = (
+            profile.execution_history_max_estimated_tokens
+            if profile is not None
+            else None
+        )
         if view_spec is not None and view_spec.history_turns is not None:
             history_turns = view_spec.history_turns
         if view_spec is not None:
@@ -123,6 +133,8 @@ class PromptRenderEngine:
                 history_turns=history_turns,
                 history_limit_reason=history_limit_reason,
                 history_max_estimated_tokens=history_max_estimated_tokens,
+                execution_history_records=execution_history_records,
+                execution_history_max_estimated_tokens=execution_history_max_estimated_tokens,
                 config=config,
             )
         with measure_prompt_stage(timings, "render_profile"):
