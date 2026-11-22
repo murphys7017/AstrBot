@@ -111,12 +111,14 @@ Collector 负责收集事实，Projection 决定 Personal Response Plan、Planne
 - `dev/cost-context-runtime-plan.md`
 - `dev/desktop-application-and-body-integration-plan.md`
 - `dev/architecture-cleanup-roadmap-2026-10.md`
+- `dev/persona-identity-memory-migration-plan/README.md`
 
 Memory 子系统：
 
 - `dev/memory/index.md`
 - `dev/memory/progress.md`
 - `dev/memory/architecture.md`
+- `dev/persona-identity-memory-migration-plan/03-livingmemory-migration.md`
 
 ## 阅读顺序
 
