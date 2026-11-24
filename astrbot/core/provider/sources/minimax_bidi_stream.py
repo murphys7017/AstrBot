@@ -26,9 +26,10 @@ async def stream_minimax_pcm(
 ) -> AsyncIterator[bytes | None]:
     """Yield PCM16LE/32000Hz/mono; None acknowledges an input flush marker.
 
-    Each input string is appended once. Input None flushes the current segment
-    without ending synthesis; exhausting the input finishes the session. No
-    next-segment text is sent until the consumer accepts the flush boundary.
+    Text deltas are coalesced per input segment before submission. Input None
+    flushes the current segment without ending synthesis; exhausting the input
+    finishes the session. No next-segment text is sent until the consumer
+    accepts the flush boundary.
     Cancellation closes this synthesis WebSocket and never replays submitted
     text. The caller owns the HTTP session/pool and closes it at Provider exit;
     neither the WebSocket nor a synthesis task is reused across Turns.
@@ -73,8 +74,8 @@ async def stream_minimax_pcm(
             data = message.json()
             if not isinstance(data, dict):
                 raise RuntimeError("minimax_bidi_invalid_event")
-            code = data.get("base_resp", {}).get("status_code", 0)
-            if code or data.get("event") == "task_failed":
+            code = (data.get("base_resp") or {}).get("status_code", 0)
+            if code not in {0, 2205} or data.get("event") == "task_failed":
                 # Do not put Provider response bodies or credentials in errors.
                 raise RuntimeError(f"minimax_bidi_provider_error:{code}")
             return data
@@ -98,20 +99,65 @@ async def stream_minimax_pcm(
         if (await receive()).get("event") != "task_started":
             raise RuntimeError("minimax_bidi_task_not_ready")
 
+        max_task_continue_chars = 9000
         boundary_ack = asyncio.Event()
+        continue_ack = asyncio.Event()
+        retry_requested = asyncio.Event()
+        retry_signal = asyncio.Event()
         input_finished = False
+
+        async def send_segment(text: str) -> None:
+            chunks = [
+                text[start : start + max_task_continue_chars]
+                for start in range(0, len(text), max_task_continue_chars)
+            ] or [""]
+            for chunk_index, chunk in enumerate(chunks):
+                is_last_chunk = chunk_index == len(chunks) - 1
+                retry_count = 0
+                while True:
+                    retry_signal.clear()
+                    continue_ack.clear()
+                    boundary_ack.clear()
+                    if chunk:
+                        await send({"event": "task_continue", "text": chunk})
+                    if is_last_chunk:
+                        await send({"event": "task_flush"})
+                    ack = boundary_ack if is_last_chunk else continue_ack
+                    boundary_wait = asyncio.create_task(ack.wait())
+                    retry_wait = asyncio.create_task(retry_signal.wait())
+                    try:
+                        await asyncio.wait(
+                            {boundary_wait, retry_wait},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                    finally:
+                        for task in (boundary_wait, retry_wait):
+                            if not task.done():
+                                task.cancel()
+                        await asyncio.gather(
+                            boundary_wait, retry_wait, return_exceptions=True
+                        )
+                    if retry_signal.is_set():
+                        retry_count += 1
+                        if retry_count > 8:
+                            raise RuntimeError("minimax_bidi_queue_retry_exhausted")
+                        await asyncio.sleep(min(0.05 * (2 ** (retry_count - 1)), 1.0))
+                        continue
+                    break
 
         async def send_text() -> None:
             nonlocal input_finished
+            segment_parts: list[str] = []
             async for text in text_source:
                 if text is None:
-                    boundary_ack.clear()
-                    await send({"event": "task_flush"})
-                    await boundary_ack.wait()
+                    await send_segment("".join(segment_parts))
+                    segment_parts.clear()
                 elif not isinstance(text, str) or not text:
                     raise ValueError("minimax_bidi_invalid_text_delta")
                 else:
-                    await send({"event": "task_continue", "text": text})
+                    segment_parts.append(text)
+            if segment_parts:
+                await send_segment("".join(segment_parts))
             input_finished = True
             await send({"event": "task_finish"})
 
@@ -128,22 +174,34 @@ async def stream_minimax_pcm(
                     # text, instead of turning them into a receive timeout.
                     await sender
                 data = await receiver
-                audio = data.get("data", {}).get("audio")
+                code = (data.get("base_resp") or {}).get("status_code", 0)
+                if code == 2205:
+                    # MiniMax keeps the session open and asks the client to
+                    # resend the rejected task_continue after a short delay.
+                    retry_requested.set()
+                    retry_signal.set()
+                    continue
+                audio = (data.get("data") or {}).get("audio")
                 if audio:
                     if not isinstance(audio, str):
                         raise RuntimeError("minimax_bidi_invalid_audio")
                     try:
                         pcm = bytes.fromhex(audio)
                     except ValueError as exc:
-                        raise RuntimeError(
-                            "minimax_bidi_invalid_audio_hex"
-                        ) from exc
+                        raise RuntimeError("minimax_bidi_invalid_audio_hex") from exc
                     if len(pcm) % 2:
                         raise RuntimeError("minimax_bidi_unaligned_pcm")
                     if pcm:
                         yield pcm
                 event = data.get("event")
-                if event == "task_flushed":
+                if event == "task_continued" and data.get("is_final", True):
+                    # A successful continuation retires the retry guard so a
+                    # stale flush from the rejected attempt cannot close it.
+                    retry_requested.clear()
+                    continue_ack.set()
+                elif event == "task_flushed":
+                    if retry_requested.is_set():
+                        continue
                     # The consumer must receive and process this boundary
                     # before the sender can submit the next segment. The
                     # segment index and audio ownership live in that consumer.
