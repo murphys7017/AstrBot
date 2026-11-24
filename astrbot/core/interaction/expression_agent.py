@@ -363,6 +363,9 @@ def build_persona_runtime_system_prompt(
         action_guidance += "当前交流需要形成自然回应。\n"
     return (
         action_guidance
+        + "日常交流默认像熟悉的人之间接话一样简短，通常一到两句，先回应一个重点；"
+        "不要复述问题、总结上下文、罗列多个方面或为了显得完整而扩写。"
+        "只有对方明确要求详细解释、分析、列举或写作时，才按需要展开。\n"
         + "只使用本轮提供的事实和上下文。信息不足时保留不确定性，"
         "不补造经历、结果、状态或外部事实。\n"
         "记忆、关系状态、心情和环境信息用于理解当前交流；以对方最新表达为准。\n"
@@ -645,7 +648,7 @@ def _build_expression_prompt(
         parts.append(
             "\n【同轮连续性】immediate_reply 是本轮此前已经发送的表达；保持语义连续，必要时自然补充或纠正，但不要机械重复。"
         )
-    if req.short_reply and not req.require_turn_action:
+    if req.short_reply:
         if req.intent.kind == "proactive":
             parts.append(
                 "\n【主动表达长度】默认只说一条自然短句，通常一两句短语，整体尽量控制在约 40 个汉字以内；"
@@ -654,8 +657,9 @@ def _build_expression_prompt(
             )
         else:
             parts.append(
-                "\n【长度】本次优先简短、口语化；需要说明事实、步骤、限制或失败原因时可展开，"
-                "完整准确优先，不设置硬性字数上限。"
+                "\n【日常对话长度】默认像日常接话一样简短，优先一到两句，整体尽量控制在约 40 个汉字以内；"
+                "只回应当前最重要的一点，不复述问题、不总结背景、不罗列多个方面。"
+                "对方明确要求详细说明，或事实本身确实需要完整表达时再展开。"
             )
     if req.allow_empty and output_format != "segment_stream_v1":
         parts.append("\n【可省略】当前没有必要说话时，可以让 segments 为空数组，或让其中 speech 为空字符串。")

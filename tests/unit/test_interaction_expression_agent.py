@@ -1465,11 +1465,12 @@ def test_persona_system_prompt_does_not_include_concrete_motion_example():
     assert "turn_head_right" not in prompt
 
 
-def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
+def test_short_reply_prompt_guides_daily_dialogue_without_blocking_detail():
     prompt = _build_expression_prompt(PersonaExpressionRequest(short_reply=True))
 
-    assert "本次优先简短、口语化" in prompt
-    assert "完整准确优先，不设置硬性字数上限" in prompt
+    assert "【日常对话长度】" in prompt
+    assert "优先一到两句" in prompt
+    assert "对方明确要求详细说明" in prompt
 
     direct_prompt = _build_expression_prompt(
         PersonaExpressionRequest(
@@ -1478,10 +1479,10 @@ def test_short_reply_prompt_is_a_soft_preference_without_character_limit():
             intent=PersonaExpressionIntent(source="user_message", phase="immediate"),
         )
     )
-    assert "【长度】" not in direct_prompt
-    assert "【日常对话表达】" not in direct_prompt
+    assert "【日常对话长度】" in direct_prompt
     system_prompt = build_persona_runtime_system_prompt(require_turn_action=True)
     assert "【人格与关系】" not in system_prompt
+    assert "日常交流默认像熟悉的人之间接话一样简短" in system_prompt
 
 
 def test_visible_reply_material_profile_hides_redundant_media_slots():
