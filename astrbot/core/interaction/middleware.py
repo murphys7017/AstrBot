@@ -83,6 +83,8 @@ from .turn_state import (
     mark_interaction_turn_core_delegated,
     mark_interaction_turn_failed,
     set_interaction_turn_protocol_core_bypass,
+    set_interaction_turn_persona_stream_state,
+    get_interaction_turn_persona_stream_state,
     mark_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_postprocess_dispatched,
     mark_interaction_turn_stt_transcribed,
@@ -419,10 +421,10 @@ class InteractionMiddleware:
         )
         if (
             expression is None
-            or event.get_extra("_interaction_persona_segment_stream_status") in {"failed", "incomplete", "cancelled"}
+            or (get_interaction_turn_persona_stream_state(event) is not None and get_interaction_turn_persona_stream_state(event).status in {"failed", "incomplete", "cancelled"})
         ):
             raise InteractionExpressionError(
-                event.get_extra("_interaction_persona_segment_stream_failure_reason") or "reading_expression_failed"
+                (get_interaction_turn_persona_stream_state(event).failure_reason if get_interaction_turn_persona_stream_state(event) else None) or "reading_expression_failed"
             )
         if expression.turn_action is PersonalResponseAction.SILENT:
             await self._complete_silent_or_committed_persona_turn(event, expression)
@@ -1287,9 +1289,10 @@ class InteractionMiddleware:
         if platform_name == "olv_pet_adapter":
             set_extra = getattr(event, "set_extra", None)
             if callable(set_extra):
-                set_extra(
-                    "_interaction_persona_segment_stream_active",
-                    olv_stream_requested,
+                set_interaction_turn_persona_stream_state(
+                    event,
+                    requested=bool(event.get_extra("_interaction_persona_segment_stream_requested", False)),
+                    active=olv_stream_requested,
                 )
                 if olv_stream_requested:
                     set_extra("_interaction_persona_stream_skipped_capabilities", set())
@@ -1305,7 +1308,7 @@ class InteractionMiddleware:
                 # This flag selects contributors for this Persona invocation.
                 # A delegated Core-final reply uses the ordinary result path.
                 if olv_stream_requested:
-                    event.set_extra("_interaction_persona_segment_stream_active", False)
+                    set_interaction_turn_persona_stream_state(event, active=False)
         if self.plugin_context is None:
             record_interaction_turn_expression_failure(
                 event,
@@ -1462,7 +1465,7 @@ class InteractionMiddleware:
                 on_header=on_header,
             )
         except asyncio.CancelledError:
-            event.set_extra("_interaction_persona_segment_stream_status", "cancelled")
+            set_interaction_turn_persona_stream_state(event, status="cancelled")
             self._set_speculative_persona_status(
                 event,
                 InteractionSpeculativePersonaStatus.FAILED,
@@ -1474,10 +1477,10 @@ class InteractionMiddleware:
             raise
         except Exception as exc:  # noqa: BLE001
             reason = getattr(exc, "reason", None) or "persona_segment_stream_failed"
-            event.set_extra("_interaction_persona_segment_stream_status", "failed")
-            event.set_extra(
-                "_interaction_persona_segment_stream_failure_reason",
-                str(reason),
+            set_interaction_turn_persona_stream_state(
+                event,
+                status="failed",
+                failure_reason=str(reason),
             )
             record_interaction_turn_expression_failure(event, str(reason))
             record_interaction_turn_failure(
@@ -1610,9 +1613,8 @@ class InteractionMiddleware:
         event: AstrMessageEvent,
         expression: PersonaExpressionResult | None,
     ) -> None:
-        stream_status = event.get_extra(
-            "_interaction_persona_segment_stream_status"
-        )
+        stream_state = get_interaction_turn_persona_stream_state(event)
+        stream_status = stream_state.status if stream_state is not None else None
         if stream_status in {"failed", "incomplete", "cancelled"}:
             await self._complete_incomplete_persona_stream_turn(
                 event,
@@ -1626,7 +1628,7 @@ class InteractionMiddleware:
         ):
             await self._complete_persona_only_turn(event, expression)
             return
-        if event.get_extra("_interaction_persona_segment_stream_published") is True:
+        if stream_state is not None and stream_state.published:
             await self._complete_visible_turn_or_record_failure(event)
             if not event.get_extra("_interaction_immediate_output_suppressed_reason"):
                 reason = "persona_stream_no_output_delivered"
@@ -1703,7 +1705,8 @@ class InteractionMiddleware:
 
     async def complete_unrouted_persona_stream(self, event: AstrMessageEvent) -> bool:
         """Close a failed stream whose header never published a route."""
-        status = event.get_extra("_interaction_persona_segment_stream_status")
+        stream_state = get_interaction_turn_persona_stream_state(event)
+        status = stream_state.status if stream_state is not None else None
         if status not in {"failed", "incomplete", "cancelled"}:
             return False
         await self._complete_incomplete_persona_stream_turn(event, str(status))
@@ -1732,7 +1735,7 @@ class InteractionMiddleware:
             # No output was published, so a playback acknowledgement cannot arrive.
             await event.abort_visible_turn(
                 reason=str(
-                    event.get_extra("_interaction_persona_segment_stream_failure_reason")
+                    (stream_state.failure_reason if stream_state is not None else None)
                     or "persona_segment_stream_failed"
                 )
             )

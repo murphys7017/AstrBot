@@ -120,6 +120,7 @@ from .turn_state import (
     get_interaction_turn_tool_stage_observation_records,
     get_interaction_turn_tool_stage_observation_state,
     get_interaction_turn_visible_outputs,
+    get_interaction_turn_persona_stream_state,
     has_interaction_turn_core_streaming_result_consumed,
     has_interaction_turn_final_output_claimed,
     is_interaction_turn_completed,
@@ -152,6 +153,7 @@ from .turn_state import (
     set_interaction_turn_pipeline_output_suppressed,
     set_interaction_turn_plugin_output_metadata,
     set_interaction_turn_plugin_output_transaction,
+    set_interaction_turn_persona_stream_state,
     set_interaction_turn_stream_observation_count,
     set_interaction_turn_tool_stage_observation_records,
     update_interaction_turn_stream_buffer,
@@ -469,13 +471,14 @@ class InteractionOutputController:
             lock = asyncio.Lock()
             event.set_extra("_interaction_expression_output_lock", lock)
         async with lock:
-            active = event.get_extra("_interaction_persona_segment_stream_active", False)
+            stream_state = get_interaction_turn_persona_stream_state(event)
+            active = stream_state.active if stream_state is not None else False
             try:
                 return await self._emit_persona_segment_stream(
                     event, producer=producer, on_header=on_header, message_kind=message_kind,
                 )
             finally:
-                event.set_extra("_interaction_persona_segment_stream_active", active)
+                set_interaction_turn_persona_stream_state(event, active=active)
 
     @staticmethod
     def _uses_task_stream(event: AstrMessageEvent) -> bool:
@@ -997,9 +1000,9 @@ class InteractionOutputController:
                 publish_stream = await on_header(record)
                 state["header"] = True
                 state["publish_stream"] = publish_stream is not False
-                event.set_extra(
-                    "_interaction_persona_segment_stream_published",
-                    state["publish_stream"],
+                set_interaction_turn_persona_stream_state(
+                    event,
+                    published=state["publish_stream"],
                 )
                 state["turn_action"] = PersonalResponseAction(
                     record["turn_action"]
@@ -1689,11 +1692,11 @@ class InteractionOutputController:
 
             status = state["status"]
             if state["error"] is not None and status != "cancelled":
-                event.set_extra(
-                    "_interaction_persona_segment_stream_failure_reason",
-                    self._persona_stream_error_reason(state["error"]),
+                set_interaction_turn_persona_stream_state(
+                    event,
+                    failure_reason=self._persona_stream_error_reason(state["error"]),
                 )
-            event.set_extra("_interaction_persona_segment_stream_status", status)
+            set_interaction_turn_persona_stream_state(event, status=status)
             emitted_text = "".join(state["delivered_text_parts"])
             delivered_motion_indexes = set(
                 state["legacy_delivered_motion_segment_indexes"]

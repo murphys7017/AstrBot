@@ -160,6 +160,13 @@ class InteractionStreamState:
     active: bool = False
     result_consumed: bool = False
     interjections_emitted: int = 0
+    requested: bool = False
+    active: bool = False
+    status: str | None = None
+    failure_reason: str | None = None
+    published: bool = False
+    skipped_capabilities: set[tuple[str, str]] = field(default_factory=set)
+    compatibility_state_initialized: bool = False
 
 
 @dataclass(slots=True)
@@ -647,6 +654,63 @@ def set_interaction_turn_configuration_selection(
 def get_interaction_turn_deadline(event) -> TurnDeadlineBudget | None:
     state = get_interaction_turn_state(event)
     return state.deadline if state is not None else None
+
+
+def set_interaction_turn_persona_stream_state(
+    event,
+    *,
+    requested: bool | None = None,
+    active: bool | None = None,
+    status: str | None = None,
+    failure_reason: str | None = None,
+    published: bool | None = None,
+) -> InteractionStreamState:
+    state = ensure_interaction_turn_state(event)
+    stream = state.stream_state
+    stream.compatibility_state_initialized = True
+    if requested is not None:
+        stream.requested = bool(requested)
+    if active is not None:
+        stream.active = bool(active)
+    if status is not None:
+        stream.status = str(status)
+    if failure_reason is not None:
+        stream.failure_reason = str(failure_reason)
+    if published is not None:
+        stream.published = bool(published)
+    event.set_extra("_interaction_persona_segment_stream_requested", stream.requested)
+    event.set_extra("_interaction_persona_segment_stream_active", stream.active)
+    if stream.status is not None:
+        event.set_extra("_interaction_persona_segment_stream_status", stream.status)
+    if stream.failure_reason is not None:
+        event.set_extra(
+            "_interaction_persona_segment_stream_failure_reason",
+            stream.failure_reason,
+        )
+    event.set_extra("_interaction_persona_segment_stream_published", stream.published)
+    return stream
+
+
+def get_interaction_turn_persona_stream_state(event) -> InteractionStreamState | None:
+    state = get_interaction_turn_state(event)
+    if state is None:
+        return None
+    stream = state.stream_state
+    if not stream.compatibility_state_initialized:
+        stream.requested = bool(
+            event.get_extra("_interaction_persona_segment_stream_requested", False)
+        )
+        stream.active = bool(
+            event.get_extra("_interaction_persona_segment_stream_active", False)
+        )
+        stream.status = event.get_extra("_interaction_persona_segment_stream_status")
+        stream.failure_reason = event.get_extra(
+            "_interaction_persona_segment_stream_failure_reason"
+        )
+        stream.published = bool(
+            event.get_extra("_interaction_persona_segment_stream_published", False)
+        )
+    return stream
 
 
 def get_interaction_turn_plugin_admission(event) -> PluginAdmissionSnapshot | None:

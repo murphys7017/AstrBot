@@ -20,15 +20,20 @@ DEFAULT_PERSONA_STREAM_SAFE_PLUGINS = frozenset(
 
 
 def is_olv_persona_stream(event: Any, *, include_finished: bool = False) -> bool:
+    from astrbot.core.interaction.turn_state import (
+        get_interaction_turn_persona_stream_state,
+    )
+
     get_platform_name = getattr(event, "get_platform_name", None)
+    stream_state = get_interaction_turn_persona_stream_state(event)
     return (
         callable(get_platform_name)
         and str(get_platform_name() or "").lower() == "olv_pet_adapter"
         and (
-            event.get_extra("_interaction_persona_segment_stream_active", False) is True
+            (stream_state.active if stream_state is not None else event.get_extra("_interaction_persona_segment_stream_active", False)) is True
             or (
                 include_finished
-                and event.get_extra("_interaction_persona_segment_stream_status")
+                and (stream_state.status if stream_state is not None else event.get_extra("_interaction_persona_segment_stream_status"))
                 in {"completed", "incomplete", "failed", "cancelled"}
             )
         )

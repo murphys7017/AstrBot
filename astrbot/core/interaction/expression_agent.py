@@ -174,6 +174,7 @@ from .structured_output import (
 )
 from .turn_state import (
     get_interaction_turn_deadline,
+    get_interaction_turn_persona_stream_state,
     get_interaction_turn_state,
     next_interaction_turn_output_segment_id,
     record_interaction_turn_expression_fallback,
@@ -3095,7 +3096,11 @@ def _resolve_persona_expression_context_view(
         callable(get_platform_name)
         and str(get_platform_name() or "").lower() == "olv_pet_adapter"
         and callable(get_extra)
-        and bool(get_extra("_interaction_persona_segment_stream_active", False))
+        and bool(
+            (get_interaction_turn_persona_stream_state(event).active
+             if get_interaction_turn_persona_stream_state(event) is not None
+             else get_extra("_interaction_persona_segment_stream_active", False))
+        )
     ):
         return PromptContextView.OLV_STREAM
     if req.intent.kind == "interjection":
