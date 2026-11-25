@@ -1256,33 +1256,70 @@ def cancel_interaction_turn_finalization_deferral(event) -> None:
     state.completion_state.finalization_pending = False
 
 
+def transition_interaction_turn_status(
+    event,
+    status: InteractionTurnStatus,
+    *,
+    reason: str | None = None,
+) -> bool:
+    """Apply the single terminal status transition owned by the turn state.
+
+    Terminal states are monotonic. Repeated writes of the same status are
+    idempotent, while a later writer cannot replace a completed, failed, or
+    cancelled turn with a different terminal status.
+    """
+
+    state = ensure_interaction_turn_state(event)
+    completion = state.completion_state
+    current = completion.status
+    terminal_statuses = {
+        InteractionTurnStatus.COMPLETED,
+        InteractionTurnStatus.FAILED,
+        InteractionTurnStatus.CANCELLED,
+    }
+    if current in terminal_statuses and current is not status:
+        return False
+    if current is status and (
+        status is InteractionTurnStatus.ACTIVE or completion.terminal_at is not None
+    ):
+        return True
+
+    completion.status = status
+    completion.completed = status is InteractionTurnStatus.COMPLETED
+    completion.terminal_at = time.time() if status in terminal_statuses else None
+    if reason:
+        completion.failure_reason = str(reason)
+    if status is InteractionTurnStatus.COMPLETED:
+        state.output_closed_reason = state.output_closed_reason or "turn_completed"
+    elif status is InteractionTurnStatus.CANCELLED:
+        state.output_closed_reason = state.output_closed_reason or "turn_cancelled"
+    return True
+
+
 def mark_interaction_turn_completed(
     event,
     completed: bool = True,
 ) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.completion_state.completed = completed
-    state.completion_state.status = (
-        InteractionTurnStatus.COMPLETED if completed else InteractionTurnStatus.ACTIVE
+    transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.COMPLETED if completed else InteractionTurnStatus.ACTIVE,
     )
-    state.completion_state.terminal_at = time.time() if completed else None
-    if completed:
-        state.output_closed_reason = state.output_closed_reason or "turn_completed"
 
 
-def mark_interaction_turn_failed(event) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.completion_state.completed = False
-    state.completion_state.status = InteractionTurnStatus.FAILED
-    state.completion_state.terminal_at = time.time()
+def mark_interaction_turn_failed(event, *, reason: str | None = None) -> None:
+    transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.FAILED,
+        reason=reason,
+    )
 
 
-def mark_interaction_turn_cancelled(event) -> None:
-    state = ensure_interaction_turn_state(event)
-    state.completion_state.completed = False
-    state.completion_state.status = InteractionTurnStatus.CANCELLED
-    state.completion_state.terminal_at = time.time()
-    state.output_closed_reason = state.output_closed_reason or "turn_cancelled"
+def mark_interaction_turn_cancelled(event, *, reason: str | None = None) -> None:
+    transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.CANCELLED,
+        reason=reason,
+    )
 
 
 def close_interaction_turn_output(event, *, reason: str) -> None:

@@ -33,6 +33,7 @@ from astrbot.core.interaction.output_controller import InteractionOutputControll
 from astrbot.core.interaction.output_modes import OUTPUT_ORIGIN_EXTRA_KEY, OutputOrigin
 from astrbot.core.interaction.turn_state import (
     InteractionSpeculativePersonaStatus,
+    InteractionTurnStatus,
     append_interaction_turn_assistant_artifacts,
     ensure_interaction_turn_state,
     get_interaction_turn_assistant_artifacts,
@@ -55,6 +56,7 @@ from astrbot.core.interaction.turn_state import (
     set_interaction_turn_immediate_reply,
     set_interaction_turn_pipeline_output_suppressed,
     set_interaction_turn_runtime_config,
+    transition_interaction_turn_status,
 )
 from astrbot.core.interaction.types import (
     InteractionRouteDecision,
@@ -729,6 +731,39 @@ def test_interaction_turn_state_owns_assistant_artifacts():
         {"type": "image", "url": "https://example.invalid/image.png"}
     ]
     assert event.get_extra("_interaction_assistant_artifacts") is None
+
+
+def test_interaction_turn_status_is_terminal_and_monotonic():
+    class Event:
+        def __init__(self):
+            self._extras = {}
+
+        def get_extra(self, key, default=None):
+            return self._extras.get(key, default)
+
+        def set_extra(self, key, value):
+            self._extras[key] = value
+
+    event = Event()
+
+    assert transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.COMPLETED,
+    ) is True
+    assert transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.COMPLETED,
+    ) is True
+    assert transition_interaction_turn_status(
+        event,
+        InteractionTurnStatus.FAILED,
+        reason="late_failure",
+    ) is False
+
+    state = get_interaction_turn_state(event)
+    assert state is not None
+    assert state.completion_state.status is InteractionTurnStatus.COMPLETED
+    assert state.completion_state.failure_reason is None
 
 
 def test_visible_output_records_structured_transaction_trace():
