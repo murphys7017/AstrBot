@@ -124,6 +124,7 @@ from .turn_state import (
     has_interaction_turn_final_output_claimed,
     is_interaction_turn_completed,
     is_interaction_turn_core_streaming_active,
+    is_interaction_turn_protocol_core_bypass,
     is_interaction_turn_emitting_immediate_reply,
     is_interaction_turn_finalization_deferred,
     is_interaction_turn_pipeline_output_suppressed,
@@ -5855,7 +5856,7 @@ class InteractionOutputController:
         if (
             (
                 route_mode == InteractionRouteMode.HYBRID
-                or bool(event.get_extra("_interaction_protocol_core_bypass", False))
+                or is_interaction_turn_protocol_core_bypass(event)
             )
             and streamed
             and not streaming_active

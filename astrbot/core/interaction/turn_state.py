@@ -328,6 +328,8 @@ class InteractionTurnState:
     conversation_history_failed: bool = False
     conversation_history_failure_reason: str | None = None
     pipeline_output_suppressed: bool = False
+    protocol_core_bypass: bool = False
+    protocol_core_bypass_reason: str | None = None
     inbound_media_materialized: bool = False
     stt_transcribed: bool = False
     stt_failed: bool = False
@@ -859,6 +861,36 @@ def set_interaction_turn_pipeline_output_suppressed(
     state.pipeline_output_suppressed = bool(suppressed)
     # Keep the legacy projection for copied branch and external events.
     event.set_extra("_interaction_pipeline_output_suppressed", bool(suppressed))
+
+
+def set_interaction_turn_protocol_core_bypass(
+    event,
+    reason: str | None,
+) -> None:
+    state = ensure_interaction_turn_state(event)
+    clean_reason = str(reason or "").strip() or None
+    state.protocol_core_bypass = clean_reason is not None
+    state.protocol_core_bypass_reason = clean_reason
+    event.set_extra("_interaction_protocol_core_bypass", state.protocol_core_bypass)
+    if clean_reason is None:
+        event.set_extra("_interaction_protocol_core_bypass_reason", None)
+    else:
+        event.set_extra("_interaction_protocol_core_bypass_reason", clean_reason)
+
+
+def is_interaction_turn_protocol_core_bypass(event) -> bool:
+    state = get_interaction_turn_state(event)
+    if state is not None:
+        return state.protocol_core_bypass
+    return bool(event.get_extra("_interaction_protocol_core_bypass", False))
+
+
+def get_interaction_turn_protocol_core_bypass_reason(event) -> str | None:
+    state = get_interaction_turn_state(event)
+    if state is not None:
+        return state.protocol_core_bypass_reason
+    reason = event.get_extra("_interaction_protocol_core_bypass_reason")
+    return str(reason).strip() if reason else None
 
 
 def is_interaction_turn_pipeline_output_suppressed(event) -> bool:

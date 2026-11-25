@@ -82,6 +82,7 @@ from .turn_state import (
     mark_interaction_turn_completed,
     mark_interaction_turn_core_delegated,
     mark_interaction_turn_failed,
+    set_interaction_turn_protocol_core_bypass,
     mark_interaction_turn_pipeline_route_handled,
     mark_interaction_turn_postprocess_dispatched,
     mark_interaction_turn_stt_transcribed,
@@ -808,11 +809,7 @@ class InteractionMiddleware:
             reason = str(core_bypass_reason).strip()
             if reason:
                 self.attach_event_context(event, turn_id=turn_state.turn_id)
-                event.set_extra("_interaction_protocol_core_bypass", True)
-                event.set_extra(
-                    "_interaction_protocol_core_bypass_reason",
-                    reason,
-                )
+                set_interaction_turn_protocol_core_bypass(event, reason)
                 logger.info(
                     "Interaction route bypassing Persona for plugin Core request: "
                     "turn_id=%s reason=%s",
@@ -832,9 +829,8 @@ class InteractionMiddleware:
                 return None
         if isinstance(event.get_extra("provider_request"), ProviderRequest):
             self.attach_event_context(event, turn_id=turn_state.turn_id)
-            event.set_extra("_interaction_protocol_core_bypass", True)
-            event.set_extra(
-                "_interaction_protocol_core_bypass_reason",
+            set_interaction_turn_protocol_core_bypass(
+                event,
                 "explicit_provider_request",
             )
             await dispatch_interaction_lifecycle(
@@ -855,11 +851,7 @@ class InteractionMiddleware:
             protocol_reason = self._maybe_prepare_protocol_command_bypass(event)
         if protocol_reason is not None:
             self.attach_event_context(event, turn_id=turn_state.turn_id)
-            event.set_extra("_interaction_protocol_core_bypass", True)
-            event.set_extra(
-                "_interaction_protocol_core_bypass_reason",
-                protocol_reason,
-            )
+            set_interaction_turn_protocol_core_bypass(event, protocol_reason)
             await dispatch_interaction_lifecycle(
                 event,
                 self.plugin_context,
