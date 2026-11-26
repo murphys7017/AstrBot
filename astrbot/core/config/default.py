@@ -3881,23 +3881,23 @@ CONFIG_METADATA_3 = {
                 "type": "object",
                 "items": {
                     "provider_settings.max_context_length": {
-                        "description": "最多携带对话轮数",
+                        "description": "统一上下文轮数上限",
                         "type": "int",
-                        "hint": "超出这个数量时丢弃最旧的部分，一轮聊天记为 1 条；-1 表示不设置用户上限，但 Core 仍使用 64 轮安全上限",
+                        "hint": "作为普通 Core、Persona、Core Router、Personal Policy 和主动 Core 委派的历史轮数上限；各链路的高级窗口只能进一步缩小它。-1 表示不设置统一轮数上限，但普通 Core 仍使用 64 轮安全上限；模型 token 窗口和各链路 token 上限仍会继续生效。",
                         "condition": {
-                            "agent_runner.mode": "local",
+                            "provider_settings.enable": True,
                         },
                     },
                     "provider_settings.dequeue_context_length": {
-                        "description": "丢弃对话轮数",
+                        "description": "普通 Core 丢弃对话轮数",
                         "type": "int",
-                        "hint": "超出最多携带对话轮数时, 一次丢弃的聊天轮数",
+                        "hint": "仅用于普通 Core 超出统一上下文轮数上限时，一次丢弃的旧对话轮数。",
                         "condition": {
                             "agent_runner.mode": "local",
                         },
                     },
                     "provider_settings.context_limit_reached_strategy": {
-                        "description": "超出模型上下文窗口时的处理方式",
+                        "description": "普通 Core 超出模型窗口时的处理方式",
                         "type": "string",
                         "options": ["truncate_by_turns", "llm_compress"],
                         "labels": ["按对话轮数截断", "由 LLM 压缩上下文"],
@@ -4609,54 +4609,64 @@ CONFIG_METADATA_3 = {
                 },
             },
             "context": {
-                "description": "Persona 上下文",
+                "description": "上下文链路高级配置",
                 "type": "object",
-                "hint": "控制 Interaction 构建只读上下文时保留的近期记忆和 Persona 历史候选池；最终仍按目标 token 预算裁剪。",
+                "hint": "统一上下文轮数上限请在“上下文管理策略”中设置。这里的专用窗口只会进一步缩小统一上限；各链路 token 上限和 Core 执行记录上限仍独立生效。",
                 "items": {
                     "interaction_middleware.memory_window_size": {
                         "description": "记忆窗口轮数",
                         "type": "int",
+                        "collapsed": True,
                         "hint": "构建 Interaction 只读上下文时保留的近期对话回合数。",
                     },
                     "interaction_middleware.persona_history_window_size": {
                         "description": "Persona 历史窗口轮数",
                         "type": "int",
+                        "collapsed": True,
                         "hint": "Persona 历史候选池上限。系统优先保留近期连续上下文，再从较早记录中选择少量与当前输入和 Memory 相关的锚点，并按 token 预算动态裁剪；不影响 Memory 或 Core。",
                     },
                     "interaction_middleware.router_history_window_size": {
                         "description": "Core Router 历史窗口轮数",
                         "type": "int",
+                        "collapsed": True,
                         "hint": "Core Router 读取的最近对话回合数。历史只用于理解当前消息和已有任务续接，当前消息仍必须提供新的任务授权。",
                     },
                     "interaction_middleware.router_history_max_tokens": {
                         "description": "Core Router 历史 token 上限",
                         "type": "int",
+                        "collapsed": True,
                     },
                     "interaction_middleware.personal_policy_history_window_size": {
                         "description": "Personal Policy 历史窗口轮数",
                         "type": "int",
+                        "collapsed": True,
                         "hint": "后台 Personal Policy 判断 Observation 是否值得表达时读取的最近对话回合数。",
                     },
                     "interaction_middleware.personal_policy_history_max_tokens": {
                         "description": "Personal Policy 历史 token 上限",
                         "type": "int",
+                        "collapsed": True,
                     },
                     "interaction_middleware.core_execution_history_window_size": {
                         "description": "Core 委派历史窗口轮数",
                         "type": "int",
-                        "hint": "主动会话委派给 Core 执行器的最近对话回合数。普通 Core 对话仍使用 provider_settings.max_context_length。",
+                        "collapsed": True,
+                        "hint": "主动会话委派给 Core 执行器的最近对话回合数，不能超过上下文管理策略中的统一上限。",
                     },
                     "interaction_middleware.core_execution_history_max_tokens": {
                         "description": "Core 委派历史 token 上限",
                         "type": "int",
+                        "collapsed": True,
                     },
                     "interaction_middleware.core_execution_ledger_record_limit": {
                         "description": "Core 执行记录条数",
                         "type": "int",
+                        "collapsed": True,
                     },
                     "interaction_middleware.core_execution_ledger_max_tokens": {
                         "description": "Core 执行记录 token 上限",
                         "type": "int",
+                        "collapsed": True,
                     },
                 },
             },

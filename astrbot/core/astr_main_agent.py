@@ -199,8 +199,9 @@ class MainAgentBuildConfig:
     llm_compress_provider_id: str = ""
     """The provider ID for the LLM used in context compression."""
     max_context_length: int = -1
-    """The configured maximum turns before compression.
-    Core applies a 64-turn projection safety limit when this is -1."""
+    """Shared history-turn cap for Core and Interaction pipelines.
+    Ordinary Core applies a 64-turn projection safety limit when this is -1.
+    Interaction-specific windows may further reduce this cap."""
     fallback_max_context_tokens: int = 128000
     """Fallback context window size when model metadata does not provide one."""
     dequeue_context_length: int = 1

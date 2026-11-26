@@ -11,6 +11,7 @@ from astrbot.core.provider.modalities import (
 )
 from astrbot.core.star.context import Context
 
+from .config import cap_context_history_window, resolve_context_history_cap
 from .turn_state import get_interaction_turn_runtime_config
 from .types import InteractionPromptBuildConfig
 
@@ -52,6 +53,7 @@ def build_interaction_prompt_build_config(
     interaction_settings = (
         interaction_settings if isinstance(interaction_settings, Mapping) else {}
     )
+    context_history_cap = resolve_context_history_cap(cfg)
 
     def nonnegative_int(name: str, default: int) -> int:
         try:
@@ -70,16 +72,21 @@ def build_interaction_prompt_build_config(
         ),
         contributor_timeout=max(0.1, contributor_timeout),
         plugin_enrichment_timeout=max(0.1, plugin_enrichment_timeout),
-        router_history_window_size=nonnegative_int("router_history_window_size", 6),
+        router_history_window_size=cap_context_history_window(
+            nonnegative_int("router_history_window_size", 6),
+            context_history_cap,
+        ),
         router_history_max_tokens=nonnegative_int("router_history_max_tokens", 1200),
-        personal_policy_history_window_size=nonnegative_int(
-            "personal_policy_history_window_size", 6
+        personal_policy_history_window_size=cap_context_history_window(
+            nonnegative_int("personal_policy_history_window_size", 6),
+            context_history_cap,
         ),
         personal_policy_history_max_tokens=nonnegative_int(
             "personal_policy_history_max_tokens", 3000
         ),
-        core_execution_history_window_size=nonnegative_int(
-            "core_execution_history_window_size", 12
+        core_execution_history_window_size=cap_context_history_window(
+            nonnegative_int("core_execution_history_window_size", 12),
+            context_history_cap,
         ),
         core_execution_history_max_tokens=nonnegative_int(
             "core_execution_history_max_tokens", 6000

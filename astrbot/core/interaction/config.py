@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 
 from .types import InteractionAgentConfig
@@ -15,6 +16,22 @@ def _int_or_default(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def resolve_context_history_cap(config: Any) -> int | None:
+    """Return the shared history-turn cap configured for this profile."""
+    provider_settings = config.get("provider_settings", {})
+    if not isinstance(provider_settings, Mapping):
+        return None
+    value = _int_or_default(provider_settings.get("max_context_length", -1), -1)
+    return value if value >= 0 else None
+
+
+def cap_context_history_window(window: int, cap: int | None) -> int:
+    """Apply the shared cap without changing a module's smaller local window."""
+    if cap is None:
+        return window
+    return min(window, cap)
 
 
 def _persona_plugin_context_mode(value: Any) -> str:
@@ -41,6 +58,7 @@ def is_middleware_enabled(config: Any) -> bool:
 
 def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
     interaction_config = config.get("interaction_middleware", {})
+    context_history_cap = resolve_context_history_cap(config)
     continuation_seconds = max(
         0.0,
         _float_or_default(
@@ -75,6 +93,35 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
     )
     if expression_output_format != "json":
         expression_output_mode = "prompt_only"
+    memory_window_size = int(interaction_config.get("memory_window_size", 8) or 8)
+    persona_history_window_size = max(
+        1,
+        _int_or_default(
+            interaction_config.get("persona_history_window_size", 300),
+            300,
+        ),
+    )
+    router_history_window_size = max(
+        0,
+        _int_or_default(
+            interaction_config.get("router_history_window_size", 6),
+            6,
+        ),
+    )
+    personal_policy_history_window_size = max(
+        0,
+        _int_or_default(
+            interaction_config.get("personal_policy_history_window_size", 6),
+            6,
+        ),
+    )
+    core_execution_history_window_size = max(
+        0,
+        _int_or_default(
+            interaction_config.get("core_execution_history_window_size", 12),
+            12,
+        ),
+    )
     return InteractionAgentConfig(
         enabled=bool(interaction_config.get("enabled", True)),
         turn_timeout=max(
@@ -208,20 +255,17 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
         personal_conversation_activity_enabled=bool(
             interaction_config.get("personal_conversation_activity_enabled", False)
         ),
-        memory_window_size=int(interaction_config.get("memory_window_size", 8) or 8),
-        persona_history_window_size=max(
-            1,
-            _int_or_default(
-                interaction_config.get("persona_history_window_size", 300),
-                300,
-            ),
+        memory_window_size=cap_context_history_window(
+            memory_window_size,
+            context_history_cap,
         ),
-        router_history_window_size=max(
-            0,
-            _int_or_default(
-                interaction_config.get("router_history_window_size", 6),
-                6,
-            ),
+        persona_history_window_size=cap_context_history_window(
+            persona_history_window_size,
+            context_history_cap,
+        ),
+        router_history_window_size=cap_context_history_window(
+            router_history_window_size,
+            context_history_cap,
         ),
         router_history_max_tokens=max(
             0,
@@ -230,12 +274,9 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
                 1200,
             ),
         ),
-        personal_policy_history_window_size=max(
-            0,
-            _int_or_default(
-                interaction_config.get("personal_policy_history_window_size", 6),
-                6,
-            ),
+        personal_policy_history_window_size=cap_context_history_window(
+            personal_policy_history_window_size,
+            context_history_cap,
         ),
         personal_policy_history_max_tokens=max(
             0,
@@ -244,12 +285,9 @@ def load_interaction_agent_config(config: Any) -> InteractionAgentConfig:
                 3000,
             ),
         ),
-        core_execution_history_window_size=max(
-            0,
-            _int_or_default(
-                interaction_config.get("core_execution_history_window_size", 12),
-                12,
-            ),
+        core_execution_history_window_size=cap_context_history_window(
+            core_execution_history_window_size,
+            context_history_cap,
         ),
         core_execution_history_max_tokens=max(
             0,

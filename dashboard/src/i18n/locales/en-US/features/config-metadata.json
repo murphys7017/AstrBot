@@ -311,15 +311,15 @@
       "description": "Context Management Strategy",
       "provider_settings": {
         "max_context_length": {
-          "description": "Max Turns Before Compression",
-          "hint": "Limits history turns before any compression strategy is applied; -1 means no turn-based limit"
+          "description": "Unified Context Turn Cap",
+          "hint": "Shared history-turn cap for ordinary Core, Persona, Core Router, Personal Policy and delegated Core execution. Advanced per-chain windows can only make it smaller. -1 disables the shared turn cap, while ordinary Core still keeps its 64-turn safety limit. Model token windows and per-chain token limits still apply."
         },
         "dequeue_context_length": {
-          "description": "Turns to Discard When Limit Exceeded",
-          "hint": "Number of old conversation turns to discard at once when the turn limit is exceeded; also used as fallback when compression is unavailable"
+          "description": "Ordinary Core Turns to Discard",
+          "hint": "Number of old turns discarded at once when ordinary Core exceeds the unified context turn cap."
         },
         "context_limit_reached_strategy": {
-          "description": "Handling When Context Approaches Model Limit",
+          "description": "Ordinary Core Handling at Model Limit",
           "labels": [
             "Truncate by Turns",
             "Compress by LLM"
@@ -1172,8 +1172,8 @@
       }
     },
     "context": {
-      "description": "Persona Context",
-      "hint": "Controls the recent memory and Persona-history candidate pool retained in Interaction's read-only context. Target token budgets still apply final trimming.",
+      "description": "Advanced Context Chain Settings",
+      "hint": "Set the unified context turn cap in Context Management Strategy. The per-chain windows here can only reduce that cap. Per-chain token limits and Core execution-record limits remain independent.",
       "interaction_middleware": {
         "memory_window_size": {
           "description": "Memory Window Size",
