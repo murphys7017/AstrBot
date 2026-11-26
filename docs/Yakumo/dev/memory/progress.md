@@ -57,5 +57,10 @@
 绑定列表支持搜索已有账号。使用「从已知账号选择」可以按平台、对话、用户 ID 和昵称筛选近期观察到的账号，选择后仍需填写统一身份 ID 并保存。
 候选数据来自当前运行期间收到的消息和已保存的平台消息历史，未观察到的账号仍可手动添加。
 
+## Prompt 上下文暂存
+
+Self-Learning 与 LivingMemory 的动态上下文开始通过 Core `SnapshotHub` 暂存。
+插件在后台刷新社交、知识、表达、多样性、黑话、Few-shot 和记忆结果，Prompt 构建阶段只读取当前作用域的最近完成快照，并携带 revision 与 freshness 信息。首次请求可能读取上一份快照，后台刷新失败时保留上一份成功结果，避免检索链路阻塞 OLV 首响应。
+
 具体模块关系见 `architecture.md`；配置事实以 `astrbot/core/memory/config.py`、
 `astrbot/core/memory_config_defaults.py` 和统一配置 schema 为准。

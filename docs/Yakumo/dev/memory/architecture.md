@@ -104,6 +104,14 @@ Core 内置 Memory 的长期注入仍由 `memory.injection.long_term.enabled` �
 LivingMemory 后，应在真实运行验收确认结构化扩展工作正常，再关闭 Core 内置长期注入，避免
 同一记忆出现两份模型输入。这个切换不删除 Core Memory 数据，也不迁移 LivingMemory 数据。
 
+## Prompt 动态上下文暂存
+
+Self-Learning 和 LivingMemory 的动态上下文统一通过 Core `SnapshotHub` 暂存。生产插件在后台
+刷新社交、知识、表达、多样性、黑话、Few-shot 和记忆结果，按会话作用域发布完整快照。Prompt
+Collector 只读取最近一次完成的快照，携带 revision 和 freshness，并在没有新结果时继续使用上一份
+成功快照。当前请求不再等待 LightRAG、Embedding 或其他插件上下文查询完成，快照刷新失败也不会
+覆盖上一份成功结果。
+
 ## 主要模块
 
 - `config.py`：把 AstrBot 统一配置中的 `memory` mapping 解析为类型化配置。
