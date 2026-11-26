@@ -289,6 +289,7 @@ dependencies = [
     { name = "qq-botpy" },
     { name = "qrcode" },
     { name = "quart" },
+    { name = "quart-cors" },
     { name = "rank-bm25" },
     { name = "shipyard-neo-sdk" },
     { name = "shipyard-python-sdk" },
@@ -373,6 +374,7 @@ requires-dist = [
     { name = "qq-botpy", specifier = ">=1.2.1" },
     { name = "qrcode", specifier = ">=8.2" },
     { name = "quart", specifier = ">=0.20.0" },
+    { name = "quart-cors", specifier = ">=0.8.0" },
     { name = "rank-bm25", specifier = ">=0.2.2" },
     { name = "shipyard-neo-sdk", specifier = ">=0.2.0" },
     { name = "shipyard-python-sdk", specifier = ">=0.2.4" },
@@ -3104,6 +3106,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1d/9d/12e1143a5bd2ccc05c293a6f5ae1df8fd94a8fc1440ecc6c344b2b30ce13/quart-0.20.0.tar.gz", hash = "sha256:08793c206ff832483586f5ae47018c7e40bdd75d886fee3fabbdaa70c2cf505d", size = 63874, upload-time = "2024-12-23T13:53:05.664Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7e/e9/cc28f21f52913adf333f653b9e0a3bf9cb223f5083a26422968ba73edd8d/quart-0.20.0-py3-none-any.whl", hash = "sha256:003c08f551746710acb757de49d9b768986fd431517d0eb127380b656b98b8f1", size = 77960, upload-time = "2024-12-23T13:53:02.842Z" },
+]
+
+[[package]]
+name = "quart-cors"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "quart" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/b1/2a65be601f3c92c913f3321ee186d10c2da4325447b4b0fca83e0c493c60/quart_cors-0.8.0.tar.gz", hash = "sha256:ac32c4931da6fba944e9e2d3f856f2db4fd82e3fb905a09646086780c221a118", size = 12466, upload-time = "2024-12-27T20:34:32.245Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/31/da390a5a10674481dea2909178973de81fa3a246c0eedcc0e1e4114f52f8/quart_cors-0.8.0-py3-none-any.whl", hash = "sha256:62dc811768e2e1704d2b99d5880e3eb26fc776832305a19ea53db66f63837767", size = 8698, upload-time = "2024-12-27T20:34:29.511Z" },
 ]
 
 [[package]]
