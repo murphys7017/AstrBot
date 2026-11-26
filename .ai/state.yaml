@@ -1,3 +1,70 @@
+self_learning_mysql_aiomysql_ping_20261123:
+  date: '2026-11-23'
+  class: bugfix
+  risk: medium
+  status: committed_pushed_runtime_deployed_pending_restart
+  scope: >-
+    Prevent the Self-Learning MySQL database engine from enabling SQLAlchemy
+    dialect pre-ping with the current aiomysql adapter, which called ping() with
+    an incompatible signature during social, affection and mood persistence.
+  validation: >-
+    Runtime construction smoke check passed with driver mysql+aiomysql and
+    pool pre_ping=False. The focused runtime test could not be collected because
+    its historical import path expects the plugin source package layout.
+    The updated source file was deployed to the generated runtime plugin. Commit
+    5a70f0b was pushed to the main branch of the source repository.
+  limitations: >-
+    The AstrBot process that produced the reported errors started before this
+    change and must be restarted before database calls use the updated engine.
+
+self_learning_source_deployment_sync_20261123:
+  date: '2026-11-23'
+  class: maintenance
+  risk: high
+  status: deployed_and_pushed_runtime_validated
+  scope: >-
+    Move the Self-Learning source checkout to Documents/GitHub, use
+    murphys7017/astrbot_plugin_self_learning as the repository origin, and add
+    a commit-triggered deployment hook that synchronizes committed source files
+    into the AstrBot runtime plugin directory.
+  validation: >-
+    The tracked post-commit hook ran on commits 366314e, 148d6bb and 31403b3.
+    The deployment script completed against each committed HEAD and preserved
+    existing runtime-only pages, web_src, docs, official plugin metadata and
+    dashboard assets. The repository main branch was pushed successfully. Commits
+    d3263cd and bf6efe0 isolate Mem0 import failures and defer Mem0 loading so a
+    legacy Self-Learning configuration never imports Mem0 during startup. After
+    replacing the pre-fix process, AstrBot reached its startup-complete log and
+    HTTP/WebSocket/static-resource listeners responded on ports 6185, 12396,
+    12397 and 18765.
+  limitations: >-
+    The source checkout and runtime package still contain historical version
+    differences. Compatibility assets remain preserved until they are imported
+    into the source repository. Self-Learning still reports missing optional
+    runtime modules guardrails and quart_cors, so its related goal-analysis and
+    WebUI features remain unavailable while AstrBot itself continues running.
+prompt_snapshot_staging_migration_20261123:
+  date: '2026-11-23'
+  class: feature
+  risk: high
+  status: implemented_pending_restart_and_live_acceptance
+  scope: >-
+    Move Self-Learning and LivingMemory prompt context production behind the
+    Core SnapshotHub. Prompt construction reads completed scoped snapshots while
+    background refresh tasks perform social, V2 knowledge, diversity, jargon,
+    few-shot, and memory retrieval.
+  validation: >-
+    Core SnapshotHub and both plugin collector smoke checks passed. Self-Learning
+    and LivingMemory source modules compile successfully. The deployed plugin
+    files were synchronized locally. Full live OLV acceptance remains pending.
+    The plugin checker passed LivingMemory with two pre-existing warnings;
+    Self-Learning's checker reports its existing `description` metadata key as
+    missing the checker-specific `desc` key.
+  limitations: >-
+    Self-Learning source and LivingMemory source are changed in their own
+    checkouts. The AstrBot runtime deployment was updated locally, but the
+    running process has not been restarted. Existing unrelated workspace changes
+    remain untouched.
 unified_identity_config_workspace_20261122:
   date: '2026-11-22'
   class: feature
