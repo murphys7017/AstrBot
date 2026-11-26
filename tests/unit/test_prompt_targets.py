@@ -575,11 +575,11 @@ def test_persona_proactive_view_keeps_persona_system_extensions():
     assert "memory.short_term" in selected
     assert "extension.system" in selected
     assert "AG99live Companion Identity" in _rendered_prompt_text(result)
-    assert result.metadata["context_budgets"]["conversation_history"]["limit_amount"] == 2
+    assert result.metadata["context_budgets"]["conversation_history"]["limit_amount"] == 300
     assert (
         result.metadata["context_budgets"]["conversation_history"]
         ["limit_estimated_tokens"]
-        == 1200
+        == 1800
     )
 
 
@@ -606,7 +606,7 @@ def test_persona_proactive_view_enforces_its_history_token_budget():
 
     assert history_budget["retained_amount"] < 3
     assert history_budget["retained_estimated_tokens"] <= 1200
-    assert "context_view_history_limit" in history_budget["truncation_reasons"]
+    assert "context_view_history_limit" not in history_budget["truncation_reasons"]
     assert "persona_recent_token_budget" in history_budget["truncation_reasons"]
 
 
